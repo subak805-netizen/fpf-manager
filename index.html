@@ -375,6 +375,9 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="sl">
       <div class="fb" style="margin-bottom:6px"><b style="font-size:13px">오더 목록</b><button class="btn p s" onclick="showModal('o-new-modal')">＋</button></div>
       <input id="o-search" placeholder="🔍 검색 (오더명·거래처)..." oninput="renderOrderPane()" style="margin-bottom:8px;font-size:12px;padding:5px 8px">
+      <select id="o-brand-filter" style="font-size:12px;padding:5px 8px;margin-bottom:8px;width:100%" onchange="renderOrderPane()">
+        <option value="">🏷 전체 브랜드</option>
+      </select>
       <select id="o-status-filter" style="font-size:12px;padding:5px 8px;margin-bottom:8px;width:100%" onchange="renderOrderPane()">
         <option value="">전체 상태</option>
         <option value="준비">준비</option>
@@ -408,6 +411,7 @@ input[type=number]{-moz-appearance:textfield;}
         <button class="dtab" id="t-pay-sp" onclick="switchPayTab('sp')">거래처별</button>
         <button class="dtab" id="t-pay-batch" onclick="switchPayTab('batch')" style="background:#FEE500;color:#3C1E1E;font-weight:700">💰 일괄 결제</button>
       </div>
+      <select id="pay-brand-flt" style="font-size:12px;max-width:140px" onchange="renderPayContent()"><option value="">🏷 전체 브랜드</option></select>
       <select id="pay-fc-flt" style="font-size:12px;max-width:150px;display:none" onchange="renderPayContent()"><option value="">전체 공장</option></select>
       <select id="pay-sp-flt" style="font-size:12px;max-width:150px;display:none" onchange="renderPayContent()"><option value="">전체 거래처</option></select>
       <label class="fr" style="font-size:12px;cursor:pointer;gap:5px;margin-left:auto">
@@ -588,9 +592,23 @@ input[type=number]{-moz-appearance:textfield;}
 <div class="overlay" id="o-new-modal" style="display:none" onclick="if(event.target===this)closeModal('o-new-modal')">
   <div class="modal">
     <div class="fb" style="margin-bottom:10px"><b>새 오더 생성</b><button class="btn s g" onclick="closeModal('o-new-modal')">✕</button></div>
-    <div class="fg" style="margin-bottom:10px">
-      <label>아이템 검색</label>
-      <input id="on-search" placeholder="아이템명 검색..." oninput="filterOrderItems(this.value)" style="max-width:300px">
+    <div class="g3" style="margin-bottom:8px">
+      <div class="fg" style="margin-bottom:0">
+        <label>🏷 브랜드</label>
+        <select id="on-brand-flt" onchange="renderOrderNewItems()">
+          <option value="">전체 브랜드</option>
+        </select>
+      </div>
+      <div class="fg" style="margin-bottom:0">
+        <label>시즌</label>
+        <select id="on-season-flt" onchange="renderOrderNewItems()">
+          <option value="">전체 시즌</option>
+        </select>
+      </div>
+      <div class="fg" style="margin-bottom:0">
+        <label>검색</label>
+        <input id="on-search" placeholder="아이템명..." oninput="renderOrderNewItems()">
+      </div>
     </div>
     <div class="sec"><span>아이템 선택 및 수량 입력</span></div>
     <div id="o-new-items"></div>
@@ -908,7 +926,7 @@ function importData(file){
 /* ===== COMPANY ===== */
 function renderCoSel(){const s=document.getElementById('co-sel');if(!s)return;s.innerHTML=Object.values(companies).map(c=>`<option value="${c.id}"${c.id===curCoId?' selected':''}>${esc(c.name)}</option>`).join('');}
 function onCoChange(id){curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();}
-function showModal(id){const el=document.getElementById(id);if(!el)return;el.style.display='flex';if(id==='o-new-modal')renderOrderNewItems();if(id==='cloud-modal')updateCloudModal();}
+function showModal(id){const el=document.getElementById(id);if(!el)return;el.style.display='flex';if(id==='o-new-modal'){const bs=document.getElementById('on-brand-flt');if(bs)bs.dataset.populated='';renderOrderNewItems();}if(id==='cloud-modal')updateCloudModal();}
 function closeModal(id){const el=document.getElementById(id);if(el)el.style.display='none';}
 function addCo(){const nm=document.getElementById('new-co-nm').value.trim();if(!nm)return;const id='co_'+uid();companies[id]={id,name:nm};lsSet('fpm_cos',companies);closeModal('add-co-modal');curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();}
 function toggleSettings(){const b=document.getElementById('set-bar');const on=b.style.display==='none';b.style.display=on?'':'none';if(on){document.getElementById('set-nm').value=companies[curCoId]?.name||'';const rv=getFabRound();document.querySelectorAll('input[name=fab-round]').forEach(r=>r.checked=r.value===rv);const ak=document.getElementById('set-apikey');if(ak)ak.value=lsGet('fpm_apikey')||'';renderBrandConfigPanel();loadWorkloadWeightsToForm();}}
@@ -995,7 +1013,14 @@ function saveFc(){
   saveData();closeModal('fc-modal');renderFactories();showToast('저장 완료');
 }
 function deleteFc(id){if(!confirm('삭제?'))return;delete S.factories[id];saveData();renderFactories();}
-function fcOpts(sel){return'<option value="">없음</option>'+Object.values(S.factories||{}).map(f=>`<option value="${f.id}"${f.id===sel?' selected':''}>${esc(f.name)}${f.type?' ('+esc(f.type)+')':''}</option>`).join('');}
+function fcOpts(sel,typeFilter){
+  let opts=Object.values(S.factories||{});
+  if(typeFilter){
+    // 봉제, 워싱, 자수, 나염, 완성, 검품 등 타입 필터
+    opts=opts.filter(f=>!f.type||f.type===typeFilter||f.type===typeFilter+'공장'||f.type+'공장'===typeFilter);
+  }
+  return'<option value="">없음</option>'+opts.map(f=>`<option value="${f.id}"${f.id===sel?' selected':''}>${esc(f.name)}${f.type?' ('+esc(f.type)+')':''}</option>`).join('');
+}
 
 /* ===== PRICE BOOK ===== */
 function getPB(sup){if(!S.priceBook[sup])S.priceBook[sup]={email:'',phone:'',kakaoId:'',materials:{}};return S.priceBook[sup];}
@@ -1262,16 +1287,18 @@ function showItemForm(id){
     </div>`:''}
     <div id="draft-ind" style="font-size:10px;color:var(--t3);text-align:right;min-height:14px;margin-bottom:2px"></div>
     <div class="g2"><div class="fg"><label>아이템명 *</label><input id="f-nm" value="${esc(p.name||'')}" oninput="scheduleDraft()"></div><div class="fg"><label>품번</label><input id="f-cd" value="${esc(p.code||'')}" oninput="scheduleDraft()"></div></div>
-    <div class="g2"><div class="fg"><label>납품 거래처</label><input id="f-cl" value="${esc(p.client||'')}" oninput="scheduleDraft()"></div><div class="fg"><label>시즌</label><input id="f-ss" value="${esc(p.season||'')}" oninput="scheduleDraft()"></div></div>
-    <div class="fg" style="margin-top:6px"><label>🏷 브랜드 <span class="muted" style="font-weight:400;font-size:10px">(분류·필터·업무량 분석에 사용)</span></label>
-      <div class="fr" style="gap:6px;align-items:center">
-        <select id="f-brand" onchange="scheduleDraft()" style="flex:1">
-          <option value="">— 브랜드 선택 —</option>
-          ${getBrands().map(b=>`<option value="${b.id}"${p.brandId===b.id?' selected':''}>${esc(b.name)}</option>`).join('')}
-        </select>
-        <button class="btn s" type="button" onclick="showBrandManageModal()">＋ 관리</button>
+    <div class="g2"><div class="fg"><label>시즌 <span class="muted" style="font-weight:400;font-size:10px">(26SS, 26FW 등)</span></label><input id="f-ss" value="${esc(p.season||'')}" oninput="scheduleDraft()"></div>
+      <div class="fg"><label>🏷 브랜드 <span class="muted" style="font-weight:400;font-size:10px">(분류·필터·업무량 분석)</span></label>
+        <div class="fr" style="gap:6px;align-items:center">
+          <select id="f-brand" onchange="scheduleDraft()" style="flex:1">
+            <option value="">— 브랜드 선택 —</option>
+            ${getBrands().map(b=>`<option value="${b.id}"${p.brandId===b.id?' selected':''}>${esc(b.name)}</option>`).join('')}
+          </select>
+          <button class="btn s" type="button" onclick="showBrandManageModal()">＋</button>
+        </div>
       </div>
     </div>
+    <input type="hidden" id="f-cl" value="${esc(p.client||'')}">
     <div class="sec" style="margin-top:12px"><span>컬러 설정</span><div class="muted" style="font-size:10px;font-weight:400">컬러별 각각 발주 계산</div></div>
     <div class="chips" id="color-chips"></div>
     <div class="fr" style="margin-top:5px"><input id="color-input" placeholder="컬러명 입력 후 엔터" style="max-width:150px" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();addColor();}"><button class="btn s" type="button" onclick="addColor()">추가</button></div>
@@ -1280,7 +1307,7 @@ function showItemForm(id){
     <div class="fr" style="margin-top:5px"><input id="size-input" placeholder="S, M, L, 95, 100 등" style="max-width:150px" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();addSize();}"><button class="btn s" type="button" onclick="addSize()">추가</button></div>
     <div class="sec" style="margin-top:12px"><span>가공비 및 담당 공장 연결</span></div>
     <div class="info-box">💡 공장을 미리 연결하면 오더 생성 시 자동 배정됩니다</div>
-    ${COST_DEFS.map(([ck,lbl,fk,ft])=>`<div class="fr" style="margin-bottom:8px;align-items:flex-end;gap:8px"><div style="flex:1"><label>${lbl} (원/pcs)</label><input id="f-${ck}" type="number" value="${p[ck]||0}" min="0" oninput="scheduleDraft()"></div><div style="flex:1.6"><label>${ft}</label><select id="f-${fk}" onchange="scheduleDraft()">${fcOpts(p[fk]||'')}</select></div></div>`).join('')}
+    ${COST_DEFS.map(([ck,lbl,fk,ft])=>`<div class="fr" style="margin-bottom:8px;align-items:flex-end;gap:8px"><div style="flex:1"><label>${lbl} (원/pcs)</label><input id="f-${ck}" type="number" value="${p[ck]||0}" min="0" oninput="scheduleDraft()"></div><div style="flex:1.6"><label>${ft}</label><select id="f-${fk}" onchange="scheduleDraft()">${fcOpts(p[fk]||'',ft)}</select></div></div>`).join('')}
 
     <div class="sec" style="margin-top:12px"><span>일회비</span><span class="muted" style="font-size:10px;font-weight:400">패턴비·샘플비 등</span></div>
     <div class="g3" style="margin-bottom:8px">
@@ -1633,8 +1660,35 @@ function saveItemForm(){
 
 /* ===== ORDER CREATION (GRID) ===== */
 function renderOrderNewItems(){
-  const items=Object.values(S.items);const el=document.getElementById('o-new-items');if(!el)return;
-  if(!items.length){el.innerHTML='<div class="empty">아이템을 먼저 등록하세요</div>';return;}
+  const allItems=Object.values(S.items);const el=document.getElementById('o-new-items');if(!el)return;
+  // 브랜드/시즌 드롭다운 채우기
+  const brandSel=document.getElementById('on-brand-flt');
+  if(brandSel&&!brandSel.dataset.populated){
+    const bds=getBrands();
+    const cur=brandSel.value;
+    brandSel.innerHTML='<option value="">전체 브랜드</option>'+bds.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
+    brandSel.value=cur;
+    brandSel.dataset.populated='1';
+  }
+  const seasonSel=document.getElementById('on-season-flt');
+  if(seasonSel){
+    const cur=seasonSel.value;
+    const seasons=[...new Set(allItems.map(i=>i.season).filter(Boolean))].sort();
+    seasonSel.innerHTML='<option value="">전체 시즌</option>'+seasons.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    seasonSel.value=cur;
+  }
+  // 필터 적용
+  const brandFlt=brandSel?.value||'';
+  const seasonFlt=seasonSel?.value||'';
+  const q=(document.getElementById('on-search')?.value||'').toLowerCase();
+  const items=allItems.filter(it=>{
+    if(brandFlt&&it.brandId!==brandFlt)return false;
+    if(seasonFlt&&it.season!==seasonFlt)return false;
+    if(q&&!it.name.toLowerCase().includes(q)&&!it.code?.toLowerCase().includes(q))return false;
+    return true;
+  });
+  if(!allItems.length){el.innerHTML='<div class="empty">아이템을 먼저 등록하세요</div>';return;}
+  if(!items.length){el.innerHTML='<div class="empty">조건에 맞는 아이템 없음</div>';return;}
   el.innerHTML=items.map(it=>{
     const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
     const hasC=it.colors?.length>0;const hasS=it.sizes?.length>0;
@@ -1643,14 +1697,13 @@ function renderOrderNewItems(){
     colors.forEach(c=>{g+=`<tr>`;if(hasC)g+=`<td class="clr-lbl">${esc(c)}</td>`;sizes.forEach(sz=>g+=`<td><input type="number" id="q_${it.id}_${encodeURIComponent(c)}_${sz}" value="0" min="0" oninput="updGridTot('${it.id}')"></td>`);g+=`<td class="tot" id="ct_${it.id}_${encodeURIComponent(c)}">0</td></tr>`;});
     if(colors.length>1||hasS){g+=`<tr><td${hasC?' class="clr-lbl"':''} style="text-align:right;font-size:10px;color:var(--t2);padding-right:6px">합계</td>`;sizes.forEach(sz=>g+=`<td class="tot" id="st_${it.id}_${sz}">0</td>`);g+=`<td class="tot" id="gt_${it.id}" style="background:var(--gbg)">0</td></tr>`;}
     g+=`</tbody></table></div>`;
-    return`<div data-item-row data-item-name="${esc(it.name)}" style="border:1px solid var(--bd);border-radius:var(--r);padding:.6rem;margin-bottom:8px"><div class="fb"><label style="font-size:13px;font-weight:600;margin-bottom:0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="nc_${it.id}" onchange="toggleNC('${it.id}',this.checked)"> ${esc(it.name)} <span class="tag">${esc(it.code||'')}</span>${it.season?`<span class="muted">${esc(it.season)}</span>`:''}</label></div><div id="nc-grid-${it.id}" style="display:none">${g}</div></div>`;
+    const brandNm=it.brandId?getBrandName(it.brandId):'';
+    const brandCol=it.brandId?getBrandColor(it.brandId):'';
+    const brandBadge=brandNm?`<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:20px;font-size:10px;font-weight:700;background:${brandCol}22;color:${brandCol}"><span style="width:5px;height:5px;border-radius:50%;background:${brandCol}"></span>${esc(brandNm)}</span>`:'';
+    return`<div data-item-row data-item-name="${esc(it.name)}" style="border:1px solid var(--bd);border-radius:var(--r);padding:.6rem;margin-bottom:8px"><div class="fb"><label style="font-size:13px;font-weight:600;margin-bottom:0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="nc_${it.id}" onchange="toggleNC('${it.id}',this.checked)"> ${esc(it.name)} <span class="tag">${esc(it.code||'')}</span>${it.season?`<span class="muted">${esc(it.season)}</span>`:''} ${brandBadge}</label></div><div id="nc-grid-${it.id}" style="display:none">${g}</div></div>`;
   }).join('');
 }
-function filterOrderItems(q){
-  document.querySelectorAll('#o-new-items > [data-item-row]').forEach(el=>{
-    el.style.display=!q||el.dataset.itemName.includes(q)?'':'none';
-  });
-}
+function filterOrderItems(q){renderOrderNewItems();}
 function toggleNC(id,on){const g=document.getElementById('nc-grid-'+id);if(g)g.style.display=on?'':'none;';}
 function updGridTot(itId){
   const it=S.items[itId];if(!it)return;const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
@@ -1912,14 +1965,24 @@ function oLabel(o){const fcs=Object.values(o.factorySchedules||{});const sups=Ob
 function renderOrderPane(){
   const q=(document.getElementById('o-search')?.value||'').toLowerCase();
   const stFilt=document.getElementById('o-status-filter')?.value||'';
+  // 브랜드 필터 채우기
+  const bSel=document.getElementById('o-brand-filter');
+  if(bSel){const cur=bSel.value;const bds=getBrands();bSel.innerHTML='<option value="">🏷 전체 브랜드</option>'+bds.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');bSel.value=cur;}
+  const brandFlt=bSel?.value||'';
   let orders=Object.values(S.orders).sort((a,b)=>{const da=calcDday(a.shippingDate)??9999;const db=calcDday(b.shippingDate)??9999;return da-db;});
+  if(brandFlt)orders=orders.filter(o=>(o.orderItems||[]).some(oi=>S.items[oi.itemId]?.brandId===brandFlt));
   if(q)orders=orders.filter(o=>o.name.toLowerCase().includes(q)||(o.clientName||'').toLowerCase().includes(q));
   if(stFilt)orders=orders.filter(o=>oLabel(o)[0]===stFilt);
   const el=document.getElementById('o-cards');if(!el)return;
   if(!orders.length){el.innerHTML='<div class="muted" style="text-align:center;padding:1rem">오더 없음</div>';return;}
   el.innerHTML=orders.map(o=>{const[lb,cls]=oLabel(o);const di=ddayInfo(o.shippingDate);const prog=oProgress(o);
+    // 오더의 브랜드 표시 (첫 아이템 기준)
+    const firstItem=S.items[o.orderItems?.[0]?.itemId];
+    const brandNm=firstItem?.brandId?getBrandName(firstItem.brandId):'';
+    const brandCol=firstItem?.brandId?getBrandColor(firstItem.brandId):'';
+    const brandBadge=brandNm?`<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:8px;font-size:9px;font-weight:700;background:${brandCol}22;color:${brandCol}">${esc(brandNm)}</span>`:'';
     return`<div class="o-card${o.id===curOid?' active':''}" onclick="selectOrder('${o.id}')">
-      <div class="fb"><div style="font-weight:600;font-size:12px;flex:1">${esc(o.name)}</div><div class="fr" style="gap:3px"><span class="badge ${cls}" style="font-size:10px">${lb}</span>${di.cls?`<span class="dday-badge ${di.cls}" style="padding:1px 6px;font-size:10px">${di.text}</span>`:''}</div></div>
+      <div class="fb"><div style="font-weight:600;font-size:12px;flex:1">${esc(o.name)} ${brandBadge}</div><div class="fr" style="gap:3px"><span class="badge ${cls}" style="font-size:10px">${lb}</span>${di.cls?`<span class="dday-badge ${di.cls}" style="padding:1px 6px;font-size:10px">${di.text}</span>`:''}</div></div>
       <div class="muted">${[o.clientName,o.shippingDate].filter(Boolean).join(' · ')}</div>
       <div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>
     </div>`;
@@ -2457,6 +2520,11 @@ function renderPayShtTab(o){
     const vatRate=sch.vatRate||10;
     const tV=Math.round(tB*vatRate/100);
     const bankAcc=fc.bank||'';  // 공장 입금계좌
+    // 출고 수량 계산
+    let shpQty=sch.shippingQty||0;
+    if(!shpQty){
+      for(const oi of(o.orderItems||[])){shpQty+=(oi.grandTotal||0);}
+    }
     const ptxt=[
       `[${cItems.map(c=>c.lbl).join('·')} 결제 명세서]`,
       `발행일: ${today()}`,
@@ -3391,9 +3459,11 @@ function renderPayStats(){
   for(const o of Object.values(S.orders)){for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){for(const[ck,]of COST_DEFS){let b=0;for(const oi of(o.orderItems||[])){const it=S.items[oi.itemId];if(it)b+=(it[ck]||0)*(oi.grandTotal||0);}if(!b)continue;const v=Math.round(b*((sch.vatRate||10)/100));tot+=b+v;if(getPaySt(o.id,'fc_'+fcId+'_'+ck).paid)paid+=b+v;}}
     for(const[sn,sup]of Object.entries(o.suppliers||{})){if(!sup.invoiceReceived)continue;let b=0;for(const m of sup.materials||[]){if(m.pricingUnit==='kg'&&m.totalKg)b+=m.totalKg*(m.pricePerKg||0);else if(m.type==='fabric')b+=m.totalYards*(m.unitPrice||0);else if(m.calc?.isRoll)b+=(m.calc.rolls||0)*(m.unitPrice||0);else b+=(m.calc?.qty||0)*(m.unitPrice||0);}const v=Math.round(b*.1);tot+=b+v;if(getPaySt(o.id,'sp_'+encodeURIComponent(sn)).paid)paid+=b+v;}
   }
-  const sel=document.getElementById('pay-fc-flt');if(sel){const fcs=Object.values(S.factories||{});sel.innerHTML='<option value="">전체 공장</option>'+fcs.map(f=>`<option value="${f.id}">${esc(f.name)}${f.type?' ('+esc(f.type)+')':''}</option>`).join('');}
+  const sel=document.getElementById('pay-fc-flt');if(sel){const fcs=Object.values(S.factories||{});const cur=sel.value;sel.innerHTML='<option value="">전체 공장</option>'+fcs.map(f=>`<option value="${f.id}">${esc(f.name)}${f.type?' ('+esc(f.type)+')':''}</option>`).join('');sel.value=cur;}
   // 거래처 필터 채우기
-  const ssel=document.getElementById('pay-sp-flt');if(ssel){const sups=new Set();for(const o of Object.values(S.orders))for(const sn of Object.keys(o.suppliers||{}))sups.add(sn);ssel.innerHTML='<option value="">전체 거래처</option>'+[...sups].sort().map(s=>`<option value="${s}">${esc(s)}</option>`).join('');}
+  const ssel=document.getElementById('pay-sp-flt');if(ssel){const cur=ssel.value;const sups=new Set();for(const o of Object.values(S.orders))for(const sn of Object.keys(o.suppliers||{}))sups.add(sn);ssel.innerHTML='<option value="">전체 거래처</option>'+[...sups].sort().map(s=>`<option value="${s}">${esc(s)}</option>`).join('');ssel.value=cur;}
+  // 브랜드 필터 채우기
+  const bsel=document.getElementById('pay-brand-flt');if(bsel){const cur=bsel.value;const bds=getBrands();bsel.innerHTML='<option value="">🏷 전체 브랜드</option>'+bds.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');bsel.value=cur;}
   el.innerHTML=`<div class="stat"><div class="stat-n" style="font-size:14px">${num(tot)}<span style="font-size:10px">원</span></div><div class="stat-l">전체</div></div><div class="stat"><div class="stat-n" style="font-size:14px;color:var(--green)">${num(paid)}<span style="font-size:10px">원</span></div><div class="stat-l">완료</div></div><div class="stat" style="${tot-paid>0?'border-color:var(--amber)':''}"><div class="stat-n" style="font-size:14px;color:var(--amber)">${num(tot-paid)}<span style="font-size:10px">원</span></div><div class="stat-l">미결제</div></div><div class="stat"><div class="stat-n">${Object.values(S.orders).filter(o=>Object.values(o.factorySchedules||{}).some(f=>f.shippingQty>0)).length}</div><div class="stat-l">출고 오더</div></div>`;
 }
 function renderPayContent(){
@@ -3513,8 +3583,14 @@ function doBatchPay(){
 function renderFcPay(){
   const el=document.getElementById('pay-content');if(!el)return;
   const fltFcId=document.getElementById('pay-fc-flt')?.value||'';
+  const fltBrand=document.getElementById('pay-brand-flt')?.value||'';
   const byFc={};
   for(const o of Object.values(S.orders)){
+    // 브랜드 필터: 오더의 아이템 중 해당 브랜드가 있어야 함
+    if(fltBrand){
+      const hasBrand=(o.orderItems||[]).some(oi=>S.items[oi.itemId]?.brandId===fltBrand);
+      if(!hasBrand)continue;
+    }
     for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){
       if(fltFcId&&fcId!==fltFcId)continue;
       const fc=S.factories[fcId]||{name:'(삭제됨)',type:''};
@@ -3638,8 +3714,13 @@ function renderFcPay(){
 function renderSpPay(){
   const el=document.getElementById('pay-content');if(!el)return;
   const fltSp=document.getElementById('pay-sp-flt')?.value||'';
+  const fltBrand=document.getElementById('pay-brand-flt')?.value||'';
   const bySup={};
   for(const o of Object.values(S.orders)){
+    if(fltBrand){
+      const hasBrand=(o.orderItems||[]).some(oi=>S.items[oi.itemId]?.brandId===fltBrand);
+      if(!hasBrand)continue;
+    }
     for(const[sn,sup]of Object.entries(o.suppliers||{})){
       if(fltSp&&sn!==fltSp)continue;
       // 협상 확정 금액이 있으면 우선 사용
@@ -5539,7 +5620,7 @@ function renderPickupCard(p,pb,sectionKey){
         ${ptLbl}
       </div>
       <div class="fr" style="gap:4px">
-        ${!isDone?`<button class="btn s p" onclick="setPickupStatus('${p.id}','pickedUp')" title="픽업완료">✓</button>`:''}
+        ${!isDone?`<button class="btn s p" onclick="setPickupStatus('${p.id}','pickedUp')" title="픽업완료">✓</button>`:`<button class="btn s" onclick="setPickupStatus('${p.id}','expected')" title="픽업완료 취소">↶ 취소</button>`}
         <button class="btn s" onclick="showPickupForm('${p.id}')" title="수정">✏</button>
         <button class="btn s d" onclick="deletePickup('${p.id}')" title="삭제">×</button>
       </div>
@@ -5558,11 +5639,18 @@ function formatDateK(iso){if(!iso)return'';const d=new Date(iso);const dn=['일'
 
 function setPickupStatus(pid,status){
   const p=S.pickups.find(x=>x.id===pid);if(!p)return;
+  const wasDone=p.status==='pickedUp'||p.status==='delivered';
   p.status=status;
   if(status==='pickedUp')p.pickedUpAt=new Date().toISOString();
-  if(status==='delivered')p.deliveredAt=new Date().toISOString();
+  else if(status==='delivered')p.deliveredAt=new Date().toISOString();
+  else {
+    // 다른 상태로 되돌릴 때 완료 타임스탬프 제거
+    if(p.pickedUpAt)delete p.pickedUpAt;
+    if(p.deliveredAt)delete p.deliveredAt;
+  }
   saveData();renderPickupPane();
-  showToast(status==='pickedUp'?'✅ 픽업 완료':status==='delivered'?'📦 배송 완료':'상태 변경됨');
+  const msg=status==='pickedUp'?'✅ 픽업 완료':status==='delivered'?'📦 배송 완료':(wasDone?'↶ 완료 취소됨':'상태 변경됨');
+  showToast(msg);
 }
 
 function deletePickup(pid){
@@ -5589,6 +5677,14 @@ function showPickupForm(pid){
           </select>
         </div>
         
+        <div class="fg"><label>🏷 브랜드</label>
+          <select id="pk-brand">
+            <option value="">— 브랜드 선택 —</option>
+            ${getBrands().map(b=>`<option value="${b.id}"${p.brandId===b.id?' selected':''}>${esc(b.name)}</option>`).join('')}
+          </select>
+          <div class="muted" style="font-size:10px;margin-top:3px">아이템 선택 시 자동으로 채워져요</div>
+        </div>
+        
         <div class="fg"><label>거래처 (어디서 픽업)</label>
           <select id="pk-supplier" onchange="onPickupSupplierChange()">
             <option value="">선택…</option>
@@ -5598,7 +5694,7 @@ function showPickupForm(pid){
         </div>
         
         <div class="fg"><label>관련 아이템 (선택)</label>
-          <select id="pk-item">
+          <select id="pk-item" onchange="onPickupItemChange()">
             <option value="">선택 안 함</option>
             ${itemList.map(it=>`<option value="${it.id}"${p.itemId===it.id?' selected':''}>${esc(it.name)}${it.season?` (${esc(it.season)})`:''}</option>`).join('')}
           </select>
@@ -5685,8 +5781,19 @@ function onPickupDeliveryTypeChange(){
   if(sel&&div)div.style.display=sel.value==='factory'?'block':'none';
 }
 
+function onPickupItemChange(){
+  // 아이템 선택 시 브랜드 자동 채움
+  const itId=document.getElementById('pk-item')?.value;
+  if(!itId)return;
+  const it=S.items[itId];
+  if(!it?.brandId)return;
+  const brandSel=document.getElementById('pk-brand');
+  if(brandSel&&!brandSel.value)brandSel.value=it.brandId;
+}
+
 function savePickupForm(pid,isEdit){
   const type=document.getElementById('pk-type').value;
+  const brandId=document.getElementById('pk-brand')?.value||'';
   const supplierName=document.getElementById('pk-supplier').value;
   const itemId=document.getElementById('pk-item').value;
   const subitemName=document.getElementById('pk-subitem').value.trim();
@@ -5700,8 +5807,10 @@ function savePickupForm(pid,isEdit){
   if(!S.pickups)S.pickups=[];
   const it=itemId?S.items[itemId]:null;
   const fc=delFcId?S.factories[delFcId]:null;
+  // 브랜드 자동 추정 (아이템에서)
+  const finalBrandId=brandId||(it?.brandId||'');
   const data={
-    id:pid,type,supplierName,
+    id:pid,type,brandId:finalBrandId,supplierName,
     itemId:itemId||'',itemName:it?it.name:'',
     subitemName,
     deliveryTo:{type:delType,factoryId:delFcId,factoryName:fc?fc.name:''},
