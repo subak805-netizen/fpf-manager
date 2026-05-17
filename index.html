@@ -2926,22 +2926,27 @@ async function downloadPayGroupReceipt(entityId, entityName, entityType){
     +(fc.bank?'<div style="margin-top:14px;padding:10px;background:#e8f4ff;border-radius:5px;font-size:12px;text-align:center"><b>입금 계좌</b><br>'+esc(fc.bank)+'</div>':'')
     +'</div>';
   
-  var tmpEl=document.createElement('div');
-  tmpEl.innerHTML=tmpHtml;
-  document.body.appendChild(tmpEl);
-  
-  if(typeof html2canvas==='undefined'){
-    await new Promise(function(resolve){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=resolve;document.head.appendChild(s);});
-  }
+  // 모달로 미리보기 + 다운로드 버튼
+  var receiptBodyId='receipt-body-'+Date.now();
+  var modalHtml=tmpHtml.replace('position:fixed;left:-9999px;top:0;','').replace('id="'+tmpId+'"','id="'+receiptBodyId+'"');
+  // 모달 외부 헤더/액션 추가
+  var actions='<div class="fr" style="gap:8px;margin-top:14px;justify-content:flex-end;border-top:1px solid var(--bd);padding-top:12px"><button class="btn" onclick="closeGenericModal()">닫기</button><button class="btn p" onclick="savePayReceiptImage(\''+receiptBodyId+'\',\''+esc((fc.name||entityName).replace(/'+"'"+'/g,""))+'\')">📷 이미지 저장</button></div>';
+  showGenericModal('📋 거래 명세서 미리보기',modalHtml+actions);
+}
+
+async function savePayReceiptImage(elId,name){
   try{
-    var canvas=await html2canvas(document.getElementById(tmpId),{scale:2,backgroundColor:'#fff'});
+    if(typeof html2canvas==='undefined'){
+      await new Promise(function(resolve){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=resolve;document.head.appendChild(s);});
+    }
+    var el=document.getElementById(elId);if(!el){showToast('오류');return;}
+    var canvas=await html2canvas(el,{scale:2,backgroundColor:'#fff'});
     var a=document.createElement('a');
-    a.download='거래명세서_'+(fc.name||entityName)+'_'+todayISO()+'.png';
+    a.download='거래명세서_'+name+'_'+todayISO()+'.png';
     a.href=canvas.toDataURL('image/png');
     a.click();
     showToast('🖼 거래명세서 저장 완료');
   }catch(e){showToast('이미지 저장 실패: '+e.message);}
-  document.body.removeChild(tmpEl);
 }
 
 async function savePaySheetImage(elId,name){
@@ -5869,6 +5874,9 @@ function addSampleOrder(){
     trimSupplier:'',
     patternMaker:'',
     notes:'',
+    sampleColors:[],
+    colorQtys:{},
+    expectedArrivalDate:'',
     createdAt:new Date().toISOString(),
     targetDate:''
   };
@@ -5876,6 +5884,63 @@ function addSampleOrder(){
   saveData();
   renderSamplePane();
   showToast('+ 샘플 발주 추가');
+}
+
+function toggleSampleColor(soId,colorEnc,checked){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  var c=decodeURIComponent(colorEnc);
+  if(!so.sampleColors)so.sampleColors=[];
+  if(!so.colorQtys)so.colorQtys={};
+  var idx=so.sampleColors.indexOf(c);
+  if(checked&&idx<0){so.sampleColors.push(c);if(!so.colorQtys[c])so.colorQtys[c]=1;}
+  else if(!checked&&idx>=0){so.sampleColors.splice(idx,1);}
+  saveData();
+  renderSamplePane();
+}
+
+function setSampleColorQty(soId,colorEnc,val){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  if(!so.colorQtys)so.colorQtys={};
+  var c=decodeURIComponent(colorEnc);
+  so.colorQtys[c]=Math.max(0,+val||0);
+  saveData();
+  // 부분 업데이트 (전체 렌더 방지 위해 총량만 새로고침)
+  renderSamplePane();
+}
+
+function goToSample(soId){
+  switchTab('sample');
+  setTimeout(function(){
+    // 해당 샘플로 스크롤
+    var el=document.querySelector('[data-sample-id="'+soId+'"]');
+    if(el){
+      el.scrollIntoView({behavior:'smooth',block:'center'});
+      el.style.boxShadow='0 0 0 3px #fbbf24';
+      setTimeout(function(){el.style.boxShadow='';},2000);
+    }
+  },200);
+}
+
+function cleanEmptySamples(){
+  var empty=getSampleOrders().filter(function(s){return !s.name&&!s.itemId;});
+  if(!empty.length){showToast('정리할 빈 샘플 없음');return;}
+  if(!confirm('이름·아이템 모두 비어있는 샘플 '+empty.length+'개를 삭제할까요?'))return;
+  S.sampleOrders=getSampleOrders().filter(function(s){return s.name||s.itemId;});
+  saveData();
+  renderBoardPane();
+  showToast('🧹 '+empty.length+'개 정리됨');
+}
+
+function delSampleFromBoard(soId){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  if(!confirm('"'+(so.name||'이름없음')+'" 샘플을 삭제할까요?'))return;
+  S.sampleOrders=getSampleOrders().filter(function(s){return s.id!==soId;});
+  saveData();
+  renderBoardPane();
+  showToast('🗑 삭제됨');
 }
 
 function delSampleOrder(id){
@@ -5890,12 +5955,19 @@ function updateSampleField(id,field,val){
   var so=getSampleOrders().find(function(s){return s.id===id;});
   if(!so)return;
   so[field]=val;
-  // 아이템 선택 시: 브랜드 + 거래처들 자동 채움
+  // 아이템 선택 시: 브랜드 + 거래처들 + 컬러/수량 자동 채움
   if(field==='itemId'&&val){
     var it=S.items[val];
     if(it){
       so.brandId=it.brandId||'';
-      if(!so.name)so.name=it.name+' 샘플';
+      // 이름이 비어있거나 'XXX 샘플' 패턴이면 새 아이템 이름으로 업데이트
+      if(!so.name||/ 샘플$/.test(so.name))so.name=it.name+' 샘플';
+      // 컬러 디폴트: 모든 컬러 체크, 수량 1
+      if((!so.sampleColors||!so.sampleColors.length)&&it.colors&&it.colors.length){
+        so.sampleColors=it.colors.slice();
+        so.colorQtys={};
+        for(var ci=0;ci<it.colors.length;ci++)so.colorQtys[it.colors[ci]]=1;
+      }
       // 원단처 자동 (첫번째 원단의 supplier)
       if(!so.fabricSupplier&&it.fabrics&&it.fabrics.length){
         var fabSups=[];
@@ -5937,6 +6009,13 @@ function genSamplePoText(so,kind){
   var firstSup=supplier.split(',')[0].trim();
   if(firstSup)lines.push(firstSup);
   
+  // 선택된 컬러 + 수량 가져오기
+  var selColors=so.sampleColors||[];
+  var qtys=so.colorQtys||{};
+  // 기본: 컬러 미선택이거나 아이템 컬러 없으면 폴백
+  var hasColors=it&&it.colors&&it.colors.length>0;
+  var effectiveColors=hasColors&&selColors.length>0?selColors:[''];
+  
   // 자재 정보
   if(kind==='fabric'&&it&&it.fabrics){
     for(var i=0;i<it.fabrics.length;i++){
@@ -5947,9 +6026,33 @@ function genSamplePoText(so,kind){
       if(f.composition)line+=' '+f.composition;
       if(f.unitPrice)line+=' '+num(f.unitPrice)+'원';
       lines.push(line);
-      lines.push('- 1y (샘플감)');
+      // 컬러별로 한 줄씩
+      var fabricColors=hasColors?effectiveColors:[''];
+      var totalY=0;
+      var perColorY=(+f.usagePerPiece||1.5); // 한장당 요척 (없으면 1.5y 폴백)
+      for(var ci=0;ci<fabricColors.length;ci++){
+        var c=fabricColors[ci];
+        var q=hasColors?(+qtys[c]||0):1;
+        if(!q)continue;
+        var y=Math.round(perColorY*q*10)/10;
+        totalY+=y;
+        // 원단처 컬러명 매핑 (있으면 사용)
+        var fcName=c;
+        if(c&&f.colorLinks){
+          var lk=f.colorLinks.find(function(x){return x.itemColor===c;});
+          if(lk&&lk.fabricColor)fcName=lk.fabricColor;
+        }
+        var label='- '+y+'y';
+        if(c)label='#'+(ci+1)+' '+fcName+' - '+y+'y ('+q+'장 샘플감)';
+        else label='- '+y+'y ('+q+'장 샘플감)';
+        lines.push(label);
+      }
+      if(fabricColors.length>1)lines.push('합계 '+(Math.round(totalY*10)/10)+'y');
     }
   }else if(kind==='trim'&&it&&it.trims){
+    // 선택된 컬러 수
+    var nColors=hasColors?selColors.length:1;
+    var totalSamples=hasColors?selColors.reduce(function(s,c){return s+(+qtys[c]||0);},0):1;
     for(var i=0;i<it.trims.length;i++){
       var t=it.trims[i];
       if(firstSup&&t.supplier!==firstSup)continue;
@@ -5957,9 +6060,16 @@ function genSamplePoText(so,kind){
       if(t.size)line+=' '+t.size;
       lines.push(line);
       // 샘플은 적은 수량
-      if(t.orderType==='thread')lines.push('- '+(t.threadQty||10)+'개');
-      else if(t.orderType==='roll')lines.push('- 1롤');
-      else lines.push('- '+((t.qtyPerPiece||1))+'개 (샘플용)');
+      if(t.orderType==='thread'){
+        // 실: 컬러당 개수 × 선택된 컬러 수 (미니멈 무시, 샘플감)
+        var perColor=+t.threadQty||10;
+        lines.push('- '+(perColor*nColors)+'개 ('+nColors+'컬러)');
+      }else if(t.orderType==='roll'){
+        lines.push('- 1롤');
+      }else{
+        var perPc=+t.qtyPerPiece||1;
+        lines.push('- '+(perPc*totalSamples)+'개 (샘플 '+totalSamples+'장용)');
+      }
     }
   }else if(kind==='pattern'){
     lines.push('패턴 작업 부탁드립니다.');
@@ -6055,7 +6165,17 @@ function quickAddSamplePickup(soId,kind){
   else if(kind==='trim')supplier=so.trimSupplier;
   else supplier=so.patternMaker;
   var firstSup=(supplier||'').split(',')[0].trim();
-  if(!firstSup){alert('먼저 '+(kind==='fabric'?'원단처':kind==='trim'?'부자재처':'패턴실')+' 입력');return;}
+  if(!firstSup){
+    // 업체 없으면 입력 받기
+    var lbl=kind==='fabric'?'원단처':kind==='trim'?'부자재처':'패턴실';
+    var entered=prompt(lbl+' 이름을 입력하세요 (예: 더블유, 메이드, 김패턴 등)');
+    if(!entered||!entered.trim())return;
+    firstSup=entered.trim();
+    // sample order에 저장
+    if(kind==='fabric')so.fabricSupplier=firstSup;
+    else if(kind==='trim')so.trimSupplier=firstSup;
+    else so.patternMaker=firstSup;
+  }
   createSamplePickup(so,kind==='fabric'?'샘플감':kind==='trim'?'부자재':'패턴',firstSup);
   if(!so._pickupCreated)so._pickupCreated={};
   so._pickupCreated[kind]=true;
@@ -6104,15 +6224,15 @@ function createSamplePickup(so,type,supplier){
     itemName:it?it.name:so.name,
     brandId:so.brandId,
     deliveryTo:{type:'self'},
-    expectedDate:todayISO(),
+    expectedDate:'',
     expectedTime:'',
-    status:'expected',
+    status:'waiting',
     notes:'['+so.name+'] '+type+' 픽업',
     source:'sample_order',
     sampleOrderId:so.id
   };
   S.pickups.push(pickup);
-  showToast('📍 픽업 자동 생성: '+type);
+  showToast('📍 픽업 생성됨 — 📅 입고 예정일을 입력하세요');
 }
 
 function setSampleStatus(id,status){
@@ -6179,8 +6299,8 @@ function renderSamplePickupSub(so,it){
   ];
   for(var i=0;i<pickupKinds.length;i++){
     var pk=pickupKinds[i];
-    var disabled=!pk.supplier;
-    html+='<button class="btn s ok" onclick="quickAddSamplePickup(\''+so.id+'\',\''+pk.key+'\')" style="font-size:10px;'+(disabled?'opacity:.4;cursor:not-allowed':'')+'" '+(disabled?'disabled':'')+'>+ '+pk.label+'</button>';
+    var hasSupplier=!!pk.supplier;
+    html+='<button class="btn s ok" onclick="quickAddSamplePickup(\''+so.id+'\',\''+pk.key+'\')" style="font-size:10px;'+(hasSupplier?'':'opacity:.7')+'">+ '+pk.label+(hasSupplier?'':' (업체 입력)')+'</button>';
   }
   html+='</div>';
   
@@ -6192,11 +6312,13 @@ function renderSamplePickupSub(so,it){
       var p=soPickups[pi];
       var stColor=p.status==='pickedUp'||p.status==='delivered'?'#4a8':p.status==='waiting'?'#d4a017':'#5a9bd4';
       var stLabel=p.status==='pickedUp'?'✅ 픽업완료':p.status==='delivered'?'✅ 전달완료':p.status==='waiting'?'⏳ 대기':'📌 예정';
-      html+='<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--bg);border-radius:4px;margin-bottom:3px;font-size:11px">'
-        +'<span style="font-weight:600">'+esc(p.type||'')+'</span>'
+      html+='<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:7px 9px;background:var(--bg);border-radius:5px;margin-bottom:4px;font-size:11px">'
+        +'<span style="font-weight:600;min-width:50px">'+esc(p.type||'')+'</span>'
         +'<span style="color:var(--t2)">@'+esc(p.supplierName||'')+'</span>'
-        +'<span style="flex:1"></span>'
-        +(p.expectedDate?'<span style="color:var(--t2);font-size:10px">'+p.expectedDate+(p.expectedTime?' '+p.expectedTime:'')+'</span>':'')
+        +'<span style="flex:1;min-width:5px"></span>'
+        +'<span style="font-size:9px;color:var(--t2)">📅 입고일</span>'
+        +'<input type="date" value="'+(p.expectedDate||'')+'" onchange="updatePickupField(\''+p.id+'\',\'expectedDate\',this.value)" style="font-size:10px;padding:2px 5px;width:120px">'
+        +'<input type="time" value="'+(p.expectedTime||'')+'" onchange="updatePickupField(\''+p.id+'\',\'expectedTime\',this.value)" style="font-size:10px;padding:2px 5px;width:85px" title="예정 시간">'
         +'<span style="color:'+stColor+';font-size:10px;font-weight:600">'+stLabel+'</span>'
         +'<button class="btn s d g" onclick="delSamplePickup(\''+p.id+'\',\''+so.id+'\')" style="padding:2px 5px;font-size:9px">🗑</button>'
         +'</div>';
@@ -6237,6 +6359,16 @@ function renderSampleCheckSub(so){
 
 function renderSampleMemoSub(so){
   return '<textarea placeholder="메모 (특이사항, 수정 요청 등)" onchange="updateSampleField(\''+so.id+'\',\'notes\',this.value)" style="width:100%;font-size:12px;padding:8px;resize:vertical;min-height:120px;line-height:1.5">'+esc(so.notes||'')+'</textarea>';
+}
+
+function updatePickupField(pid,field,val){
+  if(!S.pickups)return;
+  var p=S.pickups.find(function(x){return x.id===pid;});
+  if(!p)return;
+  p[field]=val;
+  saveData();
+  renderSamplePane();
+  if(typeof renderTasksPane==='function')renderTasksPane();
 }
 
 function delSamplePickup(pickupId,soId){
@@ -6304,7 +6436,39 @@ function renderSamplePane(){
       // 아이템 선택
       +'<div style="display:flex;gap:6px;margin-bottom:8px"><select onchange="updateSampleField(\''+so.id+'\',\'itemId\',this.value)" style="flex:1;font-size:11px"><option value="">아이템 선택…</option>'+items.map(function(i){return '<option value="'+i.id+'"'+(so.itemId===i.id?' selected':'')+'>'+esc(i.name)+(i.code?' ('+esc(i.code)+')':'')+'</option>';}).join('')+'</select>'
       +(sewFc?'<span style="font-size:10px;background:var(--bg2);padding:4px 8px;border-radius:5px;color:var(--t2)">🏭 '+esc(sewFc.name)+'</span>':'')
+      +'</div>'
+      // 📅 입고 예정일 입력란
+      +'<div style="display:flex;align-items:center;gap:7px;padding:6px 9px;background:#e0f2fe;border:0.5px solid #7dd3fc;border-radius:6px;margin-bottom:8px;font-size:11px">'
+      +'<span style="font-weight:600;color:#0c4a6e">📅 샘플 입고 예정일</span>'
+      +'<input type="date" value="'+(so.expectedArrivalDate||'')+'" onchange="updateSampleField(\''+so.id+'\',\'expectedArrivalDate\',this.value)" style="font-size:11px;padding:3px 7px;flex:1;max-width:160px">'
+      +(so.expectedArrivalDate?'<span style="color:#0c4a6e;font-size:10px">('+(function(){var d=new Date(so.expectedArrivalDate);var tdy=new Date(todayISO());var diff=Math.ceil((d-tdy)/86400000);return diff===0?'오늘':diff===1?'내일':diff<0?'지남':'D-'+diff;})()+')</span>':'<span style="color:#0c4a6e;opacity:.6;font-size:10px">언제 나올지 입력하세요</span>')
       +'</div>';
+    
+    // 📌 컬러 + 수량 선택 (아이템 선택된 경우만)
+    var colorQtySection='';
+    if(it&&it.colors&&it.colors.length){
+      var selColors=so.sampleColors||[];
+      var qtys=so.colorQtys||{};
+      var totalSamples=selColors.reduce(function(s,c){return s+(+qtys[c]||0);},0);
+      var rows=it.colors.map(function(c){
+        var on=selColors.indexOf(c)>=0;
+        var q=qtys[c]||1;
+        return '<div style="display:flex;align-items:center;gap:7px;padding:4px 6px;background:'+(on?'var(--bg)':'transparent')+';border-radius:5px;margin-bottom:3px">'
+          +'<label style="display:inline-flex;align-items:center;gap:5px;min-width:75px;cursor:pointer">'
+          +'<input type="checkbox" '+(on?'checked':'')+' onchange="toggleSampleColor(\''+so.id+'\',\''+encodeURIComponent(c)+'\',this.checked)" style="width:14px;height:14px;accent-color:#854f0b">'
+          +'<span style="font-size:12px;font-weight:'+(on?'600':'400')+';color:'+(on?'var(--text)':'var(--t2)')+'">'+esc(c)+'</span>'
+          +'</label>'
+          +'<span style="color:#854f0b;flex-shrink:0;font-size:11px;font-weight:600">×</span>'
+          +'<input type="number" min="0" value="'+q+'" '+(on?'':'disabled')+' onchange="setSampleColorQty(\''+so.id+'\',\''+encodeURIComponent(c)+'\',this.value)" style="width:60px;padding:4px 7px;font-size:11px;'+(on?'':'background:var(--bg2);opacity:.5')+'">'
+          +'<span style="font-size:11px;color:var(--t2)">장</span>'
+          +'</div>';
+      }).join('');
+      colorQtySection='<div style="margin-bottom:10px;padding:8px 10px;background:#fef9c3;border:0.5px solid #fde68a;border-radius:6px">'
+        +'<div style="font-size:11px;font-weight:600;color:#854f0b;margin-bottom:6px;display:flex;justify-content:space-between"><span>📌 적용 컬러 + 샘플 수량</span><span style="font-weight:400">총 '+totalSamples+'장</span></div>'
+        +rows
+        +'<div style="font-size:10px;color:#854f0b;opacity:.7;margin-top:5px">💡 체크된 컬러만 발주서에 포함, 수량만큼 원단·부자재 계산됨</div>'
+        +'</div>';
+    }
     
     // Sub-tabs
     var subTabBtn=function(key,label,icon){
@@ -6325,8 +6489,8 @@ function renderSamplePane(){
     else if(subTab==='check'){body=renderSampleCheckSub(so);}
     else{body=renderSampleMemoSub(so);}
     
-    return '<div class="card" style="border-left:3px solid '+stData.color+';margin-bottom:10px">'
-      +hdr+tabBar+body+'</div>';
+    return '<div class="card" data-sample-id="'+so.id+'" style="border-left:3px solid '+stData.color+';margin-bottom:10px">'
+      +hdr+colorQtySection+tabBar+body+'</div>';
   }).join('');
   
   document.getElementById('sample-body').innerHTML=head+statCards+brandFlt+cards;
@@ -6363,7 +6527,10 @@ function renderBoardPane(){
   }
   var samples=getSampleOrders();
   
-  var head='<div class="fb" style="margin-bottom:12px"><div><b style="font-size:15px">🪡 샘플 진행보드</b><div class="muted" style="font-size:11px">브랜드별 샘플 진행 상태 한눈에</div></div><div class="fr" style="gap:5px"><button class="btn p s" onclick="switchTab(\'sample\');setTimeout(addSampleOrder,100)">＋ 샘플 추가</button><button class="btn s" onclick="renderBoardPane()">↻ 새로고침</button></div></div>';
+  // 빈 샘플 개수 카운트 (이름 없음 또는 아이템 없음)
+  var emptySamples=samples.filter(function(s){return !s.name&&!s.itemId;});
+  var emptyCleanBtn=emptySamples.length?'<button class="btn s d" onclick="cleanEmptySamples()" style="font-size:11px">🗑 빈 샘플 정리 ('+emptySamples.length+')</button>':'';
+  var head='<div class="fb" style="margin-bottom:12px"><div><b style="font-size:15px">🪡 샘플 진행보드</b><div class="muted" style="font-size:11px">브랜드별 샘플 진행 상태 한눈에</div></div><div class="fr" style="gap:5px">'+emptyCleanBtn+'<button class="btn p s" onclick="switchTab(\'sample\');setTimeout(addSampleOrder,100)">＋ 샘플 추가</button><button class="btn s" onclick="renderBoardPane()">↻ 새로고침</button></div></div>';
   
   // 미지정 브랜드 샘플도 포함
   var unBrandSamples=samples.filter(function(s){return!s.brandId;});
@@ -6381,10 +6548,21 @@ function renderBoardPane(){
       var doneCount=SAMPLE_CHECKLIST.filter(function(c){return checks[c.key];}).length;
       var progress=Math.round(doneCount/SAMPLE_CHECKLIST.length*100);
       
-      return '<div class="brd-card" onclick="switchTab(\'sample\')" style="background:var(--bg);border:1px solid var(--bd);border-left:3px solid '+stData.color+';border-radius:6px;padding:8px 10px;margin-bottom:6px;cursor:pointer">'
-        +'<div style="font-weight:700;font-size:12px;margin-bottom:3px">'+esc(so.name||'(이름없음)')+'</div>'
-        +(it?'<div style="font-size:10px;color:var(--t2)">📦 '+esc(it.name)+(it.code?' ('+esc(it.code)+')':'')+'</div>':'')
+      // 입고 예정일 표시
+      var arrivalInfo='';
+      if(so.expectedArrivalDate){
+        var d=new Date(so.expectedArrivalDate),tdy=new Date(todayISO());
+        var diff=Math.ceil((d-tdy)/86400000);
+        var dLabel=diff===0?'오늘':diff===1?'내일':diff<0?diff+'일 지남':'D-'+diff;
+        var dColor=diff<0?'#dc2626':diff<=1?'#d97706':'#0284c7';
+        arrivalInfo='<div style="margin-top:4px;font-size:9px;color:'+dColor+';font-weight:600">📅 '+so.expectedArrivalDate.slice(5).replace('-','/')+' ('+dLabel+')</div>';
+      }
+      return '<div class="brd-card" onclick="goToSample(\''+so.id+'\')" style="background:var(--bg);border:1px solid var(--bd);border-left:3px solid '+stData.color+';border-radius:6px;padding:8px 10px;margin-bottom:6px;cursor:pointer;position:relative">'
+        +'<button onclick="event.stopPropagation();delSampleFromBoard(\''+so.id+'\')" style="position:absolute;top:5px;right:5px;background:none;border:none;font-size:11px;cursor:pointer;color:var(--t3);padding:2px 4px;opacity:.5" title="삭제">🗑</button>'
+        +'<div style="font-weight:700;font-size:12px;margin-bottom:3px;padding-right:18px">'+esc(so.name||'(이름없음)')+'</div>'
+        +(it?'<div style="font-size:10px;color:var(--t2)">📦 '+esc(it.name)+(it.code?' ('+esc(it.code)+')':'')+'</div>':'<div style="font-size:10px;color:#dc2626">⚠️ 아이템 미선택</div>')
         +'<div style="font-size:10px;font-weight:600;color:'+stData.color+';margin-top:3px">'+stData.label+'</div>'
+        +arrivalInfo
         +'<div style="margin-top:5px"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--t2);margin-bottom:2px"><span>진행률</span><span style="font-weight:600">'+doneCount+'/'+SAMPLE_CHECKLIST.length+'</span></div><div style="height:4px;background:var(--bg2);border-radius:2px;overflow:hidden"><div style="height:100%;width:'+progress+'%;background:'+stData.color+'"></div></div></div>'
         +'</div>';
     }).join('');
@@ -6446,12 +6624,50 @@ function renderTodayPickupBar(){
   function renderSection(title, pickups, key, color){
     if(!pickups.length)return '';
     var open=collapsed[key]!==true;
+    // 시장/동/층 그룹핑 (자동)
+    var groups={};
+    for(var pi=0;pi<pickups.length;pi++){
+      var pp=pickups[pi];
+      var pb=S.priceBook[pp.supplierName]||{};
+      var market=pb.market||'위치 미입력';
+      var building=pb.building||'';
+      var floor=pb.floor||'';
+      var gKey=market+(building?' · '+building+'동':'')+(floor?' · '+floor+'F':'');
+      if(!groups[gKey])groups[gKey]={pickups:[],sort:[market,building,floor]};
+      groups[gKey].pickups.push(pp);
+    }
+    // 그룹 정렬: 시장 → 건물 → 층 순
+    var groupKeys=Object.keys(groups).sort(function(a,b){
+      var sa=groups[a].sort,sb=groups[b].sort;
+      // 위치 미입력은 마지막으로
+      if(sa[0]==='위치 미입력'&&sb[0]!=='위치 미입력')return 1;
+      if(sb[0]==='위치 미입력'&&sa[0]!=='위치 미입력')return -1;
+      if(sa[0]!==sb[0])return sa[0].localeCompare(sb[0]);
+      if(sa[1]!==sb[1])return sa[1].localeCompare(sb[1]);
+      return (sa[2]||'').localeCompare(sb[2]||'');
+    });
+    var groupedHtml='';
+    if(groupKeys.length===1&&groupKeys[0]==='위치 미입력'){
+      // 모두 미입력이면 그룹 헤더 생략
+      groupedHtml=groups[groupKeys[0]].pickups.map(renderPickupItem).join('');
+    }else{
+      for(var gi=0;gi<groupKeys.length;gi++){
+        var gk=groupKeys[gi];
+        var grpItems=groups[gk].pickups;
+        var hdrClass='var(--bg)';
+        groupedHtml+='<div style="background:'+hdrClass+';border-top:1px solid var(--bg2);padding:5px 14px;font-size:10px;font-weight:700;color:var(--t2);display:flex;align-items:center;gap:5px">'
+          +'<span>📍</span><span>'+esc(gk)+'</span>'
+          +'<span style="background:'+color+';color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-left:auto">'+grpItems.length+'</span>'
+          +'</div>'
+          +grpItems.map(renderPickupItem).join('');
+      }
+    }
     return '<div style="border-top:1px solid var(--bd)">'
       +'<div onclick="togglePickupSection(\''+key+'\')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg2);cursor:pointer">'
       +'<div style="font-size:11px;font-weight:700;color:'+color+'">'+title+' <span style="background:'+color+';color:#fff;border-radius:20px;padding:0 6px;font-size:9px;margin-left:4px">'+pickups.length+'</span></div>'
       +'<span style="font-size:10px;color:var(--t2)">'+(open?'▾':'▸')+'</span>'
       +'</div>'
-      +(open?pickups.map(renderPickupItem).join(''):'')
+      +(open?groupedHtml:'')
       +'</div>';
   }
   
@@ -6567,16 +6783,6 @@ function renderTasksPane(){
     </div>
   </div>
   
-  <!-- 요약 카드 -->
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-    ${TASK_PRIORITIES.map(p=>`
-      <div class="task-pri-card" style="background:${p.cssBg};border-color:${p.cssText}33">
-        <div class="pri-num" style="color:${p.cssText}">${cnts[p.key]}</div>
-        <div class="pri-lbl" style="color:${p.cssText}">${p.label}</div>
-        <div class="pri-desc">${p.desc}</div>
-      </div>
-    `).join('')}
-  </div>
   
   <!-- 시장 업무 알림 (내일 시장 업무 3건 이상이면 표시) -->
   ${(()=>{const tmrTasks=undone.filter(t=>t.priority==='tomorrow');const mktTasks=tmrTasks.filter(t=>t.location==='market');if(mktTasks.length<3)return '';const mktMap={};mktTasks.forEach(t=>{const m=t.locationDetail||'시장';mktMap[m]=(mktMap[m]||0)+1;});const breakdown=Object.entries(mktMap).map(([m,c])=>esc(m)+' '+c+'건').join(' · ');return `<div style="background:#fef2f2;border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:var(--rl);padding:12px 14px;margin-bottom:14px;display:flex;gap:10px;align-items:center"><div style="font-size:22px">🔴</div><div style="flex:1"><div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:3px">내일 시장 업무 ${mktTasks.length}건 있어요</div><div style="font-size:11px;color:#7f1d1d">동대문 가시는 김에 한 번에 처리하세요! → ${breakdown}</div></div><button class="btn s" onclick="window._taskLocFlt='market';renderTasksPane()" style="white-space:nowrap;font-size:11px">시장 업무 보기</button></div>`;})()}
@@ -6626,12 +6832,12 @@ function renderTasksPane(){
     </div>`;
   }).join('');})()}
   
-  ${done.length?`<div class="task-list" style="opacity:.7">
-    <div class="task-list-hd" style="background:var(--bg2);color:var(--t2)">
-      ✅ 완료 <span style="font-weight:500;margin-left:4px">${done.length}건</span>
-      <button class="btn s d" style="margin-left:auto" onclick="clearDoneTasks()">완료 항목 정리</button>
+  ${done.length?`<div class="task-list" style="opacity:.85;margin-top:14px">
+    <div class="task-list-hd" style="background:var(--bg2);color:var(--t2);cursor:pointer" onclick="window._showDone=!window._showDone;renderTasksPane()">
+      ${window._showDone?'▼':'▶'} ✅ 완료 <span style="font-weight:500;margin-left:4px">${done.length}건</span>
+      <button class="btn s d" style="margin-left:auto" onclick="event.stopPropagation();clearDoneTasks()">완료 항목 정리</button>
     </div>
-    ${done.slice(0,10).map(t=>renderTaskRow(t)).join('')}
+    ${window._showDone?done.map(t=>renderTaskRow(t)).join(''):''}
   </div>`:''}
   
   ${!undone.length&&!done.length?`<div class="empty" style="padding:30px;text-align:center;color:var(--t3)">
@@ -6656,7 +6862,7 @@ function renderTaskRow(t){
   const brandBadge=brand?`<span class="task-badge" style="background:${brand.color}22;color:${brand.color};font-size:9px">${esc(brand.name)}</span>`:'';
   const locBadge=t.location?`<span class="task-badge" style="background:#fef3c7;color:#92400e;font-size:9px">${getLocationLabel(t.location)}</span>`:'';
   return `<div class="task-row${t.done?' done':''}" onclick="${isAuto?'goToTaskSource(\''+t.id+'\')':'toggleTaskManual(\''+t.id+'\')'}">
-    <div class="task-chk${t.done?' on':''}" onclick="event.stopPropagation();${isAuto?'dismissAutoTask(\''+t.id+'\')':'toggleTaskManual(\''+t.id+'\')'}" title="${isAuto?'✓ 클릭하면 이 자동 업무 숨김 (원래 조건이 다시 발생하면 다시 나타남)':''}">${t.done?'✓':''}</div>
+    <div class="task-chk${t.done?' on':''}" onclick="event.stopPropagation();${isAuto?'handleAutoTaskChk(\''+t.id+'\')':'toggleTaskManual(\''+t.id+'\')'}" title="${isAuto?'발주서에서 ✓발송완료 버튼을 눌러야 정리됩니다':''}">${t.done?'✓':''}</div>
     <div style="flex:1;min-width:0">
       <div class="task-name" style="display:block">${esc(t.name)}</div>
       ${(itBadge||brandBadge||locBadge)?`<div style="margin-top:3px;display:flex;gap:3px;flex-wrap:wrap">${brandBadge}${itBadge}${locBadge}</div>`:''}
@@ -6760,6 +6966,27 @@ function saveTaskEdit(id){
   closeGenericModal();
   renderTasksPane();
   showToast('💾 저장됨');
+}
+
+function handleAutoTaskChk(id){
+  var tasks=generateAutoTasks();
+  var t=tasks.find(function(x){return x.id===id;});
+  if(!t){showToast('업무를 찾을 수 없어요');return;}
+  // 발주 필요 자동 태스크 → 오더관리로 이동
+  if(t.autoType==='unordered'&&t.link){
+    showToast('💡 발주서에서 "✓ 발송완료" 버튼을 눌러주세요');
+    goToTaskSource(id);
+    return;
+  }
+  // 픽업 자동 태스크
+  if(t.autoType==='pickup'&&t.link){
+    showToast('💡 픽업 항목에서 상태를 변경해주세요');
+    goToTaskSource(id);
+    return;
+  }
+  // 기타: 안내
+  showToast('💡 자동 업무는 원본을 처리하면 정리됩니다');
+  goToTaskSource(id);
 }
 
 function dismissAutoTask(id){
