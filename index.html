@@ -320,16 +320,16 @@ input[type=number]{-moz-appearance:textfield;}
   <button class="ntab" id="nt-notif" onclick="switchTab('notif')" style="position:relative">
     🔔 알림<span id="notif-badge" style="display:none;position:absolute;top:4px;right:4px;background:var(--red);color:#fff;border-radius:50%;font-size:9px;min-width:15px;height:15px;line-height:15px;text-align:center;padding:0 3px"></span>
   </button>
+  <button class="ntab" id="nt-board" onclick="switchTab('board')">🪡 샘플 진행보드</button>
   <button class="ntab" id="nt-tasks" onclick="switchTab('tasks')">📋 할 일&amp;동선</button>
-  <button class="ntab" id="nt-board" onclick="switchTab('board')">🗂 진행보드</button>
-  <button class="ntab" id="nt-sample" onclick="switchTab('sample')">🪡 샘플발주</button>
-  <button class="ntab" id="nt-analytics" onclick="switchTab('analytics')">📊 분석</button>
-  <button class="ntab" id="nt-dash" onclick="switchTab('dash')">📊 대시보드</button>
+  <button class="ntab" id="nt-dash" onclick="switchTab('dash')">🏭 생산 대시보드</button>
   <button class="ntab" id="nt-items" onclick="switchTab('items')">아이템</button>
+  <button class="ntab" id="nt-sample" onclick="switchTab('sample')">🪡 샘플발주</button>
   <button class="ntab" id="nt-orders" onclick="switchTab('orders')">오더 관리</button>
   <button class="ntab" id="nt-track" onclick="switchTab('track')">생산 추적표</button>
   <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
   <button class="ntab" id="nt-costs" onclick="switchTab('costs')">원가계산서</button>
+  <button class="ntab" id="nt-analytics" onclick="switchTab('analytics')">📊 분석</button>
   <!-- 픽업/동선 탭은 할일&동선으로 통합됨 -->
   <button class="ntab" id="nt-factories" onclick="switchTab('factories')">공장 관리</button>
   <button class="ntab" id="nt-book" onclick="switchTab('book')">거래처/단가장</button>
@@ -424,6 +424,7 @@ input[type=number]{-moz-appearance:textfield;}
         <button class="dtab" id="t-pay-all" onclick="switchPayTab('all')">전체 보기</button>
         <button class="dtab" id="t-pay-fc" onclick="switchPayTab('fc')">공장/처별</button>
         <button class="dtab" id="t-pay-sp" onclick="switchPayTab('sp')">거래처별</button>
+        <button class="dtab" id="t-pay-chart" onclick="switchPayTab('chart')">📋 결제 확인 차트</button>
         <button class="dtab" id="t-pay-batch" onclick="switchPayTab('batch')" style="background:#FEE500;color:#3C1E1E;font-weight:700">💰 일괄 결제</button>
       </div>
       <select id="pay-brand-flt" style="font-size:12px;max-width:140px" onchange="renderPayContent()"><option value="">🏷 전체 브랜드</option></select>
@@ -1341,19 +1342,21 @@ function showItemForm(id){
     <div class="info-box">💡 공장을 미리 연결하면 오더 생성 시 자동 배정됩니다</div>
     ${COST_DEFS.map(([ck,lbl,fk,ft])=>`<div class="fr" style="margin-bottom:8px;align-items:flex-end;gap:8px"><div style="flex:1"><label>${lbl} (원/pcs)</label><input id="f-${ck}" type="number" value="${p[ck]||0}" min="0" oninput="scheduleDraft()"></div><div style="flex:1.6"><label>${ft}</label><select id="f-${fk}" onchange="scheduleDraft()">${fcOpts(p[fk]||'',ft)}</select></div></div>`).join('')}
 
-    <div class="sec" style="margin-top:12px"><span>일회비</span><span class="muted" style="font-size:10px;font-weight:400">패턴비·샘플비 등</span></div>
-    <div class="g3" style="margin-bottom:8px">
-      <div class="fg" style="margin-bottom:0"><label>패턴비 (원)</label><input id="f-patternCost" type="number" value="${p.patternCost||0}" min="0" placeholder="0" oninput="scheduleDraft()"></div>
-      <div class="fg" style="margin-bottom:0"><label>샘플비 (원)</label><input id="f-sampleCost" type="number" value="${p.sampleCost||0}" min="0" placeholder="0" oninput="scheduleDraft()"></div>
-      <div class="fg" style="margin-bottom:0"><label>기타 1회성 비용 (원)</label><input id="f-onceCost" type="number" value="${p.onceCost||0}" min="0" placeholder="0" oninput="scheduleDraft()"></div>
-    </div>
-    <div class="g2" style="margin-bottom:6px">
-      <div class="fg" style="margin-bottom:0"><label>기타 비용 항목명</label><input id="f-onceCostNm" value="${esc(p.onceCostNm||'')}" placeholder="예: 염색비(lot), 특수가공비" oninput="scheduleDraft()"></div>
-      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;align-self:flex-end;margin-bottom:8px">
-        <input type="checkbox" id="f-inclOnce" ${p.inclOnce?' checked':''} onchange="scheduleDraft()">
-        <span style="font-size:12px">원가에 포함 (pcs당 반영)</span>
-      </label>
-    </div>
+    <!-- 1. 원단 -->
+    <div class="sec" style="margin-top:12px"><span>원단</span><button class="btn s" type="button" onclick="addFabRow()">＋ 추가</button></div>
+    <div class="info-box">💡 <b>야드 단가</b>: 야드당 구매 | <b>KG 단가</b>: kg당 구매·결제 | 컬러별로 다른 원단 쓸 때 "적용 컬러" 체크</div>
+    <div id="fab-rows"></div>
+    
+    <!-- 2. 부자재 -->
+    <div class="sec" style="margin-top:12px"><span>부자재</span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button></div></div>
+    <div id="trim-rows"></div>
+    
+    <!-- 3. 부자재 가공비 -->
+    <div class="sec" style="margin-top:12px"><span>부자재 가공비</span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimCostRow()">+ 추가</button></div></div>
+    <div class="info-box">💡 단추·스트링 등 부자재에 별도 가공이 붙는 경우 (염색비, 나염비 등) 여기에 입력하세요</div>
+    <div id="tc-rows"></div>
+    
+    <!-- 4. 완성 부자재 비용 -->
     <div class="sec" style="margin-top:12px">
       <span>완성 부자재 비용 <span class="muted" style="font-size:10px;font-weight:400">라벨·택·케어라벨·포장·행택 등</span></span>
       <button class="btn s" type="button" onclick="addFinishCostRow()">+ 추가</button>
@@ -1365,18 +1368,25 @@ function showItemForm(id){
       <span class="muted" style="font-size:11px">원/pcs</span>
       <button class="btn s d" type="button" onclick="this.closest('.trim-row').remove();scheduleDraft()">✕</button>
     </div>`).join('')}</div>
-    <div class="sec" style="margin-top:12px"><span>원단</span><button class="btn s" type="button" onclick="addFabRow()">＋ 추가</button></div>
-    <div class="info-box">💡 <b>야드 단가</b>: 야드당 구매 | <b>KG 단가</b>: kg당 구매·결제 | 컬러별로 다른 원단 쓸 때 "적용 컬러" 체크</div>
-    <div id="fab-rows"></div>
-    <div class="sec" style="margin-top:12px"><span>부자재</span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button></div></div>
-    <div id="trim-rows"></div>
-    <div class="sec" style="margin-top:12px"><span>부자재 가공비</span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimCostRow()">+ 추가</button></div></div>
-    <div class="info-box">💡 단추·스트링 등 부자재에 별도 가공이 붙는 경우 (염색비, 나염비 등) 여기에 입력하세요</div>
-    <div id="tc-rows"></div>
-    <div class="g2" style="margin-top:10px">
-      <div class="fg"><label>세탁방법 (케어라벨)</label><textarea id="f-care" rows="2" placeholder="예: 손세탁 가능, 드라이클리닝 가능&#10;40도 이하 세탁" oninput="scheduleDraft()">${esc(p.careInstructions||'')}</textarea></div>
-      <div class="fg"><label>메모</label><textarea id="f-notes" rows="2" oninput="scheduleDraft()">${esc(p.notes||'')}</textarea></div>
+    
+    <!-- 5. 일회비 -->
+    <div class="sec" style="margin-top:12px"><span>일회비</span><span class="muted" style="font-size:10px;font-weight:400">패턴비·샘플비 등</span></div>
+    <div class="g3" style="margin-bottom:8px">
+      <div class="fg" style="margin-bottom:0"><label>패턴비 (원)</label><input id="f-patternCost" type="number" value="${p.patternCost||0}" min="0" placeholder="0" oninput="scheduleDraft()"></div>
+      <div class="fg" style="margin-bottom:0"><label>샘플비 (원)</label><input id="f-sampleCost" type="number" value="${p.sampleCost||0}" min="0" placeholder="0" oninput="scheduleDraft()"></div>
+      <div class="fg" style="margin-bottom:0"><label>기타 1회성 비용 (원)</label><input id="f-onceCost" type="number" value="${p.onceCost||0}" min="0" placeholder="0" oninput="scheduleDraft()"></div>
     </div>
+    <div class="fg" style="margin-bottom:6px"><label>기타 비용 항목명</label><input id="f-onceCostNm" value="${esc(p.onceCostNm||'')}" placeholder="예: 염색비(lot), 특수가공비" oninput="scheduleDraft()"></div>
+    <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-bottom:8px;padding:6px 10px;background:var(--bg2);border-radius:5px;width:fit-content">
+      <input type="checkbox" id="f-inclOnce" ${p.inclOnce?' checked':''} onchange="scheduleDraft()">
+      <span style="font-size:12px">원가에 포함 (pcs당 반영)</span>
+    </label>
+    
+    <!-- 6. 세탁방법 (한줄) -->
+    <div class="fg" style="margin-top:10px"><label>세탁방법 (케어라벨)</label><textarea id="f-care" rows="2" placeholder="예: 손세탁 가능, 드라이클리닝 가능&#10;40도 이하 세탁" oninput="scheduleDraft()">${esc(p.careInstructions||'')}</textarea></div>
+    
+    <!-- 메모 (한줄) -->
+    <div class="fg"><label>메모</label><textarea id="f-notes" rows="2" oninput="scheduleDraft()">${esc(p.notes||'')}</textarea></div>
     <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="hideItemForm()">취소</button><button class="btn p" onclick="saveItemForm()">✓ 저장</button></div>`;
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
 }
@@ -2757,84 +2767,161 @@ function smsPaySheet(txt,phone){
   else{navigator.clipboard.writeText(txt).then(()=>showToast('전화번호 없음 — 복사됨'));}
 }
 // 결제관리 탭: 업체별 결제명세서 이미지 다운로드
+function togglePaySelect(fcId,oid,key,checked){
+  if(!window._paySelected)window._paySelected={};
+  if(!window._paySelected[fcId])window._paySelected[fcId]=[];
+  var k=oid+':'+key;
+  var arr=window._paySelected[fcId];
+  var idx=arr.indexOf(k);
+  if(checked&&idx<0)arr.push(k);
+  else if(!checked&&idx>=0)arr.splice(idx,1);
+  renderPayContent();
+}
+
+function clearPaySelection(fcId){
+  if(!window._paySelected)window._paySelected={};
+  delete window._paySelected[fcId];
+  renderPayContent();
+}
+
 async function downloadPayGroupReceipt(entityId, entityName, entityType){
   // entityType: 'fc' (공장) or 'sp' (거래처)
-  // 미결제 항목 수집
-  var rows=[];
+  // 선택된(체크된) 항목 또는 모든 미결제 항목으로 거래명세서 생성
+  var rows=[]; // {date, itemName, color, size, qty, unitPrice, amount, costType, oid, payKey}
   var brandNm='';var bizNum='';
+  
+  // 선택된 결제 키들 수집 (선택 체크박스가 있으면)
+  var selectedKeys=window._paySelected&&window._paySelected[entityId]||null;
+  var useSelection=selectedKeys&&selectedKeys.length>0;
+  
   if(entityType==='fc'){
-    // 공장 모드
     for(var oid in S.orders){
       var o=S.orders[oid];
-      var sch=o.factorySchedules?o.factorySchedules[entityId]:null;
-      if(!sch)continue;
-      var isSewing=(o.orderItems||[]).some(function(oi){return S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===entityId;});
-      var totalShipped=(sch.shippingQty||0)+(sch.extraShipments||[]).reduce(function(s,e){return s+(+e.qty||0);},0);
+      // 1. 가공비 행 수집 (모든 COST_DEFS, factorySchedules에 의존 안함)
       for(var i=0;i<COST_DEFS.length;i++){
         var ck=COST_DEFS[i][0],lbl=COST_DEFS[i][1],fk=COST_DEFS[i][2];
-        var base=0,dets=[];
+        var payKey='fc_'+entityId+'_'+ck;
+        // 선택 모드인데 이 키 없으면 스킵
+        if(useSelection&&selectedKeys.indexOf(o.id+':'+payKey)<0)continue;
+        // 비선택 모드면 미결제 항목만
+        if(!useSelection){
+          var st=getPaySt(o.id,payKey);
+          if(st.paid)continue;
+        }
+        // 아이템별로 색상/사이즈 분해
         for(var j=0;j<(o.orderItems||[]).length;j++){
           var oi=o.orderItems[j];
           var it=S.items[oi.itemId];if(!it)continue;
+          // 이 자이템이 이 공장에 가공비를 보내는지 확인
           if(it[fk]&&it[fk]!==entityId)continue;
-          if(!it[fk]&&Object.keys(o.factorySchedules||{}).length>1)continue;
-          var r=it[ck]||0;if(!r)continue;
+          // 자동 fallback (fk 비어있으면 봉제공장)
+          if(!it[fk]&&fk!=='sewingFcId'){
+            if(it.sewingFcId!==entityId)continue;
+          }else if(!it[fk]){
+            if(it.sewingFcId!==entityId)continue;
+          }
+          var rate=it[ck]||0;if(!rate)continue;
+          if(!brandNm&&it.brandId){brandNm=getBrandName(it.brandId);bizNum=getBrandBizNum(it.brandId);}
           var sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
           var colors=it.colors&&it.colors.length?it.colors:[''];
-          var orderQty=colors.reduce(function(s,c){return s+sizes.reduce(function(ss,sz){return ss+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);},0);
-          var sewingShipped=0;
-          if(!isSewing){Object.keys(o.factorySchedules||{}).forEach(function(sid){var ss=o.factorySchedules[sid];if((o.orderItems||[]).some(function(oi2){return S.items[oi2.itemId]&&S.items[oi2.itemId].sewingFcId===sid;}))sewingShipped+=(ss.shippingQty||0)+(ss.extraShipments||[]).reduce(function(s2,e){return s2+(+e.qty||0);},0);});}
-          var qtyBasis=isSewing?(totalShipped||orderQty):(sewingShipped||orderQty);
-          if(!qtyBasis)continue;
-          base+=r*qtyBasis;dets.push(it.name+' '+qtyBasis+'pcs');
-          // 브랜드 정보 (첫 아이템에서)
-          if(!brandNm&&it.brandId){brandNm=getBrandName(it.brandId);bizNum=getBrandBizNum(it.brandId);}
+          for(var ci=0;ci<colors.length;ci++){
+            for(var si=0;si<sizes.length;si++){
+              var c=colors[ci],sz=sizes[si];
+              var q=+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);
+              if(!q)continue;
+              rows.push({
+                date:o.createdAt||today(),
+                itemName:it.name,
+                color:c||'',
+                size:sz==='free'?'':sz,
+                qty:q,
+                unitPrice:rate,
+                amount:rate*q,
+                costType:lbl,
+                oid:o.id,
+                payKey:payKey,
+                orderName:o.name
+              });
+            }
+          }
         }
-        if(!base)continue;
-        var vat=Math.round(base*((sch.vatRate||10)/100));
-        var st=getPaySt(o.id,'fc_'+entityId+'_'+ck);
-        if(!st.paid)rows.push({orderName:o.name,lbl:lbl,dets:dets,base:base,vat:vat,total:base+vat,vatRate:sch.vatRate||10});
       }
     }
   }
-  if(!rows.length){showToast('미결제 항목이 없어요');return;}
   
-  var tB=rows.reduce(function(s,r){return s+r.base;},0);
-  var tV=rows.reduce(function(s,r){return s+r.vat;},0);
+  if(!rows.length){showToast('표시할 항목이 없어요');return;}
+  
+  var tBase=rows.reduce(function(s,r){return s+r.amount;},0);
+  var tVAT=Math.round(tBase*0.1);
+  var tTotal=tBase+tVAT;
   
   var fc=S.factories[entityId]||{name:entityName};
   var coNm=companies[curCoId]&&companies[curCoId].name||'';
   if(!brandNm)brandNm=coNm;
   
-  // 임시 div 생성 (이미지 만들기 위해)
+  // 임시 div 생성
   var tmpId='tmp-pay-receipt-'+Date.now();
-  var tmpHtml='<div id="'+tmpId+'" style="position:fixed;left:-9999px;top:0;background:#fff;width:480px;padding:18px;font-family:inherit;color:#000">'
-    +'<div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px"><div style="font-size:16px;font-weight:700">결제 명세서</div><div style="font-size:11px;color:#666;margin-top:3px">발행일: '+today()+'</div></div>'
-    +'<div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:12px"><div><div style="color:#666">공급자</div><div style="font-weight:700">엄지</div>'+(fc.phone?'<div style="color:#666">'+fc.phone+'</div>':'')+'</div><div style="text-align:right"><div style="color:#666">출고처</div><div style="font-weight:700">'+esc(brandNm)+'</div>'+(bizNum?'<div style="font-size:10px;color:#666">사업자: '+bizNum+'</div>':'')+'</div></div>'
-    +'<div style="background:#f5f5f5;border-radius:5px;padding:8px;font-size:12px;margin-bottom:12px"><b>'+esc(fc.name||entityName)+'</b> · 미결제 일괄 정산</div>'
-    +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:4px"><thead><tr style="border-bottom:1px solid #ccc"><th style="text-align:left;padding:5px 4px">오더 / 항목</th><th style="text-align:right;padding:5px 4px">금액</th></tr></thead><tbody>'
-    +rows.map(function(r){return '<tr style="border-bottom:1px dashed #ddd"><td style="padding:7px 4px"><div style="font-weight:600">'+esc(r.orderName)+' · '+esc(r.lbl)+'</div><div style="font-size:10px;color:#666">'+esc(r.dets.join(' / '))+'</div></td><td style="text-align:right;padding:7px 4px;font-weight:600">'+num(r.base)+'원</td></tr>';}).join('')
-    +'<tr style="border-top:1px solid #ccc"><td style="padding:6px 4px;color:#666">공급가 합계</td><td style="text-align:right;padding:6px 4px">'+num(tB)+'원</td></tr>'
-    +'<tr><td style="padding:4px 4px;color:#666">부가세 합계</td><td style="text-align:right;padding:4px 4px">'+num(tV)+'원</td></tr>'
-    +'<tr style="border-top:2px solid #000;background:#f5f5f5"><td style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 (VAT 포함)</td><td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:#1976d2">'+num(tB+tV)+'원</td></tr>'
-    +'</tbody></table>'
-    +(fc.bank?'<div style="margin-top:10px;padding:8px 10px;background:#e8f4ff;border-radius:5px;font-size:12px">🏦 <b>입금 계좌:</b> '+esc(fc.bank)+'</div>':'')
+  var rowsHtml='';
+  // 같은 오더의 같은 비용유형이 연속될 때 표시 그룹화
+  var lastDate='';var lastItem='';
+  for(var ri=0;ri<rows.length;ri++){
+    var r=rows[ri];
+    var showDate=r.date!==lastDate;
+    var showItem=r.itemName!==lastItem||showDate;
+    rowsHtml+='<tr style="border-bottom:1px solid #eee">'
+      +'<td style="padding:6px 4px;font-size:11px;color:#444">'+(showDate?esc(r.date.slice(5).replace('-','/')):'')+'</td>'
+      +'<td style="padding:6px 4px;font-size:11px;font-weight:'+(showItem?'600':'400')+'">'+(showItem?esc(r.itemName):'')+'</td>'
+      +'<td style="padding:6px 4px;font-size:11px">'+esc(r.color)+'</td>'
+      +'<td style="padding:6px 4px;font-size:11px">'+esc(r.size)+'</td>'
+      +'<td style="padding:6px 4px;font-size:11px;text-align:right">'+num(r.qty)+'</td>'
+      +'<td style="padding:6px 4px;font-size:11px;text-align:right">'+num(r.unitPrice)+'</td>'
+      +'<td style="padding:6px 4px;font-size:11px;text-align:right;font-weight:600">'+num(r.amount)+'</td>'
+      +'</tr>';
+    lastDate=r.date;lastItem=r.itemName;
+  }
+  
+  var tmpHtml='<div id="'+tmpId+'" style="position:fixed;left:-9999px;top:0;background:#fff;width:560px;padding:18px;font-family:inherit;color:#000">'
+    +'<div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px"><div style="font-size:18px;font-weight:700">거래 명세서</div><div style="font-size:11px;color:#666;margin-top:3px">발행일: '+today()+'</div></div>'
+    +'<div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:12px">'
+    +'<div><div style="color:#666;font-size:10px">공급자</div><div style="font-weight:700;font-size:13px">'+esc(fc.name||entityName)+'</div>'
+    +(fc.phone?'<div style="color:#666;font-size:10px">'+esc(fc.phone)+'</div>':'')
+    +'</div>'
+    +'<div style="text-align:right"><div style="color:#666;font-size:10px">출고처 (공급받는자)</div><div style="font-weight:700;font-size:13px">'+esc(brandNm)+'</div>'
+    +(bizNum?'<div style="font-size:10px;color:#666">사업자: '+esc(bizNum)+'</div>':'')
+    +'</div></div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px">'
+    +'<thead><tr style="background:#f5f5f5;border-top:1px solid #000;border-bottom:1px solid #000">'
+    +'<th style="padding:6px 4px;text-align:left;font-size:11px">날짜</th>'
+    +'<th style="padding:6px 4px;text-align:left;font-size:11px">품목</th>'
+    +'<th style="padding:6px 4px;text-align:left;font-size:11px">컬러</th>'
+    +'<th style="padding:6px 4px;text-align:left;font-size:11px">사이즈</th>'
+    +'<th style="padding:6px 4px;text-align:right;font-size:11px">수량</th>'
+    +'<th style="padding:6px 4px;text-align:right;font-size:11px">공급가액</th>'
+    +'<th style="padding:6px 4px;text-align:right;font-size:11px">금액</th>'
+    +'</tr></thead>'
+    +'<tbody>'+rowsHtml+'</tbody>'
+    +'</table>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">'
+    +'<tr style="border-top:2px solid #000"><td style="padding:8px 4px;font-weight:700;text-align:right">합계</td><td style="padding:8px 4px;text-align:right;font-weight:700;width:120px">'+num(tBase)+'</td></tr>'
+    +'<tr style="background:#f5f5f5"><td style="padding:8px 4px;font-weight:700;text-align:right;font-size:13px">부가세 포함 합계</td><td style="padding:8px 4px;text-align:right;font-weight:700;font-size:14px;color:#1976d2">'+num(tTotal)+'</td></tr>'
+    +'</table>'
+    +(fc.bank?'<div style="margin-top:14px;padding:10px;background:#e8f4ff;border-radius:5px;font-size:12px;text-align:center"><b>입금 계좌</b><br>'+esc(fc.bank)+'</div>':'')
     +'</div>';
+  
   var tmpEl=document.createElement('div');
   tmpEl.innerHTML=tmpHtml;
   document.body.appendChild(tmpEl);
   
-  // html2canvas 사용
   if(typeof html2canvas==='undefined'){
     await new Promise(function(resolve){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=resolve;document.head.appendChild(s);});
   }
   try{
     var canvas=await html2canvas(document.getElementById(tmpId),{scale:2,backgroundColor:'#fff'});
     var a=document.createElement('a');
-    a.download='결제명세서_'+(fc.name||entityName)+'_'+todayISO()+'.png';
+    a.download='거래명세서_'+(fc.name||entityName)+'_'+todayISO()+'.png';
     a.href=canvas.toDataURL('image/png');
     a.click();
-    showToast('🖼 이미지 저장 완료');
+    showToast('🖼 거래명세서 저장 완료');
   }catch(e){showToast('이미지 저장 실패: '+e.message);}
   document.body.removeChild(tmpEl);
 }
@@ -3657,7 +3744,7 @@ function exportTrack(){
 /* ===== PAYMENT ===== */
 function switchPayTab(t){
   curPayTab=t;
-  ['all','fc','sp','batch'].forEach(n=>{const el=document.getElementById('t-pay-'+n);if(el)el.className='dtab'+(n===t?' on':'');});
+  ['all','fc','sp','chart','batch'].forEach(n=>{const el=document.getElementById('t-pay-'+n);if(el)el.className='dtab'+(n===t?' on':'');});
   const ff=document.getElementById('pay-fc-flt');if(ff)ff.style.display=(t==='fc')?'block':'none';
   const sf=document.getElementById('pay-sp-flt');if(sf)sf.style.display=(t==='sp')?'block':'none';
   const bp=document.getElementById('batch-pay-panel');if(bp)bp.style.display=(t==='batch')?'block':'none';
@@ -3692,8 +3779,236 @@ function renderPayStats(){
   const bsel=document.getElementById('pay-brand-flt');if(bsel){const cur=bsel.value;const bds=getBrands();bsel.innerHTML='<option value="">🏷 전체 브랜드</option>'+bds.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');bsel.value=cur;}
   el.innerHTML=`<div class="stat"><div class="stat-n" style="font-size:14px">${num(tot)}<span style="font-size:10px">원</span></div><div class="stat-l">전체</div></div><div class="stat"><div class="stat-n" style="font-size:14px;color:var(--green)">${num(paid)}<span style="font-size:10px">원</span></div><div class="stat-l">완료</div></div><div class="stat" style="${tot-paid>0?'border-color:var(--amber)':''}"><div class="stat-n" style="font-size:14px;color:var(--amber)">${num(tot-paid)}<span style="font-size:10px">원</span></div><div class="stat-l">미결제</div></div><div class="stat"><div class="stat-n">${Object.values(S.orders).filter(o=>Object.values(o.factorySchedules||{}).some(f=>f.shippingQty>0)).length}</div><div class="stat-l">출고 오더</div></div>`;
 }
+/* ===== 📋 결제 확인 차트 ===== */
+function getChartStatusForFc(o,it,fk,ck){
+  // 해당 아이템이 이 가공비에 대해 처리받는 공장 ID 찾기
+  var fcId=it[fk];
+  if(!fcId)return{status:'na',name:'',amount:0};
+  var rate=it[ck]||0;
+  if(!rate)return{status:'na',name:'',amount:0};
+  var fc=S.factories[fcId];
+  var name=fc?fc.name:'?';
+  // 이 (오더, 공장, 비용) 결제 상태
+  var st=getPaySt(o.id,'fc_'+fcId+'_'+ck);
+  // 비용 = rate * 출고수량(있으면) 또는 발주수량
+  var sch=o.factorySchedules&&o.factorySchedules[fcId];
+  var sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
+  var colors=it.colors&&it.colors.length?it.colors:[''];
+  var oi=(o.orderItems||[]).find(function(x){return x.itemId===it.id;});
+  if(!oi)return{status:'na',name:name,amount:0};
+  var orderQty=colors.reduce(function(s,c){return s+sizes.reduce(function(ss,sz){return ss+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);},0);
+  var shipQty=sch?((sch.shippingQty||0)+(sch.extraShipments||[]).reduce(function(s,e){return s+(+e.qty||0);},0)):0;
+  var basis=shipQty||orderQty;
+  var amount=rate*basis;
+  return{status:st.paid?'paid':'unpaid',name:name,amount:amount,fcId:fcId,payKey:'fc_'+fcId+'_'+ck};
+}
+
+function getChartStatusForSp(o,sn){
+  var sup=o.suppliers&&o.suppliers[sn];if(!sup)return{status:'na',name:sn,amount:0};
+  var amount=0;
+  for(var i=0;i<(sup.materials||[]).length;i++)amount+=getMatActualCost(sup.materials[i]);
+  if(amount<=0)return{status:'na',name:sn,amount:0};
+  var st=getPaySt(o.id,'sp_'+encodeURIComponent(sn));
+  return{status:st.paid?'paid':'unpaid',name:sn,amount:amount,payKey:'sp_'+encodeURIComponent(sn)};
+}
+
+function buildChartRow(o){
+  // 각 아이템마다, 각 공정/거래처별 결제 상태
+  // 한 오더에 아이템 여러개일 수 있으므로 첫번째 아이템 기준 (단순화)
+  // 또는 아이템마다 row로 펼치기? 일단 오더당 한 row
+  var firstOi=(o.orderItems||[])[0];
+  var it=firstOi?S.items[firstOi.itemId]:null;
+  if(!it)return null;
+  
+  // 총 발주 수량 합산
+  var totalQty=0;
+  for(var i=0;i<(o.orderItems||[]).length;i++){
+    var oi=o.orderItems[i];
+    var iti=S.items[oi.itemId];if(!iti)continue;
+    var sizes=iti.sizes&&iti.sizes.length?iti.sizes:['free'];
+    var colors=iti.colors&&iti.colors.length?iti.colors:[''];
+    for(var ci=0;ci<colors.length;ci++)for(var si=0;si<sizes.length;si++)
+      totalQty+=+((oi.qtyGrid&&oi.qtyGrid[colors[ci]]&&oi.qtyGrid[colors[ci]][sizes[si]])||0);
+  }
+  
+  // 모든 출고 (1차 + 추가) 합산
+  var allShipments=[];
+  for(var fid in(o.factorySchedules||{})){
+    var sch=o.factorySchedules[fid];
+    if(sch.shippingQty>0)allShipments.push({date:sch.shippingDate||'',qty:sch.shippingQty,fcId:fid,seq:1});
+    for(var es=0;es<(sch.extraShipments||[]).length;es++){
+      var e=sch.extraShipments[es];
+      if(e.qty>0)allShipments.push({date:e.date||'',qty:+e.qty,fcId:fid,seq:es+2});
+    }
+  }
+  allShipments.sort(function(a,b){return(a.date||'').localeCompare(b.date||'');});
+  
+  // 각 가공비별 상태
+  var procStatus={};
+  for(var c=0;c<COST_DEFS.length;c++){
+    var ck=COST_DEFS[c][0],fk=COST_DEFS[c][2];
+    // 여러 아이템이 다른 공장 가질 수 있음 → 첫번째 nonNA만 표시
+    var found=null;
+    for(var oi2=0;oi2<(o.orderItems||[]).length;oi2++){
+      var iti2=S.items[o.orderItems[oi2].itemId];if(!iti2)continue;
+      var s=getChartStatusForFc(o,iti2,fk,ck);
+      if(s.status!=='na'){found=s;break;}
+    }
+    procStatus[ck]=found||{status:'na',name:'',amount:0};
+  }
+  
+  // 원단처들 / 부자재처들 (오더의 suppliers에서)
+  var fabSups=[],trimSups=[];
+  for(var sn in(o.suppliers||{})){
+    var sup=o.suppliers[sn];
+    var hasF=(sup.materials||[]).some(function(m){return m.type==='fabric';});
+    var hasT=(sup.materials||[]).some(function(m){return m.type==='trim';});
+    var st=getChartStatusForSp(o,sn);
+    if(hasF)fabSups.push(st);
+    else if(hasT)trimSups.push(st);
+  }
+  
+  return{
+    o:o,
+    items:o.orderItems||[],
+    totalQty:totalQty,
+    shipments:allShipments,
+    procStatus:procStatus,
+    fabSups:fabSups,
+    trimSups:trimSups
+  };
+}
+
+function renderChartCell(s){
+  if(!s||s.status==='na')return '<span style="color:#aaa">―</span>';
+  var icon=s.status==='paid'?'<span style="color:#2a8755">✓</span>':'<span style="color:#dc2626">✗</span>';
+  var color=s.status==='paid'?'#2a8755':'#b91c1c';
+  return '<div style="font-size:11px;color:'+color+';white-space:nowrap">'+esc(s.name)+' '+icon+'</div>';
+}
+
+function renderChartCellMulti(arr){
+  if(!arr||!arr.length)return '<span style="color:#aaa">―</span>';
+  return arr.map(function(s){return renderChartCell(s);}).join('');
+}
+
+function renderPayChart(){
+  var el=document.getElementById('pay-content');if(!el)return;
+  var brandFlt=document.getElementById('pay-brand-flt')?document.getElementById('pay-brand-flt').value:'';
+  var onlyUnpaid=window._chartUnpaidOnly||false;
+  if(!window._chartExpanded)window._chartExpanded={};
+  
+  // 오더 수집 + 필터
+  var orders=Object.values(S.orders||{});
+  if(brandFlt){
+    orders=orders.filter(function(o){
+      return(o.orderItems||[]).some(function(oi){
+        var it=S.items[oi.itemId];
+        return it&&it.brandId===brandFlt;
+      });
+    });
+  }
+  // 날짜 역순
+  orders.sort(function(a,b){return(b.createdAt||'').localeCompare(a.createdAt||'');});
+  
+  // 행 데이터 빌드
+  var rowsData=[];
+  for(var i=0;i<orders.length;i++){
+    var r=buildChartRow(orders[i]);
+    if(!r)continue;
+    // 미결제만 보기 필터
+    if(onlyUnpaid){
+      var anyUnpaid=false;
+      var ps=r.procStatus;
+      for(var k in ps)if(ps[k].status==='unpaid'){anyUnpaid=true;break;}
+      if(!anyUnpaid){
+        if(r.fabSups.some(function(s){return s.status==='unpaid';})||r.trimSups.some(function(s){return s.status==='unpaid';}))anyUnpaid=true;
+      }
+      if(!anyUnpaid)continue;
+    }
+    rowsData.push(r);
+  }
+  
+  // 헤더 + 컨트롤
+  var ctrl='<div class="fb" style="margin-bottom:10px">'
+    +'<div class="fr" style="gap:10px;align-items:center;flex-wrap:wrap">'
+    +'<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">'
+    +'<input type="checkbox" '+(onlyUnpaid?'checked':'')+' onchange="window._chartUnpaidOnly=this.checked;renderPayContent()">'
+    +'미결제만 보기'
+    +'</label>'
+    +'<span class="muted" style="font-size:11px">총 '+rowsData.length+'건</span>'
+    +'</div>'
+    +'<button class="btn s" onclick="window._chartExpanded={};renderPayContent()">↕ 모두 접기</button>'
+    +'</div>'
+    +'<div class="info-box" style="font-size:11px;margin-bottom:8px">💡 행을 클릭하면 추가 출고분(1차/2차/3차)으로 펼쳐집니다. ✓ 결제완료 / ✗ 미결제 / ― 해당없음</div>';
+  
+  if(!rowsData.length){
+    el.innerHTML=ctrl+'<div class="empty">'+(onlyUnpaid?'미결제 항목 없음 🎉':'표시할 오더 없음')+'</div>';
+    return;
+  }
+  
+  // 표
+  var tbl='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;background:var(--bg)">'
+    +'<thead><tr style="background:var(--bg2);border-bottom:2px solid var(--bd)">'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px;min-width:60px">날짜</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px;min-width:120px">오더 / 수량</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px">봉제</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px">자수</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px">워싱</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px">나염</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px">완성</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px">검품</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px;min-width:90px">원단처</th>'
+    +'<th style="text-align:left;padding:7px 6px;font-size:11px;min-width:90px">부자재처</th>'
+    +'</tr></thead><tbody>';
+  
+  for(var ri=0;ri<rowsData.length;ri++){
+    var r=rowsData[ri];
+    var o=r.o;
+    var expanded=window._chartExpanded[o.id];
+    var hasMultiShip=r.shipments.length>1;
+    
+    var firstIt=S.items[r.items[0]?.itemId];
+    var itName=firstIt?firstIt.name:o.name;
+    var moreItems=r.items.length>1?' <span class="muted">+'+(r.items.length-1)+'개</span>':'';
+    
+    var rowStyle='border-bottom:1px solid var(--bd);'+(hasMultiShip?'cursor:pointer':'');
+    var clickAttr=hasMultiShip?'onclick="window._chartExpanded[\''+o.id+'\']=!window._chartExpanded[\''+o.id+'\'];renderPayContent()"':'';
+    var arrow=hasMultiShip?(expanded?' ▼':' ▶'):'';
+    
+    tbl+='<tr style="'+rowStyle+'" '+clickAttr+'>'
+      +'<td style="padding:7px 6px;font-size:11px;color:var(--t2)">'+(o.createdAt?o.createdAt.slice(5).replace('-','/'):'')+arrow+'</td>'
+      +'<td style="padding:7px 6px"><div style="font-weight:600;font-size:11px">'+esc(itName)+moreItems+'</div><div class="muted" style="font-size:10px">'+esc(o.name)+' · '+num(r.totalQty)+'pcs</div></td>'
+      +'<td style="padding:7px 6px">'+renderChartCell(r.procStatus.laborCost)+'</td>'
+      +'<td style="padding:7px 6px">'+renderChartCell(r.procStatus.embroideryCost)+'</td>'
+      +'<td style="padding:7px 6px">'+renderChartCell(r.procStatus.washingCost)+'</td>'
+      +'<td style="padding:7px 6px">'+renderChartCell(r.procStatus.printingCost)+'</td>'
+      +'<td style="padding:7px 6px">'+renderChartCell(r.procStatus.finishingCost)+'</td>'
+      +'<td style="padding:7px 6px">'+renderChartCell(r.procStatus.inspectionCost)+'</td>'
+      +'<td style="padding:7px 6px">'+renderChartCellMulti(r.fabSups)+'</td>'
+      +'<td style="padding:7px 6px">'+renderChartCellMulti(r.trimSups)+'</td>'
+      +'</tr>';
+    
+    // 펼쳐진 경우 - 출고별 행
+    if(expanded&&hasMultiShip){
+      for(var si=0;si<r.shipments.length;si++){
+        var sh=r.shipments[si];
+        var shFc=S.factories[sh.fcId];
+        tbl+='<tr style="background:var(--bg2);border-bottom:1px solid var(--bd)">'
+          +'<td style="padding:5px 6px;font-size:10px;color:var(--t2);padding-left:18px">'+(sh.date?sh.date.slice(5).replace('-','/'):'')+'</td>'
+          +'<td style="padding:5px 6px;font-size:10px"><span style="color:#1976d2;font-weight:600">↳ '+sh.seq+'차 출고</span> '+num(sh.qty)+'pcs'+(shFc?' <span class="muted">@'+esc(shFc.name)+'</span>':'')+'</td>'
+          +'<td colspan="8" style="padding:5px 6px;font-size:10px;color:var(--t2)">결제는 오더 단위로 집계 — 상단 행에서 확인</td>'
+          +'</tr>';
+      }
+    }
+  }
+  tbl+='</tbody></table></div>';
+  
+  el.innerHTML=ctrl+tbl;
+}
+
 function renderPayContent(){
   if(curPayTab==='batch'){renderBatchPay();return;}
+  if(curPayTab==='chart'){renderPayChart();return;}
   if(curPayTab==='sp')renderSpPay();else renderFcPay();
 }
 
@@ -3912,17 +4227,24 @@ function renderFcPay(){
     ${!showDone&&paidMain.length?`<span class="muted" style="font-size:10px"> (완료 ${paidMain.length}건 숨김)</span>`:''}
     ${pendingDeducts.length?`<span style="font-size:11px;color:var(--red);font-weight:600"> ✂ 공제 -${num(deductTotal)}원 → 실결제 ${num(Math.max(0,upaid-deductTotal))}원</span>`:''}
     </div>
-    <button class="btn s" onclick="downloadPayGroupReceipt('${thisFcId}','${esc(fn).replace(/\'/g,'')}','fc')" title="결제명세서 이미지 다운로드">📷 명세서</button>
+    ${(()=>{const sel=window._paySelected&&window._paySelected[thisFcId]||[];return `
+      ${sel.length?`<button class="btn s g" onclick="clearPaySelection('${thisFcId}')" style="font-size:10px;padding:3px 6px">선택 해제 (${sel.length})</button>`:''}
+      <button class="btn s ok" onclick="downloadPayGroupReceipt('${thisFcId}','${esc(fn).replace(/\'/g,'')}','fc')" title="거래명세서 이미지 다운로드">📷 ${sel.length?'선택':'전체'} 거래명세서</button>`;})()}
     </div>
-    ${visibleMain.map(r=>`<div class="pay-row${r.paid?' paid-r':''}">
-      <input type="checkbox"${r.paid?' checked':''} onchange="setPaySt('${r.oid}','${r.key}',this.checked,document.getElementById('pd${r.did}')?.value||'')">
+    ${visibleMain.map(r=>{
+      const isSelected=window._paySelected&&window._paySelected[thisFcId]&&window._paySelected[thisFcId].indexOf(r.oid+':'+r.key)>=0;
+      return `<div class="pay-row${r.paid?' paid-r':''}" style="${isSelected?'background:#f0f7ff':''}">
+      <input type="checkbox" title="명세서에 포함" ${isSelected?'checked':''} onchange="togglePaySelect('${thisFcId}','${r.oid}','${r.key}',this.checked)" style="accent-color:#1976d2">
       <div style="flex:1"><div style="font-weight:500">${esc(r.orderName)}</div><div class="muted">${r.dets.join(' / ')}</div></div>
       <span class="badge b1">${r.lbl}</span>
       <div style="white-space:nowrap;min-width:65px;text-align:right">${num(r.base)}원</div>
       <div style="white-space:nowrap;color:var(--t2);min-width:55px;text-align:right">+${num(r.vat)}</div>
       <div style="white-space:nowrap;font-weight:700;min-width:75px;text-align:right">${num(r.total)}원</div>
       <input type="date" id="pd${r.did}" value="${r.paidAt||''}" style="width:118px;font-size:11px" onchange="setPaySt('${r.oid}','${r.key}',${r.paid},this.value)">
-    </div>`).join('')}
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:${r.paid?'var(--green)':'var(--t2)'};white-space:nowrap;cursor:pointer">
+        <input type="checkbox" title="결제완료" ${r.paid?'checked':''} onchange="setPaySt('${r.oid}','${r.key}',this.checked,document.getElementById('pd${r.did}')?.value||'')" style="accent-color:var(--green)">결제완료
+      </label>
+    </div>`;}).join('')}
     ${pendingDeducts.length?`<div style="margin-top:4px;border:1px dashed var(--red);border-radius:6px;padding:6px 8px">
       <div style="font-size:11px;font-weight:600;color:var(--red);margin-bottom:4px">✂ 공제 내역</div>
       ${pendingDeducts.map(d=>`<div class="pay-row" style="background:#fff8f8;border-color:var(--red);padding:5px 8px">
@@ -5523,14 +5845,180 @@ function updateSampleField(id,field,val){
   var so=getSampleOrders().find(function(s){return s.id===id;});
   if(!so)return;
   so[field]=val;
-  // 아이템 선택 시 브랜드 자동 매칭
+  // 아이템 선택 시: 브랜드 + 거래처들 자동 채움
   if(field==='itemId'&&val){
     var it=S.items[val];
-    if(it){so.brandId=it.brandId||'';if(!so.name)so.name=it.name+' 샘플';}
+    if(it){
+      so.brandId=it.brandId||'';
+      if(!so.name)so.name=it.name+' 샘플';
+      // 원단처 자동 (첫번째 원단의 supplier)
+      if(!so.fabricSupplier&&it.fabrics&&it.fabrics.length){
+        var fabSups=[];
+        for(var i=0;i<it.fabrics.length;i++){if(it.fabrics[i].supplier&&fabSups.indexOf(it.fabrics[i].supplier)===-1)fabSups.push(it.fabrics[i].supplier);}
+        so.fabricSupplier=fabSups.join(', ');
+      }
+      // 부자재처 자동 (첫번째 부자재의 supplier들)
+      if(!so.trimSupplier&&it.trims&&it.trims.length){
+        var trimSups=[];
+        for(var i=0;i<it.trims.length;i++){if(it.trims[i].supplier&&trimSups.indexOf(it.trims[i].supplier)===-1)trimSups.push(it.trims[i].supplier);}
+        so.trimSupplier=trimSups.join(', ');
+      }
+      // 봉제공장은 it.sewingFcId에 있음 (자동 표시)
+    }
   }
   saveData();
   renderSamplePane();
 }
+
+/* ===== 샘플 발주서 PO 텍스트 생성 ===== */
+function genSamplePoText(so,kind){
+  // kind: 'fabric' | 'trim' | 'pattern'
+  var it=so.itemId?S.items[so.itemId]:null;
+  var coNm=companies[curCoId]&&companies[curCoId].name||'';
+  var lines=[];
+  lines.push('상호 '+coNm);
+  var d=new Date();
+  var dateStr=(d.getMonth()+1)+'/'+d.getDate();
+  var itName=it?it.name:so.name||'아이템';
+  lines.push('품명 '+itName+' 샘플 발주 ('+dateStr+')');
+  lines.push('');
+  
+  var supplier='';
+  if(kind==='fabric')supplier=so.fabricSupplier||'';
+  else if(kind==='trim')supplier=so.trimSupplier||'';
+  else supplier=so.patternMaker||'';
+  
+  // supplier에 여러개 있으면 첫번째만 (또는 전체)
+  var firstSup=supplier.split(',')[0].trim();
+  if(firstSup)lines.push(firstSup);
+  
+  // 자재 정보
+  if(kind==='fabric'&&it&&it.fabrics){
+    for(var i=0;i<it.fabrics.length;i++){
+      var f=it.fabrics[i];
+      if(firstSup&&f.supplier!==firstSup)continue;
+      var line=f.name||'원단';
+      if(f.width)line+=' '+f.width+'"';
+      if(f.composition)line+=' '+f.composition;
+      if(f.unitPrice)line+=' '+num(f.unitPrice)+'원';
+      lines.push(line);
+      lines.push('- 1y (샘플감)');
+    }
+  }else if(kind==='trim'&&it&&it.trims){
+    for(var i=0;i<it.trims.length;i++){
+      var t=it.trims[i];
+      if(firstSup&&t.supplier!==firstSup)continue;
+      var line=t.name||'부자재';
+      if(t.size)line+=' '+t.size;
+      lines.push(line);
+      // 샘플은 적은 수량
+      if(t.orderType==='thread')lines.push('- '+(t.threadQty||10)+'개');
+      else if(t.orderType==='roll')lines.push('- 1롤');
+      else lines.push('- '+((t.qtyPerPiece||1))+'개 (샘플용)');
+    }
+  }else if(kind==='pattern'){
+    lines.push('패턴 작업 부탁드립니다.');
+    if(it&&it.sizes&&it.sizes.length)lines.push('사이즈: '+it.sizes.join(', '));
+  }
+  
+  lines.push('');
+  lines.push('[요청사항]');
+  lines.push('세액포함 영수증 보내주세요.');
+  lines.push('메이드 C1106으로 이동후 사진 부탁드립니다.');
+  lines.push('');
+  
+  // 출고처 (봉제공장)
+  if(it&&it.sewingFcId){
+    var fc=S.factories[it.sewingFcId];
+    if(fc){
+      lines.push('[출고처]');
+      lines.push(fc.name);
+      if(fc.contact)lines.push(fc.contact);
+      if(fc.address)lines.push(fc.address);
+      if(fc.phone)lines.push(fc.phone);
+    }
+  }
+  
+  return lines.join('\n').trim();
+}
+
+function copySamplePo(soId,kind){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  var txt=genSamplePoText(so,kind);
+  navigator.clipboard.writeText(txt).then(function(){showToast('📋 발주서 복사됨');}).catch(function(){showToast('복사 실패');});
+}
+
+function sendSamplePoKakao(soId,kind){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  var txt=genSamplePoText(so,kind);
+  navigator.clipboard.writeText(txt).then(function(){
+    showToast('📋 복사됨. 카톡 앱에서 붙여넣기',3000);
+    setTimeout(function(){window.open('https://web.whatsapp.com/','_blank');},500); // fallback
+  });
+}
+
+function sendSamplePoSMS(soId,kind){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  var txt=genSamplePoText(so,kind);
+  var sup='';
+  if(kind==='fabric')sup=so.fabricSupplier;
+  else if(kind==='trim')sup=so.trimSupplier;
+  else sup=so.patternMaker;
+  var firstSup=(sup||'').split(',')[0].trim();
+  var pb=S.priceBook[firstSup]||{};
+  var phone=(pb.phone||'').replace(/-/g,'');
+  if(txt.length>500){navigator.clipboard.writeText(txt).then(function(){showToast('클립보드 복사. 문자 앱에 붙여넣으세요.',3500);});if(phone)window.open('sms:'+phone,'_blank');}
+  else window.open('sms:'+phone+'?body='+encodeURIComponent(txt),'_blank');
+}
+
+function markSamplePoSent(soId,kind){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  if(!so.poSent)so.poSent={};
+  so.poSent[kind]=!so.poSent[kind];
+  // 발송완료하면 체크리스트도 자동
+  if(so.poSent[kind]){
+    if(!so.checklist)so.checklist={};
+    if(kind==='fabric')so.checklist.fabric=true;
+    else if(kind==='trim')so.checklist.trim=true;
+    else if(kind==='pattern')so.checklist.pattern=true;
+  }
+  saveData();
+  renderSamplePane();
+  showToast(so.poSent[kind]?'✅ 발송완료':'미발송 처리');
+}
+
+function switchSampleSubTab(soId,tab){
+  if(!window._sampleSubTabs)window._sampleSubTabs={};
+  window._sampleSubTabs[soId]=tab;
+  renderSamplePane();
+}
+
+function getSampleSubTab(soId){
+  return(window._sampleSubTabs&&window._sampleSubTabs[soId])||'po';
+}
+
+/* 샘플감 픽업 빠른 생성 (버튼) */
+function quickAddSamplePickup(soId,kind){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  var supplier='';
+  if(kind==='fabric')supplier=so.fabricSupplier;
+  else if(kind==='trim')supplier=so.trimSupplier;
+  else supplier=so.patternMaker;
+  var firstSup=(supplier||'').split(',')[0].trim();
+  if(!firstSup){alert('먼저 '+(kind==='fabric'?'원단처':kind==='trim'?'부자재처':'패턴실')+' 입력');return;}
+  createSamplePickup(so,kind==='fabric'?'샘플감':kind==='trim'?'부자재':'패턴',firstSup);
+  if(!so._pickupCreated)so._pickupCreated={};
+  so._pickupCreated[kind]=true;
+  saveData();
+  renderSamplePane();
+}
+
+
 
 function toggleSampleCheck(id,key){
   var so=getSampleOrders().find(function(s){return s.id===id;});
@@ -5590,6 +6078,130 @@ function setSampleStatus(id,status){
   renderSamplePane();
 }
 
+/* ===== 샘플 발주: Sub-tab 렌더 함수들 ===== */
+function renderSamplePoSub(so,it){
+  // 발주서: 원단처/부자재처/패턴실 각각 PO 텍스트 + 버튼
+  var kinds=[
+    {key:'fabric',label:'🧵 원단처',supplierField:'fabricSupplier',placeholder:'예: 매일'},
+    {key:'trim',label:'🪡 부자재처',supplierField:'trimSupplier',placeholder:'예: 메이드'},
+    {key:'pattern',label:'✂ 패턴실',supplierField:'patternMaker',placeholder:'패턴사 이름'}
+  ];
+  var html='';
+  for(var ki=0;ki<kinds.length;ki++){
+    var k=kinds[ki];
+    var supVal=so[k.supplierField]||'';
+    var sent=so.poSent&&so.poSent[k.key];
+    var poTxt=supVal?genSamplePoText(so,k.key):'';
+    
+    html+='<div style="background:var(--bg2);border-radius:6px;padding:8px 10px;margin-bottom:8px">'
+      +'<div class="fb" style="margin-bottom:6px">'
+      +'<div style="display:flex;gap:6px;align-items:center;flex:1">'
+      +'<span style="font-size:11px;font-weight:700;min-width:75px">'+k.label+'</span>'
+      +'<input type="text" value="'+esc(supVal)+'" placeholder="'+k.placeholder+'" onchange="updateSampleField(\''+so.id+'\',\''+k.supplierField+'\',this.value)" style="flex:1;font-size:11px;padding:3px 6px">'
+      +'</div>'
+      +(sent?'<span style="font-size:10px;background:#e0f7e0;color:#2a7;padding:3px 8px;border-radius:4px;font-weight:600">✅ 발송완료</span>':'')
+      +'</div>';
+    
+    if(supVal){
+      html+='<textarea readonly style="width:100%;min-height:120px;font-family:monospace;font-size:10px;padding:6px;background:var(--bg);border-radius:4px;resize:vertical;margin-bottom:6px">'+esc(poTxt)+'</textarea>'
+        +'<div class="fr" style="gap:4px;flex-wrap:wrap">'
+        +'<button class="btn s" onclick="copySamplePo(\''+so.id+'\',\''+k.key+'\')" style="font-size:10px">📋 복사</button>'
+        +'<button class="btn s" onclick="sendSamplePoKakao(\''+so.id+'\',\''+k.key+'\')" style="font-size:10px;background:#fde047;color:#3f3f00;border-color:#facc15">💬 카톡</button>'
+        +'<button class="btn s" onclick="sendSamplePoSMS(\''+so.id+'\',\''+k.key+'\')" style="font-size:10px;background:#dbeafe;color:#1e40af;border-color:#93c5fd">📱 문자</button>'
+        +'<button class="btn s '+(sent?'d':'ok')+'" onclick="markSamplePoSent(\''+so.id+'\',\''+k.key+'\')" style="font-size:10px">'+(sent?'↶ 발송 취소':'✅ 발송완료')+'</button>'
+        +'</div>';
+    }else{
+      html+='<div class="muted" style="font-size:10px;text-align:center;padding:8px">'+k.label.replace(/[^가-힣 ]/g,'').trim()+' 입력하면 발주서가 생성됩니다</div>';
+    }
+    html+='</div>';
+  }
+  return html;
+}
+
+function renderSamplePickupSub(so,it){
+  // 픽업: 빠른 생성 버튼 + 픽업 목록 (S.pickups에서 sampleOrderId 매칭)
+  if(!S.pickups)S.pickups=[];
+  var soPickups=S.pickups.filter(function(p){return p.sampleOrderId===so.id;});
+  
+  var html='<div class="info-box" style="font-size:11px;margin-bottom:8px">💡 픽업 추가하면 자동으로 <b>할일&동선</b> 탭에 표시됩니다</div>';
+  
+  // 빠른 생성 버튼
+  html+='<div class="fr" style="gap:6px;flex-wrap:wrap;margin-bottom:10px">';
+  var pickupKinds=[
+    {key:'fabric',label:'🧵 샘플감 픽업',supplier:so.fabricSupplier},
+    {key:'trim',label:'🪡 부자재 픽업',supplier:so.trimSupplier},
+    {key:'pattern',label:'✂ 패턴 픽업',supplier:so.patternMaker}
+  ];
+  for(var i=0;i<pickupKinds.length;i++){
+    var pk=pickupKinds[i];
+    var disabled=!pk.supplier;
+    html+='<button class="btn s ok" onclick="quickAddSamplePickup(\''+so.id+'\',\''+pk.key+'\')" style="font-size:10px;'+(disabled?'opacity:.4;cursor:not-allowed':'')+'" '+(disabled?'disabled':'')+'>+ '+pk.label+'</button>';
+  }
+  html+='</div>';
+  
+  // 생성된 픽업 목록
+  if(soPickups.length){
+    html+='<div style="background:var(--bg2);border-radius:6px;padding:6px;margin-bottom:6px">'
+      +'<div style="font-size:11px;font-weight:600;margin-bottom:4px;padding:0 4px">📍 등록된 픽업 ('+soPickups.length+'건)</div>';
+    for(var pi=0;pi<soPickups.length;pi++){
+      var p=soPickups[pi];
+      var stColor=p.status==='pickedUp'||p.status==='delivered'?'#4a8':p.status==='waiting'?'#d4a017':'#5a9bd4';
+      var stLabel=p.status==='pickedUp'?'✅ 픽업완료':p.status==='delivered'?'✅ 전달완료':p.status==='waiting'?'⏳ 대기':'📌 예정';
+      html+='<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--bg);border-radius:4px;margin-bottom:3px;font-size:11px">'
+        +'<span style="font-weight:600">'+esc(p.type||'')+'</span>'
+        +'<span style="color:var(--t2)">@'+esc(p.supplierName||'')+'</span>'
+        +'<span style="flex:1"></span>'
+        +(p.expectedDate?'<span style="color:var(--t2);font-size:10px">'+p.expectedDate+(p.expectedTime?' '+p.expectedTime:'')+'</span>':'')
+        +'<span style="color:'+stColor+';font-size:10px;font-weight:600">'+stLabel+'</span>'
+        +'<button class="btn s d g" onclick="delSamplePickup(\''+p.id+'\',\''+so.id+'\')" style="padding:2px 5px;font-size:9px">🗑</button>'
+        +'</div>';
+    }
+    html+='</div>';
+  }else{
+    html+='<div class="muted" style="text-align:center;padding:10px;font-size:11px">아직 픽업 없음. 위 버튼으로 추가하세요.</div>';
+  }
+  return html;
+}
+
+function renderSampleCheckSub(so){
+  var checks=so.checklist||{};
+  var doneCount=SAMPLE_CHECKLIST.filter(function(c){return checks[c.key];}).length;
+  var progress=Math.round(doneCount/SAMPLE_CHECKLIST.length*100);
+  var stData=SAMPLE_STATUS.find(function(s){return s.key===so.status;})||SAMPLE_STATUS[0];
+  
+  var html='<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:10px;color:var(--t2);font-weight:600">진행률</span><span style="font-size:11px;font-weight:700">'+doneCount+'/'+SAMPLE_CHECKLIST.length+' ('+progress+'%)</span></div><div style="height:6px;background:var(--bg2);border-radius:3px;overflow:hidden"><div style="height:100%;width:'+progress+'%;background:'+stData.color+';transition:width .3s"></div></div></div>';
+  
+  // 체크리스트
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:10px">';
+  for(var ci=0;ci<SAMPLE_CHECKLIST.length;ci++){
+    var c=SAMPLE_CHECKLIST[ci];
+    var done=!!checks[c.key];
+    html+='<label style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:'+(done?'var(--bg2)':'transparent')+';border:1px solid '+(done?'transparent':'var(--bd)')+';border-radius:5px;cursor:pointer;font-size:12px"><input type="checkbox" '+(done?'checked':'')+' onchange="toggleSampleCheck(\''+so.id+'\',\''+c.key+'\')" style="width:14px;height:14px"><span style="'+(done?'text-decoration:line-through;color:var(--t2)':'')+'">'+c.icon+' '+c.label+'</span></label>';
+  }
+  html+='</div>';
+  
+  // 상태 변경
+  html+='<div style="margin-top:10px"><div style="font-size:11px;font-weight:600;margin-bottom:5px">상태 변경</div><div class="fr" style="gap:4px;flex-wrap:wrap">';
+  for(var si=0;si<SAMPLE_STATUS.length;si++){
+    var s=SAMPLE_STATUS[si];
+    html+='<button class="btn s" onclick="setSampleStatus(\''+so.id+'\',\''+s.key+'\')" style="font-size:10px;padding:3px 7px;background:'+(so.status===s.key?s.color:'var(--bg)')+';color:'+(so.status===s.key?'#fff':'var(--t2)')+';border-color:'+(so.status===s.key?s.color:'var(--bd)')+'">'+s.label+'</button>';
+  }
+  html+='</div></div>';
+  return html;
+}
+
+function renderSampleMemoSub(so){
+  return '<textarea placeholder="메모 (특이사항, 수정 요청 등)" onchange="updateSampleField(\''+so.id+'\',\'notes\',this.value)" style="width:100%;font-size:12px;padding:8px;resize:vertical;min-height:120px;line-height:1.5">'+esc(so.notes||'')+'</textarea>';
+}
+
+function delSamplePickup(pickupId,soId){
+  if(!confirm('이 픽업을 삭제할까요?'))return;
+  S.pickups=(S.pickups||[]).filter(function(p){return p.id!==pickupId;});
+  saveData();
+  renderSamplePane();
+  showToast('🗑 픽업 삭제됨');
+}
+
 function renderSamplePane(){
   var orders=getSampleOrders();
   var brands=getBrands();
@@ -5628,50 +6240,48 @@ function renderSamplePane(){
     return;
   }
   
-  // 카드 리스트
+  // 카드 리스트 (sub-tab 구조)
   var cards=filtered.map(function(so){
-    var checks=so.checklist||{};
-    var doneCount=SAMPLE_CHECKLIST.filter(function(c){return checks[c.key];}).length;
-    var progress=Math.round(doneCount/SAMPLE_CHECKLIST.length*100);
     var brand=so.brandId?brands.find(function(b){return b.id===so.brandId;}):null;
     var stData=SAMPLE_STATUS.find(function(s){return s.key===so.status;})||SAMPLE_STATUS[0];
     var it=so.itemId?S.items[so.itemId]:null;
-    // 봉제공장은 아이템에서 자동 가져옴
     var sewFc=it&&it.sewingFcId?S.factories[it.sewingFcId]:null;
+    var subTab=getSampleSubTab(so.id);
     
-    var checkRows=SAMPLE_CHECKLIST.map(function(c){
-      var done=!!checks[c.key];
-      return '<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:'+(done?'var(--bg2)':'transparent')+';border-radius:5px;cursor:pointer;font-size:12px"><input type="checkbox" '+(done?'checked':'')+' onchange="toggleSampleCheck(\''+so.id+'\',\''+c.key+'\')" style="width:14px;height:14px"><span style="'+(done?'text-decoration:line-through;color:var(--t2)':'')+'">'+c.icon+' '+c.label+'</span></label>';
-    }).join('');
-    
-    return '<div class="card" style="border-left:3px solid '+stData.color+';margin-bottom:10px">'
-      +'<div class="fb" style="margin-bottom:6px">'
+    // 헤더 부분 (공통)
+    var hdr='<div class="fb" style="margin-bottom:6px">'
       +'<div style="flex:1"><input type="text" value="'+esc(so.name)+'" placeholder="샘플명" onchange="updateSampleField(\''+so.id+'\',\'name\',this.value)" style="width:100%;font-size:14px;font-weight:700;border:none;background:transparent;outline:none">'
       +(brand?'<span style="display:inline-block;font-size:10px;background:'+brand.color+'22;color:'+brand.color+';border-radius:8px;padding:1px 7px;font-weight:600">'+esc(brand.name)+'</span>':'')
+      +'<span style="font-size:10px;color:'+stData.color+';font-weight:600;margin-left:6px">'+stData.label+'</span>'
       +'</div>'
       +'<button class="btn s d" onclick="delSampleOrder(\''+so.id+'\')" style="padding:3px 7px">🗑</button>'
       +'</div>'
-      // 아이템 + 봉제공장
+      // 아이템 선택
       +'<div style="display:flex;gap:6px;margin-bottom:8px"><select onchange="updateSampleField(\''+so.id+'\',\'itemId\',this.value)" style="flex:1;font-size:11px"><option value="">아이템 선택…</option>'+items.map(function(i){return '<option value="'+i.id+'"'+(so.itemId===i.id?' selected':'')+'>'+esc(i.name)+(i.code?' ('+esc(i.code)+')':'')+'</option>';}).join('')+'</select>'
-      +(sewFc?'<span style="font-size:10px;background:var(--bg2);padding:4px 8px;border-radius:5px;color:var(--t2)">🏭 '+esc(sewFc.name)+'</span>':'<span style="font-size:10px;background:var(--bg2);padding:4px 8px;border-radius:5px;color:var(--t2)">봉제공장 미연결</span>')
-      +'</div>'
-      // 진행률
-      +'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:10px;color:var(--t2);font-weight:600">진행률</span><span style="font-size:11px;font-weight:700">'+doneCount+'/'+SAMPLE_CHECKLIST.length+' ('+progress+'%)</span></div><div style="height:6px;background:var(--bg2);border-radius:3px;overflow:hidden"><div style="height:100%;width:'+progress+'%;background:'+stData.color+';transition:width .3s"></div></div></div>'
-      // 거래처 입력
-      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">'
-      +'<div><div style="font-size:9px;color:var(--t2);margin-bottom:2px;font-weight:600">원단처</div><input type="text" value="'+esc(so.fabricSupplier||'')+'" placeholder="예: 매일" onchange="updateSampleField(\''+so.id+'\',\'fabricSupplier\',this.value)" style="width:100%;font-size:11px;padding:3px 6px"></div>'
-      +'<div><div style="font-size:9px;color:var(--t2);margin-bottom:2px;font-weight:600">부자재처</div><input type="text" value="'+esc(so.trimSupplier||'')+'" placeholder="예: 메이드" onchange="updateSampleField(\''+so.id+'\',\'trimSupplier\',this.value)" style="width:100%;font-size:11px;padding:3px 6px"></div>'
-      +'<div><div style="font-size:9px;color:var(--t2);margin-bottom:2px;font-weight:600">패턴실</div><input type="text" value="'+esc(so.patternMaker||'')+'" placeholder="패턴사" onchange="updateSampleField(\''+so.id+'\',\'patternMaker\',this.value)" style="width:100%;font-size:11px;padding:3px 6px"></div>'
-      +'</div>'
-      // 체크리스트
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:8px">'+checkRows+'</div>'
-      // 상태 변경
-      +'<div class="fr" style="gap:4px;flex-wrap:wrap;margin-bottom:6px">'
-      +SAMPLE_STATUS.map(function(s){return '<button class="btn s" onclick="setSampleStatus(\''+so.id+'\',\''+s.key+'\')" style="font-size:10px;padding:3px 7px;background:'+(so.status===s.key?s.color:'var(--bg)')+';color:'+(so.status===s.key?'#fff':'var(--t2)')+';border-color:'+(so.status===s.key?s.color:'var(--bd)')+'">'+s.label+'</button>';}).join('')
-      +'</div>'
-      // 메모
-      +'<textarea placeholder="메모 (특이사항, 수정 요청 등)" onchange="updateSampleField(\''+so.id+'\',\'notes\',this.value)" style="width:100%;font-size:11px;padding:5px 7px;resize:vertical;min-height:32px">'+esc(so.notes||'')+'</textarea>'
+      +(sewFc?'<span style="font-size:10px;background:var(--bg2);padding:4px 8px;border-radius:5px;color:var(--t2)">🏭 '+esc(sewFc.name)+'</span>':'')
       +'</div>';
+    
+    // Sub-tabs
+    var subTabBtn=function(key,label,icon){
+      var active=subTab===key;
+      return '<button onclick="switchSampleSubTab(\''+so.id+'\',\''+key+'\')" style="flex:1;padding:5px 8px;font-size:11px;font-weight:600;border:1px solid '+(active?stData.color:'var(--bd)')+';background:'+(active?stData.color+'22':'var(--bg)')+';color:'+(active?stData.color:'var(--t2)')+';border-radius:5px;cursor:pointer">'+icon+' '+label+'</button>';
+    };
+    var tabBar='<div class="fr" style="gap:4px;margin-bottom:10px">'
+      +subTabBtn('po','발주서','📋')
+      +subTabBtn('pickup','픽업','📍')
+      +subTabBtn('check','체크리스트','✅')
+      +subTabBtn('memo','메모','📝')
+      +'</div>';
+    
+    // Sub-tab 내용
+    var body='';
+    if(subTab==='po'){body=renderSamplePoSub(so,it);}
+    else if(subTab==='pickup'){body=renderSamplePickupSub(so,it);}
+    else if(subTab==='check'){body=renderSampleCheckSub(so);}
+    else{body=renderSampleMemoSub(so);}
+    
+    return '<div class="card" style="border-left:3px solid '+stData.color+';margin-bottom:10px">'
+      +hdr+tabBar+body+'</div>';
   }).join('');
   
   document.getElementById('sample-body').innerHTML=head+statCards+brandFlt+cards;
@@ -5700,56 +6310,52 @@ function computeItemStatus(item){
 }
 
 function renderBoardPane(){
+  // 샘플 진행보드: 브랜드별로 진행 중인 샘플들 표시
   var brands=getBrands();
   if(!brands.length){
-    document.getElementById('board-body').innerHTML='<div class="empty">브랜드를 먼저 등록하세요. 아이템 탭 → 🏷 브랜드 버튼</div>';
+    document.getElementById('board-body').innerHTML='<div class="empty">브랜드를 먼저 등록하세요</div>';
     return;
   }
-  var items=Object.values(S.items||{});
+  var samples=getSampleOrders();
   
-  // 헤더
-  var head='<div class="fb" style="margin-bottom:12px"><div><b style="font-size:15px">🗂 진행보드</b><div class="muted" style="font-size:11px">브랜드별 아이템 진행 상태 한눈에</div></div><div class="fr" style="gap:5px"><button class="btn s" onclick="renderBoardPane()">↻ 새로고침</button></div></div>';
+  var head='<div class="fb" style="margin-bottom:12px"><div><b style="font-size:15px">🪡 샘플 진행보드</b><div class="muted" style="font-size:11px">브랜드별 샘플 진행 상태 한눈에</div></div><div class="fr" style="gap:5px"><button class="btn p s" onclick="switchTab(\'sample\');setTimeout(addSampleOrder,100)">＋ 샘플 추가</button><button class="btn s" onclick="renderBoardPane()">↻ 새로고침</button></div></div>';
   
-  // 미지정 브랜드 아이템도 포함 (별도 컬럼)
-  var unBrandItems=items.filter(function(it){return!it.brandId;});
+  // 미지정 브랜드 샘플도 포함
+  var unBrandSamples=samples.filter(function(s){return!s.brandId;});
   var columns=brands.map(function(b){
-    return{brand:b,items:items.filter(function(it){return it.brandId===b.id;})};
+    return{brand:b,samples:samples.filter(function(s){return s.brandId===b.id;})};
   });
-  if(unBrandItems.length)columns.push({brand:{id:'',name:'미지정',color:'#999',abbr:''},items:unBrandItems});
+  if(unBrandSamples.length)columns.push({brand:{id:'',name:'미지정',color:'#999',abbr:''},samples:unBrandSamples});
   
-  // 컬럼 렌더
   var cols=columns.map(function(col){
     var b=col.brand;
-    var cards=col.items.map(function(it){
-      var st=computeItemStatus(it);
-      var fabInfo=(it.fabrics||[]).filter(function(f){return f.composition;}).map(function(f){return f.composition;}).slice(0,2).join(', ');
-      return '<div class="brd-card" onclick="showItemForm(\''+it.id+'\')" style="background:var(--bg);border:1px solid var(--bd);border-left:3px solid '+st.color+';border-radius:6px;padding:8px 10px;margin-bottom:6px;cursor:pointer;transition:all .12s">'
-        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:3px">'
-        +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(it.name)+'</div>'
-        +(it.code?'<span style="font-size:9px;color:var(--t2);background:var(--bg2);padding:1px 5px;border-radius:8px">'+esc(it.code)+'</span>':'')+'</div>'
-        +'</div>'
-        +'<div style="font-size:10px;font-weight:600;color:'+st.color+';margin-top:3px">'+st.label+(st.orderCount?' <span class="muted" style="font-weight:400">·'+st.orderCount+'건</span>':'')+'</div>'
-        +(it.season?'<div style="font-size:9px;color:var(--t2);margin-top:2px">'+esc(it.season)+(fabInfo?' · '+esc(fabInfo):'')+'</div>':'')
+    var cards=col.samples.map(function(so){
+      var stData=SAMPLE_STATUS.find(function(s){return s.key===so.status;})||SAMPLE_STATUS[0];
+      var it=so.itemId?S.items[so.itemId]:null;
+      var checks=so.checklist||{};
+      var doneCount=SAMPLE_CHECKLIST.filter(function(c){return checks[c.key];}).length;
+      var progress=Math.round(doneCount/SAMPLE_CHECKLIST.length*100);
+      
+      return '<div class="brd-card" onclick="switchTab(\'sample\')" style="background:var(--bg);border:1px solid var(--bd);border-left:3px solid '+stData.color+';border-radius:6px;padding:8px 10px;margin-bottom:6px;cursor:pointer">'
+        +'<div style="font-weight:700;font-size:12px;margin-bottom:3px">'+esc(so.name||'(이름없음)')+'</div>'
+        +(it?'<div style="font-size:10px;color:var(--t2)">📦 '+esc(it.name)+(it.code?' ('+esc(it.code)+')':'')+'</div>':'')
+        +'<div style="font-size:10px;font-weight:600;color:'+stData.color+';margin-top:3px">'+stData.label+'</div>'
+        +'<div style="margin-top:5px"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--t2);margin-bottom:2px"><span>진행률</span><span style="font-weight:600">'+doneCount+'/'+SAMPLE_CHECKLIST.length+'</span></div><div style="height:4px;background:var(--bg2);border-radius:2px;overflow:hidden"><div style="height:100%;width:'+progress+'%;background:'+stData.color+'"></div></div></div>'
         +'</div>';
     }).join('');
-    var emptyMsg='<div style="font-size:11px;color:var(--t2);padding:10px;text-align:center">아이템 없음</div>';
+    var emptyMsg='<div style="font-size:11px;color:var(--t2);padding:10px;text-align:center">샘플 없음</div>';
     return '<div style="flex:0 0 240px;background:var(--bg2);border-radius:8px;padding:8px;max-height:75vh;display:flex;flex-direction:column">'
       +'<div style="padding:6px 8px;background:'+b.color+'22;border-radius:6px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
-      +'<div style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:'+b.color+'"></span><b style="font-size:12px">'+esc(b.name)+'</b>'+(b.abbr?'<span class="muted" style="font-size:9px">'+esc(b.abbr)+'</span>':'')+'</div>'
-      +'<span style="font-size:10px;background:var(--bg);border-radius:20px;padding:1px 7px;color:var(--t2)">'+col.items.length+'</span>'
+      +'<div style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:'+b.color+'"></span><b style="font-size:12px">'+esc(b.name)+'</b></div>'
+      +'<span style="font-size:10px;background:var(--bg);border-radius:20px;padding:1px 7px;color:var(--t2)">'+col.samples.length+'</span>'
       +'</div>'
       +'<div style="overflow-y:auto;flex:1">'+(cards||emptyMsg)+'</div>'
       +'</div>';
   }).join('');
   
-  // 범례
+  // 범례 (샘플 상태)
   var legend='<div class="fr" style="gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:10px;color:var(--t2)">'
-    +'<span><span style="display:inline-block;width:8px;height:8px;background:#999;border-radius:2px;margin-right:3px"></span>미발주</span>'
-    +'<span><span style="display:inline-block;width:8px;height:8px;background:#888;border-radius:2px;margin-right:3px"></span>발주 준비</span>'
-    +'<span><span style="display:inline-block;width:8px;height:8px;background:#d4a017;border-radius:2px;margin-right:3px"></span>일부 발주</span>'
-    +'<span><span style="display:inline-block;width:8px;height:8px;background:#b8651d;border-radius:2px;margin-right:3px"></span>공장 진행</span>'
-    +'<span><span style="display:inline-block;width:8px;height:8px;background:#5a9bd4;border-radius:2px;margin-right:3px"></span>입고중</span>'
-    +'<span><span style="display:inline-block;width:8px;height:8px;background:#4a8;border-radius:2px;margin-right:3px"></span>출고됨</span>'
+    +SAMPLE_STATUS.map(function(s){return '<span><span style="display:inline-block;width:8px;height:8px;background:'+s.color+';border-radius:2px;margin-right:3px"></span>'+s.label.replace(/[^가-힣 ]/g,'').trim()+'</span>';}).join('')
     +'</div>';
   
   document.getElementById('board-body').innerHTML=head+legend+'<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:10px">'+cols+'</div>';
