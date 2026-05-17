@@ -222,6 +222,7 @@ input[type=number]{-moz-appearance:textfield;}
   <button id="cloud-btn" class="btn s" onclick="showModal('cloud-modal')" title="클라우드 연동">☁ 연동</button>
   <button class="btn s" onclick="exportData()" title="데이터 백업">↓ 백업</button>
   <label class="btn s" style="cursor:pointer" title="데이터 복원">↑ 복원<input type="file" accept=".json" style="display:none;width:0" onchange="importData(this.files[0])"></label>
+  <button class="btn s" onclick="showModal('manual-restore-modal')" title="JSON 붙여넣기로 복원">📋 수동복원</button>
   <button class="btn s g" onclick="toggleSettings()">⚙</button>
 </div>
 <div id="set-bar" style="display:none;padding:6px 14px;background:var(--bg);border-bottom:1px solid var(--bd);">
@@ -425,6 +426,15 @@ input[type=number]{-moz-appearance:textfield;}
     <div id="receipt-preview" style="margin-bottom:10px"></div>
     <button class="btn p" style="width:100%;margin-bottom:10px" onclick="analyzeReceiptAI()">🤖 AI 대조 시작</button>
     <div id="receipt-result"></div>
+  </div>
+</div>
+<!-- 수동 복원 모달 -->
+<div class="overlay" id="manual-restore-modal" style="display:none" onclick="if(event.target===this)closeModal('manual-restore-modal')">
+  <div class="modal" style="max-width:500px">
+    <div class="fb" style="margin-bottom:12px"><b>📋 수동 복원</b><button class="btn s g" onclick="closeModal('manual-restore-modal')">✕</button></div>
+    <div class="info-box" style="margin-bottom:10px;font-size:12px">1. 백업 JSON 파일을 메모장으로 열기<br>2. 전체선택(Ctrl+A) → 복사(Ctrl+C)<br>3. 아래 칸에 붙여넣기(Ctrl+V) → 복원하기</div>
+    <textarea id="manual-restore-json" rows="8" style="width:100%;font-size:11px;font-family:monospace;box-sizing:border-box" placeholder='{"version":"pro2",...} 전체 내용 붙여넣기'></textarea>
+    <button class="btn p" style="width:100%;margin-top:10px" onclick="manualRestore()">✅ 복원하기</button>
   </div>
 </div>
 <div class="overlay" id="cloud-modal" style="display:none" onclick="if(event.target===this)closeModal('cloud-modal')">
@@ -770,6 +780,23 @@ function exportData(){
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`패션생산관리_백업_${todayISO()}.json`;a.click();URL.revokeObjectURL(url);
   showToast('💾 전체 백업 완료 (공장·단가장 포함)');
+}
+function manualRestore(){
+  const txt=document.getElementById('manual-restore-json')?.value?.trim();
+  if(!txt){alert('JSON 내용을 붙여넣어 주세요');return;}
+  try{
+    const d=JSON.parse(txt);
+    if(!confirm('복원하시겠습니까? 현재 데이터를 덮어씁니다.'))return;
+    if(d.version==='pro2'&&d.allCoData){
+      companies=d.companies||companies;lsSet('fpm_cos',companies);
+      Object.entries(d.allCoData).forEach(([cid,dat])=>lsSet('fpm_'+cid,dat));
+      if(d.shared)lsSet('fpm_shared',d.shared);
+      const firstCoId=Object.keys(companies)[0];
+      if(firstCoId){try{if(_ls)localStorage.setItem('fpm_last',firstCoId);}catch(e){}}
+      alert('✅ 복원 완료!\n업체: '+Object.values(companies).map(c=>c.name).join(', ')+'\n\n확인을 누르면 새로 시작됩니다.');
+      location.reload();
+    }else{alert('파일 형식이 맞지 않습니다.');}
+  }catch(e){alert('JSON 오류: '+e.message+'\n\n파일 전체 내용이 맞게 붙여넣어졌는지 확인해주세요.');}
 }
 function importData(file){
   if(!file)return;const reader=new FileReader();
