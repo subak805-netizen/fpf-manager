@@ -1163,16 +1163,54 @@ function recoverFromFile(input){
     try{
       var data=JSON.parse(ev.target.result);
       
-      // 두 가지 포맷 지원: emergency-snapshot (localStorage 통째로) vs 일반 백업
+      // 포맷 A: 패션생산관리 백업 파일 (version pro2 + allCoData) — 가장 흔한 정식 백업
+      if(data.version==='pro2' && data.allCoData){
+        // localStorage에 직접 복원해서 페이지 새로고침이 가장 안전
+        companies=data.companies||companies||{};
+        lsSet('fpm_cos',companies);
+        Object.entries(data.allCoData).forEach(function(entry){
+          var cid=entry[0], dat=entry[1];
+          lsSet('fpm_'+cid, dat);
+        });
+        if(data.shared){
+          lsSet('fpm_shared', data.shared);
+        }
+        // 첫 번째 회사를 현재로
+        var firstCoId=Object.keys(companies)[0];
+        if(firstCoId){try{if(_ls)localStorage.setItem('fpm_last',firstCoId);}catch(e){}}
+        
+        var totalItems=0, totalOrders=0;
+        Object.values(data.allCoData).forEach(function(d){
+          totalItems+=Object.keys(d.items||{}).length;
+          totalOrders+=Object.keys(d.orders||{}).length;
+        });
+        var coNames=Object.values(companies).map(function(c){return c.name;}).join(', ');
+        
+        var overlay=document.getElementById('recovery-overlay');
+        if(overlay)overlay.remove();
+        
+        alert('✅ 백업 복원 완료!\n\n회사: '+coNames+'\n총 아이템: '+totalItems+'개\n총 주문: '+totalOrders+'개\n\n확인을 누르면 페이지가 새로고침됩니다.');
+        // 새로고침으로 가장 확실하게 적용 — 단, 이때 빈 클라우드 데이터로 덮어쓰지 않게 fpm_skip_cloud_load 플래그 설정
+        try{sessionStorage.setItem('fpm_force_local',Date.now().toString());}catch(e){}
+        location.reload();
+        return;
+      }
+      
+      // 포맷 B: 응급 스냅샷 (localStorage 통째로)
       if(data.localStorage){
-        // 응급 스냅샷 — localStorage 전체 복원
         Object.keys(data.localStorage).forEach(function(k){
           localStorage.setItem(k,data.localStorage[k]);
         });
-        showToast('✅ 스냅샷 복원 완료, 페이지 새로고침합니다',3000);
-        setTimeout(function(){location.reload();},500);
-      }else if(data.items||data.orders||data.brands){
-        // 일반 백업 — S에 직접 로드
+        var overlay=document.getElementById('recovery-overlay');
+        if(overlay)overlay.remove();
+        alert('✅ 스냅샷 복원 완료. 확인을 누르면 페이지가 새로고침됩니다.');
+        try{sessionStorage.setItem('fpm_force_local',Date.now().toString());}catch(e){}
+        location.reload();
+        return;
+      }
+      
+      // 포맷 C: 단일 회사 데이터 (items, orders, brands 등 직접)
+      if(data.items||data.orders||data.brands){
         S.items=data.items||{};
         S.orders=data.orders||{};
         S.brands=data.brands||[];
@@ -1192,9 +1230,25 @@ function recoverFromFile(input){
         if(overlay)overlay.remove();
         
         showToast('✅ 백업 파일에서 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000);
-      }else{
-        alert('인식할 수 없는 파일 형식이에요. fpm-* 백업 파일이 맞나요?');
+        return;
       }
+      
+      // 포맷 D: 옛 .data 래핑 포맷
+      if(data.data && (data.data.items||data.data.orders)){
+        S.items=data.data.items||{};
+        S.orders=data.data.orders||{};
+        if(data.data.factories)S.factories=data.data.factories;
+        if(data.data.priceBook)S.priceBook=data.data.priceBook;
+        saveData();
+        renderCoSel();
+        render();
+        var overlay=document.getElementById('recovery-overlay');
+        if(overlay)overlay.remove();
+        showToast('✅ 옛 백업 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000);
+        return;
+      }
+      
+      alert('인식할 수 없는 파일 형식이에요.\n\n파일 안의 키들: '+Object.keys(data).slice(0,5).join(', '));
     }catch(e){
       alert('파일 읽기 실패: '+e.message);
     }
@@ -9846,7 +9900,17 @@ async function initAppMain(){
   if(!_ls){showToast('⚠ 사파리 로컬 모드: 클라우드 연동을 설정하면 데이터가 유지됩니다.',6000);}
 
   // 5) 현재 회사 데이터를 클라우드에서 동기화.
-  if(isCloudOn()){
+  // 단, 방금 백업 파일에서 복구했다면 클라우드 다운로드를 건너뛰고
+  // 오히려 로컬 데이터를 클라우드로 푸시한다 (빈 클라우드가 좋은 로컬을 덮어쓰는 사고 방지).
+  var forceLocal=false;
+  try{forceLocal=!!sessionStorage.getItem('fpm_force_local');}catch(e){}
+  if(forceLocal){
+    try{sessionStorage.removeItem('fpm_force_local');}catch(e){}
+    if(isCloudOn()){
+      setCloudInd('sync');
+      cloudSyncSave().then(function(){setCloudInd('ok');showToast('☁ 복구된 데이터를 클라우드로 업로드 완료',3500);}).catch(function(){setCloudInd('err');});
+    }
+  }else if(isCloudOn()){
     setCloudInd('sync');
     cloudSyncLoad(curCoId).then(changed=>{if(changed){renderCoSel();render();}setCloudInd('ok');}).catch(()=>setCloudInd('err'));
   }else setCloudInd('off');
