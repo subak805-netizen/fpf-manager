@@ -1090,6 +1090,54 @@ async function openRecoveryTool(){
   // 옵션 2: 백업 파일 업로드
   html+='<div style="border:1px solid #bae6fd;background:#f0f9ff;border-radius:6px;padding:10px;margin-bottom:8px"><div style="font-weight:600;color:#0c4a6e;font-size:12px;margin-bottom:4px">📁 옵션 2: 백업 파일에서 복구</div><div style="font-size:11px;color:#0c4a6e;margin-bottom:8px">이전에 ↓ 백업 버튼으로 받은 JSON 파일이 있다면 여기로 업로드하세요. 다운로드 폴더에 <code>fpm-emergency-snapshot-*.json</code> 또는 <code>fpm-backup-*.json</code> 같은 파일을 찾아 보세요.</div><input type="file" accept=".json" onchange="recoverFromFile(this)" style="font-size:11px"></div>';
   
+  // 브랜드 매칭 상세 진단 (새로 추가)
+  var brandUseInfo={}; // brandId → {count, codes, brandName}
+  Object.values(S.items||{}).forEach(function(it){
+    if(it.brandId){
+      if(!brandUseInfo[it.brandId])brandUseInfo[it.brandId]={count:0,codes:[],brandName:null};
+      brandUseInfo[it.brandId].count++;
+      if(it.code)brandUseInfo[it.brandId].codes.push(it.code);
+    }
+  });
+  (S.brands||[]).forEach(function(b){
+    if(brandUseInfo[b.id])brandUseInfo[b.id].brandName=b.name;
+  });
+  
+  html+='<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:6px;padding:10px;margin-bottom:14px;font-size:11px"><div style="font-weight:600;color:#1e40af;margin-bottom:6px">🔍 브랜드 매칭 상세</div>';
+  if(Object.keys(brandUseInfo).length===0){
+    html+='<div style="color:#1e40af">아이템에 brandId가 없어요.</div>';
+  }else{
+    html+='<table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="text-align:left;color:#1e40af;border-bottom:1px solid #93c5fd"><th style="padding:3px 6px">brandId (앞 8글자)</th><th style="padding:3px 6px">아이템 수</th><th style="padding:3px 6px">현재 브랜드명</th><th style="padding:3px 6px">아이템 코드 예시</th></tr>';
+    Object.keys(brandUseInfo).forEach(function(bid){
+      var info=brandUseInfo[bid];
+      var codes=info.codes.slice(0,5).join(', ');
+      var nameDisplay=info.brandName?info.brandName:'<span style="color:#dc2626;font-weight:600">❌ 미등록</span>';
+      html+='<tr style="border-bottom:1px solid #dbeafe"><td style="padding:3px 6px;font-family:monospace;font-size:10px">'+bid.slice(0,12)+'...</td><td style="padding:3px 6px;text-align:center">'+info.count+'</td><td style="padding:3px 6px">'+nameDisplay+'</td><td style="padding:3px 6px;font-size:10px;color:#475569">'+codes+'</td></tr>';
+    });
+    html+='</table>';
+  }
+  
+  // 중복 브랜드 감지
+  var brandNameCount={};
+  (S.brands||[]).forEach(function(b){
+    var n=(b.name||'').trim();
+    if(!brandNameCount[n])brandNameCount[n]=[];
+    brandNameCount[n].push(b);
+  });
+  var dups=[];
+  Object.keys(brandNameCount).forEach(function(n){
+    if(brandNameCount[n].length>1)dups.push({name:n,brands:brandNameCount[n]});
+  });
+  if(dups.length>0){
+    html+='<div style="margin-top:8px;padding:6px 8px;background:#fef3c7;border-radius:5px"><b style="color:#854f0b">⚠ 중복 브랜드 감지</b><br>';
+    dups.forEach(function(d){
+      html+='<span style="color:#854f0b">• "'+esc(d.name)+'" — '+d.brands.length+'개 (id: '+d.brands.map(function(b){return b.id.slice(0,8);}).join(', ')+')</span><br>';
+    });
+    html+='<button onclick="mergeDuplicateBrands()" style="margin-top:5px;background:#d97706;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">중복 브랜드 통합하기</button>';
+    html+='</div>';
+  }
+  html+='</div>';
+  
   // 옵션 0 (실제로는 가장 위에 표시되도록 옵션 1 앞에 삽입할 수도 있지만,
   // 일관성을 위해 옵션 3 뒤에 추가하고 강조 색상으로 차별화)
   // → 잃어버린 브랜드 자동 복구
@@ -1272,6 +1320,63 @@ function recoverFromFile(input){
 }
 
 // 아이템들의 brandId를 모아서 잃어버린 브랜드를 자동 재생성
+// 중복 이름 브랜드를 하나로 통합
+function mergeDuplicateBrands(){
+  if(!confirm('같은 이름의 브랜드가 여러 개 있어요. 이를 하나로 통합하시겠어요?\n\n아이템들의 brandId가 자동으로 재매핑됩니다.'))return;
+  
+  var byName={};
+  (S.brands||[]).forEach(function(b){
+    var n=(b.name||'').trim();
+    if(!n)return;
+    if(!byName[n])byName[n]=[];
+    byName[n].push(b);
+  });
+  
+  var idRemap={}; // oldId → newId
+  var keepBrands=[];
+  Object.keys(byName).forEach(function(n){
+    var group=byName[n];
+    if(group.length===1){
+      keepBrands.push(group[0]);
+      return;
+    }
+    // 아이템이 가장 많이 가리키는 brandId를 정본으로
+    var counts={};
+    Object.values(S.items||{}).forEach(function(it){
+      if(it.brandId&&group.find(function(g){return g.id===it.brandId;})){
+        counts[it.brandId]=(counts[it.brandId]||0)+1;
+      }
+    });
+    var winner=group[0];
+    var winnerCount=counts[winner.id]||0;
+    group.forEach(function(b){
+      if((counts[b.id]||0)>winnerCount){winner=b;winnerCount=counts[b.id]||0;}
+    });
+    keepBrands.push(winner);
+    group.forEach(function(b){
+      if(b.id!==winner.id)idRemap[b.id]=winner.id;
+    });
+  });
+  
+  // 아이템들의 brandId 재매핑
+  var remapped=0;
+  Object.values(S.items||{}).forEach(function(it){
+    if(it.brandId&&idRemap[it.brandId]){
+      it.brandId=idRemap[it.brandId];
+      remapped++;
+    }
+  });
+  
+  S.brands=keepBrands;
+  saveData();
+  render();
+  
+  var overlay=document.getElementById('recovery-overlay');
+  if(overlay)overlay.remove();
+  
+  alert('✅ 중복 브랜드 통합 완료!\n\n남은 브랜드: '+keepBrands.length+'개\n재매핑된 아이템: '+remapped+'개');
+}
+
 function rebuildMissingBrands(){
   // 1) 모든 아이템들의 brandId 수집
   var brandIdsInUse={};
@@ -1906,15 +2011,34 @@ function clearDemoData(){
 
 function toggleSettings(){const b=document.getElementById('set-bar');const on=b.style.display==='none';b.style.display=on?'':'none';if(on){document.getElementById('set-nm').value=companies[curCoId]?.name||'';const rv=getFabRound();document.querySelectorAll('input[name=fab-round]').forEach(r=>r.checked=r.value===rv);const ak=document.getElementById('set-apikey');if(ak)ak.value=lsGet('fpm_apikey')||'';renderBrandConfigPanel();loadWorkloadWeightsToForm();}}
 function renameCo(){const nm=document.getElementById('set-nm').value.trim();if(!nm)return;companies[curCoId].name=nm;saveData();renderCoSel();toggleSettings();}
-function deleteCo(){
+async function deleteCo(){
   const coNm=companies[curCoId]?.name||'이 업체';
   if(!confirm(`"${coNm}" 삭제\n\n✅ 공장 관리 · 거래처 단가장은 유지됩니다.\n❌ "${coNm}"의 아이템과 오더는 삭제됩니다.`))return;
-  lsSet('fpm_'+curCoId,{items:{},orders:{}});
-  delete companies[curCoId];lsSet('fpm_cos',companies);
+  var deletedCoId=curCoId;
+  // 로컬 비우기
+  lsSet('fpm_'+deletedCoId,{items:{},orders:{}});
+  delete companies[deletedCoId];lsSet('fpm_cos',companies);
+  
+  // 클라우드에서도 즉시 제거 (디바운스 거치지 않고 직접 — 부활 방지가 중요)
+  if(isCloudOn()){
+    try{
+      setCloudInd('sync');
+      // 1) 클라우드의 회사 목록 갱신
+      await cloudSet('fpm_cos', companies);
+      // 2) 삭제된 회사의 데이터 문서도 빈 값으로 덮어쓰기 (완전 제거가 어려우면 빈 데이터로)
+      await cloudSet('fpm_'+deletedCoId, {items:{},orders:{},brands:[],sampleOrders:[],pickups:[],tasks:[],brandConfig:{},deductions:[],_deleted:true,_deletedAt:new Date().toISOString()});
+      setCloudInd('ok');
+      console.log('[deleteCo] 클라우드에서도 회사 제거 완료:', deletedCoId);
+    }catch(e){
+      console.error('[deleteCo] 클라우드 제거 실패:', e);
+      setCloudInd('err');
+    }
+  }
+  
   const ids=Object.keys(companies);
   if(!ids.length){curCoId='';S={items:{},orders:{},factories:S.factories,priceBook:S.priceBook};document.getElementById('set-bar').style.display='none';document.getElementById('add-co-modal').style.display='flex';renderCoSel();return;}
   curCoId=ids[0];try{if(_ls)localStorage.setItem('fpm_last',curCoId);}catch(e){}loadCoData(curCoId);renderCoSel();toggleSettings();render();
-  showToast(`"${coNm}" 삭제 완료. 공장·단가장은 유지됩니다.`);
+  showToast(`"${coNm}" 삭제 완료 (클라우드 포함). 공장·단가장은 유지됩니다.`);
 }
 
 /* ===== UTILS ===== */
@@ -2855,7 +2979,7 @@ function saveItemForm(){
     // 3초 후 샘플 탭으로 자동 이동 옵션
     setTimeout(function(){
       if(confirm('🪡 "'+item.name+' 샘플"이 생성됐어요.\n샘플 발주 탭으로 이동할까요? (컬러·수량 입력 필요)')){
-        switchTab('sample-order');
+        switchTab('sample');
       }
     },300);
   }else{
