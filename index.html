@@ -215,6 +215,8 @@ input[type=number]{-moz-appearance:textfield;}
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script>
+window.fbReady = false;
+window.fbUser = null;
 const firebaseConfig = {
   apiKey: "AIzaSyCx84fnTSZl9_eTMaUkts0VCyIx4qrql2I",
   authDomain: "fpf-manager.firebaseapp.com",
@@ -223,29 +225,44 @@ const firebaseConfig = {
   messagingSenderId: "415966666310",
   appId: "1:415966666310:web:9c4bb75cd2594cc744b447"
 };
-try{
-  firebase.initializeApp(firebaseConfig);
-  window.fbAuth = firebase.auth();
-  window.fbDB = firebase.firestore();
-  window.fbUser = null;
-  window.fbReady = true;
-  fbAuth.onAuthStateChanged(function(user){
-    window.fbUser = user;
-    if(typeof setCloudInd === 'function'){
-      setCloudInd(user ? 'ok' : 'off');
+
+// Firebase SDK 로딩 대기 후 초기화 (네트워크 느린 환경 대응)
+function tryInitFirebase(attempts){
+  attempts = attempts || 0;
+  if(typeof firebase === 'undefined'){
+    if(attempts < 60){ // 최대 6초 대기 (100ms × 60)
+      setTimeout(function(){tryInitFirebase(attempts+1);}, 100);
+    }else{
+      console.error('⚠ Firebase SDK 로딩 실패 - 인터넷 또는 인앱 브라우저 차단');
+      window.fbReady = false;
+      if(typeof updateCloudModal === 'function')updateCloudModal();
     }
-    if(user && typeof onFirebaseLogin === 'function'){
-      onFirebaseLogin();
-    }
-    if(typeof updateCloudModal === 'function'){
-      updateCloudModal();
-    }
-  });
-  console.log('🔥 Firebase 초기화 완료');
-}catch(e){
-  console.error('Firebase 초기화 실패:', e);
-  window.fbReady = false;
+    return;
+  }
+  try{
+    firebase.initializeApp(firebaseConfig);
+    window.fbAuth = firebase.auth();
+    window.fbDB = firebase.firestore();
+    window.fbReady = true;
+    fbAuth.onAuthStateChanged(function(user){
+      window.fbUser = user;
+      if(typeof setCloudInd === 'function'){
+        setCloudInd(user ? 'ok' : 'off');
+      }
+      if(user && typeof onFirebaseLogin === 'function'){
+        onFirebaseLogin();
+      }
+      if(typeof updateCloudModal === 'function'){
+        updateCloudModal();
+      }
+    });
+    console.log('🔥 Firebase 초기화 완료 (시도: '+(attempts+1)+')');
+  }catch(e){
+    console.error('Firebase 초기화 실패:', e);
+    window.fbReady = false;
+  }
 }
+tryInitFirebase();
 </script>
 
 <!-- 라이선스 인증 화면 -->
@@ -373,7 +390,8 @@ try{
   <button class="ntab" id="nt-notif" onclick="switchTab('notif')" style="position:relative">
     🔔 알림<span id="notif-badge" style="display:none;position:absolute;top:4px;right:4px;background:var(--red);color:#fff;border-radius:50%;font-size:9px;min-width:15px;height:15px;line-height:15px;text-align:center;padding:0 3px"></span>
   </button>
-  <button class="ntab" id="nt-tasks" onclick="switchTab('tasks')">📋 할 일&amp;동선</button>
+  <button class="ntab" id="nt-tasks" onclick="switchTab('tasks')">📋 할 일</button>
+  <button class="ntab" id="nt-route" onclick="switchTab('route')">🗺 동선</button>
   <button class="ntab" id="nt-dash" onclick="switchTab('dash')">🏭 생산 대시보드</button>
   <button class="ntab" id="nt-items" onclick="switchTab('items')">아이템</button>
   <button class="ntab" id="nt-board" onclick="switchTab('board')">🪡 샘플 진행보드</button>
@@ -423,6 +441,7 @@ try{
   <div id="pane-dash" class="panel" style="display:none"><div id="dash-body"></div></div>
   <!-- Tasks (업무 관리 허브) -->
   <div id="pane-tasks" class="panel" style="display:none"><div id="tasks-body"></div></div>
+<div id="pane-route" class="panel" style="display:none"><div id="route-body"></div></div>
   <!-- Analytics (업무량 분석) -->
   <div id="pane-analytics" class="panel" style="display:none"><div id="analytics-body"></div></div>
   <!-- Notifications -->
@@ -662,6 +681,10 @@ try{
         <button class="btn" onclick="fbDoSignUp()" style="flex:1;background:#dcfce7;color:#166534;border-color:#86efac">🆕 회원가입</button>
       </div>
       <div id="fb-error" style="color:#dc2626;font-size:11px;margin-top:8px;text-align:center"></div>
+      <div style="text-align:center;margin-top:14px;padding-top:10px;border-top:1px solid var(--bd)">
+        <button onclick="skipLoginAndRegister()" style="background:none;border:none;color:var(--t3);font-size:11px;text-decoration:underline;cursor:pointer">로그인 없이 로컬에서만 시작</button>
+        <div style="font-size:10px;color:var(--t3);margin-top:3px">이 기기에만 저장됩니다. 나중에 ☁ 연동에서 로그인할 수 있어요.</div>
+      </div>
     </div>
     
     <!-- Firebase 미준비 상태 -->
@@ -798,6 +821,17 @@ async function cloudSet(key,value){
   }catch(e){console.error('cloudSet '+key+':',e);return false;}
 }
 
+function skipLoginAndRegister(){
+  // 로그인을 건너뛰고 로컬에서만 회사를 만든다.
+  closeModal('cloud-modal');
+  // 살짝 딜레이 후 회사 등록 모달을 띄운다.
+  setTimeout(function(){
+    var regModal=document.getElementById('add-co-modal');
+    if(regModal)regModal.style.display='flex';
+  }, 200);
+  showToast('💡 로컬 모드 — 나중에 ☁ 연동에서 로그인하면 동기화됩니다', 4500);
+}
+
 async function fbDoSignUp(){
   const email=document.getElementById('fb-email')?.value?.trim();
   const pw=document.getElementById('fb-password')?.value;
@@ -851,17 +885,61 @@ function translateFbError(code){
   return m[code]||code;
 }
 
-function onFirebaseLogin(){
-  // 로그인 후 자동 동기화
-  if(typeof curCoId !== 'undefined' && curCoId){
-    cloudSyncLoad(curCoId).then(function(changed){
-      if(changed && typeof render === 'function'){
-        render();
-        showToast('☁ 클라우드 데이터로 업데이트됨');
-      } else if(!changed){
-        cloudSyncSave().then(function(){showToast('✓ 동기화 완료');});
+async function onFirebaseLogin(){
+  // 로그인되면 무조건 클라우드의 회사 목록부터 본다.
+  setCloudInd('sync');
+  try{
+    const cloudCos=await cloudGet('fpm_cos');
+    const localIds=Object.keys(companies||{});
+
+    if(cloudCos && Object.keys(cloudCos).length>0){
+      // 클라우드에 회사가 있음 — 다른 기기에서 만들었던 데이터를 받아온다.
+      companies={...(companies||{}), ...cloudCos};
+      lsSet('fpm_cos', companies);
+
+      // 현재 curCoId가 유효하지 않으면 첫 번째 회사로 잡는다.
+      const ids=Object.keys(companies);
+      if(!curCoId || !companies[curCoId]){
+        curCoId=ids[0];
+        try{if(_ls)localStorage.setItem('fpm_last', curCoId);}catch(e){}
       }
-    });
+
+      // 회사가 정해졌으면 그 회사의 데이터를 클라우드에서 통째로 끌어온다.
+      loadCoData(curCoId);
+      const changed=await cloudSyncLoad(curCoId);
+      renderCoSel();
+      render();
+
+      // 회사 등록 모달이 떠 있었다면 닫는다.
+      const regModal=document.getElementById('add-co-modal');
+      if(regModal && regModal.style.display!=='none'){regModal.style.display='none';}
+
+      const saveInd=document.getElementById('save-ind');
+      if(saveInd)saveInd.textContent='💾 자동 저장됨';
+
+      setCloudInd('ok');
+      showToast('☁ 클라우드 데이터 가져오기 완료!', 3000);
+    } else {
+      // 클라우드가 비어 있음.
+      if(localIds.length>0){
+        // 로컬에 있는 데이터를 클라우드로 올린다 (첫 동기화).
+        await cloudSyncSave();
+        setCloudInd('ok');
+        showToast('✓ 로컬 데이터를 클라우드에 업로드 완료', 3000);
+      } else {
+        // 양쪽 다 비어 있으면 진짜 새 사용자 — 회사 등록 모달을 띄운다.
+        setCloudInd('ok');
+        showToast('첫 회사를 등록해 주세요', 3000);
+        setTimeout(function(){
+          const regModal=document.getElementById('add-co-modal');
+          if(regModal)regModal.style.display='flex';
+        }, 400);
+      }
+    }
+  }catch(e){
+    console.error('로그인 동기화 오류:', e);
+    setCloudInd('err');
+    showToast('⚠ 동기화 중 오류가 발생했어요: '+(e.message||e), 4000);
   }
 }
 async function cloudSyncSave(){
@@ -1383,6 +1461,7 @@ function switchTab(t){
     else if(t==='board')renderBoardPane();
     else if(t==='sample')renderSamplePane();
     else if(t==='tasks')renderTasksPane();
+    else if(t==='route')renderRoutePane();
     else if(t==='analytics')renderAnalyticsPane();
   }catch(err){
     console.error('Tab render error:',err);
@@ -2242,7 +2321,48 @@ function saveItemForm(){
   S.items[id]=item;
   // 브랜드 저장
   item.brandId=document.getElementById('f-brand')?.value||'';
-  saveToPB(item);saveData();clearDraft();hideItemForm();renderItemsList();renderCSDropdown();showToast('아이템 저장 완료');
+  // === 자동 샘플 생성 (새 아이템만) ===
+  var isNewItem=!editItemId;
+  var autoCreatedSample=false;
+  if(isNewItem){
+    if(!S.sampleOrders)S.sampleOrders=[];
+    var alreadyHasSample=S.sampleOrders.some(function(so){return so.itemId===id;});
+    if(!alreadyHasSample){
+      var newSampleId='so_'+uid();
+      var firstFabric=(item.fabrics&&item.fabrics[0])||{};
+      var firstTrim=(item.trims&&item.trims[0])||{};
+      S.sampleOrders.unshift({
+        id:newSampleId,
+        name:item.name+' 샘플',
+        itemId:id,
+        brandId:item.brandId||'',
+        status:'prep',
+        checklist:{fabric:false,trim:false,sewInstr:false,pattern:false,patternInstr:false},
+        fabricSupplier:firstFabric.supplier||'',
+        trimSupplier:firstTrim.supplier||'',
+        patternMaker:'',
+        sampleColors:[],
+        colorQtys:{},
+        expectedArrivalDate:'',
+        patternArrivalDate:'',
+        notes:'',
+        createdAt:new Date().toISOString()
+      });
+      autoCreatedSample=true;
+    }
+  }
+  saveToPB(item);saveData();clearDraft();hideItemForm();renderItemsList();renderCSDropdown();
+  if(autoCreatedSample){
+    showToast('✅ 아이템 저장 + 샘플 자동 생성! 컬러·수량 입력하러 가요',3500);
+    // 3초 후 샘플 탭으로 자동 이동 옵션
+    setTimeout(function(){
+      if(confirm('🪡 "'+item.name+' 샘플"이 생성됐어요.\n샘플 발주 탭으로 이동할까요? (컬러·수량 입력 필요)')){
+        switchTab('sample-order');
+      }
+    },300);
+  }else{
+    showToast('아이템 저장 완료');
+  }
 }
 
 /* ===== ORDER CREATION (GRID) ===== */
@@ -6635,6 +6755,84 @@ function generateAutoTasks(){
     }
   }
   
+  // 2.6 봉제공장 발송 대기 (자재+작지 다 됐는데 아직 발송 안 함) - 같은 공장끼리 묶기
+  if(settings.unordered!==false){
+    var samplesReady=getSampleOrders().filter(function(so){
+      if(so.factoryShippedAt||so.status==='sentToFactory'||so.status==='received'||so.status==='confirmed')return false;
+      var pk=so.pickupChecks||{},ck=so.checklist||{};
+      return pk.fabric&&pk.trim&&pk.pattern&&ck.sewInstr&&ck.patternInstr;
+    });
+    // 봉제공장별 그룹핑
+    var fcGroups={};
+    samplesReady.forEach(function(so){
+      var it=so.itemId?S.items[so.itemId]:null;
+      var fcId=it&&it.sewingFcId?it.sewingFcId:'_unknown';
+      if(!fcGroups[fcId])fcGroups[fcId]=[];
+      fcGroups[fcId].push(so);
+    });
+    Object.keys(fcGroups).forEach(function(fcId){
+      var group=fcGroups[fcId];
+      var fcName=fcId!=='_unknown'&&S.factories[fcId]?S.factories[fcId].name:'봉제공장';
+      var names=group.map(function(s){return s.name;}).join(', ');
+      autoTasks.push({
+        id:'auto_sample_ship_'+fcId,
+        auto:true,autoType:'sample_ship_ready',
+        name:'📦 ['+fcName+'] 샘플 '+group.length+'건 봉제공장 발송 ('+names+')',
+        type:'택배',priority:'today',location:'',
+        link:{type:'sample',id:group[0].id},
+        done:false
+      });
+    });
+  }
+  
+  // 2.7 샘플 자재 발주 1일 후 → 도착 확인 자동 할일
+  if(settings.unordered!==false){
+    var samples=getSampleOrders();
+    var today27=todayISO();
+    samples.forEach(function(so){
+      if(so.status==='confirmed'||so.status==='received'||so.status==='sentToFactory')return;
+      // 체크리스트에서 완료된 자재만 처리
+      var arrivalChecks=so.arrivalChecks||{};
+      // fabric (원단/샘플감)
+      if(so.checklist&&so.checklist.fabric&&!arrivalChecks.fabric&&so.fabricSupplier){
+        // 발주된 픽업의 expectedDate 기반 (없으면 createdAt 기반)
+        var pkFab=(S.pickups||[]).find(function(p){return p._sampleId===so.id&&p.type==='샘플감';});
+        var orderDate=pkFab&&pkFab.createdAt?pkFab.createdAt.slice(0,10):(so.createdAt?so.createdAt.slice(0,10):today27);
+        var d=new Date(orderDate),tdy=new Date(today27);
+        var diff=Math.floor((tdy-d)/86400000);
+        if(diff>=1){
+          autoTasks.push({
+            id:'auto_sample_arrival_check_'+so.id+'_fabric',
+            auto:true,autoType:'sample_arrival_check',
+            name:'📞 ['+so.fabricSupplier+'] 원단 도착 확인 - '+diff+'일 경과',
+            type:'전화',priority:diff>=2?'today':'tomorrow',location:'phone',
+            link:{type:'sample',id:so.id,checkType:'fabric'},
+            _supplier:so.fabricSupplier,_matName:'원단',_sampleName:so.name,
+            done:false
+          });
+        }
+      }
+      // trim (부자재)
+      if(so.checklist&&so.checklist.trim&&!arrivalChecks.trim&&so.trimSupplier){
+        var pkTr=(S.pickups||[]).find(function(p){return p._sampleId===so.id&&p.type==='부자재';});
+        var orderDate2=pkTr&&pkTr.createdAt?pkTr.createdAt.slice(0,10):(so.createdAt?so.createdAt.slice(0,10):today27);
+        var d2=new Date(orderDate2),tdy2=new Date(today27);
+        var diff2=Math.floor((tdy2-d2)/86400000);
+        if(diff2>=1){
+          autoTasks.push({
+            id:'auto_sample_arrival_check_'+so.id+'_trim',
+            auto:true,autoType:'sample_arrival_check',
+            name:'📞 ['+so.trimSupplier+'] 부자재 도착 확인 - '+diff2+'일 경과',
+            type:'전화',priority:diff2>=2?'today':'tomorrow',location:'phone',
+            link:{type:'sample',id:so.id,checkType:'trim'},
+            _supplier:so.trimSupplier,_matName:'부자재',_sampleName:so.name,
+            done:false
+          });
+        }
+      }
+    });
+  }
+  
   // 3.5 샘플이 봉제공장에 전달된 지 3일 이상 → 진행 체크 알림
   if(settings.unordered!==false){
     var samplesForCheck2=getSampleOrders();
@@ -7279,38 +7477,203 @@ function renderSamplePickupSub(so,it){
 
 function renderSampleCheckSub(so){
   var checks=so.checklist||{};
-  var doneCount=SAMPLE_CHECKLIST.filter(function(c){return checks[c.key];}).length;
-  var progress=Math.round(doneCount/SAMPLE_CHECKLIST.length*100);
+  var arrChks=so.arrivalChecks||{};
+  var pkChks=so.pickupChecks||{};
+  var instrChks=so.instrChecks||{};
+  var expArrivalDates=so.expectedArrivalDates||{};
   var stData=SAMPLE_STATUS.find(function(s){return s.key===so.status;})||SAMPLE_STATUS[0];
+  var html='';
   
-  var html='<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:10px;color:var(--t2);font-weight:600">진행률</span><span style="font-size:11px;font-weight:700">'+doneCount+'/'+SAMPLE_CHECKLIST.length+' ('+progress+'%)</span></div><div style="height:6px;background:var(--bg2);border-radius:3px;overflow:hidden"><div style="height:100%;width:'+progress+'%;background:'+stData.color+';transition:width .3s"></div></div></div>';
+  // 진행률 계산 (자재 3단계 + 작지 2개 = 11개 항목)
+  var totalItems=0,doneItems=0;
+  ['fabric','trim','pattern'].forEach(function(mat){
+    totalItems+=3; // 발주/도착/픽업
+    if(checks[mat])doneItems++;
+    if(arrChks[mat])doneItems++;
+    if(pkChks[mat])doneItems++;
+  });
+  totalItems+=2; // 샘플 작지 + 패턴 작지
+  if(instrChks.sample||checks.sewInstr)doneItems++;
+  if(instrChks.pattern||checks.patternInstr)doneItems++;
+  var progress=Math.round(doneItems/totalItems*100);
   
-  // 체크리스트
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:10px">';
-  for(var ci=0;ci<SAMPLE_CHECKLIST.length;ci++){
-    var c=SAMPLE_CHECKLIST[ci];
-    var done=!!checks[c.key];
-    html+='<label style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:'+(done?'var(--bg2)':'transparent')+';border:1px solid '+(done?'transparent':'var(--bd)')+';border-radius:5px;cursor:pointer;font-size:12px"><input type="checkbox" '+(done?'checked':'')+' onchange="toggleSampleCheck(\''+so.id+'\',\''+c.key+'\')" style="width:14px;height:14px"><span style="'+(done?'text-decoration:line-through;color:var(--t2)':'')+'">'+c.icon+' '+c.label+'</span></label>';
-  }
+  // 헤더 + 진행률
+  html+='<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:10px;color:var(--t2);font-weight:600">진행률</span><span style="font-size:11px;font-weight:700">'+doneItems+'/'+totalItems+' ('+progress+'%)</span></div><div style="height:6px;background:var(--bg2);border-radius:3px;overflow:hidden"><div style="height:100%;width:'+progress+'%;background:'+stData.color+';transition:width .3s"></div></div></div>';
+  
+  // 📦 자재 준비 (3열 카드)
+  var materials=[
+    {key:'fabric',label:'🧵 원단',supplier:so.fabricSupplier||'',hasMat:true},
+    {key:'trim',label:'🪡 부자재',supplier:so.trimSupplier||'',hasMat:true},
+    {key:'pattern',label:'✂ 패턴',supplier:so.patternMaker||'',hasMat:true,isPattern:true}
+  ];
+  html+='<div style="font-size:11px;font-weight:600;color:var(--t1);margin-bottom:6px">📦 자재 준비</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:12px">';
+  materials.forEach(function(m){
+    var ordered=!!checks[m.key];
+    var arrived=!!arrChks[m.key];
+    var pickedUp=!!pkChks[m.key];
+    var expDate=expArrivalDates[m.key]||(m.isPattern?so.patternArrivalDate:'')||'';
+    
+    html+='<div style="border:1px solid var(--bd);border-radius:6px;padding:8px 10px;background:'+(pickedUp?'#dcfce7':ordered?'var(--bg)':'var(--bg2)')+'">';
+    html+='<div style="font-size:11px;font-weight:700;margin-bottom:2px">'+m.label+'</div>';
+    if(m.supplier)html+='<div style="font-size:10px;color:var(--t2);margin-bottom:6px">'+esc(m.supplier)+'</div>';
+    else html+='<div style="font-size:10px;color:var(--t3);margin-bottom:6px;font-style:italic">거래처 미설정</div>';
+    
+    // 3단계 체크박스
+    var stages=m.isPattern
+      ?[{key:'order',label:'투입',done:ordered},{key:'arrival',label:'도착확인',done:arrived},{key:'pickup',label:'픽업',done:pickedUp}]
+      :[{key:'order',label:'발주',done:ordered},{key:'arrival',label:'도착확인',done:arrived},{key:'pickup',label:'픽업',done:pickedUp}];
+    stages.forEach(function(st){
+      html+='<div style="display:flex;align-items:center;gap:5px;font-size:11px;padding:2px 0;cursor:pointer" onclick="toggleSampleStage(\''+so.id+'\',\''+m.key+'\',\''+st.key+'\')">';
+      html+='<span style="font-size:13px">'+(st.done?'✅':'⏳')+'</span>';
+      html+='<span style="'+(st.done?'color:var(--t2)':'')+'">'+st.label+'</span>';
+      html+='</div>';
+    });
+    
+    // 도착예정일 입력 (발주됐고 픽업 안 됐을 때만)
+    if(ordered&&!pickedUp){
+      html+='<div style="margin-top:6px"><input type="date" value="'+expDate+'" onchange="setSampleExpectedArrival(\''+so.id+'\',\''+m.key+'\',this.value)" style="font-size:10px;padding:2px 5px;width:100%" placeholder="도착 예정일"></div>';
+      if(expDate){
+        var d=new Date(expDate),tdy=new Date(todayISO());
+        var diff=Math.ceil((d-tdy)/86400000);
+        var dt=diff===0?'오늘':diff===1?'내일':diff<0?Math.abs(diff)+'일 지남':'D-'+diff;
+        var dCol=diff<0?'#dc2626':diff<=1?'#d97706':'var(--t2)';
+        html+='<div style="font-size:9px;color:'+dCol+';margin-top:2px;text-align:right">'+dt+'</div>';
+      }
+    }
+    html+='</div>';
+  });
   html+='</div>';
-  // 패턴 투입 체크되면 패턴 입고 예정일 입력란
-  if(checks.pattern){
-    html+='<div style="display:flex;align-items:center;gap:7px;padding:6px 9px;background:#fef3c7;border:0.5px solid #fcd34d;border-radius:6px;margin-bottom:10px;font-size:11px">'
-      +'<span style="font-weight:600;color:#92400e">✂ 패턴 입고 예정일</span>'
-      +'<input type="date" value="'+(so.patternArrivalDate||'')+'" onchange="updateSampleField(\''+so.id+'\',\'patternArrivalDate\',this.value)" style="font-size:11px;padding:3px 7px;flex:1;max-width:160px">'
-      +(so.patternArrivalDate?'<span style="color:#92400e;font-size:10px">('+(function(){var d=new Date(so.patternArrivalDate);var tdy=new Date(todayISO());var diff=Math.ceil((d-tdy)/86400000);return diff===0?'오늘':diff===1?'내일':diff<0?'지남':'D-'+diff;})()+')</span>':'<span style="color:#92400e;opacity:.6;font-size:10px">패턴 언제 받을지</span>')
-      +'</div>';
-  }
-  // 다음 섹션 위해 div 비움 (이미 패턴 입고일 div 닫혀있음)
   
-  // 상태 변경
-  html+='<div style="margin-top:10px"><div style="font-size:11px;font-weight:600;margin-bottom:5px">상태 변경</div><div class="fr" style="gap:4px;flex-wrap:wrap">';
+  // 📝 작업지시서
+  var sampleInstrDone=!!(instrChks.sample||checks.sewInstr);
+  var patternInstrDone=!!(instrChks.pattern||checks.patternInstr);
+  html+='<div style="font-size:11px;font-weight:600;color:var(--t1);margin-bottom:6px">📝 작업지시서</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+  html+='<div onclick="toggleSampleInstr(\''+so.id+'\',\'sample\')" style="border:1px solid var(--bd);border-radius:6px;padding:8px 10px;background:'+(sampleInstrDone?'#dcfce7':'var(--bg2)')+';cursor:pointer;text-align:center;font-size:12px;font-weight:600">'+(sampleInstrDone?'✅':'☐')+' 샘플 작지</div>';
+  html+='<div onclick="toggleSampleInstr(\''+so.id+'\',\'pattern\')" style="border:1px solid var(--bd);border-radius:6px;padding:8px 10px;background:'+(patternInstrDone?'#dcfce7':'var(--bg2)')+';cursor:pointer;text-align:center;font-size:12px;font-weight:600">'+(patternInstrDone?'✅':'☐')+' 패턴 작지</div>';
+  html+='</div>';
+  
+  // 🏭 봉제공장 전달 박스 (모든 자재 픽업 + 작지 2개 완료 시 활성화)
+  var allPicked=pkChks.fabric&&pkChks.trim&&pkChks.pattern;
+  var allInstr=sampleInstrDone&&patternInstrDone;
+  var allReady=allPicked&&allInstr;
+  var alreadyShipped=so.factoryShippedAt||so.status==='sentToFactory'||so.status==='received'||so.status==='confirmed';
+  var matCount=(pkChks.fabric?1:0)+(pkChks.trim?1:0)+(pkChks.pattern?1:0);
+  var instrCount=(sampleInstrDone?1:0)+(patternInstrDone?1:0);
+  
+  if(!alreadyShipped){
+    if(allReady){
+      // 🎉 노란 박스: 발송 준비됨
+      html+='<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:10px;padding:14px;margin-top:10px">';
+      html+='<div style="font-size:14px;font-weight:700;color:#854f0b;margin-bottom:6px">🎉 자재 + 작지 모두 준비됨!</div>';
+      html+='<div style="font-size:12px;color:#92400e;margin-bottom:10px">봉제공장에 택배를 보낼 차례예요. 어디서 보낼까요?</div>';
+      html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+      html+='<button class="btn p" onclick="markFactoryShipped(\''+so.id+'\',\'office\')" style="background:#92400e;color:#fff;font-weight:600">📋 사무실에서 보냄</button>';
+      html+='<button class="btn p" onclick="markFactoryShipped(\''+so.id+'\',\'market\')" style="background:#854f0b;color:#fff;font-weight:600">🏪 시장에서 보냄</button>';
+      html+='</div></div>';
+    }else{
+      // 회색 박스: 대기 중
+      html+='<div style="background:var(--bg2);border:1px dashed var(--bd);border-radius:8px;padding:10px 14px;margin-top:10px">';
+      html+='<div style="font-size:12px;font-weight:600;color:var(--t2);margin-bottom:4px">🏭 봉제공장 전달 (대기)</div>';
+      html+='<div style="font-size:11px;color:var(--t2)">자재 '+matCount+'/3 · 작지 '+instrCount+'/2 → 모두 완료되어야 발송 가능</div>';
+      html+='</div>';
+    }
+  }else{
+    html+='<div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:10px 14px;margin-top:10px">';
+    html+='<div style="font-size:12px;font-weight:600;color:#166534">✅ 봉제공장 전달 완료'+(so.factoryShipMethod==='office'?' (사무실)':so.factoryShipMethod==='market'?' (시장)':'')+(so.factoryShippedAt?' · '+so.factoryShippedAt:'')+'</div>';
+    html+='</div>';
+  }
+  
+  // 상태 변경 (간소화 - 컨펌/수정 위주)
+  html+='<div style="margin-top:14px"><div style="font-size:11px;font-weight:600;margin-bottom:5px">상태 직접 변경</div><div class="fr" style="gap:4px;flex-wrap:wrap">';
   for(var si=0;si<SAMPLE_STATUS.length;si++){
     var s=SAMPLE_STATUS[si];
     html+='<button class="btn s" onclick="setSampleStatus(\''+so.id+'\',\''+s.key+'\')" style="font-size:10px;padding:3px 7px;background:'+(so.status===s.key?s.color:'var(--bg)')+';color:'+(so.status===s.key?'#fff':'var(--t2)')+';border-color:'+(so.status===s.key?s.color:'var(--bd)')+'">'+s.label+'</button>';
   }
   html+='</div></div>';
   return html;
+}
+
+// === 새 진행 보드 헬퍼 함수들 ===
+function toggleSampleStage(soId,matKey,stage){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  if(stage==='order'){
+    // 발주/투입 — 기존 checklist와 동기화
+    if(!so.checklist)so.checklist={};
+    so.checklist[matKey]=!so.checklist[matKey];
+    // 발주 ✓ 시 자동 픽업 생성 (기존 로직 활용)
+    if(so.checklist[matKey]&&typeof createSamplePickup==='function'){
+      try{createSamplePickup(so,matKey);}catch(e){}
+    }
+  }else if(stage==='arrival'){
+    if(!so.arrivalChecks)so.arrivalChecks={};
+    if(so.arrivalChecks[matKey])delete so.arrivalChecks[matKey];
+    else so.arrivalChecks[matKey]=todayISO();
+  }else if(stage==='pickup'){
+    if(!so.pickupChecks)so.pickupChecks={};
+    if(so.pickupChecks[matKey])delete so.pickupChecks[matKey];
+    else so.pickupChecks[matKey]=todayISO();
+  }
+  // 진행률에 따라 상태 자동 업데이트
+  updateSampleAutoStatus(so);
+  saveData();
+  renderSamplePane();
+}
+
+function toggleSampleInstr(soId,kind){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  if(!so.instrChecks)so.instrChecks={};
+  if(so.instrChecks[kind])delete so.instrChecks[kind];
+  else so.instrChecks[kind]=todayISO();
+  // 기존 checklist와 동기화
+  if(!so.checklist)so.checklist={};
+  if(kind==='sample')so.checklist.sewInstr=!!so.instrChecks.sample;
+  if(kind==='pattern')so.checklist.patternInstr=!!so.instrChecks.pattern;
+  updateSampleAutoStatus(so);
+  saveData();
+  renderSamplePane();
+}
+
+function setSampleExpectedArrival(soId,matKey,dateStr){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  if(!so.expectedArrivalDates)so.expectedArrivalDates={};
+  so.expectedArrivalDates[matKey]=dateStr;
+  // 패턴은 기존 patternArrivalDate와 동기화
+  if(matKey==='pattern')so.patternArrivalDate=dateStr;
+  saveData();
+}
+
+function markFactoryShipped(soId,location){
+  var so=getSampleOrders().find(function(s){return s.id===soId;});
+  if(!so)return;
+  so.factoryShippedAt=todayISO();
+  so.factoryShipMethod=location; // 'office' or 'market'
+  so.status='sentToFactory';
+  so.statusChangedAt=todayISO();
+  saveData();
+  if(typeof renderSamplePane==='function')renderSamplePane();
+  if(typeof renderTasksPane==='function')renderTasksPane();
+  showToast('🚚 봉제공장에 전달 완료! ('+(location==='office'?'사무실':'시장')+')');
+}
+
+function updateSampleAutoStatus(so){
+  // 진행률 기반 상태 자동
+  if(so.factoryShippedAt&&so.status!=='received'&&so.status!=='confirmed'){
+    so.status='sentToFactory';return;
+  }
+  var ck=so.checklist||{};
+  var arr=so.arrivalChecks||{};
+  var pk=so.pickupChecks||{};
+  var anyDone=ck.fabric||ck.trim||ck.pattern||ck.sewInstr||ck.patternInstr||arr.fabric||arr.trim||pk.fabric||pk.trim;
+  var allDone=pk.fabric&&pk.trim&&pk.pattern&&ck.sewInstr&&ck.patternInstr;
+  if(so.status==='prep'&&anyDone)so.status='progress';
+  if(allDone&&so.status==='progress'){
+    // 발송 대기 (아직 status는 progress 유지, 사용자가 발송 누를 때 sentToFactory로)
+  }
 }
 
 function renderSampleMemoSub(so){
@@ -7870,10 +8233,259 @@ function quickPickupDone(pid){
   showToast(msg);
 }
 
+// === 보기 모드 토글 헬퍼 ===
+function setTaskViewMode(mode){
+  window._taskViewMode=mode;
+  renderTasksPane();
+}
+
+function getTaskViewToggleHTML(){
+  var modes=[
+    {key:'brand',label:'🎯 브랜드별'},
+    {key:'category',label:'📋 카테고리별'},
+    {key:'time',label:'⏰ 시간순'}
+  ];
+  var cur=window._taskViewMode||'brand';
+  return '<div style="display:flex;gap:5px;padding:8px 14px;border-bottom:1px solid var(--bd);background:var(--bg2);overflow-x:auto">'+
+    modes.map(function(m){
+      var on=cur===m.key;
+      return '<button class="btn s" onclick="setTaskViewMode(\''+m.key+'\')" style="font-size:11px;padding:4px 10px;background:'+(on?'var(--blue)':'var(--bg)')+';color:'+(on?'#fff':'var(--t1)')+';border-color:'+(on?'var(--blue)':'var(--bd)')+';font-weight:'+(on?'700':'500')+';flex-shrink:0">'+m.label+'</button>';
+    }).join('')
+  +'</div>';
+}
+
+// 태스크 → 카테고리 분류 (급한/사무실/시장/결제/원가/기타)
+function categorizeTask(t){
+  if(t.priority==='urgent'||t.priority==='today')return 'urgent';
+  if(t.autoType==='payment_check'||t.name&&t.name.indexOf('결제')>=0)return 'payment';
+  if(t.name&&(t.name.indexOf('원가')>=0||t.name.indexOf('단가')>=0))return 'cost';
+  if(t.location==='market'||t.name&&t.name.indexOf('시장')>=0)return 'market';
+  if(t.location==='office'||t.location==='phone'||t.type==='사무'||t.type==='전화')return 'office';
+  return 'other';
+}
+
+var TASK_CATEGORIES=[
+  {key:'urgent',label:'🔴 급한',color:'#dc2626',bg:'#fee2e2'},
+  {key:'office',label:'📋 사무실',color:'#0284c7',bg:'#dbeafe'},
+  {key:'market',label:'🏪 시장',color:'#16a34a',bg:'#dcfce7'},
+  {key:'payment',label:'💰 결제',color:'#a16207',bg:'#fef3c7'},
+  {key:'cost',label:'💵 원가',color:'#15803d',bg:'#dcfce7'},
+  {key:'other',label:'📌 기타',color:'#64748b',bg:'#f1f5f9'}
+];
+
+// 브랜드별 보기
+function renderTasksPaneByBrand(){
+  var manual=getTasks();
+  var auto=generateAutoTasks();
+  var all=[...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';});
+  var brands=getBrands();
+  
+  var html=getTaskViewToggleHTML();
+  html+='<div style="padding:10px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">📋 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
+  
+  // 브랜드별로 분류
+  var byBrand={};
+  all.forEach(function(t){
+    var brandId=t.brandId||(t.itemId&&S.items[t.itemId]?S.items[t.itemId].brandId:'')||'_none';
+    if(!byBrand[brandId])byBrand[brandId]=[];
+    byBrand[brandId].push(t);
+  });
+  
+  // 브랜드 카드 렌더링
+  function renderBrandSection(brandId,tasks){
+    var brand=brandId==='_none'?null:brands.find(function(b){return b.id===brandId;});
+    var brandName=brand?brand.name:'기타 (브랜드 없음)';
+    var brandColor=brand?brand.color:'#94a3b8';
+    // 카테고리별 그룹
+    var byCat={};
+    tasks.forEach(function(t){
+      var cat=categorizeTask(t);
+      if(!byCat[cat])byCat[cat]=[];
+      byCat[cat].push(t);
+    });
+    var h='<div style="margin-bottom:14px;border:1px solid var(--bd);border-radius:8px;overflow:hidden">';
+    h+='<div style="background:'+brandColor+'22;color:'+brandColor+';padding:8px 12px;font-weight:700;font-size:13px;border-left:4px solid '+brandColor+'">'+esc(brandName)+' <span style="font-weight:400;font-size:11px;opacity:.8">('+tasks.length+'건)</span></div>';
+    TASK_CATEGORIES.forEach(function(cat){
+      var catTasks=byCat[cat.key]||[];
+      if(!catTasks.length)return;
+      h+='<div style="padding:6px 12px;font-size:11px;font-weight:600;color:'+cat.color+';background:'+cat.bg+'22;border-top:1px solid var(--bd)">'+cat.label+' ('+catTasks.length+')</div>';
+      catTasks.forEach(function(t){
+        h+=renderTaskRow(t);
+      });
+    });
+    h+='</div>';
+    return h;
+  }
+  
+  // 브랜드 순서: 활성 브랜드 → _none
+  var brandOrder=brands.map(function(b){return b.id;}).filter(function(bid){return byBrand[bid];});
+  if(byBrand['_none'])brandOrder.push('_none');
+  
+  if(!brandOrder.length){
+    html+='<div style="padding:30px;text-align:center;color:var(--t2)"><div style="font-size:30px;margin-bottom:8px">✨</div><div>할 일이 없어요!</div></div>';
+  }else{
+    brandOrder.forEach(function(bid){
+      html+=renderBrandSection(bid,byBrand[bid]);
+    });
+  }
+  
+  // 빠른 추가
+  html+='<div style="margin-top:14px;padding:10px 12px;background:var(--bg2);border-radius:8px"><div style="font-size:11px;font-weight:600;margin-bottom:6px">➕ 빠른 추가</div>';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="new-task-name" placeholder="할 일 내용..." style="flex:1;min-width:140px;font-size:12px;padding:6px 8px"><select id="new-task-pri" style="font-size:11px;padding:5px"><option value="urgent">🔴 급한</option><option value="today" selected>🟠 오늘</option><option value="tomorrow">🟡 내일</option><option value="week">🟢 이번주</option></select><select id="new-task-type" style="font-size:11px;padding:5px"><option value="기타">기타</option><option value="전화">전화</option><option value="사무">사무</option><option value="미팅">미팅</option><option value="픽업">픽업</option></select><select id="new-task-loc" style="font-size:11px;padding:5px"><option value="">위치</option><option value="office">사무실</option><option value="market">시장</option><option value="phone">전화</option></select><select id="new-task-brand" style="font-size:11px;padding:5px"><option value="">브랜드</option>'+brands.map(function(b){return '<option value="'+b.id+'">'+esc(b.name)+'</option>';}).join('')+'</select><input id="new-task-item" type="hidden"><button class="btn p" onclick="addTaskQuick()" style="font-size:11px;padding:5px 10px">추가</button></div></div>';
+  
+  html+='</div>';
+  var el=document.getElementById('tasks-body');
+  if(el)el.innerHTML=html;
+}
+
+// 카테고리별 보기
+function renderTasksPaneByCategory(){
+  var manual=getTasks();
+  var auto=generateAutoTasks();
+  var all=[...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';});
+  
+  var html=getTaskViewToggleHTML();
+  html+='<div style="padding:10px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">📋 카테고리별 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
+  
+  // 카테고리별로 분류
+  var byCat={};
+  all.forEach(function(t){
+    var cat=categorizeTask(t);
+    if(!byCat[cat])byCat[cat]=[];
+    byCat[cat].push(t);
+  });
+  
+  TASK_CATEGORIES.forEach(function(cat){
+    var catTasks=byCat[cat.key]||[];
+    if(!catTasks.length)return;
+    html+='<div style="margin-bottom:14px;border:1px solid var(--bd);border-radius:8px;overflow:hidden">';
+    html+='<div style="background:'+cat.bg+';color:'+cat.color+';padding:8px 12px;font-weight:700;font-size:13px">'+cat.label+' <span style="font-weight:400;font-size:11px">('+catTasks.length+'건)</span></div>';
+    catTasks.forEach(function(t){
+      html+=renderTaskRow(t);
+    });
+    html+='</div>';
+  });
+  
+  if(!all.length){
+    html+='<div style="padding:30px;text-align:center;color:var(--t2)"><div style="font-size:30px;margin-bottom:8px">✨</div><div>할 일이 없어요!</div></div>';
+  }
+  
+  html+='</div>';
+  var el=document.getElementById('tasks-body');
+  if(el)el.innerHTML=html;
+}
+
+function renderRoutePane(){
+  var el=document.getElementById('route-body');
+  if(!el)return;
+  if(!S.pickups)S.pickups=[];
+  
+  var todayStr=todayISO();
+  var pickups=S.pickups.filter(function(p){return p.status!=='pickedUp'&&p.status!=='delivered'&&p.status!=='canceled';});
+  
+  if(!pickups.length){
+    el.innerHTML='<div style="padding:20px;text-align:center;color:var(--t2)"><div style="font-size:30px;margin-bottom:8px">🗺</div><div>대기 중인 픽업이 없어요</div><div style="font-size:11px;margin-top:6px">샘플 발주하거나 PO 발송하면 자동으로 픽업이 추가됩니다</div></div>';
+    return;
+  }
+  
+  // 시장→동→층별 그룹핑
+  var groups={};
+  pickups.forEach(function(p){
+    var pb=S.priceBook&&S.priceBook[p.supplierName];
+    var market=(pb&&pb.market)||'기타';
+    var building=(pb&&pb.building)||'미입력';
+    var floor=(pb&&pb.floor)||'';
+    var key=market+'|'+building+'|'+floor;
+    if(!groups[key])groups[key]={market:market,building:building,floor:floor,items:[]};
+    groups[key].items.push(p);
+  });
+  
+  // 시장별로 다시 묶기
+  var byMarket={};
+  Object.values(groups).forEach(function(g){
+    if(!byMarket[g.market])byMarket[g.market]=[];
+    byMarket[g.market].push(g);
+  });
+  
+  var html='<div style="padding:0 12px">';
+  html+='<div style="font-size:13px;font-weight:700;margin-bottom:8px">🗺 픽업 동선 <span style="font-weight:400;color:var(--t2);font-size:11px">('+pickups.length+'건)</span></div>';
+  
+  Object.keys(byMarket).sort().forEach(function(market){
+    var grps=byMarket[market];
+    var totalInMarket=grps.reduce(function(s,g){return s+g.items.length;},0);
+    html+='<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;color:#854f0b;background:#fef3c7;padding:6px 10px;border-radius:6px;margin-bottom:6px">🏪 '+esc(market)+' ('+totalInMarket+'건)</div>';
+    
+    // 동·층별
+    grps.sort(function(a,b){return (a.building+a.floor).localeCompare(b.building+b.floor);});
+    grps.forEach(function(g){
+      var subTitle=(g.building&&g.building!=='미입력'?esc(g.building):'')+(g.floor?' '+esc(g.floor):'');
+      if(subTitle){
+        html+='<div style="font-size:11px;font-weight:600;color:var(--t2);padding:3px 10px 3px 14px;margin-top:6px">└─ '+subTitle+' ('+g.items.length+'건)</div>';
+      }
+      g.items.forEach(function(p){
+        // "왜 가는지" 정보
+        var whyInfo='';
+        var brandName='';
+        if(p.itemId&&S.items[p.itemId]){
+          var it=S.items[p.itemId];
+          if(it.brandId){
+            var brand=getBrands().find(function(b){return b.id===it.brandId;});
+            if(brand)brandName=brand.name;
+          }
+          whyInfo=esc(it.name);
+        }
+        // 샘플인지 메인 발주인지
+        var sourceLabel='';
+        if(p._sampleId){
+          var so=getSampleOrders().find(function(s){return s.id===p._sampleId;});
+          if(so)sourceLabel=esc(so.name);
+        }else if(p._fromOrderId){
+          var o=S.orders[p._fromOrderId];
+          if(o)sourceLabel='['+esc(o.name||'발주')+']';
+        }
+        
+        var typeIcon=p.type==='원단'||p.type==='샘플감'?'🧵':p.type==='부자재'||p.type==='심지'?'🪡':p.type==='패턴'?'✂':'📦';
+        var typeBg=p.type==='원단'||p.type==='샘플감'?'#e0e7ff':p.type==='부자재'||p.type==='심지'?'#fef9c3':p.type==='패턴'?'#f3e8ff':'#f0f9ff';
+        var typeColor=p.type==='원단'||p.type==='샘플감'?'#3730a3':p.type==='부자재'||p.type==='심지'?'#854f0b':p.type==='패턴'?'#6b21a8':'#0c4a6e';
+        
+        var timeStr=p.expectedDate?(p.expectedDate===todayStr?'오늘':p.expectedDate)+(p.expectedTime?' '+p.expectedTime:''):'';
+        
+        html+='<div style="margin:6px 12px;padding:9px 12px;background:var(--bg);border:1px solid var(--bd);border-radius:8px">';
+        html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
+        html+='<div style="flex:1;min-width:0">';
+        html+='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-size:11px;padding:2px 7px;border-radius:5px;background:'+typeBg+';color:'+typeColor+';font-weight:600">'+typeIcon+' '+esc(p.type||'')+'</span><span style="font-weight:700;font-size:13px">'+esc(p.supplierName||'')+'</span></div>';
+        if(timeStr)html+='<div style="font-size:11px;color:var(--t2);margin-top:3px">📅 '+timeStr+'</div>';
+        if(brandName||whyInfo||sourceLabel){
+          html+='<div style="font-size:10px;color:var(--t2);margin-top:4px;line-height:1.4">';
+          if(brandName)html+='<span style="background:'+(getBrands().find(function(b){return b.name===brandName;})||{color:'#999'}).color+'22;color:'+(getBrands().find(function(b){return b.name===brandName;})||{color:'#666'}).color+';padding:1px 6px;border-radius:4px;font-weight:600">'+esc(brandName)+'</span> ';
+          if(whyInfo)html+='📦 '+whyInfo+' ';
+          if(sourceLabel)html+=sourceLabel;
+          html+='</div>';
+        }
+        if(p.notes)html+='<div style="font-size:10px;color:var(--t2);margin-top:3px">'+esc(p.notes)+'</div>';
+        html+='</div>';
+        html+='<button class="btn s ok" onclick="quickPickupDone(\''+p.id+'\')" style="padding:3px 9px;font-size:11px;flex-shrink:0">✓ 픽업완료</button>';
+        html+='</div></div>';
+      });
+    });
+    html+='</div>';
+  });
+  
+  html+='</div>';
+  el.innerHTML=html;
+}
+
 function renderTasksPane(){
+  // 보기 모드 (브랜드별/카테고리별/시간순)
+  if(!window._taskViewMode)window._taskViewMode='brand';
+  if(window._taskViewMode==='brand'){renderTasksPaneByBrand();return;}
+  if(window._taskViewMode==='category'){renderTasksPaneByCategory();return;}
+  
   const manual=getTasks();
   const auto=generateAutoTasks();
-  const all=[...auto,...manual];
+  // 동선 탭으로 이동된 픽업 태스크는 제외
+  const allRaw=[...auto,...manual];
+  const all=allRaw.filter(function(t){return t.type!=='픽업'&&t.autoType!=='pickup';});
   const undone=all.filter(t=>!t.done);
   const done=all.filter(t=>t.done);
   
@@ -8020,6 +8632,71 @@ function renderTasksPane(){
   }
 }
 
+function sendArrivalCheckMessage(taskId){
+  // 해당 자동 태스크의 정보 찾기
+  var auto=generateAutoTasks();
+  var t=auto.find(function(x){return x.id===taskId;});
+  if(!t){showToast('태스크 정보를 찾을 수 없어요');return;}
+  // 자재명 추출 (link로 sample 조회 → 첫 fabric/trim 이름)
+  var so=null;
+  if(t.link&&t.link.type==='sample'){
+    so=getSampleOrders().find(function(s){return s.id===t.link.id;});
+  }
+  var matName='자재';
+  if(so&&t.link.checkType==='fabric'){
+    var it=so.itemId?S.items[so.itemId]:null;
+    if(it&&it.fabrics&&it.fabrics[0])matName=it.fabrics[0].name||'원단';
+  }else if(so&&t.link.checkType==='trim'){
+    var it2=so.itemId?S.items[so.itemId]:null;
+    if(it2&&it2.trims&&it2.trims[0])matName=it2.trims[0].name||'부자재';
+  }
+  // 기본 메시지
+  var defaultMsg='안녕하세요 '+matName+' 올라왔나요?';
+  // 수정 모달
+  var customMsg=prompt('📩 카톡 메시지 (수정 가능):',defaultMsg);
+  if(customMsg===null)return; // 취소
+  if(!customMsg.trim())return;
+  
+  // Web Share API 시도 (맥/아이폰)
+  if(navigator.share){
+    navigator.share({
+      title:'자재 도착 확인',
+      text:customMsg
+    }).then(function(){
+      showToast('✅ 공유 완료!');
+    }).catch(function(e){
+      // 공유 취소되면 클립보드로 폴백
+      if(e.name!=='AbortError'){
+        navigator.clipboard.writeText(customMsg).then(function(){
+          showToast('📋 메시지 복사됨! 카톡 열어서 붙여넣으세요');
+        });
+      }
+    });
+  }else{
+    // 폴백: 클립보드 복사
+    navigator.clipboard.writeText(customMsg).then(function(){
+      showToast('📋 메시지 복사됨! 카톡 열어서 붙여넣으세요');
+    }).catch(function(){
+      alert('복사 실패. 직접 복사하세요:\n\n'+customMsg);
+    });
+  }
+}
+
+function markSampleArrivalConfirmed(taskId){
+  var auto=generateAutoTasks();
+  var t=auto.find(function(x){return x.id===taskId;});
+  if(!t||!t.link||t.link.type!=='sample')return;
+  var so=getSampleOrders().find(function(s){return s.id===t.link.id;});
+  if(!so){showToast('샘플을 찾을 수 없어요');return;}
+  if(!so.arrivalChecks)so.arrivalChecks={};
+  so.arrivalChecks[t.link.checkType]=todayISO();
+  saveData();
+  if(typeof renderTasksPane==='function')renderTasksPane();
+  if(typeof renderSamplePane==='function')renderSamplePane();
+  var matLabel=t.link.checkType==='fabric'?'원단':'부자재';
+  showToast('✅ '+matLabel+' 도착확인! 픽업 일정을 잡으세요');
+}
+
 function renderTaskRow(t){
   const isAuto=t.auto;
   // 아이템 정보
@@ -8037,6 +8714,7 @@ function renderTaskRow(t){
     <div class="task-meta">
       ${isAuto?'<span class="task-badge auto">자동</span>':''}
       <span class="task-badge">${esc(t.type||'기타')}</span>
+      ${t.autoType==='sample_arrival_check'?`<button class="btn s" onclick="event.stopPropagation();sendArrivalCheckMessage('${t.id}')" style="padding:2px 7px;font-size:10px;background:#fef3c7;color:#92400e;border-color:#fde68a" title="카톡으로 보내기">📩 카톡</button><button class="btn s ok" onclick="event.stopPropagation();markSampleArrivalConfirmed('${t.id}')" style="padding:2px 7px;font-size:10px">✅ 도착함</button>`:''}
       ${isAuto?'':'<button class="btn s" onclick="event.stopPropagation();editTaskManual(\''+t.id+'\')" style="padding:2px 6px;font-size:10px" title="수정">✎</button>'}
       ${isAuto?'':'<button class="btn s d" onclick="event.stopPropagation();deleteTaskManual(\''+t.id+'\')" style="padding:2px 6px;font-size:10px">×</button>'}
     </div>
@@ -8756,15 +9434,76 @@ async function initApp(){
   await initAppMain();
 }
 
+// Firebase 로그인 상태가 확정될 때까지 잠깐 기다리는 헬퍼.
+// SDK가 늦게 로드될 수도, onAuthStateChanged가 늦게 발화할 수도 있으므로
+// 최대 timeoutMs(기본 2초)까지만 기다리고 진행한다.
+function waitForFirebaseAuth(timeoutMs){
+  return new Promise(function(resolve){
+    var done=false;
+    function finish(){if(done)return;done=true;resolve();}
+    setTimeout(finish, timeoutMs||2000);
+    // SDK가 아직 안 올라왔으면 100ms 간격으로 폴링
+    var poll=setInterval(function(){
+      if(!window.fbReady)return;
+      clearInterval(poll);
+      if(!window.fbAuth){finish();return;}
+      // 이미 로그인된 사용자가 있으면 즉시 끝
+      if(window.fbAuth.currentUser){
+        window.fbUser=window.fbAuth.currentUser;
+        finish();return;
+      }
+      // 아니면 첫 onAuthStateChanged 콜백을 기다림
+      var unsub=window.fbAuth.onAuthStateChanged(function(user){
+        try{unsub();}catch(e){}
+        finish();
+      });
+    }, 100);
+  });
+}
+
 async function initAppMain(){
   companies=lsGet('fpm_cos')||{};
   const last=_ls?localStorage.getItem('fpm_last'):null;
+
+  // 1) Firebase 로그인 상태가 확정될 때까지 잠깐 기다린다.
+  await waitForFirebaseAuth(2000);
+
+  // 2) 로그인되어 있으면 클라우드에서 회사 목록을 먼저 가져온다.
+  //    (다른 기기에서 만든 회사가 있을 수 있음)
+  if(isCloudOn()){
+    try{
+      const cloudCos=await cloudGet('fpm_cos');
+      if(cloudCos && Object.keys(cloudCos).length>0){
+        // 로컬과 클라우드 회사 목록을 합친다 (cloud 우선).
+        companies={...companies, ...cloudCos};
+        lsSet('fpm_cos', companies);
+      }
+    }catch(e){console.warn('클라우드 회사 목록 가져오기 실패:', e);}
+  }
+
   const ids=Object.keys(companies);
-  if(!ids.length){document.getElementById('add-co-modal').style.display='flex';return;}
+
+  // 3) 회사가 아예 없는 경우: 로그인이 먼저인지 등록이 먼저인지 결정한다.
+  if(!ids.length){
+    if(window.fbReady && !window.fbUser){
+      // 로그인 안 된 새 기기 — 등록 대신 로그인 모달을 먼저 보여준다.
+      showModal('cloud-modal');
+      setTimeout(updateCloudModal, 50);
+      setCloudInd('off');
+    }else{
+      // 로그인은 됐는데 클라우드에도 회사가 없음 → 등록
+      document.getElementById('add-co-modal').style.display='flex';
+    }
+    return;
+  }
+
+  // 4) 회사가 있으면 평소대로 진행.
   curCoId=(last&&companies[last])?last:ids[0];
   loadCoData(curCoId);renderCoSel();render();
   const el=document.getElementById('save-ind');if(el)el.textContent='💾 자동 저장됨';
   if(!_ls){showToast('⚠ 사파리 로컬 모드: 클라우드 연동을 설정하면 데이터가 유지됩니다.',6000);}
+
+  // 5) 현재 회사 데이터를 클라우드에서 동기화.
   if(isCloudOn()){
     setCloudInd('sync');
     cloudSyncLoad(curCoId).then(changed=>{if(changed){renderCoSel();render();}setCloudInd('ok');}).catch(()=>setCloudInd('err'));
