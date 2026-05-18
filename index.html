@@ -297,6 +297,7 @@ tryInitFirebase();
   <button id="cloud-btn" class="btn s" onclick="showModal('cloud-modal');setTimeout(updateCloudModal,50)" title="클라우드 동기화">☁ 연동</button>
   <button class="btn s" onclick="forceCloudRefresh()" title="클라우드에서 최신 데이터 가져오기">🔄 새로고침</button>
   <button class="btn s" onclick="exportData()" title="데이터 백업">↓ 백업</button>
+  <button class="btn s" onclick="openRecoveryTool()" title="데이터 복구 도구" style="background:#fef3c7;color:#854f0b;border-color:#fde68a">🚑 복구</button>
   <button class="btn s" onclick="document.getElementById('restore-file-input').click()" title="JSON 파일로 복원">↑ 복원</button>
   <input type="file" id="restore-file-input" accept=".json,application/json" style="position:absolute;left:-9999px;opacity:0" onchange="importData(this.files[0]);this.value=null">
   <button class="btn s" onclick="showModal('manual-restore-modal')" title="JSON 붙여넣기로 복원">📋 수동복원</button>
@@ -969,6 +970,263 @@ async function cloudSyncSave(){
     setCloudInd('err');
   }
 }
+async function openRecoveryTool(){
+  // 데이터 복구 도구 — 사용자가 콘솔 명령 안 치고도 진단/복구할 수 있게
+  
+  // 1) 일단 현재 상태를 자동 다운로드 (안전망)
+  try{
+    var snapshot={
+      ts:new Date().toISOString(),
+      localStorage:{},
+      memory:{
+        items:Object.keys(S.items||{}).length,
+        orders:Object.keys(S.orders||{}).length,
+        brands:(S.brands||[]).length,
+        sampleOrders:(S.sampleOrders||[]).length,
+        pickups:(S.pickups||[]).length,
+        curCoId:curCoId,
+        companies:companies
+      }
+    };
+    Object.keys(localStorage).filter(function(k){return k.indexOf('fpm_')===0;}).forEach(function(k){
+      snapshot.localStorage[k]=localStorage.getItem(k);
+    });
+    var blob=new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url;a.download='fpm-emergency-snapshot-'+new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)+'.json';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    console.log('[복구] 안전망 스냅샷 다운로드됨');
+  }catch(e){console.error('[복구] 스냅샷 실패:',e);}
+  
+  // 2) 진단 정보 수집
+  var diag={localKeys:[], cloudKeys:[], memoryCount:{items:0,orders:0,brands:0}};
+  
+  // 로컬스토리지 진단
+  Object.keys(localStorage).filter(function(k){return k.indexOf('fpm_')===0;}).forEach(function(k){
+    var v=localStorage.getItem(k);
+    diag.localKeys.push({key:k,size:v?v.length:0});
+  });
+  
+  // 메모리 진단
+  diag.memoryCount.items=Object.keys(S.items||{}).length;
+  diag.memoryCount.orders=Object.keys(S.orders||{}).length;
+  diag.memoryCount.brands=(S.brands||[]).length;
+  
+  // 클라우드 진단 (있으면)
+  var cloudInfo='Firebase 로그인 안 됨';
+  if(isCloudOn()){
+    try{
+      var keys=['fpm_cos','fpm_shared'];
+      if(curCoId)keys.push('fpm_'+curCoId);
+      for(var i=0;i<keys.length;i++){
+        var k=keys[i];
+        var d=await cloudGet(k);
+        if(d){
+          var info={};
+          if(d.items)info.items=Object.keys(d.items).length;
+          if(d.orders)info.orders=Object.keys(d.orders).length;
+          if(d.brands)info.brands=d.brands.length;
+          if(d.factories)info.factories=Object.keys(d.factories).length;
+          diag.cloudKeys.push({key:k,info:info,size:JSON.stringify(d).length});
+        }else{
+          diag.cloudKeys.push({key:k,info:'없음',size:0});
+        }
+      }
+      cloudInfo='로그인됨 ('+window.fbUser.email+')';
+    }catch(e){
+      cloudInfo='Firebase 오류: '+e.message;
+    }
+  }
+  
+  // 3) 진단 결과 화면 표시
+  var html='<div style="background:#fff;border-radius:10px;padding:20px;max-width:600px;margin:30px auto;box-shadow:0 4px 20px rgba(0,0,0,0.2);max-height:90vh;overflow-y:auto">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0;font-size:16px">🚑 데이터 복구 도구</h3><button onclick="document.getElementById(\'recovery-overlay\').remove()" style="background:none;border:none;font-size:18px;cursor:pointer">✕</button></div>';
+  
+  html+='<div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px">✅ <b>안전망 작동</b>: 현재 상태가 다운로드 폴더에 저장되었어요. 무슨 일이 일어나도 그 파일에서 복구할 수 있어요.</div>';
+  
+  // 진단 결과
+  html+='<div style="background:#f8fafc;border-radius:6px;padding:12px;margin-bottom:14px"><div style="font-weight:600;margin-bottom:6px;font-size:13px">📊 진단 결과</div>';
+  html+='<div style="font-size:12px;color:#475569;margin-bottom:8px"><b>지금 화면 메모리</b>: 아이템 '+diag.memoryCount.items+'개, 주문 '+diag.memoryCount.orders+'개, 브랜드 '+diag.memoryCount.brands+'개</div>';
+  
+  html+='<div style="font-size:12px;color:#475569;margin-bottom:4px"><b>이 컴퓨터/폰 로컬스토리지</b>:</div><ul style="font-size:11px;color:#475569;margin:0 0 8px 16px;padding:0">';
+  if(diag.localKeys.length===0){
+    html+='<li>비어 있음</li>';
+  }else{
+    diag.localKeys.forEach(function(k){
+      var status=k.size>10000?'✅ 데이터 있음':k.size>500?'⚠ 일부':'❌ 비어있음';
+      html+='<li><code>'+k.key+'</code> → '+k.size.toLocaleString()+' 글자 ('+status+')</li>';
+    });
+  }
+  html+='</ul>';
+  
+  html+='<div style="font-size:12px;color:#475569;margin-bottom:4px"><b>Firebase 클라우드</b>: '+cloudInfo+'</div>';
+  if(diag.cloudKeys.length>0){
+    html+='<ul style="font-size:11px;color:#475569;margin:0 0 0 16px;padding:0">';
+    diag.cloudKeys.forEach(function(k){
+      var infoStr=typeof k.info==='object'?Object.entries(k.info).map(function(e){return e[0]+':'+e[1];}).join(', '):k.info;
+      var status=k.size>10000?'✅ 데이터 있음':k.size>500?'⚠ 일부':'❌ 비어있음';
+      html+='<li><code>'+k.key+'</code> → '+infoStr+' ('+status+')</li>';
+    });
+    html+='</ul>';
+  }
+  html+='</div>';
+  
+  // 복구 옵션
+  html+='<div style="font-weight:600;margin-bottom:6px;font-size:13px">🔧 복구 옵션</div>';
+  
+  // 옵션 1: 로컬에서 복구
+  var biggestLocal=null;
+  diag.localKeys.forEach(function(k){
+    if(k.key.indexOf('fpm_co_')===0 && k.size>10000){
+      if(!biggestLocal||k.size>biggestLocal.size)biggestLocal=k;
+    }
+  });
+  if(biggestLocal){
+    html+='<div style="border:1px solid #86efac;background:#dcfce7;border-radius:6px;padding:10px;margin-bottom:8px"><div style="font-weight:600;color:#166534;font-size:12px;margin-bottom:4px">✅ 옵션 1: 로컬에서 복구 (추천)</div><div style="font-size:11px;color:#166534;margin-bottom:8px">이 브라우저의 로컬스토리지에 데이터가 살아있어요. 클릭하면 메모리로 다시 로드하고 클라우드에도 푸시합니다.</div><button onclick="recoverFromLocal(\''+biggestLocal.key+'\')" style="background:#16a34a;color:#fff;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600">로컬에서 복구하기</button></div>';
+  }
+  
+  // 옵션 2: 백업 파일 업로드
+  html+='<div style="border:1px solid #bae6fd;background:#f0f9ff;border-radius:6px;padding:10px;margin-bottom:8px"><div style="font-weight:600;color:#0c4a6e;font-size:12px;margin-bottom:4px">📁 옵션 2: 백업 파일에서 복구</div><div style="font-size:11px;color:#0c4a6e;margin-bottom:8px">이전에 ↓ 백업 버튼으로 받은 JSON 파일이 있다면 여기로 업로드하세요. 다운로드 폴더에 <code>fpm-emergency-snapshot-*.json</code> 또는 <code>fpm-backup-*.json</code> 같은 파일을 찾아 보세요.</div><input type="file" accept=".json" onchange="recoverFromFile(this)" style="font-size:11px"></div>';
+  
+  // 옵션 3: 클라우드에서 강제
+  if(isCloudOn()){
+    html+='<div style="border:1px solid #fde68a;background:#fef3c7;border-radius:6px;padding:10px;margin-bottom:8px"><div style="font-weight:600;color:#854f0b;font-size:12px;margin-bottom:4px">☁ 옵션 3: 클라우드에서 강제로 다시 가져오기</div><div style="font-size:11px;color:#854f0b;margin-bottom:8px">⚠ 클라우드 데이터가 빈 상태이면 화면도 비워집니다. 클라우드에 데이터가 있는 게 확실할 때만 누르세요.</div><button onclick="recoverFromCloud()" style="background:#92400e;color:#fff;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600">클라우드에서 다시 받기</button></div>';
+  }
+  
+  // 안내
+  html+='<div style="background:#f1f5f9;border-radius:6px;padding:10px;margin-top:10px;font-size:11px;color:#475569">💡 이 도구를 닫아도 처음에 자동 저장된 안전망 스냅샷은 다운로드 폴더에 남아 있어요. 최악의 경우 그 파일을 옵션 2에서 다시 업로드하면 진단 시점 상태로 돌아갈 수 있습니다.</div>';
+  
+  html+='</div>';
+  
+  // 오버레이로 표시
+  var overlay=document.createElement('div');
+  overlay.id='recovery-overlay';
+  overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;overflow-y:auto;padding:20px';
+  overlay.innerHTML=html;
+  overlay.onclick=function(e){if(e.target===overlay)overlay.remove();};
+  document.body.appendChild(overlay);
+}
+
+function recoverFromLocal(key){
+  try{
+    var raw=localStorage.getItem(key);
+    if(!raw){alert('복구 실패: 키가 비어 있어요');return;}
+    var data=JSON.parse(raw);
+    if(!data){alert('복구 실패: 데이터가 손상되었어요');return;}
+    
+    // S 객체에 복원
+    S.items=data.items||{};
+    S.orders=data.orders||{};
+    S.brands=data.brands||[];
+    S.sampleOrders=data.sampleOrders||[];
+    S.pickups=data.pickups||[];
+    S.tasks=data.tasks||[];
+    S.brandConfig=data.brandConfig||{};
+    S.deductions=data.deductions||[];
+    
+    // curCoId 추출
+    var coId=key.replace('fpm_','');
+    curCoId=coId;
+    try{if(_ls)localStorage.setItem('fpm_last',coId);}catch(e){}
+    
+    // 다시 저장 (saveData가 클라우드에도 푸시함)
+    saveData();
+    
+    // 화면 새로고침
+    renderCoSel();
+    render();
+    
+    var overlay=document.getElementById('recovery-overlay');
+    if(overlay)overlay.remove();
+    
+    showToast('✅ 복구 완료! 아이템 '+Object.keys(S.items).length+'개, 브랜드 '+S.brands.length+'개',5000);
+    
+    // 5초 후 클라우드 새로고침으로 푸시 확인
+    setTimeout(function(){
+      if(isCloudOn()){
+        showToast('☁ 클라우드 동기화 중...',3000);
+      }
+    },1000);
+  }catch(e){
+    alert('복구 실패: '+e.message);
+    console.error('[복구] 실패:',e);
+  }
+}
+
+function recoverFromFile(input){
+  var file=input.files&&input.files[0];
+  if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      var data=JSON.parse(ev.target.result);
+      
+      // 두 가지 포맷 지원: emergency-snapshot (localStorage 통째로) vs 일반 백업
+      if(data.localStorage){
+        // 응급 스냅샷 — localStorage 전체 복원
+        Object.keys(data.localStorage).forEach(function(k){
+          localStorage.setItem(k,data.localStorage[k]);
+        });
+        showToast('✅ 스냅샷 복원 완료, 페이지 새로고침합니다',3000);
+        setTimeout(function(){location.reload();},500);
+      }else if(data.items||data.orders||data.brands){
+        // 일반 백업 — S에 직접 로드
+        S.items=data.items||{};
+        S.orders=data.orders||{};
+        S.brands=data.brands||[];
+        S.sampleOrders=data.sampleOrders||[];
+        S.pickups=data.pickups||[];
+        S.tasks=data.tasks||[];
+        S.brandConfig=data.brandConfig||{};
+        S.deductions=data.deductions||[];
+        if(data.factories)S.factories=data.factories;
+        if(data.priceBook)S.priceBook=data.priceBook;
+        
+        saveData();
+        renderCoSel();
+        render();
+        
+        var overlay=document.getElementById('recovery-overlay');
+        if(overlay)overlay.remove();
+        
+        showToast('✅ 백업 파일에서 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000);
+      }else{
+        alert('인식할 수 없는 파일 형식이에요. fpm-* 백업 파일이 맞나요?');
+      }
+    }catch(e){
+      alert('파일 읽기 실패: '+e.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+async function recoverFromCloud(){
+  if(!isCloudOn()){alert('Firebase 로그인이 안 됐어요');return;}
+  if(!confirm('⚠ 현재 화면 데이터가 클라우드 데이터로 덮어쓰여집니다.\n클라우드에 데이터가 있는 게 확실한가요?'))return;
+  try{
+    showToast('☁ 클라우드에서 가져오는 중...',3000);
+    // 회사 목록 먼저
+    var cloudCos=await cloudGet('fpm_cos');
+    if(cloudCos)companies={...companies,...cloudCos};
+    var ids=Object.keys(companies||{});
+    if(ids.length>0){
+      if(!curCoId||!companies[curCoId])curCoId=ids[0];
+      var changed=await cloudSyncLoad(curCoId);
+      renderCoSel();
+      render();
+      var overlay=document.getElementById('recovery-overlay');
+      if(overlay)overlay.remove();
+      showToast('✅ 클라우드에서 복구 완료! 아이템 '+Object.keys(S.items||{}).length+'개',5000);
+    }else{
+      alert('클라우드에도 회사가 없어요');
+    }
+  }catch(e){
+    alert('클라우드 복구 실패: '+e.message);
+  }
+}
+
 async function forceCloudRefresh(){
   // 사용자가 명시적으로 누른 새로고침 — 무조건 클라우드에서 끌어온다.
   if(!isCloudOn()){
