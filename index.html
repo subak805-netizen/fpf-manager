@@ -2974,6 +2974,10 @@ function saveItemForm(){
     }
   }
   saveToPB(item);saveData();clearDraft();hideItemForm();renderItemsList();renderCSDropdown();
+  // 자재 동기화 알림: 편집 모드(기존 아이템 수정)일 때만
+  if(!isNewItem){
+    notifyOrdersAffectedByItemChange(item.id,item.name);
+  }
   if(autoCreatedSample){
     showToast('✅ 아이템 저장 + 샘플 자동 생성! 컬러·수량 입력하러 가요',3500);
     // 3초 후 샘플 탭으로 자동 이동 옵션
@@ -3136,6 +3140,180 @@ function calcSups(orderItems){
     }
   }return sups;
 }
+// === 자재 동기화: 아이템 변경 사항을 진행 중인 오더에 반영 ===
+// 정책: 추가/삭제 양방향 반영, 단가는 유지, 발송 전이면 기존 supplier에 추가/제거, 발송 후면 새 supplier
+function syncOrderMaterialsFromItems(orderId, opts){
+  opts=opts||{};
+  var silent=!!opts.silent;
+  var order=S.orders[orderId];
+  if(!order)return {added:0,removed:0,reorderedSuppliers:[]};
+  
+  // 1) 아이템에서 최신 자재 구성을 다시 계산
+  var freshSups=calcSups(order.orderItems||[]);
+  var currentSups=order.suppliers||{};
+  
+  var result={added:[], removed:[], newSuppliers:[], paidRemovals:[]};
+  
+  // 2) 각 fresh supplier에 대해 현재와 비교
+  Object.keys(freshSups).forEach(function(sn){
+    var freshMats=freshSups[sn].materials;
+    if(!currentSups[sn]){
+      // 완전히 새로운 supplier — 통째로 추가하되, 발송 전 상태로
+      var newSup=mkSupWithDefaults(sn);
+      newSup.materials=freshMats.slice();
+      currentSups[sn]=newSup;
+      result.newSuppliers.push(sn);
+      freshMats.forEach(function(m){result.added.push({supplier:sn,material:m});});
+    }else{
+      var cur=currentSups[sn];
+      var isSent=(cur.status==='sent'||cur.status==='shipped'||cur.status==='arrived');
+      
+      // 비교 키: type + name + colorName + itemId (오더에 같은 자재가 여러 컬러로 들어갈 수 있음)
+      function matKey(m){return (m.type||'')+'|'+(m.name||'')+'|'+(m.colorName||'')+'|'+(m.itemId||'');}
+      
+      var curKeys={};
+      (cur.materials||[]).forEach(function(m){curKeys[matKey(m)]=m;});
+      var freshKeys={};
+      freshMats.forEach(function(m){freshKeys[matKey(m)]=m;});
+      
+      // 추가: fresh에 있지만 cur에 없는 것
+      freshMats.forEach(function(m){
+        if(!curKeys[matKey(m)]){
+          if(isSent){
+            // 발송 후 — 새 supplier(_v2 같은 이름)로 분리
+            var splitName=sn+' (추가발주)';
+            if(!currentSups[splitName])currentSups[splitName]=mkSupWithDefaults(sn);
+            currentSups[splitName].materials.push(m);
+            if(result.newSuppliers.indexOf(splitName)<0)result.newSuppliers.push(splitName);
+          }else{
+            // 발송 전 — 기존 supplier에 추가
+            cur.materials.push(m);
+          }
+          result.added.push({supplier:sn,material:m});
+        }else{
+          // 양쪽에 있음 — 단가/수량 유지 (단, 수량이 바뀌었으면 갱신)
+          var curMat=curKeys[matKey(m)];
+          // 단가는 유지. 수량 관련 필드는 최신으로
+          ['totalYards','totalKg','calc'].forEach(function(field){
+            if(m[field]!==undefined)curMat[field]=m[field];
+          });
+        }
+      });
+      
+      // 삭제: cur에 있지만 fresh에 없는 것
+      var keptMaterials=[];
+      (cur.materials||[]).forEach(function(m){
+        if(freshKeys[matKey(m)]){
+          keptMaterials.push(m);
+        }else{
+          // 이미 발주 진행됐는지 체크
+          var alreadyOrdered=isSent;
+          var alreadyArrived=(cur.arrivalDate||cur.status==='arrived'||cur.status==='shipped');
+          if(alreadyArrived){
+            result.paidRemovals.push({supplier:sn,material:m,reason:'arrived'});
+            keptMaterials.push(m); // 도착한 건 그대로 유지 (반품 안내만)
+          }else if(alreadyOrdered){
+            result.paidRemovals.push({supplier:sn,material:m,reason:'sent'});
+            keptMaterials.push(m); // 발송된 건 그대로 유지 (반품 안내만)
+          }else{
+            // 발송 전이면 그냥 삭제
+            result.removed.push({supplier:sn,material:m});
+          }
+        }
+      });
+      cur.materials=keptMaterials;
+    }
+  });
+  
+  // 3) 현재에는 있지만 fresh에는 아예 없는 supplier 처리
+  Object.keys(currentSups).forEach(function(sn){
+    if(freshSups[sn])return;
+    // 추가발주 supplier는 건드리지 않음
+    if(sn.indexOf(' (추가발주)')>=0)return;
+    var cur=currentSups[sn];
+    var isSent=(cur.status==='sent'||cur.status==='shipped'||cur.status==='arrived');
+    if(isSent){
+      // 이미 발송됨 — 모든 자재가 반품 대상
+      (cur.materials||[]).forEach(function(m){
+        result.paidRemovals.push({supplier:sn,material:m,reason:cur.status==='arrived'?'arrived':'sent'});
+      });
+    }else{
+      // 발송 전 — supplier 통째로 삭제
+      (cur.materials||[]).forEach(function(m){result.removed.push({supplier:sn,material:m});});
+      delete currentSups[sn];
+    }
+  });
+  
+  order.suppliers=currentSups;
+  
+  // 4) PO 발송 후 새로 추가된 자재가 있으면 픽업 자동 생성
+  result.newSuppliers.forEach(function(sn){
+    if(!S.pickups)S.pickups=[];
+    var firstOI=order.orderItems&&order.orderItems[0];
+    var itemId=firstOI?firstOI.itemId:'';
+    var brandId=firstOI&&S.items[itemId]?S.items[itemId].brandId:'';
+    var itemName=firstOI&&S.items[itemId]?S.items[itemId].name:'';
+    var hasFabric=(currentSups[sn].materials||[]).some(function(m){return m.type==='fabric';});
+    var hasTrim=(currentSups[sn].materials||[]).some(function(m){return m.type==='trim';});
+    // 중복 방지
+    var alreadyHasPickup=S.pickups.some(function(p){return p._fromOrderId===orderId&&p.supplierName===sn;});
+    if(!alreadyHasPickup){
+      if(hasFabric)S.pickups.push({id:uid(),type:'원단',supplierName:sn,itemId:itemId,itemName:itemName,brandId:brandId,deliveryTo:{type:'self'},expectedDate:'',expectedTime:'',status:'waiting',notes:'['+(order.name||'발주')+'] '+sn+' 추가 자재',_fromOrderId:orderId});
+      if(hasTrim)S.pickups.push({id:uid(),type:'부자재',supplierName:sn,itemId:itemId,itemName:itemName,brandId:brandId,deliveryTo:{type:'self'},expectedDate:'',expectedTime:'',status:'waiting',notes:'['+(order.name||'발주')+'] '+sn+' 추가 자재',_fromOrderId:orderId});
+    }
+  });
+  
+  saveData();
+  return result;
+}
+
+// 진행 중인 모든 오더에서 특정 아이템을 사용하는 오더 찾기
+function getActiveOrdersUsingItem(itemId){
+  var result=[];
+  Object.values(S.orders||{}).forEach(function(o){
+    if(!o.orderItems)return;
+    var uses=o.orderItems.some(function(oi){return oi.itemId===itemId;});
+    if(!uses)return;
+    // 출고 완료된 오더는 제외 (이미 끝난 발주)
+    var allDone=Object.values(o.suppliers||{}).every(function(s){return s.status==='arrived'||s.status==='delivered';});
+    var hasShipped=Object.values(o.factorySchedules||{}).some(function(fs){return fs.shippingDate;});
+    if(hasShipped)return;
+    result.push(o);
+  });
+  return result;
+}
+
+// 아이템 저장 후 알림: 이 아이템을 쓰는 진행 중 오더가 있으면 동기화 제안
+function notifyOrdersAffectedByItemChange(itemId, itemName){
+  var orders=getActiveOrdersUsingItem(itemId);
+  if(orders.length===0)return;
+  setTimeout(function(){
+    var msg='💡 "'+itemName+'"을(를) 사용하는 진행 중 발주가 '+orders.length+'건 있어요.\n\n변경 사항을 그 발주들에도 반영할까요?\n\n[확인] 모든 발주에 동기화\n[취소] 나중에 직접 동기화';
+    if(confirm(msg)){
+      var totalAdded=0,totalRemoved=0,totalNewSup=0,paidIssues=[];
+      orders.forEach(function(o){
+        var r=syncOrderMaterialsFromItems(o.id,{silent:true});
+        totalAdded+=r.added.length;
+        totalRemoved+=r.removed.length;
+        totalNewSup+=r.newSuppliers.length;
+        if(r.paidRemovals.length>0)paidIssues.push({order:o,removals:r.paidRemovals});
+      });
+      render();
+      var resultMsg='✅ 동기화 완료!\n\n• 추가된 자재: '+totalAdded+'건\n• 삭제된 자재: '+totalRemoved+'건';
+      if(totalNewSup>0)resultMsg+='\n• 추가 발주 supplier: '+totalNewSup+'건';
+      if(paidIssues.length>0){
+        resultMsg+='\n\n⚠ 다음 자재는 이미 발주됐어요 (반품 검토 필요):';
+        paidIssues.forEach(function(pi){
+          pi.removals.forEach(function(r){
+            resultMsg+='\n• ['+pi.order.name+'] '+r.supplier+' - '+r.material.name+' ('+(r.reason==='arrived'?'도착':'발송')+')';
+          });
+        });
+      }
+      alert(resultMsg);
+    }
+  },400);
+}
+
 function mkSup(){return{materials:[],recipient:'',status:'draft',sentAt:'',deliveryFcId:'',poOpts:{...DEFAULT_PO_OPTS},stockOk:false,negotiated:false,negotiatedNote:'',sampleRequested:false,sampleReceived:false,expectedShipDate:'',invoiceReceived:false,invoiceCorrect:false,invoiceHasVat:false,invoiceNote:'',shippingCost:0,actualShipDate:'',arrivalDate:'',fabricReadyColors:{},trimReadyItems:{},negotiatedAmount:0};}
 function mkSupWithDefaults(sn){const s=mkSup();const pb=S.priceBook[sn];if(pb?.defaultPoOpts)s.poOpts={...s.poOpts,...pb.defaultPoOpts};return s;}
 function savePoOptsDefault(sn,key,val){if(!S.priceBook[sn])S.priceBook[sn]={email:'',phone:'',memo:'',materials:{}};if(!S.priceBook[sn].defaultPoOpts)S.priceBook[sn].defaultPoOpts={};S.priceBook[sn].defaultPoOpts[key]=val;lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
@@ -3422,7 +3600,7 @@ function renderOrderDetail(){
       <div><div style="font-weight:700;font-size:15px">${(function(){var firstOI=o.orderItems?.[0];var itNm=firstOI?(S.items[firstOI.itemId]?.name||firstOI.itemName||''):'';return (itNm?esc(itNm)+' ':'')+esc(o.name);})()}</div>
       <div class="fr" style="margin-top:3px;gap:5px;flex-wrap:wrap"><span class="badge ${cls}">${lb}</span>${di.cls?`<span class="dday-badge ${di.cls}">${di.text}</span>`:''}${(function(){var firstOI=o.orderItems?.[0];var rn=firstOI?getItemReorderNum(o.id,firstOI.itemId):null;if(!rn)return'';var lbl=reorderLabel(rn);var col=rn.num===1?'#0284c7':'#d97706';var bg=rn.num===1?'#e0f2fe':'#fef3c7';return '<span style="font-size:10px;font-weight:600;color:'+col+';background:'+bg+';padding:2px 8px;border-radius:8px">'+lbl+(rn.total>1?' (전체 '+rn.total+'차)':'')+'</span>';})()}<span class="muted">${o.createdAt||''}</span>${o.clientName?`<span class="muted">거래처: ${esc(o.clientName)}</span>`:''}</div>
       <div class="muted">${o.orderItems?.map(oi=>{const effPcs=getEffectivePcsForOrderItem(o,oi);return `${esc(oi.itemName)} ${num(oi.grandTotal||0)}pcs${effPcs!==null?` <span style="color:var(--red);font-weight:600">(실제 ${effPcs}pcs - 원단부족)</span>`:''}`;}).join(', ')}</div></div>
-      <div class="fr"><button class="btn s" onclick="cloneOrder('${o.id}')" title="리오더 / 복사"> 복사</button><button class="btn s d" onclick="deleteOrder('${o.id}')">🗑</button></div>
+      <div class="fr" style="gap:4px"><button class="btn s" onclick="syncOrderFromUI('${o.id}')" title="아이템에서 자재 변경 사항 가져오기" style="background:#eff6ff;color:#1e40af;border-color:#bfdbfe">🔄 자재 동기화</button><button class="btn s" onclick="cloneOrder('${o.id}')" title="리오더 / 복사"> 복사</button><button class="btn s d" onclick="deleteOrder('${o.id}')">🗑</button></div>
     </div>
     ${cost.total>0?`<div class="cost-strip"><div class="cost-strip-item"><div class="cost-strip-v">${num(Math.round(cost.fab))}원</div><div class="cost-strip-l">원단비</div></div><div class="cost-strip-item"><div class="cost-strip-v">${num(Math.round(cost.trim))}원</div><div class="cost-strip-l">부자재비</div></div><div class="cost-strip-item"><div class="cost-strip-v">${num(Math.round(cost.proc))}원</div><div class="cost-strip-l">가공비</div></div><div class="cost-strip-item" style="border-left:2px solid var(--bd)"><div class="cost-strip-v" style="color:var(--blue)">${num(Math.round(cost.total))}원</div><div class="cost-strip-l">총 원가</div></div></div>`:''}
     ${renderOrderCTA(o)}
@@ -3432,6 +3610,27 @@ function renderOrderDetail(){
 }
 function switchOTab(t){curOTab=t;renderOrderDetail();}
 function deleteOrder(id){if(!confirm('오더를 삭제하시겠습니까?'))return;delete S.orders[id];curOid=null;saveData();renderOrderPane();renderDash();}
+
+function syncOrderFromUI(oid){
+  var o=S.orders[oid];
+  if(!o){alert('오더를 찾을 수 없어요');return;}
+  if(!confirm('아이템에서 자재 변경 사항을 가져옵니다.\n\n• 추가된 자재 → 발송 전: 기존 거래처에 추가 / 발송 후: 새 거래처 분리\n• 삭제된 자재 → 발송 전: 제거 / 발송 후: 반품 안내\n• 단가는 그대로 유지\n\n진행할까요?'))return;
+  var r=syncOrderMaterialsFromItems(oid,{silent:false});
+  render();
+  
+  var msg='✅ 동기화 완료!\n\n';
+  msg+='• 추가된 자재: '+r.added.length+'건\n';
+  msg+='• 삭제된 자재: '+r.removed.length+'건\n';
+  if(r.newSuppliers.length>0)msg+='• 새 거래처: '+r.newSuppliers.join(', ')+'\n';
+  if(r.paidRemovals.length>0){
+    msg+='\n⚠ 다음 자재는 이미 발주 진행됐어요:\n';
+    r.paidRemovals.forEach(function(p){
+      msg+='• '+p.supplier+' - '+p.material.name+' ('+(p.reason==='arrived'?'도착됨 - 반품 검토':'발송됨 - 반품 검토')+')\n';
+    });
+    msg+='\n반품이 필요하면 거래처에 직접 연락하세요.';
+  }
+  alert(msg);
+}
 
 function renderOrderCTA(o){
   if(!o.suppliers||!Object.keys(o.suppliers).length)return '';
@@ -9246,7 +9445,8 @@ function renderTasksPane(){
     <span style="font-size:11px">위에서 업무를 추가하거나, ⚙ 자동 태스크를 켜보세요.</span>
   </div>`:''}
   `;
-  document.getElementById('tasks-body').innerHTML=html;
+  // 보기 모드 토글을 항상 앞에 붙인다 (시간순 모드에서도 다른 모드로 돌아갈 수 있게)
+  document.getElementById('tasks-body').innerHTML=getTaskViewToggleHTML()+html;
   
   // 새로고침 후 AI 자동 호출 (캐시 만료 시)
   if(apiKey&&!aiFresh&&undone.length>0){
