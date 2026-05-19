@@ -453,7 +453,7 @@ tryInitFirebase();
     <div id="ipl">
       <div class="fb" style="margin-bottom:8px"><div class="muted" id="i-cnt"></div><div class="fr" style="gap:6px"><button class="btn s" onclick="showBrandManageModal()">🏷 브랜드</button><button class="btn p s" onclick="showItemForm(null)">＋ 아이템 추가</button></div></div>
       <div class="fr" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">
-        <select id="item-brand-flt" style="font-size:12px" onchange="renderItemList()"><option value="">전체 브랜드</option></select>
+        <div id="item-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"></div>
         <select id="item-season-flt" style="font-size:12px" onchange="renderItemList()"><option value="">전체 시즌</option></select>
         <select id="item-factory-flt" style="font-size:12px" onchange="renderItemList()"><option value="">전체 공장</option></select>
         <input id="item-search" placeholder="🔍 검색..." style="font-size:12px;padding:5px 8px;flex:1;min-width:120px" oninput="renderItemList()">
@@ -491,9 +491,7 @@ tryInitFirebase();
     <div class="sl">
       <div class="fb" style="margin-bottom:6px"><b style="font-size:13px">오더 목록</b><button class="btn p s" onclick="showModal('o-new-modal')">＋</button></div>
       <input id="o-search" placeholder="🔍 검색 (오더명·거래처)..." oninput="renderOrderPane()" style="margin-bottom:8px;font-size:12px;padding:5px 8px">
-      <select id="o-brand-filter" style="font-size:12px;padding:5px 8px;margin-bottom:8px;width:100%" onchange="renderOrderPane()">
-        <option value="">🏷 전체 브랜드</option>
-      </select>
+      <div id="o-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px"></div>
       <select id="o-status-filter" style="font-size:12px;padding:5px 8px;margin-bottom:8px;width:100%" onchange="renderOrderPane()">
         <option value="">전체 상태</option>
         <option value="준비">준비</option>
@@ -528,7 +526,7 @@ tryInitFirebase();
         <button class="dtab" id="t-pay-chart" onclick="switchPayTab('chart')">📋 결제 확인 차트</button>
         <button class="dtab" id="t-pay-batch" onclick="switchPayTab('batch')" style="background:#FEE500;color:#3C1E1E;font-weight:700">💰 일괄 결제</button>
       </div>
-      <select id="pay-brand-flt" style="font-size:12px;max-width:140px" onchange="renderPayContent()"><option value="">🏷 전체 브랜드</option></select>
+      <div id="pay-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;flex:1"></div>
       <select id="pay-fc-flt" style="font-size:12px;max-width:150px;display:none" onchange="renderPayContent()"><option value="">전체 공장</option></select>
       <select id="pay-sp-flt" style="font-size:12px;max-width:150px;display:none" onchange="renderPayContent()"><option value="">전체 거래처</option></select>
       <label class="fr" style="font-size:12px;cursor:pointer;gap:5px;margin-left:auto">
@@ -946,9 +944,50 @@ async function onFirebaseLogin(){
 }
 async function cloudSyncSave(){
   if(!isCloudOn())return;
+  if(!curCoId)return; // 회사 없는 상태에서는 푸시 안 함
   setCloudInd('sync');
   try{
-    // 회사별 데이터 전체 (items, orders, brands, sampleOrders, pickups, tasks, brandConfig, deductions)
+    // === 안전장치 1: "빈 메모리 → 클라우드 빈 덮어쓰기" 막기 ===
+    // 메모리에 아이템/오더/브랜드가 모두 0개면 이건 정상 사용 상태가 아닐 수 있음
+    var memItemCount=Object.keys(S.items||{}).length;
+    var memOrderCount=Object.keys(S.orders||{}).length;
+    var memBrandCount=(S.brands||[]).length;
+    var memSampleCount=(S.sampleOrders||[]).length;
+    var memEmpty=(memItemCount===0&&memOrderCount===0&&memBrandCount===0&&memSampleCount===0);
+    
+    if(memEmpty){
+      // 클라우드 현재 상태 확인 — 클라우드에는 데이터가 있는데 메모리는 비어있다면?
+      try{
+        var cloudCurrent=await cloudGet('fpm_'+curCoId);
+        if(cloudCurrent){
+          var cloudHas=(Object.keys(cloudCurrent.items||{}).length>0||
+                        Object.keys(cloudCurrent.orders||{}).length>0||
+                        (cloudCurrent.brands||[]).length>0);
+          if(cloudHas){
+            // 위험 신호! 절대 덮어쓰지 않고 사용자에게 알림
+            console.error('[cloudSyncSave] 🛑 안전장치 발동: 메모리는 비어있는데 클라우드에 데이터 있음. 덮어쓰기 중단.');
+            setCloudInd('err');
+            if(!window._safetyGuardShown){
+              window._safetyGuardShown=true;
+              setTimeout(function(){
+                alert('🛑 안전장치 작동\n\n현재 화면은 비어있는데 클라우드에는 데이터가 있어요. 빈 상태로 덮어쓰지 않도록 동기화를 중단했습니다.\n\n복구 방법:\n1. 🚑 복구 버튼을 누르세요\n2. 옵션 3 (클라우드에서 다시 받기) 누르세요\n\n이렇게 하면 클라우드 데이터를 안전하게 받아올 수 있습니다.');
+              },300);
+            }
+            return;
+          }
+        }
+      }catch(checkErr){
+        console.warn('[cloudSyncSave] 클라우드 사전 확인 실패:',checkErr);
+        // 사전 확인 실패해도 빈 메모리 덮어쓰기는 위험 — 로그만 남기고 계속 진행 막음
+        if(memEmpty){
+          setCloudInd('err');
+          console.error('[cloudSyncSave] 메모리가 빈 상태인데 클라우드 확인 실패. 덮어쓰기 중단.');
+          return;
+        }
+      }
+    }
+    
+    // 회사별 데이터 전체
     var coData={
       items:S.items||{},
       orders:S.orders||{},
@@ -1743,11 +1782,56 @@ function migrateData(){
 /* ===== BACKUP / RESTORE ===== */
 function exportData(){
   const allCoData={};
-  Object.keys(companies).forEach(cid=>{const d=lsGet('fpm_'+cid)||{};allCoData[cid]={items:d.items||{},orders:d.orders||{}};});
-  const data={version:'pro2',exportedAt:new Date().toISOString(),companies,allCoData,shared:{factories:S.factories,priceBook:S.priceBook}};
+  // 각 회사의 모든 필드를 백업 — items/orders만이 아니라 brands/sampleOrders/pickups/tasks/brandConfig/deductions까지
+  Object.keys(companies).forEach(function(cid){
+    const d=lsGet('fpm_'+cid)||{};
+    // 현재 활성 회사라면 메모리(S)에서 최신 값을 가져오고, 다른 회사는 로컬스토리지에서
+    if(cid===curCoId){
+      allCoData[cid]={
+        items:S.items||{},
+        orders:S.orders||{},
+        brands:S.brands||[],
+        sampleOrders:S.sampleOrders||[],
+        pickups:S.pickups||[],
+        tasks:S.tasks||[],
+        brandConfig:S.brandConfig||{},
+        deductions:S.deductions||[]
+      };
+    }else{
+      allCoData[cid]={
+        items:d.items||{},
+        orders:d.orders||{},
+        brands:d.brands||[],
+        sampleOrders:d.sampleOrders||[],
+        pickups:d.pickups||[],
+        tasks:d.tasks||[],
+        brandConfig:d.brandConfig||{},
+        deductions:d.deductions||[]
+      };
+    }
+  });
+  const data={
+    version:'pro2',
+    exportedAt:new Date().toISOString(),
+    companies:companies,
+    allCoData:allCoData,
+    shared:{factories:S.factories,priceBook:S.priceBook}
+  };
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`패션생산관리_백업_${todayISO()}.json`;a.click();URL.revokeObjectURL(url);
-  showToast('💾 전체 백업 완료 (공장·단가장 포함)');
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='패션생산관리_백업_'+todayISO()+'.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  // 백업 내용 요약
+  var totalItems=0,totalBrands=0,totalSamples=0;
+  Object.values(allCoData).forEach(function(d){
+    totalItems+=Object.keys(d.items||{}).length;
+    totalBrands+=(d.brands||[]).length;
+    totalSamples+=(d.sampleOrders||[]).length;
+  });
+  showToast('💾 전체 백업 완료! 아이템 '+totalItems+'개, 브랜드 '+totalBrands+'개, 샘플 '+totalSamples+'개',4000);
 }
 function manualRestore(){
   const txt=document.getElementById('manual-restore-json')?.value?.trim();
@@ -2296,9 +2380,50 @@ function updatePBPrice(encSup,encNm,priceType,val){
   if(priceType==='kg')pb.materials[nm].pricePerKg=val;else pb.materials[nm].unitPrice=val;
   pb.materials[nm].lastUpdated=todayISO();
   savePB();
-  const updEl=document.getElementById(`pb-updated-${encSup}-${encNm}`);
+  // === 점진적 갱신: 이 자재를 쓰는 모든 아이템의 단가도 같이 업데이트 ===
+  // (옛 오더의 단가는 절대 안 건드림 - 결제 보호)
+  var affected=propagatePriceToItems(s,nm,priceType,val);
+  const updEl=document.getElementById('pb-updated-'+encSup+'-'+encNm);
   if(updEl)updEl.textContent=todayISO();
-  showToast('💾 매장단가 저장됨');
+  if(affected>0){
+    showToast('💾 단가 저장 + 아이템 '+affected+'개 자동 갱신 (옛 발주는 그대로)',3500);
+  }else{
+    showToast('💾 매장단가 저장됨');
+  }
+}
+
+// 단가장에서 자재 단가가 바뀌면 그 자재를 쓰는 아이템의 단가도 같이 업데이트
+// 반환: 영향받은 아이템 수
+function propagatePriceToItems(supplierName,materialKey,priceType,newVal){
+  var count=0;
+  Object.values(S.items||{}).forEach(function(it){
+    // 원단 매칭: supplier + name 일치
+    (it.fabrics||[]).forEach(function(f){
+      if(f.supplier===supplierName&&f.name===materialKey){
+        if(priceType==='kg'){
+          f.pricePerKg=+newVal||0;
+        }else{
+          f.unitPrice=+newVal||0;
+        }
+        count++;
+      }
+    });
+    // 부자재 매칭: supplier + pbKey(name,color) 일치
+    (it.trims||[]).forEach(function(t){
+      if(t.supplier!==supplierName)return;
+      var key=pbKey(t.name||'',t.color||'');
+      // pbKey가 색상 포함 키, 또는 이름만 키와 매칭
+      if(key===materialKey||t.name===materialKey){
+        t.unitPrice=+newVal||0;
+        count++;
+      }
+    });
+  });
+  if(count>0){
+    saveData();
+    if(typeof renderCS==='function')renderCS();
+  }
+  return count;
 }
 function updatePBNegoPrice(encSup,encNm,priceType,val){
   const s=decodeURIComponent(encSup);const nm=decodeURIComponent(encNm);
@@ -2327,17 +2452,68 @@ function removeColor(i){formColors.splice(i,1);renderColorChips();}
 function addSize(){const inp=document.getElementById('size-input');const v=inp.value.trim();if(!v||formSizes.includes(v)){inp.value='';return;}formSizes.push(v);inp.value='';renderSizeChips();}
 function removeSize(i){formSizes.splice(i,1);renderSizeChips();}
 
+function setItemBrandFilter(val){
+  window._itemBrandFlt=val;
+  renderItemsList();
+}
+
+function setOrderBrandFilter(val){
+  window._oBrandFlt=val;
+  renderOrderPane();
+}
+
+function setPayBrandFilter(val){
+  window._payBrandFlt=val;
+  if(typeof renderPayContent==='function')renderPayContent();
+}
+
+// === 공통 브랜드 필터 pill 렌더링 ===
+// containerId: div의 id (브랜드 버튼들이 들어갈 자리)
+// currentVal: 현재 선택된 brandId 또는 ''(전체) 또는 '__none'(미지정)
+// onChange: 클릭 시 호출될 함수명 (string)
+// opts: {includeNone:bool, sizeMode:'normal'|'compact'}
+function renderBrandPills(containerId, currentVal, onChangeFnName, opts){
+  opts=opts||{};
+  var el=document.getElementById(containerId);
+  if(!el)return;
+  var bds=getBrands();
+  var compact=opts.sizeMode==='compact';
+  var padding=compact?'3px 9px':'5px 12px';
+  var fontSize=compact?'11px':'12px';
+  
+  function pillBtn(val,label,bg,color,borderCol,active,dashed){
+    return '<button class="brand-pill" onclick="'+onChangeFnName+'(\''+val.replace(/'/g,"\\'")+'\')" style="padding:'+padding+';border:1px '+(dashed?'dashed':'solid')+' '+borderCol+';border-radius:100px;background:'+bg+';color:'+color+';font-size:'+fontSize+';cursor:pointer;font-weight:'+(active?'600':'500')+';white-space:nowrap;transition:all .15s">'+esc(label)+'</button>';
+  }
+  
+  var html='';
+  // 전체 버튼
+  html+=pillBtn('', '전체', currentVal===''?'var(--t1)':'var(--bg)', currentVal===''?'#fff':'var(--t1)', 'var(--bd)', currentVal==='', false);
+  // 각 브랜드
+  bds.forEach(function(b){
+    var isOn=currentVal===b.id;
+    var col=b.color||'#94a3b8';
+    html+=pillBtn(b.id, b.name, isOn?col:col+'15', isOn?'#fff':col, isOn?col:col+'66', isOn, false);
+  });
+  // 미지정 (옵션)
+  if(opts.includeNone){
+    var isOn=currentVal==='__none';
+    html+=pillBtn('__none', '📋 미지정', isOn?'var(--t2)':'transparent', isOn?'#fff':'var(--t2)', 'var(--bd)', isOn, true);
+  }
+  el.innerHTML=html;
+}
+
 function renderItemsList(){
   const allItems=Object.values(S.items);
   // 필터 드롭다운 채우기
-  const brandSel=document.getElementById('item-brand-flt');
-  if(brandSel){const cur=brandSel.value;const bds=getBrands();brandSel.innerHTML='<option value="">전체 브랜드</option><option value="__none">📋 미지정</option>'+bds.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');brandSel.value=cur;}
+  // 브랜드 필터: 가로 pill 버튼 (공통 헬퍼 사용)
+  const hasUnassigned=allItems.some(function(it){return !it.brandId;});
+  renderBrandPills('item-brand-pills', window._itemBrandFlt||'', 'setItemBrandFilter', {includeNone:hasUnassigned});
   const seasonSel=document.getElementById('item-season-flt');
   if(seasonSel){const cur=seasonSel.value;const seasons=[...new Set(allItems.map(it=>it.season).filter(Boolean))].sort();seasonSel.innerHTML='<option value="">전체 시즌</option>'+seasons.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');seasonSel.value=cur;}
   const fcSel=document.getElementById('item-factory-flt');
   if(fcSel){const cur=fcSel.value;const fcs=Object.values(S.factories||{}).filter(f=>f.type==='봉제'||allItems.some(it=>it.sewingFcId===f.id));fcSel.innerHTML='<option value="">전체 공장</option>'+fcs.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('');fcSel.value=cur;}
   // 필터 적용
-  const brandFlt=document.getElementById('item-brand-flt')?.value||'';
+  const brandFlt=window._itemBrandFlt||'';
   const seasonFlt=document.getElementById('item-season-flt')?.value||'';
   const fcFlt=document.getElementById('item-factory-flt')?.value||'';
   const search=(document.getElementById('item-search')?.value||'').toLowerCase();
@@ -2510,7 +2686,7 @@ function showItemForm(id){
     <div id="fab-rows"></div>
     
     <!-- 2. 부자재 -->
-    <div class="sec" style="margin-top:12px"><span>부자재</span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 야드(심지)</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button></div></div>
+    <div class="sec" style="margin-top:12px"><span>부자재</span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 야드(심지)</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button></div></div>
     <div id="trim-rows"></div>
     
     <!-- 3. 부자재 가공비 -->
@@ -2601,7 +2777,7 @@ function fabRowHTML(f,i){
   <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
     ${isKg?`<div style="flex:.8;min-width:68px"><label>KG단가(원)</label><input data-f="pricePerKg" type="number" value="${f.pricePerKg||0}" min="0"></div><div style="flex:.7;min-width:58px"><label>야드/KG</label><input data-f="yardsPerKg" type="number" value="${f.yardsPerKg||1}" min="0.01" step="0.01"></div>`
     :`<div style="flex:.8;min-width:68px"><label>야드단가(원)</label><input data-f="unitPrice" type="number" value="${f.unitPrice||0}" min="0"></div>`}
-    ${formSizes.length>1?'<div style="flex:2;min-width:100px"><label>요척(yard)-사이즈별</label><div style="display:flex;gap:2px;flex-wrap:wrap">'+formSizes.map(function(sz){return'<div style="display:flex;flex-direction:column;align-items:center"><span style="font-size:9px;color:var(--t2);">'+esc(sz)+'</span><input data-f-sz-cons="'+encodeURIComponent(sz)+'" type="number" value="'+((f.consumptionBySze||{})[sz]!=null?(f.consumptionBySze||{})[sz]:(f.consumption||0))+'" min="0" step="0.01" style="width:48px;font-size:11px;padding:3px 4px;text-align:center"></div>';}).join("")+'</div></div>':`<div style="flex:.7;min-width:58px"><label>요척(yard)</label><input data-f="consumption" type="number" value="${f.consumption||0}" min="0" step="0.01"></div>`}
+    ${formSizes.length>1?'<div style="flex:2;min-width:100px"><label>요척(yard)-사이즈별</label><div style="display:flex;gap:2px;flex-wrap:wrap">'+formSizes.map(function(sz){return'<div style="display:flex;flex-direction:column;align-items:center"><span style="font-size:9px;color:var(--t2);">'+esc(sz)+'</span><input data-f-sz-cons="'+encodeURIComponent(sz)+'" type="number" value="'+((f.consumptionBySize||{})[sz]!=null?(f.consumptionBySize||{})[sz]:(f.consumption||0))+'" min="0" step="0.01" style="width:64px;font-size:13px;padding:5px 6px;text-align:center;font-weight:600"></div>';}).join("")+'</div></div>':`<div style="flex:.7;min-width:58px"><label>요척(yard)</label><input data-f="consumption" type="number" value="${f.consumption||0}" min="0" step="0.01"></div>`}
     <div style="flex:.45;min-width:44px"><label>로스%</label><input data-f="buffer" type="number" value="${f.buffer??5}" min="0" max="50"></div>
   </div>
   <div style="margin-top:6px;padding:6px 10px;background:#f0f9ff;border:0.5px solid #bae6fd;border-radius:6px;display:flex;align-items:center;gap:7px">
@@ -2684,11 +2860,46 @@ function onClrSel(prefix,idx,el){
   }
 }
 
-function trimRowHTML(t,i){const isR=t.orderType==='roll';const isThread=t.orderType==='thread';const isYard=t.orderType==='yard';
+function trimRowHTML(t,i){
+  const isR=t.orderType==='roll';const isThread=t.orderType==='thread';const isYard=t.orderType==='yard';const isZip=t.orderType==='zipper';
   const colorSec=mkColorSec(i,'trim',t.colorLinks||[]);
+  // 지퍼 전용 UI
+  if(isZip){
+    return '<div class="fab-row" id="tr-'+i+'" style="border-left:3px solid #ec4899">'
+      +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap">'
+      +'<span style="font-size:13px;font-weight:700;color:#be185d">🤐 지퍼</span>'
+      +'<select data-f="orderType" style="width:auto;font-size:11px;padding:3px 5px" onchange="onTrimType('+i+',this.value)"><option value="zipper" selected>지퍼</option><option value="count">→ 개수로 변경</option><option value="yard">→ 야드로 변경</option><option value="roll">→ 롤로 변경</option><option value="thread">→ 실로 변경</option></select>'
+      +'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
+      +'</div>'
+      // 거래처/이름
+      +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
+      +'<div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
+      +'<div style="flex:.6;min-width:60px"><label>지퍼 크기</label><input data-f="zipperSize" value="'+esc(t.zipperSize||'')+'" placeholder="예: 3호, 5호"></div>'
+      +'<div style="flex:.7;min-width:70px"><label>방향</label><select data-f="zipperDirection" style="font-size:12px;padding:5px 6px"><option value="오픈"'+(t.zipperDirection==='오픈'?' selected':'')+'>오픈</option><option value="클로즈"'+(t.zipperDirection==='클로즈'?' selected':'')+'>클로즈</option><option value="양방향"'+(t.zipperDirection==='양방향'?' selected':'')+'>양방향</option></select></div>'
+      +'<div style="flex:.7;min-width:70px"><label>이빨 컬러</label><input data-f="toothColor" value="'+esc(t.toothColor||'')+'" placeholder="니켈/검정 등"></div>'
+      +'</div>'
+      // 슬라이더
+      +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;padding:6px 8px;background:#fdf2f8;border-radius:6px">'
+      +'<div style="font-size:11px;color:#be185d;font-weight:600;min-width:60px;align-self:center">슬라이더</div>'
+      +'<div style="flex:.9;min-width:80px"><label style="font-size:10px">모델명</label><input data-f="sliderModel" value="'+esc(t.sliderModel||'')+'" placeholder="예: DADS-2"></div>'
+      +'<div style="flex:.9;min-width:80px"><label style="font-size:10px">슬라이더 컬러</label><input data-f="sliderColor" value="'+esc(t.sliderColor||'')+'" placeholder="예: 니켈무광"></div>'
+      +'<div style="flex:.6;min-width:65px;display:flex;align-items:center"><label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;margin:0"><input type="checkbox" data-f="hasSliderLogo" '+(t.hasSliderLogo?'checked':'')+'>로고 인쇄</label></div>'
+      +(t.hasSliderLogo?'<div style="flex:1.5;min-width:120px"><label style="font-size:10px">로고 내용</label><input data-f="sliderLogoText" value="'+esc(t.sliderLogoText||'')+'" placeholder="예: 더프루토 세로각인"></div>':'')
+      +'</div>'
+      // 단가/수량/로스
+      +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end">'
+      +'<div style="flex:.6;min-width:55px"><label>벌당 개수</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece||1)+'" step="0.01"></div>'
+      +'<div style="flex:.8;min-width:68px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
+      +'<div style="flex:.45;min-width:44px"><label>로스%</label><input data-f="buffer" type="number" value="'+(t.buffer??3)+'"></div>'
+      +'<div style="flex:1.5;min-width:120px;font-size:10px;color:var(--t2);align-self:center;padding:5px 8px;background:#fdf2f8;border-radius:5px;line-height:1.3">📐 발주 미리보기<br>'+esc(t.zipperSize||'?')+' '+esc(t.zipperDirection||'')+' 지퍼 '+esc(t.toothColor||'?')+'이빨<br>슬라이더: '+esc(t.sliderModel||'?')+' #'+esc(t.sliderColor||'?')+(t.hasSliderLogo&&t.sliderLogoText?'<br>로고: '+esc(t.sliderLogoText):'')+'</div>'
+      +'</div>'
+      +mkTrimExtrasSec(i,t)
+      +colorSec
+      +'</div>';
+  }
   return`<div class="fab-row" id="tr-${i}">
   <div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap">
-    <select data-f="orderType" style="width:auto;font-size:11px;padding:3px 5px" onchange="onTrimType(${i},this.value)"><option value="count"${t.orderType==='count'||(!t.orderType)?' selected':''}>개수</option><option value="yard"${t.orderType==='yard'?' selected':''}>야드(심지·안감)</option><option value="roll"${t.orderType==='roll'?' selected':''}>롤(야드환산)</option><option value="thread"${t.orderType==='thread'?' selected':''}>실(미니멈 분배)</option></select>
+    <select data-f="orderType" style="width:auto;font-size:11px;padding:3px 5px" onchange="onTrimType(${i},this.value)"><option value="count"${t.orderType==='count'||(!t.orderType)?' selected':''}>개수</option><option value="yard"${t.orderType==='yard'?' selected':''}>야드(심지·안감)</option><option value="roll"${t.orderType==='roll'?' selected':''}>롤(야드환산)</option><option value="thread"${t.orderType==='thread'?' selected':''}>실(미니멈 분배)</option><option value="zipper"${t.orderType==='zipper'?' selected':''}>지퍼</option></select>
     <button class="btn s d g" onclick="rmTrimRow(${i})">🗑</button>
   </div>
   <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end">
@@ -2766,6 +2977,20 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r,i)=>{if(!form
   const fabColAll=r.querySelector('[data-fab-col-all]');
   if(fabColAll){formFabs[i].fabricColor=fabColAll.value;formFabs[i].colorLinks=[];}
   else{r.querySelectorAll('[data-fab-col]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.fabCol);const lk=formFabs[i].colorLinks?.find(l=>l.itemColor===cn);if(lk)lk.fabricColor=inp.value;});}
+  // 사이즈별 요척 수집
+  const szInputs=r.querySelectorAll('[data-f-sz-cons]');
+  if(szInputs.length>0){
+    formFabs[i].consumptionBySize=formFabs[i].consumptionBySize||{};
+    var maxCons=0;
+    szInputs.forEach(function(inp){
+      var sz=decodeURIComponent(inp.dataset.fSzCons);
+      var v=+inp.value||0;
+      formFabs[i].consumptionBySize[sz]=v;
+      if(v>maxCons)maxCons=v;
+    });
+    // 호환성: consumption도 최대값으로 채워둔다 (사이즈별 없는 옛 로직이 참조할 때 안전)
+    if(maxCons>0)formFabs[i].consumption=maxCons;
+  }
 });}
 function colTrimCosts(){document.querySelectorAll('[id^=tc-]').forEach((r,i)=>{if(!formTrimCosts[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;formTrimCosts[i].name=g('name')||'';formTrimCosts[i].factory=g('factory')||'';const ct=g('costType')||'perPcs';formTrimCosts[i].costType=ct;const amt=+g('costAmt')||0;if(ct==='perLot'){formTrimCosts[i].costPerLot=amt;formTrimCosts[i].costPerPcs=0;}else{formTrimCosts[i].costPerPcs=amt;formTrimCosts[i].costPerLot=0;}r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(formTrimCosts[i].colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
 function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r,i)=>{if(!formTrims[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const tp=g('orderType')||'count';formTrims[i].orderType=tp;formTrims[i].supplier=g('supplier')||'';formTrims[i].name=g('name')||'';formTrims[i].size=g('size')||'';formTrims[i].color=g('color')||'';
@@ -2920,10 +3145,30 @@ function renderCSSummary(){
 function rmTrimCostRow(i){colTrimCosts();formTrimCosts.splice(i,1);renderTrimCostRows();}
 function addFabRow(){colFR();formFabs.push({id:uid(),supplier:'',name:'',pricingUnit:'yard',unitPrice:0,pricePerKg:0,yardsPerKg:1,consumption:0,buffer:5,fabricColor:'',width:null,composition:''});renderFabRows();}
 function rmFabRow(i){colFR();formFabs.splice(i,1);renderFabRows();}
-function addTrimRow(t){colTR();let newRow;if(t==='roll')newRow={id:uid(),supplier:'',name:'',orderType:'roll',consumptionPerPiece:0,yardsPerRoll:100,unitPrice:0,buffer:5,colorLinks:[]};else if(t==='yard')newRow={id:uid(),supplier:'',name:'',orderType:'yard',consumptionPerPiece:0.5,unitPrice:0,buffer:3,colorLinks:[]};else if(t==='thread')newRow={id:uid(),supplier:'',name:'',orderType:'thread',threadMin:30,threadQty:10,unitPrice:0,colorLinks:[]};else newRow={id:uid(),supplier:'',name:'',orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:3,colorLinks:[]};formTrims.push(newRow);renderTrimRows();}
+function addTrimRow(t){
+  colTR();
+  let newRow;
+  if(t==='roll')newRow={id:uid(),supplier:'',name:'',orderType:'roll',consumptionPerPiece:0,yardsPerRoll:100,unitPrice:0,buffer:5,colorLinks:[]};
+  else if(t==='yard')newRow={id:uid(),supplier:'',name:'',orderType:'yard',consumptionPerPiece:0.5,unitPrice:0,buffer:3,colorLinks:[]};
+  else if(t==='thread')newRow={id:uid(),supplier:'',name:'',orderType:'thread',threadMin:30,threadQty:10,unitPrice:0,colorLinks:[]};
+  else if(t==='zipper')newRow={id:uid(),supplier:'',name:'지퍼',orderType:'zipper',zipperSize:'',zipperDirection:'오픈',toothColor:'',sliderModel:'',sliderColor:'',hasSliderLogo:false,sliderLogoText:'',qtyPerPiece:1,unitPrice:0,buffer:3,colorLinks:[]};
+  else newRow={id:uid(),supplier:'',name:'',orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:3,colorLinks:[]};
+  formTrims.push(newRow);
+  renderTrimRows();
+}
 function rmTrimRow(i){colTR();formTrims.splice(i,1);renderTrimRows();}
 function onFabPU(i,v){colFR();formFabs[i].pricingUnit=v;renderFabRows();}
-function onTrimType(i,v){colTR();const t=formTrims[i];if(!t)return;if(v==='roll')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'roll',consumptionPerPiece:0,yardsPerRoll:100,unitPrice:0,buffer:5};else if(v==='yard')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'yard',consumptionPerPiece:0.5,unitPrice:0,buffer:3};else if(v==='thread')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'thread',threadMin:30,threadQty:10,unitPrice:0};else formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:3};renderTrimRows();}
+function onTrimType(i,v){
+  colTR();
+  const t=formTrims[i];
+  if(!t)return;
+  if(v==='roll')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'roll',consumptionPerPiece:0,yardsPerRoll:100,unitPrice:0,buffer:5};
+  else if(v==='yard')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'yard',consumptionPerPiece:0.5,unitPrice:0,buffer:3};
+  else if(v==='thread')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'thread',threadMin:30,threadQty:10,unitPrice:0};
+  else if(v==='zipper')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name||'지퍼',size:t.size,orderType:'zipper',zipperSize:'',zipperDirection:'오픈',toothColor:'',sliderModel:'',sliderColor:'',hasSliderLogo:false,sliderLogoText:'',qtyPerPiece:1,unitPrice:0,buffer:3};
+  else formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:3};
+  renderTrimRows();
+}
 function saveItemForm(){
   colFR();colTR();colTrimCosts();const nm=document.getElementById('f-nm').value.trim();if(!nm){alert('아이템명 입력');return;}
   const id=editItemId||uid();
@@ -2973,21 +3218,27 @@ function saveItemForm(){
       autoCreatedSample=true;
     }
   }
-  saveToPB(item);saveData();clearDraft();hideItemForm();renderItemsList();renderCSDropdown();
+  saveToPB(item);saveData();renderItemsList();renderCSDropdown();
+  // 폼은 닫지 않고 그대로 유지 (사용자가 추가 편집할 수 있도록)
+  // 다만 신규 → 편집 모드로 전환되어야 다음 저장 시 동일 아이템 업데이트됨
+  if(isNewItem){
+    editItemId=item.id;
+    // "저장" 버튼이었던 것을 "수정 저장"으로 시각적 갱신은 다음 showItemForm 호출 때
+  }
   // 자재 동기화 알림: 편집 모드(기존 아이템 수정)일 때만
   if(!isNewItem){
     notifyOrdersAffectedByItemChange(item.id,item.name);
   }
   if(autoCreatedSample){
     showToast('✅ 아이템 저장 + 샘플 자동 생성! 컬러·수량 입력하러 가요',3500);
-    // 3초 후 샘플 탭으로 자동 이동 옵션
     setTimeout(function(){
       if(confirm('🪡 "'+item.name+' 샘플"이 생성됐어요.\n샘플 발주 탭으로 이동할까요? (컬러·수량 입력 필요)')){
+        hideItemForm(); // 샘플 탭으로 이동할 때는 폼 닫기
         switchTab('sample');
       }
     },300);
   }else{
-    showToast('아이템 저장 완료');
+    showToast('💾 저장됨 — 계속 편집하거나 ✕로 닫으세요',2500);
   }
 }
 
@@ -3552,10 +3803,9 @@ function reorderLabel(rn){
 function renderOrderPane(){
   const q=(document.getElementById('o-search')?.value||'').toLowerCase();
   const stFilt=document.getElementById('o-status-filter')?.value||'';
-  // 브랜드 필터 채우기
-  const bSel=document.getElementById('o-brand-filter');
-  if(bSel){const cur=bSel.value;const bds=getBrands();bSel.innerHTML='<option value="">🏷 전체 브랜드</option>'+bds.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');bSel.value=cur;}
-  const brandFlt=bSel?.value||'';
+  // 브랜드 필터: 가로 pill (공통 헬퍼)
+  renderBrandPills('o-brand-pills', window._oBrandFlt||'', 'setOrderBrandFilter', {});
+  const brandFlt=window._oBrandFlt||'';
   let orders=Object.values(S.orders).sort((a,b)=>{const da=calcDday(a.shippingDate)??9999;const db=calcDday(b.shippingDate)??9999;return da-db;});
   if(brandFlt)orders=orders.filter(o=>(o.orderItems||[]).some(oi=>S.items[oi.itemId]?.brandId===brandFlt));
   if(q)orders=orders.filter(o=>o.name.toLowerCase().includes(q)||(o.clientName||'').toLowerCase().includes(q));
@@ -5494,7 +5744,7 @@ function renderPayStats(){
   // 거래처 필터 채우기
   const ssel=document.getElementById('pay-sp-flt');if(ssel){const cur=ssel.value;const sups=new Set();for(const o of Object.values(S.orders))for(const sn of Object.keys(o.suppliers||{}))sups.add(sn);ssel.innerHTML='<option value="">전체 거래처</option>'+[...sups].sort().map(s=>`<option value="${s}">${esc(s)}</option>`).join('');ssel.value=cur;}
   // 브랜드 필터 채우기
-  const bsel=document.getElementById('pay-brand-flt');if(bsel){const cur=bsel.value;const bds=getBrands();bsel.innerHTML='<option value="">🏷 전체 브랜드</option>'+bds.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');bsel.value=cur;}
+  renderBrandPills('pay-brand-pills', window._payBrandFlt||'', 'setPayBrandFilter', {});
   el.innerHTML=`<div class="stat"><div class="stat-n" style="font-size:14px">${num(tot)}<span style="font-size:10px">원</span></div><div class="stat-l">전체</div></div><div class="stat"><div class="stat-n" style="font-size:14px;color:var(--green)">${num(paid)}<span style="font-size:10px">원</span></div><div class="stat-l">완료</div></div><div class="stat" style="${tot-paid>0?'border-color:var(--amber)':''}"><div class="stat-n" style="font-size:14px;color:var(--amber)">${num(tot-paid)}<span style="font-size:10px">원</span></div><div class="stat-l">미결제</div></div><div class="stat"><div class="stat-n">${Object.values(S.orders).filter(o=>Object.values(o.factorySchedules||{}).some(f=>f.shippingQty>0)).length}</div><div class="stat-l">출고 오더</div></div>`;
 }
 /* ===== 📋 결제 확인 차트 ===== */
@@ -5611,7 +5861,7 @@ function renderChartCellMulti(arr){
 
 function renderPayChart(){
   var el=document.getElementById('pay-content');if(!el)return;
-  var brandFlt=document.getElementById('pay-brand-flt')?document.getElementById('pay-brand-flt').value:'';
+  var brandFlt=window._payBrandFlt||'';
   var onlyUnpaid=window._chartUnpaidOnly||false;
   if(!window._chartExpanded)window._chartExpanded={};
   
@@ -5842,7 +6092,7 @@ function doBatchPay(){
 function renderFcPay(){
   const el=document.getElementById('pay-content');if(!el)return;
   const fltFcId=document.getElementById('pay-fc-flt')?.value||'';
-  const fltBrand=document.getElementById('pay-brand-flt')?.value||'';
+  const fltBrand=window._payBrandFlt||'';
   const byFc={};
   for(const o of Object.values(S.orders)){
     // 브랜드 필터: 오더의 아이템 중 해당 브랜드가 있어야 함
@@ -5982,7 +6232,7 @@ function renderFcPay(){
 function renderSpPay(){
   const el=document.getElementById('pay-content');if(!el)return;
   const fltSp=document.getElementById('pay-sp-flt')?.value||'';
-  const fltBrand=document.getElementById('pay-brand-flt')?.value||'';
+  const fltBrand=window._payBrandFlt||'';
   const bySup={};
   for(const o of Object.values(S.orders)){
     if(fltBrand){
