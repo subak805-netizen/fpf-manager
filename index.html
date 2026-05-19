@@ -2212,10 +2212,49 @@ function fcOpts(sel,typeFilter){
 function getPB(sup){if(!S.priceBook[sup])S.priceBook[sup]={email:'',phone:'',kakaoId:'',materials:{}};return S.priceBook[sup];}
 function pbKey(name,color){return color?name+'\x1F'+color:name;}
 function pbDecodeKey(key){var i=key.indexOf('\x1F');return i<0?[key,'']:[key.slice(0,i),key.slice(i+1)];}
-function saveToPB(item){for(const f of item.fabrics||[]){if(!f.supplier||!f.name)continue;getPB(f.supplier).materials[f.name]={type:'fabric',name:f.name,pricingUnit:f.pricingUnit||'yard',unitPrice:f.unitPrice||0,pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,width:f.width||null,composition:f.composition||'',lastUpdated:today()};}for(const t of item.trims||[]){if(!t.supplier||!t.name)continue;const key=pbKey(t.name,t.color||'');const existing=getPB(t.supplier).materials[key]||{};getPB(t.supplier).materials[key]={...existing,type:'trim',name:t.name,color:t.color||'',orderType:t.orderType||'count',unitPrice:t.unitPrice||0,unit:t.unit||'yard',yardsPerRoll:t.yardsPerRoll||null,lastUpdated:today()};}}
+function saveToPB(item){for(const f of item.fabrics||[]){if(!f.supplier||!f.name)continue;getPB(f.supplier).materials[f.name]={type:'fabric',name:f.name,pricingUnit:f.pricingUnit||'yard',unitPrice:f.unitPrice||0,pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,width:f.width||null,composition:f.composition||'',lastUpdated:today()};}for(const t of item.trims||[]){if(!t.supplier||!t.name)continue;const key=pbKey(t.name,t.color||'');const existing=getPB(t.supplier).materials[key]||{};
+    var pbEntry={...existing,type:'trim',name:t.name,color:t.color||'',orderType:t.orderType||'count',unitPrice:t.unitPrice||0,unit:t.unit||'yard',yardsPerRoll:t.yardsPerRoll||null,lastUpdated:today()};
+    if(t.orderType==='zipper'){
+      pbEntry.zipperSize=t.zipperSize||'';
+      pbEntry.zipperDirection=t.zipperDirection||'';
+      pbEntry.toothColor=t.toothColor||'';
+      pbEntry.sliderModel=t.sliderModel||'';
+      pbEntry.sliderColor=t.sliderColor||'';
+      pbEntry.hasSliderLogo=!!t.hasSliderLogo;
+      pbEntry.sliderLogoText=t.sliderLogoText||'';
+    }
+    getPB(t.supplier).materials[key]=pbEntry;
+  }}
 function updateSupDL(){const dl=document.getElementById('dl-sup');if(!dl)return;dl.innerHTML=Object.keys(S.priceBook).map(s=>`<option value="${esc(s)}">`).join('');}
 function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.trim();const nm=r.querySelector('[data-f=name]')?.value?.trim();if(!sup||!nm)return;const e=S.priceBook[sup]?.materials[nm];if(!e||e.type!=='fabric')return;if(e.pricingUnit==='kg'){const p=r.querySelector('[data-f=pricePerKg]');if(p&&!+p.value){p.value=e.pricePerKg;p.classList.add('autofill');setTimeout(()=>p.classList.remove('autofill'),1200);}const y=r.querySelector('[data-f=yardsPerKg]');if(y&&e.yardsPerKg&&!+y.value)y.value=e.yardsPerKg;}else{const p=r.querySelector('[data-f=unitPrice]');if(p&&!+p.value&&e.unitPrice){p.value=e.unitPrice;p.classList.add('autofill');setTimeout(()=>p.classList.remove('autofill'),1200);}}const wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e.width)wEl.value=e.width;const cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e.composition)cEl.value=e.composition;showToast('💡 단가·폭·혼용률 자동입력');}
-function autofillTrim(r){const sup=r.querySelector('[data-f=supplier]')?.value?.trim();const nm=r.querySelector('[data-f=name]')?.value?.trim();const cl=r.querySelector('[data-f=color]')?.value?.trim()||'';if(!sup||!nm)return;const mats=S.priceBook[sup]?.materials;if(!mats)return;var e=mats[pbKey(nm,cl)];if(!e&&cl)e=mats[nm];if(!e||e.type!=='trim')return;const p=r.querySelector('[data-f=unitPrice]');if(p&&!+p.value&&e.unitPrice){p.value=e.unitPrice;p.classList.add('autofill');setTimeout(()=>p.classList.remove('autofill'),1200);showToast('💡 단가 자동입력'+(cl?' ('+cl+')':''));}}
+function autofillTrim(r){
+  const sup=r.querySelector('[data-f=supplier]')?.value?.trim();
+  const nm=r.querySelector('[data-f=name]')?.value?.trim();
+  const cl=r.querySelector('[data-f=color]')?.value?.trim()||'';
+  if(!sup||!nm)return;
+  const mats=S.priceBook[sup]?.materials;
+  if(!mats)return;
+  var e=mats[pbKey(nm,cl)];
+  if(!e&&cl)e=mats[nm];
+  if(!e||e.type!=='trim')return;
+  const p=r.querySelector('[data-f=unitPrice]');
+  if(p&&!+p.value&&e.unitPrice){
+    p.value=e.unitPrice;
+    p.classList.add('autofill');
+    setTimeout(()=>p.classList.remove('autofill'),1200);
+    showToast('💡 단가 자동입력'+(cl?' ('+cl+')':''));
+  }
+  // 지퍼 정보 자동입력
+  if(e.orderType==='zipper'){
+    var fields=[['zipperSize',e.zipperSize],['zipperDirection',e.zipperDirection],['toothColor',e.toothColor],['sliderModel',e.sliderModel],['sliderColor',e.sliderColor],['sliderLogoText',e.sliderLogoText]];
+    fields.forEach(function(pair){
+      var input=r.querySelector('[data-f='+pair[0]+']');
+      if(input&&!input.value&&pair[1])input.value=pair[1];
+    });
+    var cb=r.querySelector('[data-f=hasSliderLogo]');
+    if(cb&&!cb.checked&&e.hasSliderLogo)cb.checked=true;
+  }
+}
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;const sups=Object.keys(S.priceBook).sort();
   const addForm=`<div class="card" style="margin-bottom:10px;border:2px dashed var(--bd)">
@@ -2284,7 +2323,7 @@ function renderBook(){
       ${mats.map(([key,m])=>{const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return`<tr>
         <td><input type="text" value="${esc(nm)}" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'name')" style="font-size:12px;width:100%;border:none;background:transparent;padding:3px 5px;border-radius:4px" onfocus="this.style.background='#fff8e1';this.style.border='1px solid #fde68a'" onblur="this.style.background='transparent';this.style.border='none'"></td>
         <td>${isFab?'<span class="muted" style="font-size:10px">-</span>':`<input type="text" value="${esc(cl)}" placeholder="색상" list="dl-clr" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'color')" style="font-size:11px;width:70px;padding:3px 5px">`}</td>
-        <td>${isFab?(isKg?'<span class="badge b2">KG</span>':'<span class="badge b1">YARD</span>'):`<select onchange="updatePBOrderType('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value)" style="font-size:11px;padding:3px 5px"><option value="count"${m.orderType==='count'||!m.orderType?' selected':''}>개수</option><option value="yard"${m.orderType==='yard'?' selected':''}>야드</option><option value="roll"${m.orderType==='roll'?' selected':''}>롤</option><option value="thread"${m.orderType==='thread'?' selected':''}>실</option></select>`}</td>
+        <td>${isFab?(isKg?'<span class="badge b2">KG</span>':'<span class="badge b1">YARD</span>'):`<select onchange="updatePBOrderType('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value)" style="font-size:11px;padding:3px 5px"><option value="count"${m.orderType==='count'||!m.orderType?' selected':''}>개수</option><option value="yard"${m.orderType==='yard'?' selected':''}>야드</option><option value="roll"${m.orderType==='roll'?' selected':''}>롤</option><option value="thread"${m.orderType==='thread'?' selected':''}>실</option><option value="zipper"${m.orderType==='zipper'?' selected':''}>지퍼</option></select>`}</td>
         <td><div class="fr" style="gap:4px;align-items:center">
           <input type="number" value="${storeP}" min="0" style="width:80px;font-size:12px"
             onchange="updatePBPrice('${encodeURIComponent(s)}','${encodeURIComponent(nm)}','${isKg?'kg':'unit'}',+this.value)">
@@ -3016,7 +3055,20 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r,i)=>{if(!form
       qtyInputs.forEach(inp=>{const sz=decodeURIComponent(inp.dataset.trimQty);if(inp.value!=='')qbz[sz]=+inp.value||0;});
       formTrims[i].sizeBySize=sbz;
       formTrims[i].qtyBySize=qbz;
-    }if(tp==='roll'){formTrims[i].consumptionPerPiece=+g('consumptionPerPiece')||0;formTrims[i].yardsPerRoll=+g('yardsPerRoll')||100;formTrims[i].unitPrice=+g('unitPrice')||0;formTrims[i].buffer=+(g('buffer')??5)||0;}else if(tp==='yard'){formTrims[i].consumptionPerPiece=+g('consumptionPerPiece')||0.5;formTrims[i].unitPrice=+g('unitPrice')||0;formTrims[i].buffer=+(g('buffer')??3)||0;}else if(tp==='thread'){formTrims[i].threadMin=+g('threadMin')||30;formTrims[i].threadQty=+g('threadQty')||10;formTrims[i].unitPrice=+g('unitPrice')||0;}else{formTrims[i].unit=g('unit')||'ea';formTrims[i].qtyPerPiece=+g('qtyPerPiece')||1;formTrims[i].unitPrice=+g('unitPrice')||0;formTrims[i].buffer=+(g('buffer')??3)||0;}
+    }if(tp==='roll'){formTrims[i].consumptionPerPiece=+g('consumptionPerPiece')||0;formTrims[i].yardsPerRoll=+g('yardsPerRoll')||100;formTrims[i].unitPrice=+g('unitPrice')||0;formTrims[i].buffer=+(g('buffer')??5)||0;}else if(tp==='yard'){formTrims[i].consumptionPerPiece=+g('consumptionPerPiece')||0.5;formTrims[i].unitPrice=+g('unitPrice')||0;formTrims[i].buffer=+(g('buffer')??3)||0;}else if(tp==='thread'){formTrims[i].threadMin=+g('threadMin')||30;formTrims[i].threadQty=+g('threadQty')||10;formTrims[i].unitPrice=+g('unitPrice')||0;}else if(tp==='zipper'){
+    formTrims[i].zipperSize=g('zipperSize')||'';
+    formTrims[i].zipperDirection=g('zipperDirection')||'오픈';
+    formTrims[i].toothColor=g('toothColor')||'';
+    formTrims[i].sliderModel=g('sliderModel')||'';
+    formTrims[i].sliderColor=g('sliderColor')||'';
+    var slCb=r.querySelector('[data-f=hasSliderLogo]');
+    formTrims[i].hasSliderLogo=!!(slCb&&slCb.checked);
+    formTrims[i].sliderLogoText=g('sliderLogoText')||'';
+    formTrims[i].qtyPerPiece=+g('qtyPerPiece')||1;
+    formTrims[i].unitPrice=+g('unitPrice')||0;
+    formTrims[i].buffer=+(g('buffer')??3)||0;
+    formTrims[i].unit='ea';
+  }else{formTrims[i].unit=g('unit')||'ea';formTrims[i].qtyPerPiece=+g('qtyPerPiece')||1;formTrims[i].unitPrice=+g('unitPrice')||0;formTrims[i].buffer=+(g('buffer')??3)||0;}
   // colorName 수집 (setClrName에서도 업데이트되지만 저장 시 한 번 더)
   r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(formTrims[i].colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});
 });}
@@ -3324,7 +3376,12 @@ function trimExtrasCost(t,qty){
   return extra;
 }
 
-function calcTrimNeed(t,qty){var extras=trimExtrasCost(t,qty);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*qty*(1+((t.buffer??5)/100));const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return{rolls,ty:parseFloat(ty.toFixed(2)),ay:rolls*(t.yardsPerRoll||1),cost:rolls*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:true};}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*qty*(1+((t.buffer??3)/100));return{qty:parseFloat(ty.toFixed(2)),unit:'yard',cost:ty*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isRoll:false};}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isThread:true,minQ:minQ,perColor:perColor};}const n=Math.ceil((t.qtyPerPiece||1)*qty*(1+((t.buffer??3)/100)));return{qty:n,unit:t.unit||'yard',cost:n*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false};}
+function calcTrimNeed(t,qty){var extras=trimExtrasCost(t,qty);
+  if(t.orderType==='zipper'){
+    const n=Math.ceil((t.qtyPerPiece||1)*qty*(1+((t.buffer??3)/100)));
+    return{qty:n,unit:'개',cost:n*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isZipper:true};
+  }
+  if(t.orderType==='roll'){const ty=t.consumptionPerPiece*qty*(1+((t.buffer??5)/100));const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return{rolls,ty:parseFloat(ty.toFixed(2)),ay:rolls*(t.yardsPerRoll||1),cost:rolls*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:true};}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*qty*(1+((t.buffer??3)/100));return{qty:parseFloat(ty.toFixed(2)),unit:'yard',cost:ty*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isRoll:false};}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isThread:true,minQ:minQ,perColor:perColor};}const n=Math.ceil((t.qtyPerPiece||1)*qty*(1+((t.buffer??3)/100)));return{qty:n,unit:t.unit||'yard',cost:n*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false};}
 /* ===== 자재의 실제 발주량/비용 헬퍼 (actualOrderedQty 반영) ===== */
 function getMatActualQty(m){
   if(!m)return 0;
@@ -3382,11 +3439,11 @@ function calcSups(orderItems){
           const cQty=colorQtys[c]||0;if(!cQty)continue;
           const calc=calcTrimNeed(t,cQty);
           const clNm=t.colorLinks.find(l=>l.itemColor===c)?.colorName||c;
-          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,calc});
+          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',calc});
         }
       }else{
         const calc=calcTrimNeed(t,totalQty);
-        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,calc});
+        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',calc});
       }
     }
   }return sups;
@@ -3631,9 +3688,56 @@ function genPoText(order,sn){
   // 부자재 (원단과 동일한 구조, 컬러별 그룹핑)
   if(trims.length){
     if(!fabs.length)L.push(sn);
-    // 부자재명+크기 기준으로 그룹핑
+    
+    // === 지퍼 먼저 별도 출력 ===
+    const zippers=trims.filter(function(t){return t.orderType==='zipper';});
+    const nonZippers=trims.filter(function(t){return t.orderType!=='zipper';});
+    if(zippers.length){
+      // 지퍼 그룹핑 (사양이 같은 것끼리)
+      const zGrp={};const zGrpOrder=[];
+      for(const z of zippers){
+        const zk=(z.zipperSize||'')+'|'+(z.zipperDirection||'')+'|'+(z.toothColor||'')+'|'+(z.sliderModel||'')+'|'+(z.sliderColor||'')+'|'+(z.hasSliderLogo?'1':'0')+'|'+(z.sliderLogoText||'');
+        if(!zGrp[zk]){zGrp[zk]={...z,colors:[]};zGrpOrder.push(zk);}
+        zGrp[zk].colors.push(z);
+      }
+      for(const zk of zGrpOrder){
+        const z=zGrp[zk];
+        // 헤더 라인: "3호 오픈 지퍼 니켈이빨"
+        let zhdr='';
+        if(z.zipperSize)zhdr+=z.zipperSize+' ';
+        if(z.zipperDirection)zhdr+=z.zipperDirection+' ';
+        zhdr+='지퍼';
+        if(z.toothColor)zhdr+=' '+z.toothColor+'이빨';
+        L.push(zhdr);
+        // 슬라이더 정보
+        if(z.sliderModel||z.sliderColor){
+          let sl='슬라이더: ';
+          if(z.sliderModel)sl+=z.sliderModel;
+          if(z.sliderColor)sl+=' #'+z.sliderColor;
+          L.push(sl);
+        }
+        // 로고
+        if(z.hasSliderLogo&&z.sliderLogoText){
+          L.push('로고: '+z.sliderLogoText);
+        }
+        // 컬러별 수량
+        let totQty=0;
+        z.colors.forEach(function(zz){
+          const origQ=zz.calc?.qty||0;
+          const actQ=(typeof hasMatOverride==='function'&&hasMatOverride(zz))?+zz.actualOrderedQty:origQ;
+          totQty+=actQ;
+          const cl=zz.colorName?'#'+zz.colorName:'';
+          const ovrTxt=(typeof hasMatOverride==='function'&&hasMatOverride(zz))?' ※실제(원래'+origQ+')':'';
+          L.push(cl+' - '+actQ+'개'+ovrTxt);
+        });
+        if(z.colors.length>1)L.push('합계 '+totQty+'개');
+        L.push('');
+      }
+    }
+    
+    // 부자재명+크기 기준으로 그룹핑 (지퍼 제외)
     const tGrpMap={};const tGrpOrder=[];
-    for(const t of trims){
+    for(const t of nonZippers){
       const k=(t.name||'')+'|'+(t.size||'')+'|'+(t.color||'')+'|'+(t.orderType||'');
       if(!tGrpMap[k]){tGrpMap[k]={name:t.name,size:t.size||'',color:t.color||'',orderType:t.orderType,yardsPerRoll:t.yardsPerRoll||100,unitPrice:t.unitPrice||0,colors:[]};tGrpOrder.push(k);}
       tGrpMap[k].colors.push(t);
