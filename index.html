@@ -46,10 +46,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .panel{flex:1;overflow-y:auto;padding:14px 16px;}
 .split{display:flex;height:100%;}
 @media(max-width:768px){
+  /* 모바일: 평소엔 위 목록 / 아래 상세 자연스럽게 흐름 (스크롤로 둘 다 접근 가능) */
   .split{flex-direction:column;height:auto;overflow-y:auto;}
   .sl{width:100% !important;max-height:50vh;border-right:none !important;border-bottom:2px solid var(--bd);position:sticky;top:0;z-index:5;}
   .sr{width:100% !important;flex:none;}
+  /* detail-open 모드: 사용자가 카드를 누르면 풀스크린 전환 */
+  .split.detail-open .sl{display:none;}
+  .split.detail-open .sr{max-height:none;}
+  /* 뒤로가기 버튼은 모바일 + detail-open일 때만 보임 */
+  .split.detail-open .mobile-back-btn{display:inline-flex !important;align-items:center;gap:5px;padding:6px 11px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px;color:var(--text);}
+  .split.detail-open .mobile-back-btn:hover{background:var(--bd);}
 }
+/* 데스크탑이거나 detail-open 아닐 때는 뒤로가기 버튼 숨김 */
+.mobile-back-btn{display:none;}
 .sl{width:270px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--bd);background:var(--bg);padding:10px;}
 .sr{flex:1;overflow-y:auto;padding:14px 16px;}
 /* Buttons */
@@ -529,6 +538,12 @@ tryInitFirebase();
       <div id="pay-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;flex:1"></div>
       <select id="pay-fc-flt" style="font-size:12px;max-width:150px;display:none" onchange="renderPayContent()"><option value="">전체 공장</option></select>
       <select id="pay-sp-flt" style="font-size:12px;max-width:150px;display:none" onchange="renderPayContent()"><option value="">전체 거래처</option></select>
+      <select id="pay-period-flt" style="font-size:12px;max-width:130px" onchange="renderPayContent()">
+        <option value="">📅 전체 기간</option>
+        <option value="thisMonth">이번 달</option>
+        <option value="lastMonth">지난 달</option>
+        <option value="3months">최근 3개월</option>
+      </select>
       <label class="fr" style="font-size:12px;cursor:pointer;gap:5px;margin-left:auto">
         <input type="checkbox" id="pay-show-done" onchange="renderPayContent()">
         결제완료 항목 보기
@@ -2861,6 +2876,105 @@ function showItemForm(id){
 }
 function hideItemForm(){document.getElementById('ipl').style.display='';document.getElementById('ipf').style.display='none';}
 
+// 가산 항목 UI (원단 전용)
+// 컬러별로 적용 여부를 선택할 수 있는 추가 단가 리스트
+// 예: 바이오워싱 +1000원, 특정 컬러만 +500원 같은 케이스
+function mkPriceAdditionsSec(i,f,colorList){
+  const adds=f.priceAdditions||[];
+  let html='<div style="margin-top:8px;padding:8px 10px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:6px">';
+  html+='<div style="font-size:11px;font-weight:600;color:#047857;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">';
+  html+='<span>💰 가산 항목 <span style="font-weight:400;font-size:10px">(컬러별 추가 단가)</span></span>';
+  html+='<button class="btn s" type="button" onclick="addFabPriceAddition('+i+')" style="font-size:10px;padding:2px 8px;background:#10b981;color:#fff;border-color:#10b981">+ 항목 추가</button>';
+  html+='</div>';
+  if(adds.length===0){
+    html+='<div style="font-size:10px;color:#047857;padding:6px 4px;opacity:.7">＋ 항목 추가로 가산 단가를 만들 수 있어요. 예: "바이오워싱 +1000원", "특정 컬러 +500원"</div>';
+  }else{
+    adds.forEach(function(add,addIdx){
+      html+='<div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;background:#fff;border-radius:5px;margin-bottom:4px;border:1px solid #d1fae5">';
+      // 첫 줄: 이름 + 단가 + 단위 + 삭제
+      html+='<div style="display:flex;gap:4px;align-items:center">';
+      html+='<input data-fa-name="'+addIdx+'" value="'+esc(add.name||'')+'" placeholder="항목명 (예: 바이오워싱)" style="flex:1.5;font-size:11px;padding:3px 6px">';
+      html+='<input data-fa-price="'+addIdx+'" type="number" value="'+(add.price||0)+'" placeholder="+단가" style="flex:.7;font-size:11px;padding:3px 6px;text-align:right">';
+      html+='<span style="font-size:10px;color:#047857;white-space:nowrap">'+(f.pricingUnit==='kg'?'원/kg':'원/y')+'</span>';
+      html+='<button class="btn s d g" type="button" onclick="rmFabPriceAddition('+i+','+addIdx+')" style="padding:2px 6px;font-size:10px">🗑</button>';
+      html+='</div>';
+      // 둘째 줄: 적용 대상 (전체 컬러 / 특정 컬러)
+      const applyTo=add.applyTo||'all';
+      html+='<div style="display:flex;align-items:center;gap:7px;font-size:10px;color:#047857">';
+      html+='<span>적용:</span>';
+      html+='<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer"><input type="radio" name="fa-apply-'+i+'-'+addIdx+'" '+(applyTo==='all'?'checked':'')+' onchange="setFabAdditionApplyTo('+i+','+addIdx+',\'all\')"> 전체 컬러</label>';
+      html+='<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer"><input type="radio" name="fa-apply-'+i+'-'+addIdx+'" '+(applyTo==='colors'?'checked':'')+' onchange="setFabAdditionApplyTo('+i+','+addIdx+',\'colors\')"> 선택 컬러만</label>';
+      html+='</div>';
+      // 셋째 줄 (applyTo='colors'일 때만): 컬러 체크박스
+      if(applyTo==='colors'&&colorList&&colorList.length>0){
+        const selColors=add.colors||[];
+        html+='<div style="display:flex;flex-wrap:wrap;gap:5px;padding:4px 0">';
+        colorList.forEach(function(c){
+          const checked=selColors.indexOf(c)>=0;
+          html+='<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;padding:2px 7px;background:'+(checked?'#10b981':'#f3f4f6')+';color:'+(checked?'#fff':'#374151')+';border-radius:100px;font-size:10px">';
+          html+='<input type="checkbox" '+(checked?'checked':'')+' onchange="toggleFabAdditionColor('+i+','+addIdx+',\''+c.replace(/'/g,"\\'")+'\',this.checked)" style="width:11px;height:11px">'+esc(c);
+          html+='</label>';
+        });
+        html+='</div>';
+      }
+      html+='</div>';
+    });
+    html+='<div style="font-size:9px;color:#047857;opacity:.8;margin-top:3px">💡 가산은 단가에 더해져서 원가 / 발주서에 자동 반영됩니다</div>';
+  }
+  html+='</div>';
+  return html;
+}
+
+// 가산 항목 추가/삭제/변경 헬퍼들
+function addFabPriceAddition(i){
+  colFR();
+  if(!formFabs[i])return;
+  formFabs[i].priceAdditions=formFabs[i].priceAdditions||[];
+  formFabs[i].priceAdditions.push({id:uid(),name:'',price:0,applyTo:'all',colors:[]});
+  renderFabRows();
+}
+function rmFabPriceAddition(i,addIdx){
+  colFR();
+  if(!formFabs[i]||!formFabs[i].priceAdditions)return;
+  formFabs[i].priceAdditions.splice(addIdx,1);
+  renderFabRows();
+}
+function setFabAdditionApplyTo(i,addIdx,val){
+  colFR();
+  if(!formFabs[i]||!formFabs[i].priceAdditions||!formFabs[i].priceAdditions[addIdx])return;
+  formFabs[i].priceAdditions[addIdx].applyTo=val;
+  if(val==='all')formFabs[i].priceAdditions[addIdx].colors=[];
+  renderFabRows();
+}
+function toggleFabAdditionColor(i,addIdx,color,on){
+  colFR();
+  if(!formFabs[i]||!formFabs[i].priceAdditions||!formFabs[i].priceAdditions[addIdx])return;
+  const add=formFabs[i].priceAdditions[addIdx];
+  add.colors=add.colors||[];
+  if(on){
+    if(add.colors.indexOf(color)<0)add.colors.push(color);
+  }else{
+    add.colors=add.colors.filter(function(c){return c!==color;});
+  }
+  renderFabRows();
+}
+
+// 가산 단가 계산: 특정 컬러에 적용되는 추가 단가의 합
+function calcFabAdditionForColor(f,colorName){
+  if(!f.priceAdditions||f.priceAdditions.length===0)return 0;
+  let add=0;
+  f.priceAdditions.forEach(function(item){
+    const price=+item.price||0;
+    if(price<=0)return;
+    if(item.applyTo==='all'){
+      add+=price;
+    }else if(item.applyTo==='colors'&&item.colors&&item.colors.indexOf(colorName)>=0){
+      add+=price;
+    }
+  });
+  return add;
+}
+
 function fabRowHTML(f,i){
   const isKg=f.pricingUnit==='kg';
   const hasLinks=f.colorLinks&&f.colorLinks.length>0;
@@ -2916,6 +3030,7 @@ function fabRowHTML(f,i){
     <input type="text" data-f-memo value="${esc(f.memo||'')}" placeholder="발주 시 원단처에 전할 메모 (예: 식서 깔끔히)" style="font-size:11px;padding:4px 7px;flex:1">
   </div>
   ${colorSec}
+  ${mkPriceAdditionsSec(i,f,formColors)}
 </div>`;}
 
 // 컬러 체크박스 토글
@@ -3231,6 +3346,18 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r,i)=>{if(!form
   const fabColAll=r.querySelector('[data-fab-col-all]');
   if(fabColAll){formFabs[i].fabricColor=fabColAll.value;formFabs[i].colorLinks=[];}
   else{r.querySelectorAll('[data-fab-col]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.fabCol);const lk=formFabs[i].colorLinks?.find(l=>l.itemColor===cn);if(lk)lk.fabricColor=inp.value;});}
+  // 가산 항목 데이터 수집 (이름/단가만 — applyTo와 colors는 라디오/체크박스 onchange로 즉시 저장됨)
+  const faNameInputs=r.querySelectorAll('[data-fa-name]');
+  const faPriceInputs=r.querySelectorAll('[data-fa-price]');
+  if(faNameInputs.length>0||faPriceInputs.length>0){
+    formFabs[i].priceAdditions=formFabs[i].priceAdditions||[];
+    const cnt=Math.max(faNameInputs.length,faPriceInputs.length);
+    for(let k=0;k<cnt;k++){
+      if(!formFabs[i].priceAdditions[k])formFabs[i].priceAdditions[k]={id:uid(),name:'',price:0,applyTo:'all',colors:[]};
+      if(faNameInputs[k])formFabs[i].priceAdditions[k].name=faNameInputs[k].value||'';
+      if(faPriceInputs[k])formFabs[i].priceAdditions[k].price=+faPriceInputs[k].value||0;
+    }
+  }
   // 사이즈별 요척 수집
   const szInputs=r.querySelectorAll('[data-f-sz-cons]');
   if(szInputs.length>0){
@@ -3446,7 +3573,7 @@ function renderCSSummary(){
   <div class="muted" style="font-size:11px;margin-top:6px">* 수량 1pcs 기준 계산 · 롤/lot비 미니멈 미적용 · 아이템 탭하면 상세 원가 보기</div>`;
 }
 function rmTrimCostRow(i){colTrimCosts();formTrimCosts.splice(i,1);renderTrimCostRows();}
-function addFabRow(){colFR();formFabs.push({id:uid(),supplier:'',name:'',pricingUnit:'yard',unitPrice:0,pricePerKg:0,yardsPerKg:1,consumption:0,buffer:5,fabricColor:'',width:null,composition:''});renderFabRows();}
+function addFabRow(){colFR();formFabs.push({id:uid(),supplier:'',name:'',pricingUnit:'yard',unitPrice:0,pricePerKg:0,yardsPerKg:1,consumption:0,buffer:5,fabricColor:'',width:null,composition:'',priceAdditions:[]});renderFabRows();}
 function rmFabRow(i){colFR();formFabs.splice(i,1);renderFabRows();}
 function addTrimRow(t){
   colTR();
@@ -3618,10 +3745,14 @@ function roundYards(y){
   return Math.ceil(y); // 무조건 올림 (default)
 }
 
-function calcFabYards(f,qty,qtyBySize){
+function calcFabYards(f,qty,qtyBySize,colorName){
   // qtyBySize가 있고 fabric에 consumptionBySize가 있으면 사이즈별 정밀 계산
   var hasSizeMap=f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0;
   var hasSizeQty=qtyBySize&&Object.keys(qtyBySize).length>0;
+  
+  // === 가산 단가 계산 ===
+  // 해당 컬러에 적용되는 가산항목 합산
+  const addPerUnit=calcFabAdditionForColor(f,colorName||'');
   
   if(hasSizeMap&&hasSizeQty){
     // 사이즈별 정밀 계산: Σ(요척[sz] × 수량[sz])
@@ -3637,14 +3768,14 @@ function calcFabYards(f,qty,qtyBySize){
     });
     const withBuffer=rawTotal*(1+((f.buffer??5)/100));
     const tyS=roundYards(withBuffer);
-    const result={ty:tyS,isKg:false,bySize:sizeBreakdown,isSizeCalc:true};
+    const result={ty:tyS,isKg:false,bySize:sizeBreakdown,isSizeCalc:true,addPerUnit:addPerUnit};
     if(f.pricingUnit==='kg'){
       const tkS=parseFloat((tyS/(f.yardsPerKg||1)).toFixed(2));
       result.tk=tkS;
-      result.cost=tkS*(f.pricePerKg||0);
+      result.cost=tkS*((f.pricePerKg||0)+addPerUnit);
       result.isKg=true;
     }else{
-      result.cost=tyS*(f.unitPrice||0);
+      result.cost=tyS*((f.unitPrice||0)+addPerUnit);
     }
     return result;
   }
@@ -3652,8 +3783,11 @@ function calcFabYards(f,qty,qtyBySize){
   // 옛 로직 (단일 consumption × 총 수량)
   const raw=f.consumption*qty*(1+((f.buffer??5)/100));
   const ty=roundYards(raw);
-  if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(2));return{ty,tk,cost:tk*(f.pricePerKg||0),isKg:true};}
-  return{ty,cost:ty*(f.unitPrice||0),isKg:false};
+  if(f.pricingUnit==='kg'){
+    const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(2));
+    return{ty,tk,cost:tk*((f.pricePerKg||0)+addPerUnit),isKg:true,addPerUnit:addPerUnit};
+  }
+  return{ty,cost:ty*((f.unitPrice||0)+addPerUnit),isKg:false,addPerUnit:addPerUnit};
 }
 function trimExtrasCost(t,qty){
   // 로고 + 팁 비용 (벌당 단가 × 개수)
@@ -3705,7 +3839,13 @@ function hasMatOverride(m){
   return m&&m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''&&+m.actualOrderedQty!==getMatOrigQty(m);
 }
 
-function calcSups(orderItems){
+function calcSups(orderItems,opts){
+  // opts.fabricEffectivePcs: true (기본) — 원단 계산에도 effective pcs 적용 여부
+  //   - false면 원단은 원래 수량 기준으로 계산 (이번 작업에선 false 유지 — 원단은 이미 actualOrderedQty로 처리됨)
+  // opts.trimEffectivePcs: true (기본) — 부자재 계산에 effective pcs 적용 여부
+  //   - 사용자가 "원단으로 9장만 만들기"로 결정하면 부자재도 9장 분량으로 발주
+  opts=opts||{};
+  const applyEffPcsToTrim=opts.trimEffectivePcs!==false; // 기본 true
   const sups={};
   for(const oi of orderItems){const it=S.items[oi.itemId];if(!it)continue;
     const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
@@ -3717,39 +3857,83 @@ function calcSups(orderItems){
       sizes.forEach(function(sz){colorSizeQtys[c][sz]=+(oi.qtyGrid?.[c]?.[sz])||0;});
     });
     const totalQty=Object.values(colorQtys).reduce((s,v)=>s+v,0);
+    
+    // === 부자재용 effective 수량 계산 (도미노 적용) ===
+    // 원단의 actualOrderedQty가 입력되어 effective pcs가 origPcs보다 작아진 경우,
+    // 부자재 수량도 비율에 맞춰 자동 축소
+    // 단, 사용자가 자재별 actualOrderedQty를 직접 입력해서 덮어쓴 경우는 그대로 유지 (calcTrimNeed 호출 후 hasMatOverride로 처리)
+    let trimColorQtys=colorQtys;
+    let trimColorSizeQtys=colorSizeQtys;
+    let trimTotalQty=totalQty;
+    let effectivePcsForTrim=null; // 디버깅용
+    if(applyEffPcsToTrim&&typeof getEffectivePcsForOrderItem==='function'){
+      // 현재 오더 컨텍스트가 있어야 effective pcs 계산 가능
+      // calcSups가 두 경로에서 호출되므로 oi가 속한 오더를 찾는다
+      let curOrder=null;
+      for(const oid in S.orders){
+        if(S.orders[oid].orderItems&&S.orders[oid].orderItems.includes(oi)){curOrder=S.orders[oid];break;}
+      }
+      if(curOrder){
+        const effPcs=getEffectivePcsForOrderItem(curOrder,oi);
+        if(effPcs!==null&&effPcs>0&&effPcs<totalQty){
+          // 비율로 축소: 컬러별 비율 유지하면서 effective pcs까지 줄임
+          const ratio=effPcs/totalQty;
+          trimColorQtys={};
+          trimColorSizeQtys={};
+          colors.forEach(function(c){
+            trimColorQtys[c]=Math.floor((colorQtys[c]||0)*ratio);
+            trimColorSizeQtys[c]={};
+            sizes.forEach(function(sz){
+              trimColorSizeQtys[c][sz]=Math.floor((colorSizeQtys[c][sz]||0)*ratio);
+            });
+          });
+          trimTotalQty=Object.values(trimColorQtys).reduce((s,v)=>s+v,0);
+          effectivePcsForTrim=effPcs;
+        }
+      }
+    }
     for(const f of it.fabrics||[]){if(!f.supplier)continue;if(!sups[f.supplier])sups[f.supplier]=mkSupWithDefaults(f.supplier);
       const hasLinks=f.colorLinks&&f.colorLinks.length>0;
       for(const c of colors){const qty=colorQtys[c]||0;if(!qty)continue;
         // 컬러 링크 있으면 해당 컬러만
         if(hasLinks&&!f.colorLinks.find(l=>l.itemColor===c))continue;
-        const calc=calcFabYards(f,qty,colorSizeQtys[c]);
+        const calc=calcFabYards(f,qty,colorSizeQtys[c],c);
         const fabColorName=hasLinks?(f.colorLinks.find(l=>l.itemColor===c)?.fabricColor||''):(f.fabricColor||'');
         const dispNm=colors.length>1&&colors[0]!==''?`${f.name} (${c})`:f.name;
-        sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:f.unitPrice||0,pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,totalYards:calc.ty,totalKg:calc.tk||null,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',itemId:oi.itemId,itemName:it.name,memo:f.memo||''});
+        // 이 컬러에 적용되는 가산 항목 목록 추출 (발주서 표시용)
+        const appliedAdditions=(f.priceAdditions||[]).filter(function(a){
+          if(!a.price||+a.price<=0)return false;
+          if(a.applyTo==='all')return true;
+          if(a.applyTo==='colors'&&a.colors&&a.colors.indexOf(c)>=0)return true;
+          return false;
+        }).map(function(a){return {name:a.name||'가산',price:+a.price||0};});
+        sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:f.unitPrice||0,pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,totalYards:calc.ty,totalKg:calc.tk||null,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',itemId:oi.itemId,itemName:it.name,memo:f.memo||'',addPerUnit:calc.addPerUnit||0,appliedAdditions:appliedAdditions});
       }
     }
     for(const t of it.trims||[]){
       if(!t.supplier)continue;
       if(!sups[t.supplier])sups[t.supplier]=mkSupWithDefaults(t.supplier);
       // === 공통 사용 모드: 컬러 구분 없이 총수량으로 1번만 발주 ===
+      // 도미노 적용: trimTotalQty 사용 (effective pcs가 origPcs보다 작아진 경우 자동 축소된 값)
       if(t.isCommonUse){
-        const calc=calcTrimNeed(t,totalQty);
-        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',isCommonUse:true,commonForColors:colors.filter(function(c){return colorQtys[c]>0;}),calc});
+        const calc=calcTrimNeed(t,trimTotalQty);
+        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',isCommonUse:true,commonForColors:colors.filter(function(c){return trimColorQtys[c]>0;}),effectivePcsApplied:effectivePcsForTrim,calc});
         continue;
       }
       const hasLinks=t.colorLinks&&t.colorLinks.length>0;
       if(hasLinks){
-        // 컬러별로 나눠서 발주
+        // 컬러별로 나눠서 발주 — 도미노 적용 trimColorQtys
         for(const c of colors){
           if(!t.colorLinks.find(l=>l.itemColor===c))continue;
-          const cQty=colorQtys[c]||0;if(!cQty)continue;
+          const cQty=trimColorQtys[c]||0;if(!cQty)continue;
           const calc=calcTrimNeed(t,cQty);
           const clNm=t.colorLinks.find(l=>l.itemColor===c)?.colorName||c;
-          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],calc});
+          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],effectivePcsApplied:effectivePcsForTrim,calc});
         }
       }else{
-        const calc=calcTrimNeed(t,totalQty);
-        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],calc});
+        // 단일 — 도미노 적용 trimTotalQty
+        const calc=calcTrimNeed(t,trimTotalQty);
+        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],effectivePcsApplied:effectivePcsForTrim,calc});
       }
     }
   }return sups;
@@ -4020,6 +4204,12 @@ function genPoText(order,sn){
         }
         if(cl.totalKg&&!cl.actualOrderedQty)qtyLine+='('+cl.totalKg+'kg)';
         L.push(qtyLine);
+        // 가산 항목 표시 (이 컬러에 적용되는 추가 단가들)
+        if(cl.appliedAdditions&&cl.appliedAdditions.length>0){
+          cl.appliedAdditions.forEach(function(a){
+            L.push('  └ '+a.name+' +'+num(a.price)+'원'+(cl.pricingUnit==='kg'?'/kg':'/y'));
+          });
+        }
         // 사이즈별 요척 분포는 거래처에 노출 안 함 (우리 노하우)
         // 컬러간 구분을 위해 빈 줄 (다음 컬러 그룹이 있을 때만)
         if(idx<g.colors.length-1)L.push('');
@@ -4150,6 +4340,10 @@ function genPoText(order,sn){
         if(isCommon&&t.commonForColors&&t.commonForColors.length>0){
           var colorList=t.commonForColors.filter(function(c){return c;}).map(function(c){return '#'+c;}).join(' ');
           if(colorList)L.push('적용: '+colorList);
+        }
+        // 원단 부족으로 부자재 수량이 자동 조정된 경우 사유 표기
+        if(t.effectivePcsApplied){
+          L.push('※ 원단 재고에 맞춰 '+t.effectivePcsApplied+'장 기준 발주');
         }
         L.push('');
         continue;
@@ -4334,6 +4528,7 @@ function renderOrderPane(){
         ${reorderLbl?'<span style="font-weight:600;color:'+(rn.num===1?'#0284c7':'#d97706')+'">'+reorderLbl+'</span>':''}
         ${reorderLbl&&rn.total>1?'<span style="color:var(--t3)">전체 '+rn.total+'차</span>':''}
         ${subInfo?'<span>'+esc(subInfo)+'</span>':''}
+        ${renderCardQtyBadge(o)}
       </div>
       <div class="pbar" style="margin-top:5px"><div class="pfill" style="width:${prog}%"></div></div>
     </div>`;
@@ -4341,13 +4536,33 @@ function renderOrderPane(){
   if(curOid&&S.orders[curOid])renderOrderDetail();
   else document.getElementById('o-sr').innerHTML='<div class="empty" style="margin-top:4rem">← 오더를 선택하세요</div>';
 }
-function selectOrder(id){curOid=id;renderOrderPane();}
+function selectOrder(id){
+  curOid=id;
+  renderOrderPane();
+  // 모바일에서는 상세 화면을 풀스크린으로 슬라이드
+  const splitEl=document.getElementById('pane-orders');
+  if(splitEl&&window.innerWidth<=768){
+    splitEl.classList.add('detail-open');
+    // 스크롤을 맨 위로 (다른 오더 스크롤 위치 남아있지 않게)
+    const sr=document.getElementById('o-sr');
+    if(sr)sr.scrollTop=0;
+  }
+}
+
+// 모바일에서 상세 화면 → 목록으로 돌아가기
+function backToOrderList(){
+  const splitEl=document.getElementById('pane-orders');
+  if(splitEl)splitEl.classList.remove('detail-open');
+  // curOid는 유지해서 다음에 같은 오더로 돌아갈 수 있게 (선택만 유지)
+}
 
 function renderOrderDetail(){
   const o=S.orders[curOid];if(!o)return;const el=document.getElementById('o-sr');if(!el)return;
   const[lb,cls]=oLabel(o);const di=ddayInfo(o.shippingDate);
   const cost=calcOrderCost(o);
+  // 모바일에서만 보이는 "← 목록으로" 버튼 (.mobile-back-btn 클래스가 모바일에서만 display:inline-flex로 변경됨)
   el.innerHTML=`
+    <button class="mobile-back-btn" onclick="backToOrderList()">← 오더 목록</button>
     <div class="fb" style="margin-bottom:8px">
       <div><div style="font-weight:700;font-size:15px">${(function(){var firstOI=o.orderItems?.[0];var itNm=firstOI?(S.items[firstOI.itemId]?.name||firstOI.itemName||''):'';var oNm=o.name||'';
   // 오더 이름에 이미 아이템 이름이 포함되어 있으면 중복 방지
@@ -4357,7 +4572,9 @@ function renderOrderDetail(){
       <div class="muted">${o.orderItems?.map(oi=>{const effPcs=getEffectivePcsForOrderItem(o,oi);return `${esc(oi.itemName)} ${num(oi.grandTotal||0)}pcs${effPcs!==null?` <span style="color:var(--red);font-weight:600">(실제 ${effPcs}pcs - 원단부족)</span>`:''}`;}).join(', ')}</div></div>
       <div class="fr" style="gap:4px"><button class="btn s" onclick="syncOrderFromUI('${o.id}')" title="아이템에서 자재 변경 사항 가져오기" style="background:#eff6ff;color:#1e40af;border-color:#bfdbfe">🔄 자재 동기화</button><button class="btn s" onclick="cloneOrder('${o.id}')" title="리오더 / 복사"> 복사</button><button class="btn s d" onclick="deleteOrder('${o.id}')">🗑</button></div>
     </div>
+    ${renderQtyStrip(o)}
     ${cost.total>0?`<div class="cost-strip"><div class="cost-strip-item"><div class="cost-strip-v">${num(Math.round(cost.fab))}원</div><div class="cost-strip-l">원단비</div></div><div class="cost-strip-item"><div class="cost-strip-v">${num(Math.round(cost.trim))}원</div><div class="cost-strip-l">부자재비</div></div><div class="cost-strip-item"><div class="cost-strip-v">${num(Math.round(cost.proc))}원</div><div class="cost-strip-l">가공비</div></div><div class="cost-strip-item" style="border-left:2px solid var(--bd)"><div class="cost-strip-v" style="color:var(--blue)">${num(Math.round(cost.total))}원</div><div class="cost-strip-l">총 원가</div></div></div>`:''}
+    ${renderShortageNotice(o)}
     ${renderOrderCTA(o)}
     <div class="dtabs"><button id="ot-po" class="dtab${curOTab==='po'?' on':''}" onclick="switchOTab('po')">① 발주서</button><button id="ot-check" class="dtab${curOTab==='check'?' on':''}" onclick="switchOTab('check')">② 거래처 확인</button><button id="ot-arr" class="dtab${curOTab==='arr'?' on':''}" onclick="switchOTab('arr')">③ 입고</button><button id="ot-prod" class="dtab${curOTab==='prod'?' on':''}" onclick="switchOTab('prod')">④ 공장 진행</button><button id="ot-paysht" class="dtab${curOTab==='paysht'?' on':''}" onclick="switchOTab('paysht')">⑤ 결제서</button><button id="ot-memo" class="dtab${curOTab==='memo'?' on':''}" onclick="switchOTab('memo')">메모</button></div>
     <div id="od-tab"></div>`;
@@ -4385,6 +4602,151 @@ function syncOrderFromUI(oid){
     msg+='\n반품이 필요하면 거래처에 직접 연락하세요.';
   }
   alert(msg);
+}
+
+// 오더 카드(목록)에 들어가는 컴팩트 수량 배지
+// 변경이 없으면 단순히 '100장'으로 표시하고, 변경이 있으면 '100→90장' 빨간색으로 강조
+// 사용자가 카드 목록을 쭉 훑어볼 때 변경된 오더를 즉시 식별할 수 있게 함
+function renderCardQtyBadge(o){
+  if(!o||!o.orderItems||o.orderItems.length===0)return '';
+  let totalOrig=0;
+  let totalFinal=0;
+  let hasShortage=false;
+  for(const oi of o.orderItems){
+    const it=S.items[oi.itemId];if(!it)continue;
+    const colors=it.colors&&it.colors.length?it.colors:[''];
+    const sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
+    let origPcs=0;
+    for(let ci=0;ci<colors.length;ci++){for(let si=0;si<sizes.length;si++){
+      origPcs+=+(oi.qtyGrid&&oi.qtyGrid[colors[ci]]&&oi.qtyGrid[colors[ci]][sizes[si]])||0;
+    }}
+    const effPcs=getEffectivePcsForOrderItem(o,oi);
+    const finalPcs=effPcs!==null?effPcs:origPcs;
+    totalOrig+=origPcs;
+    totalFinal+=finalPcs;
+    if(effPcs!==null&&effPcs<origPcs)hasShortage=true;
+  }
+  if(totalOrig===0)return '';
+  if(hasShortage){
+    // 변경 있음: 빨간색 + 화살표 표시
+    return '<span style="font-weight:700;color:var(--red);background:#fef2f2;padding:1px 6px;border-radius:3px;border:1px solid #fecaca">📦 '+totalOrig+'→'+totalFinal+'장</span>';
+  }
+  // 변경 없음: 일반 회색 톤
+  return '<span style="color:var(--t2)">📦 '+totalOrig+'장</span>';
+}
+
+// 오더 상단에 의뢰수량/최종오더수량을 큰 숫자로 보여주는 미니 생산 추적표
+// 사용자가 오더를 열자마자 핵심 숫자(원래 몇 장이고 실제로 몇 장 만들지)를 파악할 수 있게 함
+// 두 숫자가 같으면 정상 — 둘째 카드 회색 톤
+// 두 숫자가 다르면 변경됨 — 둘째 카드 빨간색 + 차이 표시
+function renderQtyStrip(o){
+  if(!o||!o.orderItems||o.orderItems.length===0)return '';
+  // 의뢰수량 합계 (원래 qtyGrid 합)
+  // 최종오더수량 합계 (effective pcs가 있으면 그 값, 없으면 의뢰수량 그대로)
+  let totalOrig=0;
+  let totalFinal=0;
+  let hasShortage=false;
+  const itemBreakdown=[];
+  for(const oi of o.orderItems){
+    const it=S.items[oi.itemId];if(!it)continue;
+    const colors=it.colors&&it.colors.length?it.colors:[''];
+    const sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
+    let origPcs=0;
+    for(let ci=0;ci<colors.length;ci++){for(let si=0;si<sizes.length;si++){
+      origPcs+=+(oi.qtyGrid&&oi.qtyGrid[colors[ci]]&&oi.qtyGrid[colors[ci]][sizes[si]])||0;
+    }}
+    const effPcs=getEffectivePcsForOrderItem(o,oi);
+    const finalPcs=effPcs!==null?effPcs:origPcs;
+    totalOrig+=origPcs;
+    totalFinal+=finalPcs;
+    if(effPcs!==null&&effPcs<origPcs)hasShortage=true;
+    itemBreakdown.push({name:oi.itemName||(it.name||''),orig:origPcs,final:finalPcs,diff:finalPcs-origPcs});
+  }
+  if(totalOrig===0)return ''; // 수량 없으면 표시 안 함
+  const diff=totalFinal-totalOrig;
+  const diffTxt=diff===0?'':(diff>0?'+'+diff+'장':diff+'장');
+  // 아이템 여러 개인 경우 툴팁 텍스트로 분포 표시
+  const breakdownTxt=itemBreakdown.length>1?itemBreakdown.map(b=>b.name+' '+b.orig+(b.final!==b.orig?'→'+b.final:'')+'장').join(' / '):'';
+  return '<div class="cost-strip" style="margin-bottom:8px">'
+    +'<div class="cost-strip-item">'
+    +'<div class="cost-strip-v" style="color:var(--t1);font-size:20px">'+num(totalOrig)+'장</div>'
+    +'<div class="cost-strip-l">의뢰수량</div>'
+    +'</div>'
+    +'<div class="cost-strip-item" style="border-left:2px solid var(--bd)">'
+    +'<div class="cost-strip-v" style="color:'+(hasShortage?'var(--red)':'var(--green)')+';font-size:20px;font-weight:700">'+num(totalFinal)+'장'
+    +(diffTxt?' <span style="font-size:12px;font-weight:600;color:'+(diff<0?'var(--red)':'var(--blue)')+'">('+diffTxt+')</span>':'')
+    +'</div>'
+    +'<div class="cost-strip-l">'+(hasShortage?'⚠ 최종 오더수량':'최종 오더수량')+'</div>'
+    +'</div>'
+    +(breakdownTxt?'<div class="cost-strip-item" style="flex:1.8;border-left:2px solid var(--bd)">'
+      +'<div style="font-size:11px;color:var(--t2);line-height:1.5;text-align:left;padding-left:8px">'+esc(breakdownTxt)+'</div>'
+      +'</div>':'')
+    +'</div>';
+}
+
+// 원단 부족으로 생산 수량이 줄어든 경우 사용자에게 명확한 안내 박스를 보여줌
+// 작업지시서 작성, 봉제공장 전달 시 참고용 정보를 한 번에 정리
+function renderShortageNotice(o){
+  if(!o||!o.orderItems)return '';
+  var notices=[];
+  for(var i=0;i<o.orderItems.length;i++){
+    var oi=o.orderItems[i];
+    var effPcs=getEffectivePcsForOrderItem(o,oi);
+    if(effPcs===null)continue; // 부족 없음
+    var it=S.items[oi.itemId];if(!it)continue;
+    var colors=it.colors&&it.colors.length?it.colors:[''];
+    var sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
+    var origPcs=0;
+    for(var ci=0;ci<colors.length;ci++){for(var si=0;si<sizes.length;si++){
+      origPcs+=+(oi.qtyGrid&&oi.qtyGrid[colors[ci]]&&oi.qtyGrid[colors[ci]][sizes[si]])||0;
+    }}
+    // 원단 부족 자재 정보 모으기
+    var fabricInfo=[];
+    for(var sn in o.suppliers||{}){
+      var sup=o.suppliers[sn];
+      for(var mi=0;mi<(sup.materials||[]).length;mi++){
+        var m=sup.materials[mi];
+        if(m.type==='fabric'&&m.itemId===oi.itemId&&m.actualOrderedQty){
+          var origQty=m.pricingUnit==='kg'?(m.totalKg||0):(m.totalYards||0);
+          var actualQty=+m.actualOrderedQty;
+          if(actualQty<origQty){
+            fabricInfo.push((m.displayName||m.name)+' '+origQty+'→'+actualQty+(m.pricingUnit==='kg'?'kg':'y'));
+          }
+        }
+      }
+    }
+    var msg=esc(oi.itemName)+' '+origPcs+'장 → <b>'+effPcs+'장</b> ('+(origPcs-effPcs)+'장 감소)';
+    if(fabricInfo.length){
+      msg+='<br><span style="font-size:11px;color:var(--t2)">원인: '+esc(fabricInfo.join(', '))+'</span>';
+    }
+    notices.push(msg);
+  }
+  if(!notices.length)return '';
+  // 작업지시서/봉제공장 전달용 카피 텍스트 (한 줄 형태)
+  var copyText='⚠ 원단 재고 부족으로 생산 수량 변경됨\n';
+  for(var i=0;i<o.orderItems.length;i++){
+    var oi=o.orderItems[i];
+    var effPcs=getEffectivePcsForOrderItem(o,oi);
+    if(effPcs===null)continue;
+    var it=S.items[oi.itemId];if(!it)continue;
+    var colors=it.colors&&it.colors.length?it.colors:[''];
+    var sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
+    var op=0;
+    for(var ci=0;ci<colors.length;ci++){for(var si=0;si<sizes.length;si++){
+      op+=+(oi.qtyGrid&&oi.qtyGrid[colors[ci]]&&oi.qtyGrid[colors[ci]][sizes[si]])||0;
+    }}
+    copyText+='- '+oi.itemName+' '+op+'장 → '+effPcs+'장\n';
+  }
+  return '<div style="margin:10px 0;padding:10px 14px;background:#fef2f2;border:1px solid var(--red);border-left:4px solid var(--red);border-radius:6px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">'
+    +'<div style="flex:1;min-width:200px">'
+    +'<div style="font-weight:700;color:var(--red);margin-bottom:4px;font-size:13px">⚠ 원단 부족 — 생산 수량 변경</div>'
+    +'<div style="font-size:12px;line-height:1.6">'+notices.join('<br>')+'</div>'
+    +'<div style="font-size:11px;color:var(--t2);margin-top:6px">💡 부자재 발주량은 이미 자동 조정되었습니다. 작업지시서·봉제공장 전달 시 변경된 수량을 사용하세요.</div>'
+    +'</div>'
+    +'<button class="btn s" onclick="navigator.clipboard&&navigator.clipboard.writeText('+JSON.stringify(copyText)+').then(function(){showToast(\'📋 작업지시서용 안내 복사됨\')});" style="font-size:11px;white-space:nowrap">📋 안내 복사</button>'
+    +'</div>'
+    +'</div>';
 }
 
 function renderOrderCTA(o){
@@ -4656,17 +5018,77 @@ function renderCheckTab(o){
   }).join('');
 }
 
-function setActualOrderedQty(oid,sn,matIdx,val){
+function setActualOrderedQty(oid,sn,matIdx,val,opts){
+  opts=opts||{};
   var o=S.orders[oid];if(!o||!o.suppliers||!o.suppliers[sn])return;
   var sup=o.suppliers[sn];if(!sup.materials||!sup.materials[matIdx])return;
+  var m=sup.materials[matIdx];
+  
+  // 빈 값이면 그냥 삭제 (복원)
   if(val===''||val===null||val===undefined){
     delete sup.materials[matIdx].actualOrderedQty;
-  }else{
-    sup.materials[matIdx].actualOrderedQty=+val;
+    saveData();
+    renderOrderDetail();
+    showToast('기본값으로 복원');
+    return;
   }
+  
+  var newVal=+val;
+  var origQty=getMatOrigQty(m);
+  
+  // === 원단의 경우 도미노 영향 분석 + 확인창 ===
+  // 원단의 실제 발주량이 줄어들면 생산 가능 수량이 줄어들고, 부자재 수량도 함께 조정되어야 함
+  // 사용자에게 변경 영향을 미리 알려주고 확정받음 (단 opts.skipConfirm이면 건너뛰기)
+  if(!opts.skipConfirm&&m.type==='fabric'&&m.itemId){
+    var oi=(o.orderItems||[]).find(function(x){return x.itemId===m.itemId;});
+    if(oi){
+      var it=S.items[m.itemId];
+      var colors=it&&it.colors&&it.colors.length?it.colors:[''];
+      var sizes=it&&it.sizes&&it.sizes.length?it.sizes:['free'];
+      var origPcs=0;
+      for(var ci=0;ci<colors.length;ci++){for(var si=0;si<sizes.length;si++){
+        origPcs+=+(oi.qtyGrid&&oi.qtyGrid[colors[ci]]&&oi.qtyGrid[colors[ci]][sizes[si]])||0;
+      }}
+      // 가상 자재 객체로 effective pcs 미리 계산
+      var virtualMat={...m,actualOrderedQty:newVal};
+      var effPcs=calcEffectivePcsFromFabric(virtualMat,origPcs);
+      
+      // effective pcs가 origPcs보다 작아진 경우(원단 부족 시나리오)
+      if(effPcs!==null&&effPcs<origPcs){
+        var matName=m.displayName||m.name||'원단';
+        var msg='⚠ 원단 부족으로 생산 수량이 줄어듭니다.\n\n';
+        msg+='자재: '+matName+'\n';
+        msg+='원래 야드: '+origQty+'y → 실제: '+newVal+'y\n\n';
+        msg+='👉 생산 가능 수량: '+origPcs+'장 → '+effPcs+'장 ('+(origPcs-effPcs)+'장 감소)\n\n';
+        msg+='⚠ 다음 항목들이 자동 조정됩니다:\n';
+        msg+='  • 부자재 발주 수량 (단추·라벨·케어라벨 등)\n';
+        msg+='  • 작업지시서의 생산 수량\n';
+        msg+='  • 봉제공장 출고 예정 수량\n';
+        msg+='  • 원가/결제 계산\n\n';
+        msg+='💡 변경 후에도 자재 카드에서 수동 조정 가능합니다.\n\n';
+        msg+='진행하시겠습니까?';
+        if(!confirm(msg))return;
+        // 변경 사유 메모도 자동 추가
+        sup.materials[matIdx].shortageNote='원단 재고 부족으로 '+origPcs+'장 → '+effPcs+'장 조정';
+      }
+      // effective pcs가 origPcs보다 크거나 같은 경우(원단을 더 받는 시나리오) — 확정 알림만
+      else if(newVal>origQty){
+        // 더 많이 받은 경우는 부자재가 부족할 수 있다는 안내
+        var extraMsg='💡 원단을 원래 계획보다 더 많이 받으셨군요.\n\n';
+        extraMsg+='자재: '+(m.displayName||m.name)+'\n';
+        extraMsg+='원래: '+origQty+'y → 실제: '+newVal+'y\n\n';
+        extraMsg+='ℹ️ 생산 수량은 그대로 '+origPcs+'장으로 유지됩니다.\n';
+        extraMsg+='필요 시 자재 카드에서 부자재 수량을 추가로 조정하실 수 있습니다.\n\n';
+        extraMsg+='저장하시겠습니까?';
+        if(!confirm(extraMsg))return;
+      }
+    }
+  }
+  
+  sup.materials[matIdx].actualOrderedQty=newVal;
   saveData();
   renderOrderDetail();
-  showToast(val?'✅ 실제 발주량 저장됨':'기본값으로 복원');
+  showToast('✅ 실제 발주량 저장됨'+(newVal<origQty?' (생산 수량 자동 조정)':''));
 }
 
 // 원단의 실제 발주량으로 최대 생산가능 pcs 역산
@@ -6621,10 +7043,39 @@ function doBatchPay(){
   renderPayStats();
   showToast(`✅ ${checked.length}건 결제 완료 처리`);
 }
+// 기간 필터 → {from, to} 날짜 객체 반환 (없으면 null)
+// 출고일(shipDate)을 기준으로 비교하기 위한 헬퍼 함수
+function getPayPeriodRange(){
+  const period=document.getElementById('pay-period-flt')?.value||'';
+  if(!period)return null;
+  const now=new Date();
+  const y=now.getFullYear(),m=now.getMonth();
+  const pad=n=>String(n).padStart(2,'0');
+  const fmt=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  if(period==='thisMonth'){
+    return {from:fmt(new Date(y,m,1)),to:fmt(new Date(y,m+1,0))};
+  }
+  if(period==='lastMonth'){
+    return {from:fmt(new Date(y,m-1,1)),to:fmt(new Date(y,m,0))};
+  }
+  if(period==='3months'){
+    return {from:fmt(new Date(y,m-2,1)),to:fmt(new Date(y,m+1,0))};
+  }
+  return null;
+}
+
+// 출고일이 기간 필터 범위에 들어가는지 확인
+function isInPayPeriod(shipDate,range){
+  if(!range)return true; // 필터 없음
+  if(!shipDate)return false; // 출고일 없는 항목은 필터링에서 제외
+  return shipDate>=range.from&&shipDate<=range.to;
+}
+
 function renderFcPay(){
   const el=document.getElementById('pay-content');if(!el)return;
   const fltFcId=document.getElementById('pay-fc-flt')?.value||'';
   const fltBrand=window._payBrandFlt||'';
+  const periodRange=getPayPeriodRange();
   const byFc={};
   for(const o of Object.values(S.orders)){
     // 브랜드 필터: 오더의 아이템 중 해당 브랜드가 있어야 함
@@ -6675,10 +7126,13 @@ function renderFcPay(){
           dets.push(`${esc(it.name)} ${qtyLabel}×${num(r)}원`);
         }
         if(!base)continue;
+        // 기간 필터: 출고일이 범위 밖이면 제외 (월별 정산 관점에서 보기 위함)
+        const shipDate=sch.shippingDate||'';
+        if(!isInPayPeriod(shipDate,periodRange))continue;
         const vat=Math.round(base*((sch.vatRate||10)/100));
         const k='fc_'+fcId+'_'+ck;const st=getPaySt(o.id,k);
         const did=('fd'+fcId+ck+o.id).replace(/\W/g,'').slice(0,12);
-        byFc[fnm].push({oid:o.id,key:k,did,orderName:o.name,lbl,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,isMain:true});
+        byFc[fnm].push({oid:o.id,key:k,did,orderName:o.name,lbl,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,shipDate,isMain:true});
       }
     }
   }
@@ -6723,13 +7177,42 @@ function renderFcPay(){
     const deductTotal=pendingDeducts.reduce((s,d)=>s+(d.thisAmount||d.deductAmount||0),0);
     if(!showDone&&unpaidMain.length===0&&pendingDeducts.length===0)return'';
     const visibleMain=showDone?mainRows:unpaidMain;
-    return`<div class="pay-group" id="paygrp-${thisFcId}"><div class="pay-group-hdr"><b>${esc(fn)}</b><div class="muted" style="flex:1">미결제 <b style="color:var(--amber)">${num(upaid)}원</b> / 전체 ${num(tot)}원
-    ${!showDone&&paidMain.length?`<span class="muted" style="font-size:10px"> (완료 ${paidMain.length}건 숨김)</span>`:''}
-    ${pendingDeducts.length?`<span style="font-size:11px;color:var(--red);font-weight:600"> ✂ 공제 -${num(deductTotal)}원 → 실결제 ${num(Math.max(0,upaid-deductTotal))}원</span>`:''}
-    </div>
-    ${(()=>{const sel=window._paySelected&&window._paySelected[thisFcId]||[];return `
-      ${sel.length?`<button class="btn s g" onclick="clearPaySelection('${thisFcId}')" style="font-size:10px;padding:3px 6px">선택 해제 (${sel.length})</button>`:''}
-      <button class="btn s ok" onclick="downloadPayGroupReceipt('${thisFcId}','${esc(fn).replace(/\'/g,'')}','fc')" title="거래명세서 이미지 다운로드">📷 ${sel.length?'선택':'전체'} 거래명세서</button>`;})()}
+    // === 정산 요약: 건수 진행률 + 기간 정보 (월별 정산 카드 헤더용) ===
+    const paidPct=mainRows.length?Math.round((paidMain.length/mainRows.length)*100):0;
+    const paidAmount=mainRows.filter(r=>r.paid).reduce((s,r)=>s+r.total,0);
+    // 출고일 범위 추출 (이 공장의 가장 빠른~늦은 출고일)
+    const shipDates=mainRows.map(r=>r.shipDate).filter(Boolean).sort();
+    const dateRangeTxt=shipDates.length?(shipDates.length===1?shipDates[0]:`${shipDates[0]} ~ ${shipDates[shipDates.length-1]}`):'';
+    return`<div class="pay-group" id="paygrp-${thisFcId}">
+    <div class="pay-group-hdr" style="flex-wrap:wrap;gap:8px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <b style="font-size:14px">${esc(fn)}</b>
+          ${dateRangeTxt?`<span class="muted" style="font-size:11px">📅 ${dateRangeTxt}</span>`:''}
+        </div>
+        <!-- 정산 요약 정보 한 줄 -->
+        <div style="margin-top:5px;font-size:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <span>미결제 <b style="color:var(--amber)">${num(upaid)}원</b></span>
+          <span style="color:var(--t3)">/</span>
+          <span class="muted">완료 ${num(paidAmount)}원</span>
+          <span style="color:var(--t3)">/</span>
+          <span class="muted">합계 <b>${num(tot)}원</b></span>
+          ${!showDone&&paidMain.length?`<span class="muted" style="font-size:10px"> (완료 ${paidMain.length}건 숨김)</span>`:''}
+          ${pendingDeducts.length?`<span style="font-size:11px;color:var(--red);font-weight:600"> ✂ 공제 -${num(deductTotal)}원 → 실결제 ${num(Math.max(0,upaid-deductTotal))}원</span>`:''}
+        </div>
+        <!-- 결제 진행률 바 + 건수 카운트 -->
+        <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden;min-width:80px">
+            <div style="width:${paidPct}%;height:100%;background:linear-gradient(90deg,var(--green),#10b981);transition:width .3s"></div>
+          </div>
+          <span style="font-size:11px;color:var(--t2);white-space:nowrap;font-weight:600">${paidMain.length}/${mainRows.length}건 ${paidPct}%</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+      ${(()=>{const sel=window._paySelected&&window._paySelected[thisFcId]||[];return `
+        ${sel.length?`<button class="btn s g" onclick="clearPaySelection('${thisFcId}')" style="font-size:10px;padding:3px 6px">선택 해제 (${sel.length})</button>`:''}
+        <button class="btn s ok" onclick="downloadPayGroupReceipt('${thisFcId}','${esc(fn).replace(/\'/g,'')}','fc')" title="거래명세서 이미지 다운로드">📷 ${sel.length?'선택':'전체'} 거래명세서</button>`;})()}
+      </div>
     </div>
     ${visibleMain.map(r=>{
       const isSelected=window._paySelected&&window._paySelected[thisFcId]&&window._paySelected[thisFcId].indexOf(r.oid+':'+r.key)>=0;
@@ -6765,6 +7248,13 @@ function renderSpPay(){
   const el=document.getElementById('pay-content');if(!el)return;
   const fltSp=document.getElementById('pay-sp-flt')?.value||'';
   const fltBrand=window._payBrandFlt||'';
+  const periodRange=getPayPeriodRange();
+  // 오더에서 대표 출고일 추출 (가장 빠른 봉제공장 출하일 또는 shippingDate)
+  function getOrderShipDate(o){
+    if(o.shippingDate)return o.shippingDate;
+    const dates=Object.values(o.factorySchedules||{}).map(s=>s.shippingDate).filter(Boolean).sort();
+    return dates.length?dates[0]:'';
+  }
   const bySup={};
   for(const o of Object.values(S.orders)){
     if(fltBrand){
@@ -6787,10 +7277,13 @@ function renderSpPay(){
         if(sup.negotiatedNote)dets.push(esc(sup.negotiatedNote));
       }
       if(!base)continue;
+      // 기간 필터: 오더의 대표 출고일 기준
+      const shipDate=getOrderShipDate(o);
+      if(!isInPayPeriod(shipDate,periodRange))continue;
       const vat=Math.round(base*.1);const k='sp_'+encodeURIComponent(sn);const st=getPaySt(o.id,k);
       const did=('sp'+sn+o.id).replace(/\W/g,'').slice(0,12);
       if(!bySup[sn])bySup[sn]=[];
-      bySup[sn].push({oid:o.id,key:k,did,orderName:o.name,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,invoiceOk:sup.invoiceReceived,negotiated:!!negotiatedAmt});
+      bySup[sn].push({oid:o.id,key:k,did,orderName:o.name,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,invoiceOk:sup.invoiceReceived,negotiated:!!negotiatedAmt,shipDate});
     }
   }
   // 부자재 가공비 (trimCosts factory) - perPcs / perLot 구분
@@ -6859,9 +7352,35 @@ function renderSpPay(){
     const deductTotal=pendingDeducts.reduce((s,d)=>s+(d.thisAmount||0),0);
     if(!showDone&&unpaidRows.length===0&&pendingDeducts.length===0)return'';
     const visibleRows=showDone?rows:unpaidRows;
-    return`<div class="pay-group"><div class="pay-group-hdr"><b>${esc(sn)}</b><div class="muted">미결제 <b style="color:var(--amber)">${num(upaid)}원</b> / 전체 ${num(tot)}원${!showDone&&paidRows.length?`<span class="muted" style="font-size:10px"> (완료 ${paidRows.length}건 숨김)</span>`:''}
-    ${pendingDeducts.length?`<span style="font-size:11px;color:var(--red);font-weight:600"> ✂ 공제 -${num(deductTotal)}원 → 실결제 ${num(Math.max(0,upaid-deductTotal))}원</span>`:''}
-    </div></div>
+    // 정산 요약: 건수 진행률 + 기간 정보 (거래처 결제도 동일 패턴)
+    const paidPctSp=rows.length?Math.round((paidRows.length/rows.length)*100):0;
+    const paidAmountSp=paidRows.reduce((s,r)=>s+r.total,0);
+    const shipDatesSp=rows.map(r=>r.shipDate).filter(Boolean).sort();
+    const dateRangeTxtSp=shipDatesSp.length?(shipDatesSp.length===1?shipDatesSp[0]:`${shipDatesSp[0]} ~ ${shipDatesSp[shipDatesSp.length-1]}`):'';
+    return`<div class="pay-group">
+    <div class="pay-group-hdr" style="flex-wrap:wrap;gap:8px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <b style="font-size:14px">${esc(sn)}</b>
+          ${dateRangeTxtSp?`<span class="muted" style="font-size:11px">📅 ${dateRangeTxtSp}</span>`:''}
+        </div>
+        <div style="margin-top:5px;font-size:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <span>미결제 <b style="color:var(--amber)">${num(upaid)}원</b></span>
+          <span style="color:var(--t3)">/</span>
+          <span class="muted">완료 ${num(paidAmountSp)}원</span>
+          <span style="color:var(--t3)">/</span>
+          <span class="muted">합계 <b>${num(tot)}원</b></span>
+          ${!showDone&&paidRows.length?`<span class="muted" style="font-size:10px"> (완료 ${paidRows.length}건 숨김)</span>`:''}
+          ${pendingDeducts.length?`<span style="font-size:11px;color:var(--red);font-weight:600"> ✂ 공제 -${num(deductTotal)}원 → 실결제 ${num(Math.max(0,upaid-deductTotal))}원</span>`:''}
+        </div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden;min-width:80px">
+            <div style="width:${paidPctSp}%;height:100%;background:linear-gradient(90deg,var(--green),#10b981);transition:width .3s"></div>
+          </div>
+          <span style="font-size:11px;color:var(--t2);white-space:nowrap;font-weight:600">${paidRows.length}/${rows.length}건 ${paidPctSp}%</span>
+        </div>
+      </div>
+    </div>
     ${visibleRows.map(r=>`<div class="pay-row${r.paid?' paid-r':''}">
       <input type="checkbox"${r.paid?' checked':''} onchange="setPaySt('${r.oid}','${r.key}',this.checked,document.getElementById('spd${r.did}')?.value||'')">
       <div style="flex:1"><div style="font-weight:500">${esc(r.orderName)}</div><div class="muted">${r.dets.join(' / ')}</div></div>
@@ -9436,13 +9955,19 @@ function selectSample(soId){
   window._selectedSampleId=soId;
   renderSampleList();
   renderSampleDetail();
-  // 모바일에서는 상세 영역으로 자동 스크롤
-  if(window.matchMedia('(max-width:768px)').matches){
-    setTimeout(function(){
-      var el=document.getElementById('sa-sr');
-      if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
-    },50);
+  // 모바일에서는 상세 풀스크린 전환
+  if(window.innerWidth<=768){
+    var splitEl=document.getElementById('pane-sample');
+    if(splitEl)splitEl.classList.add('detail-open');
+    var sr=document.getElementById('sa-sr');
+    if(sr)sr.scrollTop=0;
   }
+}
+
+// 샘플 상세 → 목록으로 (모바일)
+function backToSampleList(){
+  var splitEl=document.getElementById('pane-sample');
+  if(splitEl)splitEl.classList.remove('detail-open');
 }
 
 function addSampleOrderFromList(){
@@ -9473,8 +9998,9 @@ function renderSampleDetail(){
   var sewFc=it&&it.sewingFcId?S.factories[it.sewingFcId]:null;
   var subTab=getSampleSubTab(so.id);
   
-  // 헤더
-  var hdr='<div class="fb" style="margin-bottom:6px">'
+  // 헤더 (모바일에서만 보이는 뒤로가기 버튼 포함)
+  var hdr='<button class="mobile-back-btn" onclick="backToSampleList()">← 샘플 목록</button>'
+    +'<div class="fb" style="margin-bottom:6px">'
     +'<div style="flex:1"><input type="text" value="'+esc(so.name)+'" placeholder="샘플명" onchange="updateSampleField(\''+so.id+'\',\'name\',this.value)" style="width:100%;font-size:14px;font-weight:700;border:none;background:transparent;outline:none">'
     +(brand?'<span style="display:inline-block;font-size:10px;background:'+brand.color+'22;color:'+brand.color+';border-radius:8px;padding:1px 7px;font-weight:600">'+esc(brand.name)+'</span>':'')
     +'<span style="font-size:10px;color:'+stData.color+';font-weight:600;margin-left:6px">'+stData.label+(so.status==='sentToFactory'&&sewFc?' · 🏭 '+esc(sewFc.name):'')+'</span>'
