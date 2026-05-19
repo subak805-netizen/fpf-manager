@@ -1758,7 +1758,102 @@ function migrateData(){
         const total=oi.totalQty||oi.qty||0;if(total)oi.qtyGrid[colors[0]][sizes[0]]=total;
         oi.grandTotal=total;
       }
+      // === qtyGrid 사이즈/컬러 키 자동 마이그레이션 ===
+      // 아이템의 사이즈/컬러가 변경됐는데 qtyGrid에 옛 키가 남아있는 경우 인덱스로 매핑
+      // 예: 아이템 사이즈 's/m/l' → '1/2/3' 변경 후, qtyGrid 키가 여전히 s/m/l이면 자동 변환
+      const _it=S.items[oi.itemId];
+      if(_it&&oi.qtyGrid){
+        const curSizes=_it.sizes&&_it.sizes.length?_it.sizes:['free'];
+        const curColors=_it.colors&&_it.colors.length?_it.colors:[''];
+        const gridColors=Object.keys(oi.qtyGrid);
+        const gridSizesSet=new Set();
+        gridColors.forEach(c=>{
+          Object.keys(oi.qtyGrid[c]||{}).forEach(s=>gridSizesSet.add(s));
+        });
+        const gridSizes=Array.from(gridSizesSet);
+        // 매칭 확인: 현재 사이즈/컬러 중 qtyGrid에 존재하는 게 있는지
+        const sizeOverlap=curSizes.filter(s=>gridSizes.indexOf(s)>=0).length;
+        const colorOverlap=curColors.filter(c=>gridColors.indexOf(c)>=0).length;
+        // 마이그레이션 조건: 오버랩 0건 + 개수 일치 + 둘 다 비어있지 않음
+        const needSize=sizeOverlap===0&&gridSizes.length===curSizes.length&&gridSizes.length>0;
+        const needColor=colorOverlap===0&&gridColors.length===curColors.length&&gridColors.length>0;
+        if(needSize||needColor){
+          // 정렬된 순서로 인덱스 매핑 (s→1, m→2, l→3)
+          const sizeMap={};
+          if(needSize)gridSizes.forEach((os,i)=>{if(curSizes[i])sizeMap[os]=curSizes[i];});
+          const colorMap={};
+          if(needColor)gridColors.forEach((oc,i)=>{if(curColors[i])colorMap[oc]=curColors[i];});
+          const newGrid={};
+          for(const oldC in oi.qtyGrid){
+            const newC=colorMap[oldC]||oldC;
+            if(!newGrid[newC])newGrid[newC]={};
+            for(const oldSz in oi.qtyGrid[oldC]){
+              const newSz=sizeMap[oldSz]||oldSz;
+              const v=+oi.qtyGrid[oldC][oldSz]||0;
+              if(v>0)newGrid[newC][newSz]=(newGrid[newC][newSz]||0)+v;
+            }
+          }
+          oi.qtyGrid=newGrid;
+          console.log('🔄 qtyGrid 마이그레이션:',_it.name,'사이즈',needSize?gridSizes+'→'+curSizes:'유지','컬러',needColor?gridColors+'→'+curColors:'유지');
+          // 트림 sizeRates도 같이 마이그
+          if(needSize&&_it.trims){
+            _it.trims.forEach(t=>{
+              if(!t.sizeRates||!t.sizeRates.length)return;
+              t.sizeRates=t.sizeRates.map(sr=>{
+                const idx=gridSizes.indexOf(sr.size);
+                if(idx>=0&&curSizes[idx])return {size:curSizes[idx],price:sr.price};
+                return sr;
+              });
+            });
+          }
+          // === supplier materials의 colorName/displayName도 같이 마이그 + totalYards 재계산 ===
+          if(needColor&&o.suppliers){
+            for(const sn in o.suppliers){
+              const mats=o.suppliers[sn].materials||[];
+              mats.forEach(m=>{
+                if(m.itemId!==oi.itemId)return;
+                if(m.colorName&&colorMap[m.colorName]){
+                  const newCN=colorMap[m.colorName];
+                  // displayName도 같이 갱신 (예: '단추 (검정)' → '단추 (1번)')
+                  if(m.displayName&&m.displayName.indexOf('('+m.colorName+')')>=0){
+                    m.displayName=m.displayName.replace('('+m.colorName+')','('+newCN+')');
+                  }
+                  m.colorName=newCN;
+                }
+              });
+            }
+          }
+          // 사이즈 변경됐으면 sizeBreakdown 키도 갱신
+          if(needSize&&o.suppliers){
+            for(const sn in o.suppliers){
+              const mats=o.suppliers[sn].materials||[];
+              mats.forEach(m=>{
+                if(m.itemId!==oi.itemId)return;
+                if(m.sizeBreakdown){
+                  const newSB={};
+                  Object.keys(m.sizeBreakdown).forEach(oldSz=>{
+                    const newSz=sizeMap[oldSz]||oldSz;
+                    newSB[newSz]=m.sizeBreakdown[oldSz];
+                  });
+                  m.sizeBreakdown=newSB;
+                }
+              });
+            }
+          }
+          // 마이그레이션 후 supplier 재계산 마킹 (모든 oi 처리 후 일괄)
+          o._needsResync=true;
+        }
+      }
       if(!oi.grandTotal)oi.grandTotal=Object.values(oi.qtyGrid||{}).reduce((s,m)=>s+Object.values(m).reduce((a,v)=>a+(+v||0),0),0);
+    }
+    // 마이그레이션 발생한 오더는 supplier materials의 totalYards/calc도 재계산
+    if(o._needsResync&&o.orderItems){
+      for(const oi of o.orderItems){
+        if(typeof propagateEffectiveRatio==='function'&&oi.itemId){
+          try{propagateEffectiveRatio(o.id,oi.itemId);}catch(e){console.warn('재계산 실패:',e&&e.message);}
+        }
+      }
+      delete o._needsResync;
     }
     // Migrate suppliers
     for(const sup of Object.values(o.suppliers||{})){
