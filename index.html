@@ -4850,9 +4850,15 @@ function genPoText(order,sn){
             // 컬러 헤더
             L.push(cl);
             const sizesZ=itZ.sizes&&itZ.sizes.length?itZ.sizes:['free'];
-            // 의뢰수량 grid는 아이템 컬러(itemColorName) 키로 조회 (발주명이 아님)
-            const gridKeyZ=zz.itemColorName||zz.colorName;
-            const colorQtyZ=oiZ.qtyGrid[gridKeyZ]||{};
+            // 의뢰수량 grid 조회: itemColorName 우선 → 발주명 부분매칭 폴백
+            let gridKeyZ=zz.itemColorName||zz.colorName;
+            let colorQtyZ=oiZ.qtyGrid[gridKeyZ];
+            if(!colorQtyZ||Object.values(colorQtyZ).every(function(v){return !v;})){
+              // 폴백: grid 키 중 발주명에 포함된 아이템 컬러 찾기 (예: '095소라'→'소라')
+              const gk=Object.keys(oiZ.qtyGrid||{}).find(function(k){return k&&zz.colorName&&zz.colorName.indexOf(k)>=0;});
+              if(gk)colorQtyZ=oiZ.qtyGrid[gk];
+            }
+            colorQtyZ=colorQtyZ||{};
             let cTotalZ=0;
             sizesZ.forEach(function(sz){
               const szPcs=+(colorQtyZ[sz]||0);
@@ -4916,8 +4922,13 @@ function genPoText(order,sn){
           if(useSizeBasedB){
             L.push(cl);
             const sizesB=itB.sizes&&itB.sizes.length?itB.sizes:['free'];
-            const gridKeyB=bb.itemColorName||bb.colorName;
-            const colorQtyB=oiB.qtyGrid[gridKeyB]||{};
+            let gridKeyB=bb.itemColorName||bb.colorName;
+            let colorQtyB=oiB.qtyGrid[gridKeyB];
+            if(!colorQtyB||Object.values(colorQtyB).every(function(v){return !v;})){
+              const gk=Object.keys(oiB.qtyGrid||{}).find(function(k){return k&&bb.colorName&&bb.colorName.indexOf(k)>=0;});
+              if(gk)colorQtyB=oiB.qtyGrid[gk];
+            }
+            colorQtyB=colorQtyB||{};
             let cTotalB=0;
             sizesB.forEach(function(sz){
               const szPcs=+(colorQtyB[sz]||0);
@@ -5031,18 +5042,17 @@ function genPoText(order,sn){
   // 출고 요청사항
   const shipReqs=PO_OPT_DEFS.filter(d=>d.cat==='ship'&&opts[d.key]&&d.text).map(d=>d.text);
   if(shipReqs.length){L.push('[출고요청사항]');shipReqs.forEach(r=>r.split('\n').forEach(line=>L.push(line)));L.push('');}
-  // 출고처 — 두 옵션 배타적 처리 (주소 포함이 우선)
+  // 출고처 — 이름만 모드는 "> 엄지" 간결 / 주소 모드는 [출고처] + 주소
   if(fc&&(opts.includeAddr||opts.includeFcName)){
-    L.push('[출고처]');
-    L.push(fc.name);
-    if(fc.contact)L.push(fc.contact);
-    // 주소는 includeAddr가 켜졌을 때만
     if(opts.includeAddr){
+      L.push('[출고처]');
+      L.push(fc.name);
+      if(fc.contact)L.push(fc.contact);
       if(fc.address)L.push(fc.address);
       if(fc.phone)L.push(fc.phone);
     }else if(opts.includeFcName){
-      // 이름만 모드일 때는 주소 빼고 안내 한 줄 추가 (합포장 사고 방지)
-      L.push('※ 주소는 별도 안내 (합포장·픽업 조율 가능)');
+      // 이름만 모드: 간결하게 "> 엄지"
+      L.push('> '+fc.name);
     }
   }
   return L.join('\n').trimEnd();
