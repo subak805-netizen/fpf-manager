@@ -2781,34 +2781,33 @@ function setPayBrandFilter(val){
 // currentVal: 현재 선택된 brandId 또는 ''(전체) 또는 '__none'(미지정)
 // onChange: 클릭 시 호출될 함수명 (string)
 // opts: {includeNone:bool, sizeMode:'normal'|'compact'}
-function renderBrandPills(containerId, currentVal, onChangeFnName, opts){
+// 브랜드 pill 버튼 HTML 문자열 반환 (DOM 없이 인라인 삽입용)
+function getBrandPillsHTML(currentVal, onChangeFnName, opts){
   opts=opts||{};
-  var el=document.getElementById(containerId);
-  if(!el)return;
   var bds=getBrands();
   var compact=opts.sizeMode==='compact';
   var padding=compact?'3px 9px':'5px 12px';
   var fontSize=compact?'11px':'12px';
-  
   function pillBtn(val,label,bg,color,borderCol,active,dashed){
     return '<button class="brand-pill" onclick="'+onChangeFnName+'(\''+val.replace(/'/g,"\\'")+'\')" style="padding:'+padding+';border:1px '+(dashed?'dashed':'solid')+' '+borderCol+';border-radius:100px;background:'+bg+';color:'+color+';font-size:'+fontSize+';cursor:pointer;font-weight:'+(active?'600':'500')+';white-space:nowrap;transition:all .15s">'+esc(label)+'</button>';
   }
-  
-  var html='';
-  // 전체 버튼
-  html+=pillBtn('', '전체', currentVal===''?'var(--t1)':'var(--bg)', currentVal===''?'#fff':'var(--t1)', 'var(--bd)', currentVal==='', false);
-  // 각 브랜드
+  var html=pillBtn('', '전체', currentVal===''?'var(--t1)':'var(--bg)', currentVal===''?'#fff':'var(--t1)', 'var(--bd)', currentVal==='', false);
   bds.forEach(function(b){
-    var isOn=currentVal===b.id;
-    var col=b.color||'#94a3b8';
+    var isOn=currentVal===b.id;var col=b.color||'#94a3b8';
     html+=pillBtn(b.id, b.name, isOn?col:col+'15', isOn?'#fff':col, isOn?col:col+'66', isOn, false);
   });
-  // 미지정 (옵션)
   if(opts.includeNone){
     var isOn=currentVal==='__none';
     html+=pillBtn('__none', '📋 미지정', isOn?'var(--t2)':'transparent', isOn?'#fff':'var(--t2)', 'var(--bd)', isOn, true);
   }
-  el.innerHTML=html;
+  return html;
+}
+
+function renderBrandPills(containerId, currentVal, onChangeFnName, opts){
+  opts=opts||{};
+  var el=document.getElementById(containerId);
+  if(!el)return;
+  el.innerHTML=getBrandPillsHTML(currentVal, onChangeFnName, opts);
 }
 
 function renderItemsList(){
@@ -3936,17 +3935,8 @@ function renderCSSummary(){
   const brandFlt=window._csBrandSel||'';
   const seasonFlt=document.getElementById('cs-season-flt')?.value||'';
   const fcFlt=document.getElementById('cs-factory-flt')?.value||'';
-  // 브랜드 버튼 렌더
-  const bBtns=document.getElementById('cs-brand-btns');
-  if(bBtns){
-    const brands=getBrands();
-    const mkBtn=(val,label,col)=>{
-      const on=brandFlt===val;
-      const c=col||'var(--blue)';
-      return `<button onclick="setCsBrandFilter('${val}')" style="padding:5px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid ${on?c:'var(--bd)'};background:${on?c:'var(--bg)'};color:${on?'#fff':'var(--t2)'}">${esc(label)}</button>`;
-    };
-    bBtns.innerHTML=mkBtn('','전체')+brands.map(b=>mkBtn(b.id,b.name,b.color||getBrandColor(b.id))).join('');
-  }
+  // 브랜드 버튼 렌더 (아이템 탭과 동일한 pill 디자인)
+  renderBrandPills('cs-brand-btns', brandFlt, 'setCsBrandFilter', {includeNone:true});
   // 필터 드롭다운 채우기
   const seasons=[...new Set(items.map(it=>it.season).filter(Boolean))].sort();
   const sEl=document.getElementById('cs-season-flt');
@@ -3954,7 +3944,8 @@ function renderCSSummary(){
   const fEl=document.getElementById('cs-factory-flt');
   if(fEl&&fEl.children.length<=1){const fcs=Object.values(S.factories||{});fEl.innerHTML='<option value="">전체 공장</option>'+fcs.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('');}
   const filtered=items.filter(it=>{
-    if(brandFlt&&it.brandId!==brandFlt)return false;
+    if(brandFlt==='__none'){if(it.brandId)return false;}
+    else if(brandFlt&&it.brandId!==brandFlt)return false;
     if(seasonFlt&&it.season!==seasonFlt)return false;
     if(fcFlt&&it.sewingFcId!==fcFlt)return false;
     if(search&&!it.name.toLowerCase().includes(search))return false;
@@ -3977,6 +3968,7 @@ function renderCSSummary(){
   });
   el.innerHTML=`<div style="overflow-x:auto"><table class="tbl" style="width:100%;min-width:600px">
     <thead><tr style="background:var(--bg3)">
+      <th style="text-align:left">품번</th>
       <th style="text-align:left">아이템명</th>
       <th>시즌</th>
       <th>공장</th>
@@ -3989,7 +3981,8 @@ function renderCSSummary(){
     </tr></thead>
     <tbody>
     ${rows.map(r=>`<tr style="cursor:pointer" onclick="switchCSTab('detail');document.getElementById('cs-sel').value='${r.it.id}';renderCS()">
-      <td style="font-weight:600">${esc(r.it.name)}<span class="tag" style="margin-left:4px">${esc(r.it.code||'')}</span></td>
+      <td style="font-weight:700;color:var(--t2);white-space:nowrap">${esc(r.it.code||'─')}</td>
+      <td style="font-weight:600">${esc(r.it.name)}</td>
       <td class="muted" style="text-align:center">${esc(r.it.season||'─')}</td>
       <td style="text-align:center">${r.sewFc?`<span class="badge b3" style="font-size:10px">✂${esc(r.sewFc)}</span>`:'─'}</td>
       <td style="text-align:right">${r.fabCost?num(r.fabCost)+'원':'─'}</td>
@@ -4001,7 +3994,7 @@ function renderCSSummary(){
     </tr>`).join('')}
     </tbody>
     <tfoot><tr style="background:var(--bg3);font-weight:700">
-      <td colspan="3">합계 ${rows.length}개 아이템</td>
+      <td colspan="4">합계 ${rows.length}개 아이템</td>
       <td style="text-align:right">${num(rows.reduce((s,r)=>s+r.fabCost,0))}원</td>
       <td style="text-align:right">${num(rows.reduce((s,r)=>s+r.trimCost,0))}원</td>
       <td style="text-align:right">${num(rows.reduce((s,r)=>s+r.processCost+r.trimProcCost,0))}원</td>
@@ -7282,14 +7275,18 @@ async function downloadPayGroupReceipt(entityId, entityName, entityType){
   }
   
   var tmpHtml='<div id="'+tmpId+'" style="position:fixed;left:-9999px;top:0;background:#fff;width:560px;padding:18px;font-family:inherit;color:#000">'
-    +'<div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px"><div style="font-size:18px;font-weight:700">거래 명세서</div><div style="font-size:11px;color:#666;margin-top:3px">발행일: '+today()+'</div></div>'
-    +'<div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:12px">'
-    +'<div><div style="color:#666;font-size:10px">공급자</div><div style="font-weight:700;font-size:13px">'+esc(fc.name||entityName)+'</div>'
-    +(fc.phone?'<div style="color:#666;font-size:10px">'+esc(fc.phone)+'</div>':'')
+    +'<div style="display:flex;border:1px solid #000;margin-bottom:12px">'
+    +'<div style="flex:1;text-align:center;padding:11px;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center">거래 명세서</div>'
+    +'<div style="width:92px;border-left:1px solid #000;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">'+today()+'</div>'
     +'</div>'
-    +'<div style="text-align:right"><div style="color:#666;font-size:10px">출고처 (공급받는자)</div><div style="font-weight:700;font-size:13px">'+esc(brandNm)+'</div>'
-    +(bizNum?'<div style="font-size:10px;color:#666">사업자: '+esc(bizNum)+'</div>':'')
-    +'</div></div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">'
+    +'<tr>'
+    +'<td style="background:#f5f5f5;padding:7px 6px;font-weight:600;color:#555;text-align:center;border:1px solid #000;width:15%">공급</td>'
+    +'<td style="padding:7px 6px;text-align:center;font-weight:700;border:1px solid #000">'+esc(fc.name||entityName)+(fc.phone?'<div style="font-size:10px;font-weight:400;color:#666">'+esc(fc.phone)+'</div>':'')+'</td>'
+    +'<td style="background:#f5f5f5;padding:7px 6px;font-weight:600;color:#555;text-align:center;border:1px solid #000;width:15%">출고처</td>'
+    +'<td style="padding:7px 6px;text-align:center;font-weight:700;border:1px solid #000">'+esc(brandNm)+(bizNum?'<div style="font-size:10px;font-weight:400;color:#666">'+esc(bizNum)+'</div>':'')+'</td>'
+    +'</tr>'
+    +'</table>'
     +'<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px">'
     +'<thead><tr style="background:#f5f5f5;border-top:1px solid #000;border-bottom:1px solid #000">'
     +'<th style="padding:6px 4px;text-align:left;font-size:11px">날짜</th>'
@@ -9470,9 +9467,9 @@ function renderCS(){
       const poVal=csGetPriceOverride(id,'fab',f.id);
       const unit=cp.isKg?'/kg':'/y';
       const effPrice=(poVal!==undefined&&poVal!=='')?(+poVal):storePrice;
-      return `<div style="font-weight:700;font-size:13px">${num(effPrice)}<span style="font-size:10px;color:var(--t2)">${unit}</span></div>`
-        +`<div class="cs-hide-on-img" style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;font-size:11px;margin-top:2px"><span style="color:var(--t2)">매장 ${num(storePrice)}</span>${nego>0?`<span style="color:var(--amber)">협상 ${num(nego)}</span>`:''}</div>`
-        +`<input type="number" class="cs-hide-on-img" value="${poVal!==undefined?poVal:''}" placeholder="${num(storePrice)}" min="0" style="width:52px;font-size:11px;padding:2px 4px;margin-top:2px;${poVal!==undefined?'background:#ecfdf5;border-color:var(--green);font-weight:700':''}" onchange="csSetPriceOverride('${id}','fab','${f.id}',this.value)" title="원가용 단가 (비우면 매장가 적용)">`;
+      return `<div style="font-weight:700;font-size:12px">${num(effPrice)}<span style="font-size:10px;color:var(--t2)">${unit}</span></div>`
+        +`<div class="cs-hide-on-img" style="font-size:10px;margin-top:1px;white-space:nowrap;color:var(--t2)">매장 ${num(storePrice)}${nego>0?` · <span style="color:var(--amber)">협상 ${num(nego)}</span>`:''}</div>`
+        +`<input type="number" class="cs-hide-on-img" value="${poVal!==undefined?poVal:''}" placeholder="${num(storePrice)}" min="0" style="width:48px;font-size:10px;padding:1px 3px;margin-top:1px;${poVal!==undefined?'background:#ecfdf5;border-color:var(--green);font-weight:700':''}" onchange="csSetPriceOverride('${id}','fab','${f.id}',this.value)" title="원가용 단가 (비우면 매장가 적용)">`;
     })()}</td><td style="text-align:center;color:var(--t3,#9ca3af);font-size:12px">–</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div></td><td style="text-align:right">${fabLoss>0?`<div class="cs-amt" style="font-size:12px;color:var(--blue);text-align:right">${num(Math.round(cl.cost))}원</div><div style="font-size:10px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 6px;display:inline-block;margin-top:2px;font-weight:600">+${fabLoss}%</div>`:'<span class="muted">–</span>'}</td></tr>`;}).join('');
   // 부자재 순수원가/로스반영 계산
   const _applyMinSplit=(t,res,q)=>{
@@ -9586,15 +9583,15 @@ function renderCS(){
     .cs-tbl tbody tr:hover td{background:var(--bg2)}
     .cs-tbl b{font-weight:700;color:#374151}
     .cs-amt{white-space:nowrap;font-weight:700;color:#374151}
-    .cs-subtotal-box{display:flex;justify-content:space-between;align-items:center;background:var(--bg2);border-radius:8px;padding:8px 14px;margin-top:2px;font-weight:700;color:#374151;font-size:13px}
+    .cs-subtotal-box{display:flex;justify-content:space-between;align-items:center;background:var(--bg2);border-radius:8px;padding:7px 14px;margin-top:0;font-weight:700;color:#374151;font-size:13px}
     .cs-subtotal-box .cs-amt{white-space:nowrap;font-weight:700;color:#374151}
     .cs-fit{white-space:nowrap;display:inline-block;transform-origin:right center}
     #cs-body{max-width:760px;margin:0 auto}
     #cs-body .sec{font-size:15px;font-weight:700;margin:14px 0 4px;color:#374151;display:flex;justify-content:space-between;align-items:center}
     #cs-body .sec:first-of-type{margin-top:0}
     </style>
-    ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:12%"><col style="width:16%"><col style="width:15%"><col style="width:11%"><col style="width:13%"><col style="width:8%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">원단처</th><th style="text-align:left">원단명</th><th style="text-align:left">계산식</th><th style="text-align:right">사용량</th><th style="text-align:right">단가<br><span style="font-size:10px;font-weight:400;color:var(--green)">원가용</span></th><th style="text-align:center">미니멈</th><th style="text-align:right">원단비</th><th style="text-align:right">로스</th></tr></thead><tbody>${fr}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tf))}원</span></div>`:''}
-    ${it.trims.length?`<div class="sec">부자재비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:12%"><col style="width:16%"><col style="width:15%"><col style="width:11%"><col style="width:13%"><col style="width:8%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">부자재처</th><th style="text-align:left">부자재명</th><th style="text-align:left">계산식</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:center">미니멈</th><th style="text-align:right">부자재비</th><th style="text-align:right">로스</th></tr></thead><tbody>${tr}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tt))}원</span></div>`:''}
+    ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:11%"><col style="width:15%"><col style="width:13%"><col style="width:11%"><col style="width:16%"><col style="width:9%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">원단처</th><th style="text-align:left">원단명</th><th style="text-align:left">계산식</th><th style="text-align:right">사용량</th><th style="text-align:right">단가<br><span style="font-size:10px;font-weight:400;color:var(--green)">원가용</span></th><th style="text-align:center">미니멈</th><th style="text-align:right">원단비</th><th style="text-align:right">로스</th></tr></thead><tbody>${fr}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tf))}원</span></div>`:''}
+    ${it.trims.length?`<div class="sec">부자재비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:11%"><col style="width:15%"><col style="width:13%"><col style="width:11%"><col style="width:16%"><col style="width:9%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">부자재처</th><th style="text-align:left">부자재명</th><th style="text-align:left">계산식</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:center">미니멈</th><th style="text-align:right">부자재비</th><th style="text-align:right">로스</th></tr></thead><tbody>${tr}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tt))}원</span></div>`:''}
     ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${num(p.val)}원/pcs×${qty}</td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(pt))}원</span></div>`:''}
     ${tcArr.length?`<div class="sec">부자재 가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${tcArr.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const tcAllColors=it.colors?.length?it.colors:[''];const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const tcAmt=isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:(tc.costPerPcs||0)*qty*(tcActive.length/(tcAllColors.length||1));return`<tr style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:`${num(tc.costPerPcs)}원/pcs×${qty}`}</td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tct))}원</span></div>`:''}
     <div class="sec">
@@ -12315,6 +12312,20 @@ function setTaskBrandSort(s){
   window._taskBrandSort=s;
   renderTasksPane();
 }
+// 할 일 전체에 적용되는 브랜드 필터 (아이템 탭과 동일한 pill 버튼)
+function setTaskBrandFilter(b){
+  window._taskBrandFilter=b;
+  renderTasksPane();
+}
+function taskBrandId(t){
+  return t.brandId||(t.itemId&&S.items[t.itemId]?S.items[t.itemId].brandId:'')||'';
+}
+function filterTasksByBrand(arr){
+  var bf=window._taskBrandFilter||'';
+  if(!bf)return arr;
+  if(bf==='__none')return arr.filter(function(t){return !taskBrandId(t);});
+  return arr.filter(function(t){return taskBrandId(t)===bf;});
+}
 // 공정 단계 분류 (생산 흐름 순서대로)
 var TASK_STAGES=[
   {key:'sample',label:'🪡 샘플·패턴',color:'#7c3aed'},
@@ -12436,10 +12447,11 @@ function groupBrandTasks(tasks){
 function renderTasksPaneByBrand(){
   var manual=getTasks();
   var auto=generateAutoTasks();
-  var all=[...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';});
+  var all=filterTasksByBrand([...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';}));
   var brands=getBrands();
   
   var html=getTaskStylesHTML()+getTaskViewToggleHTML();
+  html+='<div style="display:flex;gap:5px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid var(--bd);background:var(--bg2)">'+getBrandPillsHTML(window._taskBrandFilter||'','setTaskBrandFilter',{includeNone:true})+'</div>';
   html+='<div style="padding:12px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#4b5563">📋 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
   var bsort=window._taskBrandSort||'urgent';
   var bsorts=[{key:'urgent',label:'🔥 급한 순'},{key:'item',label:'📦 아이템별'},{key:'stage',label:'🪡 공정 단계별'}];
@@ -12498,9 +12510,10 @@ function renderTasksPaneByBrand(){
 function renderTasksPaneByCategory(){
   var manual=getTasks();
   var auto=generateAutoTasks();
-  var all=[...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';});
+  var all=filterTasksByBrand([...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';}));
   
   var html=getTaskStylesHTML()+getTaskViewToggleHTML();
+  html+='<div style="display:flex;gap:5px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid var(--bd);background:var(--bg2)">'+getBrandPillsHTML(window._taskBrandFilter||'','setTaskBrandFilter',{includeNone:true})+'</div>';
   html+='<div style="padding:12px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:10px;color:#4b5563">📋 카테고리별 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
   
   // 카테고리별로 분류
@@ -12641,7 +12654,7 @@ function renderTasksPane(){
   const auto=generateAutoTasks();
   // 동선 탭으로 이동된 픽업 태스크는 제외
   const allRaw=[...auto,...manual];
-  const all=allRaw.filter(function(t){return t.type!=='픽업'&&t.autoType!=='pickup';});
+  const all=filterTasksByBrand(allRaw.filter(function(t){return t.type!=='픽업'&&t.autoType!=='pickup';}));
   const undone=all.filter(t=>!t.done);
   const done=all.filter(t=>t.done);
   
@@ -12764,7 +12777,7 @@ function renderTasksPane(){
   </div>`:''}
   `;
   // 보기 모드 토글을 항상 앞에 붙인다 (시간순 모드에서도 다른 모드로 돌아갈 수 있게)
-  document.getElementById('tasks-body').innerHTML=getTaskViewToggleHTML()+html;
+  document.getElementById('tasks-body').innerHTML=getTaskViewToggleHTML()+'<div style="display:flex;gap:5px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid var(--bd);background:var(--bg2)">'+getBrandPillsHTML(window._taskBrandFilter||'','setTaskBrandFilter',{includeNone:true})+'</div>'+html;
   
   // 새로고침 후 AI 자동 호출 (캐시 만료 시)
   if(apiKey&&!aiFresh&&undone.length>0){
