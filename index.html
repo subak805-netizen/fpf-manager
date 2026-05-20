@@ -810,6 +810,7 @@ const PO_OPT_DEFS=[
   {key:'quick',label:'퀵 부탁드려요',text:'퀵 부탁드립니다.',cat:'ship'},
   {key:'omudeLabel',label:'오무데 표시 요청',text:'오무데 표시 해주세요.',cat:'ship'},
   {key:'companyLabel',label:'상호·품명 기재',text:'상호랑 품명 적어서 출고해주세요.',cat:'ship'},
+  {key:'toInspection',label:'🔍 검품소로 보내기',text:'라벨 빼고 완성 부자재는 검품소로 보내주세요.',cat:'ship'},
   // 출고처 정보 (두 옵션 배타적: includeFcName 또는 includeAddr 중 하나만)
   {key:'includeFcName',label:'🏭 출고처 이름만 (주소 X)',text:'',cat:'addr'},
   {key:'includeAddr',label:'📍 출고처 주소까지 포함',text:'',cat:'addr'},
@@ -5175,7 +5176,22 @@ function genPoText(order,sn){
   if(reqs.length){L.push('[요청사항]');reqs.forEach(r=>r.split('\n').forEach(line=>L.push(line)));L.push('');}
   // 출고 요청사항
   const shipReqs=PO_OPT_DEFS.filter(d=>d.cat==='ship'&&opts[d.key]&&d.text).map(d=>d.text);
-  if(shipReqs.length){L.push('[출고요청사항]');shipReqs.forEach(r=>r.split('\n').forEach(line=>L.push(line)));L.push('');}
+  if(shipReqs.length){L.push('[출고요청사항]');shipReqs.forEach(r=>r.split('\n').forEach(line=>L.push(line)));
+    // 검품소로 보내기 → 검품소 주소 자동 첨부
+    if(opts.toInspection){
+      var inspFcId='';
+      (order.orderItems||[]).some(function(oi){var it=S.items[oi.itemId];if(it&&it.inspectionFcId&&S.factories[it.inspectionFcId]){inspFcId=it.inspectionFcId;return true;}return false;});
+      if(inspFcId){
+        var insp=S.factories[inspFcId];
+        L.push('');
+        L.push('[검품소]');
+        L.push(insp.name);
+        if(insp.address)L.push(insp.address);
+        if(insp.phone)L.push(insp.phone);
+      }
+    }
+    L.push('');
+  }
   // 출고처 — 이름만 모드는 "> 엄지" 간결 / 주소 모드는 [출고처] + 주소
   if(fc&&(opts.includeAddr||opts.includeFcName)){
     if(opts.includeAddr){
@@ -5849,10 +5865,24 @@ function refreshOrderSuppliers(o){
   // 4) override + meta 복원
   for(const sn in fresh){
     if(meta[sn])Object.assign(fresh[sn],meta[sn]);
+    const pbMats=(S.priceBook[sn]&&S.priceBook[sn].materials)||{};
     for(const m of fresh[sn].materials||[]){
       const k=sn+'|'+(m.fabId||m.name)+'|'+(m.colorName||'')+'|'+(m.type||'')+'|'+(m.part||'');
       if(overrides[k]!==undefined)m.actualOrderedQty=overrides[k];
-      if(negoOverrides[k]!==undefined)m.negotiatedPrice=negoOverrides[k];
+      if(negoOverrides[k]!==undefined){
+        m.negotiatedPrice=negoOverrides[k];
+      }else{
+        // 키 매칭 실패 시 단가장(priceBook)에서 협상가 폴백 복원
+        const isKg=m.pricingUnit==='kg';
+        const pbKeyName=m.name;
+        const pbMat=pbMats[pbKeyName];
+        if(pbMat){
+          const pbPrice=isKg?pbMat.pricePerKg:pbMat.unitPrice;
+          // 단가장 가격이 발주단가와 다르면(=협상해서 바뀐 값) 협상가로 적용
+          const ordPrice=isKg?(m.pricePerKg||0):(m.unitPrice||0);
+          if(pbPrice!==undefined&&+pbPrice>0&&+pbPrice!==ordPrice)m.negotiatedPrice=+pbPrice;
+        }
+      }
     }
   }
   o.suppliers=fresh;
@@ -6561,11 +6591,6 @@ function genArrNotif(oid){
     });
   }
   const L=[
-    '안녕하세요 :)',
-    '',
-    `${firstItName} 원단 입고 건 안내드려요.`,
-    '',
-    '',
     `■ 오더: ${o.name}`,
     `■ 오더수량:`,
   ];
