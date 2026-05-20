@@ -746,7 +746,14 @@ tryInitFirebase();
 </div>
 <div class="overlay" id="o-new-modal" style="display:none" onclick="if(event.target===this)closeModal('o-new-modal')">
   <div class="modal">
-    <div class="fb" style="margin-bottom:10px"><b>새 오더 생성</b><button class="btn s g" onclick="closeModal('o-new-modal')">✕</button></div>
+    <div class="fb" style="margin-bottom:10px;position:sticky;top:0;background:var(--bg);z-index:5;padding-bottom:8px;border-bottom:1px solid var(--bd)">
+      <b>새 오더 생성</b>
+      <div class="fr" style="gap:6px;align-items:center">
+        <button class="btn s" onclick="closeModal('o-new-modal')">취소</button>
+        <button class="btn p s" onclick="createOrder()">✓ 오더 생성</button>
+        <button class="btn s g" onclick="closeModal('o-new-modal')" style="margin-left:2px">✕</button>
+      </div>
+    </div>
     <div class="g3" style="margin-bottom:8px">
       <div class="fg" style="margin-bottom:0">
         <label>🏷 브랜드</label>
@@ -2004,7 +2011,7 @@ function importData(file){
 /* ===== COMPANY ===== */
 function renderCoSel(){const s=document.getElementById('co-sel');if(!s)return;s.innerHTML=Object.values(companies).map(c=>`<option value="${c.id}"${c.id===curCoId?' selected':''}>${esc(c.name)}</option>`).join('');}
 function onCoChange(id){curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();}
-function showModal(id){const el=document.getElementById(id);if(!el)return;el.style.display='flex';if(id==='o-new-modal'){const bs=document.getElementById('on-brand-flt');if(bs)bs.dataset.populated='';renderOrderNewItems();}if(id==='cloud-modal')updateCloudModal();}
+function showModal(id){const el=document.getElementById(id);if(!el)return;el.style.display='flex';if(id==='o-new-modal'){window._onPage=0;window._ncChecked={};window._ncQtyCache={};const bs=document.getElementById('on-brand-flt');if(bs)bs.dataset.populated='';renderOrderNewItems();}if(id==='cloud-modal')updateCloudModal();}
 function closeModal(id){const el=document.getElementById(id);if(el)el.style.display='none';}
 function addCo(){const nm=document.getElementById('new-co-nm').value.trim();if(!nm)return;const id='co_'+uid();companies[id]={id,name:nm};lsSet('fpm_cos',companies);closeModal('add-co-modal');curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();}
 function addDemoData(){
@@ -3603,7 +3610,24 @@ function onTrimExtraToggle(i,field,on){
 
 function updFnmDL(inp){const sup=inp.value.trim();const dl=document.getElementById('dl-fnm');if(!dl)return;const m=S.priceBook[sup]?.materials||{};dl.innerHTML=Object.keys(m).filter(k=>m[k].type==='fabric').map(k=>`<option value="${esc(k)}">`).join('');}
 function renderFabRows(){const el=document.getElementById('fab-rows');if(!el)return;el.innerHTML=formFabs.length?formFabs.map((f,i)=>fabRowHTML(f,i)).join(''):'<div class="muted" style="text-align:center;padding:.5rem">원단 없음</div>';}
-function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)return;el.innerHTML=formTrims.length?formTrims.map((t,i)=>trimRowHTML(t,i)).join(''):'<div class="muted" style="text-align:center;padding:.5rem">부자재 없음</div>';}
+function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)return;
+  if(!formTrims.length){el.innerHTML='<div class="muted" style="text-align:center;padding:.5rem">부자재 없음</div>';return;}
+  // 라벨류(케어/메인)는 별도 그룹으로 분리 — 기본 부자재와 안 섞이게
+  const labelTypes=['careLabel','mainLabel'];
+  const basics=[];const labels=[];
+  formTrims.forEach((t,i)=>{
+    if(labelTypes.indexOf(t.orderType)>=0)labels.push({t,i});else basics.push({t,i});
+  });
+  let html='';
+  if(basics.length){
+    html+=basics.map(x=>trimRowHTML(x.t,x.i)).join('');
+  }
+  if(labels.length){
+    html+='<div style="margin:14px 0 8px;padding:6px 10px;background:#f3f4f6;border-radius:6px;border-left:3px solid #9ca3af;font-size:12px;font-weight:700;color:#374151">📋 완성 부자재 (라벨)</div>';
+    html+=labels.map(x=>trimRowHTML(x.t,x.i)).join('');
+  }
+  el.innerHTML=html;
+}
 function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r,i)=>{if(!formFabs[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const pu=g('pricingUnit')||'yard';formFabs[i].pricingUnit=pu;formFabs[i].supplier=g('supplier')||'';formFabs[i].name=g('name')||'';formFabs[i].consumption=+g('consumption')||0;formFabs[i].buffer=+(g('buffer'))||0;formFabs[i].width=g('width')?+g('width'):null;formFabs[i].composition=g('composition')||'';formFabs[i].building=g('building')||'';formFabs[i].floorRoom=g('floorRoom')||'';formFabs[i].part=g('part')||'';formFabs[i].memo=r.querySelector('[data-f-memo]')?.value||'';if(pu==='kg'){formFabs[i].pricePerKg=+g('pricePerKg')||0;formFabs[i].yardsPerKg=+g('yardsPerKg')||1;}else formFabs[i].unitPrice=+g('unitPrice')||0;
   // 컬러 링크 수집
   const fabColAll=r.querySelector('[data-fab-col-all]');
@@ -4100,9 +4124,23 @@ function renderOrderNewItems(){
   });
   if(!allItems.length){el.innerHTML='<div class="empty">아이템을 먼저 등록하세요</div>';return;}
   if(!items.length){el.innerHTML='<div class="empty">조건에 맞는 아이템 없음</div>';return;}
-  el.innerHTML=items.map(it=>{
+  // 페이지네이션 (10개씩) — 단, 체크된 아이템은 항상 표시
+  const PER_PAGE=10;
+  if(window._onPage===undefined)window._onPage=0;
+  const checkedIds=window._ncChecked||{};
+  // 체크된 아이템과 현재 페이지 아이템 분리
+  const checkedItems=items.filter(it=>checkedIds[it.id]);
+  const uncheckedItems=items.filter(it=>!checkedIds[it.id]);
+  const totalPages=Math.max(1,Math.ceil(uncheckedItems.length/PER_PAGE));
+  if(window._onPage>=totalPages)window._onPage=totalPages-1;
+  if(window._onPage<0)window._onPage=0;
+  const pageItems=uncheckedItems.slice(window._onPage*PER_PAGE,(window._onPage+1)*PER_PAGE);
+  // 렌더할 목록: 체크된 것(항상) + 현재 페이지 미체크분
+  const renderList=[...checkedItems,...pageItems];
+  function itemRowHTML(it){
     const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
     const hasC=it.colors?.length>0;const hasS=it.sizes?.length>0;
+    const isChecked=!!checkedIds[it.id];
     let g=`<div style="overflow-x:auto;margin-top:6px"><table class="qty-grid"><thead><tr>`;
     if(hasC)g+=`<th>컬러</th>`;sizes.forEach(s=>g+=`<th>${esc(hasS?s:'수량')}</th>`);g+=`<th>합계</th></tr></thead><tbody>`;
     colors.forEach(c=>{g+=`<tr>`;if(hasC)g+=`<td class="clr-lbl">${esc(c)}</td>`;sizes.forEach(sz=>g+=`<td><input type="number" id="q_${it.id}_${encodeURIComponent(c)}_${sz}" value="0" min="0" oninput="updGridTot('${it.id}')"></td>`);g+=`<td class="tot" id="ct_${it.id}_${encodeURIComponent(c)}">0</td></tr>`;});
@@ -4111,11 +4149,60 @@ function renderOrderNewItems(){
     const brandNm=it.brandId?getBrandName(it.brandId):'';
     const brandCol=it.brandId?getBrandColor(it.brandId):'';
     const brandBadge=brandNm?`<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:20px;font-size:10px;font-weight:700;background:${brandCol}22;color:${brandCol}"><span style="width:5px;height:5px;border-radius:50%;background:${brandCol}"></span>${esc(brandNm)}</span>`:'';
-    return`<div data-item-row data-item-name="${esc(it.name)}" style="border:1px solid var(--bd);border-radius:var(--r);padding:.6rem;margin-bottom:8px"><div class="fb"><label style="font-size:13px;font-weight:600;margin-bottom:0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="nc_${it.id}" onchange="toggleNC('${it.id}',this.checked)"> ${esc(it.name)} <span class="tag">${esc(it.code||'')}</span>${it.season?`<span class="muted">${esc(it.season)}</span>`:''} ${brandBadge}</label></div><div id="nc-grid-${it.id}" style="display:none">${g}</div></div>`;
-  }).join('');
+    return`<div data-item-row data-item-name="${esc(it.name)}" style="border:1px solid ${isChecked?'var(--blue)':'var(--bd)'};border-radius:var(--r);padding:.6rem;margin-bottom:8px;${isChecked?'background:#f0f7ff':''}"><div class="fb"><label style="font-size:13px;font-weight:600;margin-bottom:0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="nc_${it.id}" ${isChecked?'checked':''} onchange="toggleNC('${it.id}',this.checked)"> ${esc(it.name)} <span class="tag">${esc(it.code||'')}</span>${it.season?`<span class="muted">${esc(it.season)}</span>`:''} ${brandBadge}</label></div><div id="nc-grid-${it.id}" style="display:${isChecked?'block':'none'}">${g}</div></div>`;
+  }
+  let html='';
+  // 선택된 아이템 섹션 (있으면)
+  if(checkedItems.length){
+    html+='<div style="margin-bottom:6px;padding:5px 10px;background:#dbeafe;border-radius:6px;font-size:12px;font-weight:700;color:#1e40af">✓ 선택한 아이템 '+checkedItems.length+'개 (수량 입력)</div>';
+    html+=checkedItems.map(itemRowHTML).join('');
+    html+='<div style="margin:10px 0 6px;padding:5px 10px;background:var(--bg2);border-radius:6px;font-size:12px;font-weight:700;color:var(--t2)">📦 아이템 선택</div>';
+  }
+  // 현재 페이지 미체크 아이템
+  html+=pageItems.map(itemRowHTML).join('');
+  // 페이지네이션 버튼
+  if(totalPages>1){
+    let pg='<div class="fr" style="justify-content:center;gap:4px;margin-top:10px;flex-wrap:wrap">';
+    pg+='<button class="btn s" onclick="onGoPage('+(window._onPage-1)+')" '+(window._onPage===0?'disabled':'')+' style="padding:4px 10px">← 이전</button>';
+    for(let p=0;p<totalPages;p++){
+      pg+='<button class="btn s" onclick="onGoPage('+p+')" style="padding:4px 10px;'+(p===window._onPage?'background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700':'')+'">'+(p+1)+'</button>';
+    }
+    pg+='<button class="btn s" onclick="onGoPage('+(window._onPage+1)+')" '+(window._onPage>=totalPages-1?'disabled':'')+' style="padding:4px 10px">다음 →</button>';
+    pg+='</div>';
+    html+=pg;
+  }
+  el.innerHTML=html;
+  // 체크된 아이템의 수량 값 복원 (페이지 이동 시 입력값 유지)
+  if(window._ncQtyCache){
+    Object.keys(window._ncQtyCache).forEach(function(inputId){
+      var inp=document.getElementById(inputId);
+      if(inp)inp.value=window._ncQtyCache[inputId];
+    });
+    checkedItems.forEach(function(it){updGridTot(it.id);});
+  }
+}
+function onGoPage(p){
+  // 페이지 이동 전 현재 입력값 캐시 (체크된 아이템 수량 유지)
+  cacheNcQty();
+  window._onPage=p;
+  renderOrderNewItems();
+}
+function cacheNcQty(){
+  if(!window._ncQtyCache)window._ncQtyCache={};
+  document.querySelectorAll('#o-new-items input[type=number]').forEach(function(inp){
+    if(inp.id&&inp.value&&+inp.value>0)window._ncQtyCache[inp.id]=inp.value;
+  });
 }
 function filterOrderItems(q){renderOrderNewItems();}
-function toggleNC(id,on){const g=document.getElementById('nc-grid-'+id);if(g)g.style.display=on?'':'none;';}
+function toggleNC(id,on){
+  if(!window._ncChecked)window._ncChecked={};
+  // 입력값 캐시 (체크 토글 시 다른 아이템 입력 유지)
+  cacheNcQty();
+  if(on)window._ncChecked[id]=true;else delete window._ncChecked[id];
+  renderOrderNewItems();
+  // 막 체크한 아이템으로 스크롤
+  if(on)setTimeout(function(){var g=document.getElementById('nc-grid-'+id);if(g)g.scrollIntoView({behavior:'smooth',block:'center'});},80);
+}
 function updGridTot(itId){
   const it=S.items[itId];if(!it)return;const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
   const szT={};sizes.forEach(s=>szT[s]=0);let grand=0;
@@ -4311,6 +4398,9 @@ function calcSups(orderItems,opts){
         const calc=calcFabYards(f,qty,colorSizeQtys[c],c);
         const fabColorName=useLinks?(f.colorLinks.find(l=>l.itemColor===c)?.fabricColor||''):(f.fabricColor||'');
         const dispNm=colors.length>1&&colors[0]!==''?`${f.name} (${c})`:f.name;
+        // 중복 가드: 같은 거래처+원단+컬러+용도 조합이 이미 있으면 skip
+        const _dupKey=(f.id||f.name)+'|'+c+'|'+(f.part||'');
+        if((sups[f.supplier].materials||[]).some(function(mm){return mm.type==='fabric'&&((mm.fabId||mm.name)+'|'+(mm.colorName||'')+'|'+(mm.part||''))===_dupKey;}))continue;
         // 이 컬러에 적용되는 가산 항목 목록 추출 (발주서 표시용)
         const appliedAdditions=(f.priceAdditions||[]).filter(function(a){
           if(!a.price||+a.price<=0)return false;
@@ -4322,6 +4412,11 @@ function calcSups(orderItems,opts){
       }
     }
     for(const t of it.trims||[]){
+      // 메인라벨은 부자재처 대신 브랜드명을 발주처로 사용 (브랜드에 요청)
+      if(t.orderType==='mainLabel'&&!t.supplier&&t.brandId){
+        const _br=getBrands().find(function(b){return b.id===t.brandId;});
+        if(_br)t.supplier=_br.name;
+      }
       if(!t.supplier)continue;
       if(!sups[t.supplier])sups[t.supplier]=mkSupWithDefaults(t.supplier);
       // === 공통 사용 모드: 컬러 구분 없이 총수량으로 1번만 발주 ===
@@ -5002,7 +5097,7 @@ function genPoText(order,sn){
       else if(isJeolOrder&&jeolYards)hdr+=` (1절 ${jeolYards}y)`;
       // 공통 사용 자재면 헤더에 표기 추가
       const isCommon=g.colors.length===1&&g.colors[0]?.isCommonUse;
-      if(isCommon)hdr+=' 🔗 (공통 사용)';
+      if(isCommon)hdr+=' (공통 사용)';
       // 단일 컬러도 세로 포맷: 첫 줄 이름·사양, 둘째 줄 수량 (카톡 친화)
       if(!hasMultiColor){
         const t=g.colors[0];
@@ -5013,11 +5108,7 @@ function genPoText(order,sn){
         if(isRoll)L.push(`${actQ}롤 (필요수량 ${t.calc?.ty||0}y)${ovrTxt}`);
         else if(t.calc?.isJeol)L.push(`${actQ}절 (필요수량 ${t.calc.originalNeed}y)${ovrTxt}`);
         else L.push(`${actQ}${t.calc?.unit||'개'}${ovrTxt}`);
-        // 공통 사용이면 어떤 컬러에 적용되는지 추가 안내
-        if(isCommon&&t.commonForColors&&t.commonForColors.length>0){
-          var colorList=t.commonForColors.filter(function(c){return c;}).map(function(c){return '#'+c;}).join(' ');
-          if(colorList)L.push('적용: '+colorList);
-        }
+        // 공통 사용이면 어떤 컬러에 적용되는지 추가 안내 (적용: 줄 제거 — 거래처엔 불필요)
         // 원단 부족으로 부자재 수량이 자동 조정된 경우 사유 표기
         if(t.effectivePcsApplied){
           L.push('※ 원단 재고에 맞춰 '+t.effectivePcsApplied+'장 기준 발주');
@@ -5060,8 +5151,8 @@ function genPoText(order,sn){
       }
       // 비고
       if(g.memo)L.push(`📝 ${g.memo}`);
+      L.push(''); // 부자재 그룹 사이 항상 줄바꿈
     }
-    L.push('');
   }
   // 요청사항
   const reqs=PO_OPT_DEFS.filter(d=>d.cat==='req'&&opts[d.key]&&d.text).map(d=>d.text);
@@ -5087,13 +5178,26 @@ function genPoText(order,sn){
 
 /* ===== ORDER MANAGEMENT ===== */
 function createOrder(){
+  // 현재 화면 입력값을 캐시에 반영 (페이지 이동 안 한 값도 포함)
+  if(typeof cacheNcQty==='function')cacheNcQty();
+  const checkedMap=window._ncChecked||{};
   // 선택된 아이템 수집
   const selectedItems=[];
   for(const it of Object.values(S.items)){
-    const cb=document.getElementById('nc_'+it.id);if(!cb?.checked)continue;
+    // 체크 상태: DOM 체크박스 우선, 없으면 _ncChecked
+    const cb=document.getElementById('nc_'+it.id);
+    const isChecked=cb?cb.checked:!!checkedMap[it.id];
+    if(!isChecked)continue;
     const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
     const qtyGrid={};let grand=0;
-    for(const c of colors){qtyGrid[c]={};for(const sz of sizes){const el=document.getElementById(`q_${it.id}_${encodeURIComponent(c)}_${sz}`);const v=el?+el.value||0:0;qtyGrid[c][sz]=v;grand+=v;}}
+    for(const c of colors){qtyGrid[c]={};for(const sz of sizes){
+      const inpId=`q_${it.id}_${encodeURIComponent(c)}_${sz}`;
+      const el=document.getElementById(inpId);
+      // DOM 우선, 없으면(다른 페이지) 캐시값
+      let v=el?+el.value||0:0;
+      if(!v&&window._ncQtyCache&&window._ncQtyCache[inpId])v=+window._ncQtyCache[inpId]||0;
+      qtyGrid[c][sz]=v;grand+=v;
+    }}
     if(!grand)continue;
     selectedItems.push({it,qtyGrid,grand});
   }
@@ -5679,12 +5783,13 @@ function renderOTab(){
 // — 수동 입력값(actualOrderedQty)과 메타(발송상태/출고처 등)는 보존
 function refreshOrderSuppliers(o){
   if(!o||!o.orderItems||!o.suppliers)return;
-  // 1) 수동 입력값 백업
+  // 1) 수동 입력값 백업 — 키에 용도(part)+fabId 포함 (같은 원단 몸판/스트링감 구분)
   const overrides={};
   for(const sn in o.suppliers){
     for(const m of o.suppliers[sn].materials||[]){
       if(m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''){
-        overrides[sn+'|'+m.name+'|'+(m.colorName||'')+'|'+(m.type||'')]=m.actualOrderedQty;
+        const ok=sn+'|'+(m.fabId||m.name)+'|'+(m.colorName||'')+'|'+(m.type||'')+'|'+(m.part||'');
+        overrides[ok]=m.actualOrderedQty;
       }
     }
   }
@@ -5698,21 +5803,29 @@ function refreshOrderSuppliers(o){
   let fresh;
   try{fresh=calcSups(o.orderItems);}catch(e){console.error('[refreshOrderSuppliers]',e);return;}
   if(!fresh)return;
-  // 3-b) 안전장치: 재계산 결과가 원본보다 자재/거래처가 적으면 교체 취소 (데이터 손상 방지)
-  var origMatCount=0,freshMatCount=0;
-  for(const sn in o.suppliers)origMatCount+=(o.suppliers[sn].materials||[]).length;
-  for(const sn in fresh)freshMatCount+=(fresh[sn].materials||[]).length;
+  // 3-b) 안전장치: 거래처가 사라지거나, 원단처의 원단이 통째로 사라지면 교체 취소
   var origSupCount=Object.keys(o.suppliers).length;
   var freshSupCount=Object.keys(fresh).length;
-  if(freshMatCount<origMatCount||freshSupCount<origSupCount){
-    console.warn('[refreshOrderSuppliers] 자재/거래처 누락 감지 — 교체 취소 (원본 유지)',{origMatCount,freshMatCount,origSupCount,freshSupCount});
+  if(freshSupCount<origSupCount){
+    console.warn('[refreshOrderSuppliers] 거래처 누락 감지 — 교체 취소',{origSupCount,freshSupCount});
     return;
+  }
+  // 각 거래처: 원단/부자재가 있었는데 통째로 사라지면 취소 (중복 제거로 인한 감소는 허용)
+  for(const sn in o.suppliers){
+    var hadFab=(o.suppliers[sn].materials||[]).some(function(m){return m.type==='fabric';});
+    var hadTrim=(o.suppliers[sn].materials||[]).some(function(m){return m.type==='trim';});
+    var hasFab=fresh[sn]&&(fresh[sn].materials||[]).some(function(m){return m.type==='fabric';});
+    var hasTrim=fresh[sn]&&(fresh[sn].materials||[]).some(function(m){return m.type==='trim';});
+    if((hadFab&&!hasFab)||(hadTrim&&!hasTrim)){
+      console.warn('[refreshOrderSuppliers] '+sn+' 자재 통째 누락 감지 — 교체 취소');
+      return;
+    }
   }
   // 4) override + meta 복원
   for(const sn in fresh){
     if(meta[sn])Object.assign(fresh[sn],meta[sn]);
     for(const m of fresh[sn].materials||[]){
-      const k=sn+'|'+m.name+'|'+(m.colorName||'')+'|'+(m.type||'');
+      const k=sn+'|'+(m.fabId||m.name)+'|'+(m.colorName||'')+'|'+(m.type||'')+'|'+(m.part||'');
       if(overrides[k]!==undefined)m.actualOrderedQty=overrides[k];
     }
   }
@@ -6346,7 +6459,17 @@ function renderArrTab(o){
     var defFc='';
     (o.orderItems||[]).some(function(oi){var it=S.items[oi.itemId];if(it&&it.sewingFcId&&S.factories[it.sewingFcId]){defFc=it.sewingFcId;return true;}return false;});
     return fcOpts(defFc);
-  })()}</select></div><div class="fg" style="margin-bottom:0"><label>입고 예정일</label><input type="date" id="arr-date" value="${todayISO()}"></div></div>
+  })()}</select></div><div class="fg" style="margin-bottom:0"><label>입고 예정일 <span class="muted" style="font-size:9px">(원단처 출고예정일 자동)</span></label><input type="date" id="arr-date" value="${(function(){
+    // 원단처(fabric 있는 거래처)의 출고예정일을 입고예정일로 자동 — 여러 곳이면 가장 늦은 날
+    var dates=[];
+    for(var sn in (o.suppliers||{})){
+      var sup=o.suppliers[sn];
+      var hasFab=(sup.materials||[]).some(function(m){return m.type==='fabric';});
+      if(hasFab&&sup.expectedShipDate)dates.push(sup.expectedShipDate);
+    }
+    if(dates.length)return dates.sort().reverse()[0]; // 가장 늦은 날
+    return todayISO();
+  })()}"></div></div>
   <div class="fr" style="gap:5px;flex-wrap:wrap">
     <button class="btn s" style="background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700" onclick="shareArrKakao('${o.id}')">💬 카카오톡</button>
     <button class="btn s" onclick="smsArrNotif('${o.id}')">💬 문자</button>
@@ -6392,7 +6515,8 @@ function genArrNotif(oid){
       if(m.type==='fabric'){
         const partTag=m.part?`(${m.part}) `:'';
         const y=m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''?+m.actualOrderedQty:m.totalYards;
-        fab.push(`${sn} / ${partTag}${m.displayName||m.name}${y?' — '+y+'yard':''}`);
+        const line=`${sn} / ${partTag}${m.displayName||m.name}${y?' — '+y+'yard':''}`;
+        if(fab.indexOf(line)<0)fab.push(line); // 중복 제거
         hasFromSup=true;
       }
     }
