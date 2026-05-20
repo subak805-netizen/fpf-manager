@@ -4484,6 +4484,11 @@ function syncOrderMaterialsFromItems(orderId, opts){
       
       var curKeys={};
       (cur.materials||[]).forEach(function(m){curKeys[matKey(m)]=m;});
+      // 이미 "(추가발주)"로 분리된 자재도 포함 — 중복 추가 방지
+      var splitNameChk=sn+' (추가발주)';
+      if(currentSups[splitNameChk]){
+        (currentSups[splitNameChk].materials||[]).forEach(function(m){if(!curKeys[matKey(m)])curKeys[matKey(m)]=m;});
+      }
       var freshKeys={};
       freshMats.forEach(function(m){freshKeys[matKey(m)]=m;});
       
@@ -4553,6 +4558,21 @@ function syncOrderMaterialsFromItems(orderId, opts){
       (cur.materials||[]).forEach(function(m){result.removed.push({supplier:sn,material:m});});
       delete currentSups[sn];
     }
+  });
+  
+  // 추가발주 거래처 등에서 같은 자재 중복 제거 (matKey 기준)
+  Object.keys(currentSups).forEach(function(sn){
+    var sup=currentSups[sn];
+    if(!sup||!sup.materials)return;
+    var seen={};
+    var deduped=[];
+    sup.materials.forEach(function(m){
+      var key=(m.type||'')+'|'+(m.name||'')+'|'+(m.colorName||'')+'|'+(m.itemId||'')+'|'+(m.part||'')+'|'+(m.labelPart||'');
+      if(!seen[key]){seen[key]=true;deduped.push(m);}
+    });
+    sup.materials=deduped;
+    // 자재가 0개가 된 추가발주 거래처는 제거
+    if(sn.indexOf(' (추가발주)')>=0&&deduped.length===0)delete currentSups[sn];
   });
   
   order.suppliers=currentSups;
@@ -5837,7 +5857,13 @@ function refreshOrderSuppliers(o){
     for(const m of o.suppliers[sn].materials||[]){
       const ok=sn+'|'+(m.fabId||m.name)+'|'+(m.colorName||'')+'|'+(m.type||'')+'|'+(m.part||'');
       if(m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''){
-        overrides[ok]=m.actualOrderedQty;
+        // 실제발주값이 기존 계산값(totalYards/계산수량)과 같으면 = 자동값이므로 백업 안 함
+        // (그래야 로스율 등 아이템 정의 변경 시 새 계산값이 반영됨)
+        var autoQty=m.type==='fabric'?(m.pricingUnit==='kg'?(m.totalKg||0):(m.totalYards||0)):(m.calc&&(m.calc.isRoll?m.calc.rolls:m.calc.qty)||0);
+        if(Math.abs(+m.actualOrderedQty-autoQty)>0.001){
+          // 계산값과 다른 = 사용자가 수동 입력한 값 → 보존
+          overrides[ok]=m.actualOrderedQty;
+        }
       }
       if(m.negotiatedPrice!==undefined&&m.negotiatedPrice!==''){
         negoOverrides[ok]=m.negotiatedPrice;
