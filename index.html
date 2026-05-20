@@ -583,6 +583,7 @@ tryInitFirebase();
       <select id="cs-season-flt" style="font-size:12px" onchange="renderCSSummary()"><option value="">전체 시즌</option></select>
       <select id="cs-factory-flt" style="font-size:12px" onchange="renderCSSummary()"><option value="">전체 공장</option></select>
     </div>
+    <div id="cs-brand-btns" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
     <!-- 요약 뷰 -->
     <div id="cs-summary-pane">
       <div id="cs-summary-body"></div>
@@ -609,7 +610,7 @@ tryInitFirebase();
         <div style="font-size:10px;color:var(--t2);align-self:flex-end;padding-bottom:4px;line-height:1.5">순수원가=요척×수량×단가<br>로스반영=요척×수량×(1+로스%)×단가</div>
       </div>
       </div>
-      <div id="cs-body"></div>
+      <div id="cs-body" style="max-width:900px"></div>
     </div>
   </div>
 </div>
@@ -3897,8 +3898,20 @@ function renderCSSummary(){
   const el=document.getElementById('cs-summary-body');if(!el)return;
   const items=Object.values(S.items);
   const search=(document.getElementById('cs-search')?.value||'').toLowerCase();
+  const brandFlt=window._csBrandSel||'';
   const seasonFlt=document.getElementById('cs-season-flt')?.value||'';
   const fcFlt=document.getElementById('cs-factory-flt')?.value||'';
+  // 브랜드 버튼 렌더
+  const bBtns=document.getElementById('cs-brand-btns');
+  if(bBtns){
+    const brands=getBrands();
+    const mkBtn=(val,label,col)=>{
+      const on=brandFlt===val;
+      const c=col||'var(--blue)';
+      return `<button onclick="setCsBrandFilter('${val}')" style="padding:5px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid ${on?c:'var(--bd)'};background:${on?c:'var(--bg)'};color:${on?'#fff':'var(--t2)'}">${esc(label)}</button>`;
+    };
+    bBtns.innerHTML=mkBtn('','전체')+brands.map(b=>mkBtn(b.id,b.name,b.color||getBrandColor(b.id))).join('');
+  }
   // 필터 드롭다운 채우기
   const seasons=[...new Set(items.map(it=>it.season).filter(Boolean))].sort();
   const sEl=document.getElementById('cs-season-flt');
@@ -3906,6 +3919,7 @@ function renderCSSummary(){
   const fEl=document.getElementById('cs-factory-flt');
   if(fEl&&fEl.children.length<=1){const fcs=Object.values(S.factories||{});fEl.innerHTML='<option value="">전체 공장</option>'+fcs.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('');}
   const filtered=items.filter(it=>{
+    if(brandFlt&&it.brandId!==brandFlt)return false;
     if(seasonFlt&&it.season!==seasonFlt)return false;
     if(fcFlt&&it.sewingFcId!==fcFlt)return false;
     if(search&&!it.name.toLowerCase().includes(search))return false;
@@ -9274,6 +9288,7 @@ function renderCSDropdown(){
   renderCSSummary();
 }
 function onCSBrandFilter(){renderCSDropdown();}
+function setCsBrandFilter(brandId){window._csBrandSel=brandId;renderCSSummary();}
 function csIsExcluded(itemId,key){
   if(!window._csExclusions)window._csExclusions={};
   return window._csExclusions[itemId]?.[key]===true;
@@ -9492,7 +9507,7 @@ function renderCS(){
       ${hasExcl?`<button class="btn s" onclick="csResetExcl('${id}')">↻ 모두 포함</button>`:''}
     </div>
     <div class="info-box" style="font-size:11px;margin-bottom:10px">💡 각 항목 앞 체크박스로 원가 계산에 포함/제외할 수 있어요. 제외한 항목은 회색으로 표시돼요.</div>
-    <style>.cs-tbl{font-size:11px;width:100%;table-layout:auto}.cs-tbl th{font-size:10px;padding:4px 5px;font-weight:600;color:var(--t2)}.cs-tbl td{padding:5px 5px;vertical-align:middle}.cs-tbl input[type=checkbox]{transform:scale(0.85)}</style>
+    <style>.cs-tbl{font-size:13px;width:100%;table-layout:auto;border-collapse:collapse}.cs-tbl th{font-size:12px;padding:6px 6px;font-weight:700;color:var(--t2);border-bottom:1.5px solid var(--bd)}.cs-tbl td{padding:7px 6px;vertical-align:middle;border-bottom:1px solid var(--bd)}.cs-tbl input[type=checkbox]{transform:scale(0.95)}.cs-tbl input[type=number]{font-size:12px}.cs-tbl .muted{font-size:11px}.cs-tbl tbody tr:last-child td{border-bottom:none}.cs-tbl .sec,#cs-body .sec{font-size:14px}</style>
     ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><div style="overflow-x:auto"><table class="cs-tbl"><thead><tr><th style="text-align:left">원단명/원단처</th><th style="text-align:left">계산식</th><th style="text-align:right">사용량</th><th style="text-align:right">매장가 / 협상가<br><span style="font-size:9px;color:var(--green)">원가용 단가</span></th><th style="text-align:right">원단비</th></tr></thead><tbody>${fr}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tf))}원</td></tr></tbody></table></div>`:''}
     ${it.trims.length?`<div class="sec">부자재비</div><div style="overflow-x:auto"><table class="cs-tbl"><thead><tr><th style="text-align:left">부자재명/부자재처</th><th style="text-align:left">계산식</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:right">부자재비</th></tr></thead><tbody>${tr}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tt))}원</td></tr></tbody></table></div>`:''}
     ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr style="${exClass(k)}"><td>${chkBox(k)}${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${num(p.val)}원/pcs×${qty}</td><td colspan="2"></td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(pt))}원</td></tr></tbody></table>`:''}
