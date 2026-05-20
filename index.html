@@ -3408,11 +3408,25 @@ function trimRowHTML(t,i){
       +'<select data-f="orderType" style="width:auto;font-size:11px;padding:3px 5px" onchange="onTrimType('+i+',this.value)"><option value="mainLabel" selected>메인라벨</option><option value="count">→ 개수로 변경</option><option value="careLabel">→ 케어라벨로</option></select>'
       +'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
       +'</div>'
-      // 부자재처, 중간사이즈, 단가
+      // 브랜드 선택, 라벨명 선택(단가 자동), 단가
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
-      +'<div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
-      +'<div style="flex:1.5;min-width:120px"><label>중간사이즈명 <span class="muted" style="font-size:9px">(브랜드별)</span></label><input data-f="midSize" value="'+esc(t.midSize||'')+'" placeholder="예: 모흐스커트 (H스커트)"></div>'
-      +'<div style="flex:.6;min-width:55px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
+      +'<div style="flex:1;min-width:90px"><label>브랜드</label><select data-f="brandId" onchange="onMainLabelBrandChange('+i+',this.value)" style="font-size:12px;width:100%">'
+        +'<option value="">— 브랜드 선택 —</option>'
+        +getBrands().map(function(b){return '<option value="'+b.id+'"'+(t.brandId===b.id?' selected':'')+'>'+esc(b.name)+'</option>';}).join('')
+        +'</select></div>'
+      +'<div style="flex:1.4;min-width:130px"><label>라벨명 <span class="muted" style="font-size:9px">(브랜드별 등록)</span></label>'
+        +(function(){
+          var b=t.brandId?getBrands().find(function(x){return x.id===t.brandId;}):null;
+          var labels=(b&&b.mainLabels)||[];
+          var opts='<option value="">— 라벨 선택 —</option>';
+          labels.forEach(function(lb){opts+='<option value="'+esc(lb.name)+'"'+(t.labelName===lb.name?' selected':'')+'>'+esc(lb.name)+' ('+num(lb.price||0)+'원)</option>';});
+          // 등록 안 된 라벨명이 이미 입력돼 있으면 그것도 표시
+          if(t.labelName&&!labels.some(function(lb){return lb.name===t.labelName;}))opts+='<option value="'+esc(t.labelName)+'" selected>'+esc(t.labelName)+'</option>';
+          return '<select data-f="labelName" onchange="onMainLabelSelect('+i+',this.value)" style="font-size:12px;width:100%"'+(b?'':' disabled')+'>'+opts+'</select>';
+        })()
+        +'</div>'
+      +'<div style="flex:.5;min-width:50px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
+      +'<button class="btn s" onclick="addLabelToBrandInline(\''+(t.brandId||'')+'\',\'main\','+i+')" type="button" style="font-size:10px;padding:6px 8px;background:#fef3c7;border-color:#fcd34d;white-space:nowrap"'+(t.brandId?'':' disabled')+'>＋새 라벨</button>'
       +'</div>'
       // 포함 옵션 + 수량
       +'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px">'
@@ -3689,9 +3703,10 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r,i)=>{if(!form
     formTrims[i].autoComposition=true;
     formTrims[i].autoFactory=true;
   }else if(tp==='mainLabel'){
-    formTrims[i].midSize=g('midSize')||'';
+    formTrims[i].brandId=g('brandId')||'';
+    formTrims[i].labelName=g('labelName')||'';
+    formTrims[i].midSize=g('labelName')||formTrims[i].midSize||''; // 호환: midSize에도 라벨명 저장
     formTrims[i].unitPrice=+g('unitPrice')||0;
-    formTrims[i].qtyPerColor=g('qtyPerColor')!==undefined?+g('qtyPerColor'):100;
     formTrims[i].qtyBuffer=g('qtyBuffer')!==undefined?+g('qtyBuffer'):10;
     // 포함 체크박스 수집
     ['includeTag','includeTagLoop','includeFoldingPoly','includeHanger','includePoly'].forEach(function(k){
@@ -3864,7 +3879,7 @@ function addTrimRow(t){
   else if(t==='zipper')newRow={id:uid(),supplier:'',name:'지퍼',orderType:'zipper',zipperSize:'',zipperLength:'',zipperDirection:'오픈',toothColor:'',sliderModel:'',sliderColor:'',hasSliderLogo:false,sliderLogoText:'',qtyPerPiece:1,unitPrice:0,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='button')newRow={id:uid(),supplier:'',name:'단추',orderType:'button',buttonSize:'',buttonStyle:'',unitPrice:0,qtyPerPiece:1,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='careLabel')newRow={id:uid(),supplier:'',name:'케어라벨',orderType:'careLabel',labelName:'',unitPrice:0,qtyBuffer:10,manufactureYM:'',autoComposition:true,autoFactory:true,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
-  else if(t==='mainLabel')newRow={id:uid(),supplier:'',name:'메인라벨',orderType:'mainLabel',labelName:'',midSize:'',unitPrice:0,qtyPerColor:100,qtyBuffer:10,includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,autoFactory:true,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
+  else if(t==='mainLabel')newRow={id:uid(),supplier:'',name:'메인라벨',orderType:'mainLabel',brandId:'',labelName:'',midSize:'',unitPrice:0,qtyBuffer:10,includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,autoFactory:true,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='bias')newRow={id:uid(),supplier:'',name:'바이어스재단',orderType:'bias',biasSpec:'',fabricSource:'',consumptionPerPiece:0,unitPrice:0,buffer:TRIM_LOSS_PCT,colorLinks:[],sizeRates:[]};
   else newRow={id:uid(),supplier:'',name:'',orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   formTrims.push(newRow);
@@ -3893,7 +3908,7 @@ function onTrimType(i,v){
   else if(v==='zipper')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name||'지퍼',size:t.size,orderType:'zipper',zipperSize:'',zipperLength:'',zipperDirection:'오픈',toothColor:'',sliderModel:'',sliderColor:'',hasSliderLogo:false,sliderLogoText:'',qtyPerPiece:1,unitPrice:0,buffer:3,sizeRates:t.sizeRates||[]};
   else if(v==='button')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name||'단추',size:t.size,orderType:'button',buttonSize:'',buttonStyle:'',unitPrice:0,qtyPerPiece:1,buffer:3,sizeRates:t.sizeRates||[]};
   else if(v==='careLabel')formTrims[i]={id:t.id,supplier:t.supplier,name:'케어라벨',orderType:'careLabel',labelName:'',unitPrice:0,qtyBuffer:10,manufactureYM:'',autoComposition:true,autoFactory:true,buffer:0,sizeRates:[]};
-  else if(v==='mainLabel')formTrims[i]={id:t.id,supplier:t.supplier,name:'메인라벨',orderType:'mainLabel',labelName:'',midSize:'',unitPrice:0,qtyPerColor:100,qtyBuffer:10,includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,autoFactory:true,buffer:0,sizeRates:[]};
+  else if(v==='mainLabel')formTrims[i]={id:t.id,supplier:t.supplier,name:'메인라벨',orderType:'mainLabel',brandId:t.brandId||'',labelName:'',midSize:'',unitPrice:0,qtyBuffer:10,includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,autoFactory:true,buffer:0,sizeRates:[]};
   else if(v==='bias')formTrims[i]={id:t.id,supplier:t.supplier,name:'바이어스재단',orderType:'bias',biasSpec:'',fabricSource:'',consumptionPerPiece:0,unitPrice:0,buffer:2,colorLinks:t.colorLinks||[],sizeRates:[]};
   else formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:3,sizeRates:t.sizeRates||[]};
   renderTrimRows();
@@ -4324,12 +4339,12 @@ function calcSups(orderItems,opts){
           const cQty=effColorQtys[c]||0;if(!cQty)continue;
           const calc=calcTrimNeed(t,cQty);
           const clNm=t.colorLinks.find(l=>l.itemColor===c)?.colorName||c;
-          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,itemColorName:c,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,itemColorName:c,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
         }
       }else{
         // 단일 — 도미노 적용 effTotalQty
         const calc=calcTrimNeed(t,effTotalQty);
-        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
       }
     }
   }return sups;
@@ -4757,9 +4772,10 @@ function genPoText(order,sn){
         // 헤더: 품명 (날짜) — 브랜드 중복/품명 중복 제거
         L.push((itM?itM.name:ml.itemName||'')+' '+shortName(order.name));
         L.push('');
-        // 메인라벨 + 중간사이즈
+        // 메인라벨 + 라벨명
         L.push('메인라벨');
-        if(ml.midSize)L.push(ml.midSize);
+        var mlName=ml.labelName||ml.midSize;
+        if(mlName)L.push(mlName);
         L.push('');
         // 포함 항목
         const incOpts=[];
@@ -5710,7 +5726,7 @@ function renderPoTab(o){
   return sns.map(sn=>{
     const sup=o.suppliers[sn];if(!sup)return'';const sent=sup.status==='sent';const opts=sup.poOpts||{};const pb=S.priceBook[sn]||{};
     const fabs=sup.materials.filter(m=>m.type==='fabric');const trims=sup.materials.filter(m=>m.type==='trim');
-    const matSum=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">${fabs.map(f=>`<span class="tag">${esc(f.displayName||f.name)} ${f.totalYards}yd${f.totalKg?'('+f.totalKg+'kg)':''}</span>`).join('')}${trims.map(t=>{let lbl=esc(t.name);if(t.orderType==='careLabel')lbl='🏷️'+esc(t.labelName||'케어라벨');else if(t.orderType==='mainLabel')lbl='🎫'+esc(t.midSize||'메인라벨');const q=t.calc?.isRoll?t.calc.rolls+'롤':(t.calc?.isJeol?t.calc.jeol+'절':t.calc?.qty+(t.calc?.unit||''));return `<span class="tag">${lbl} ${q}</span>`;}).join('')}</div>`;
+    const matSum=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">${fabs.map(f=>`<span class="tag">${esc(f.displayName||f.name)} ${f.totalYards}yd${f.totalKg?'('+f.totalKg+'kg)':''}</span>`).join('')}${trims.map(t=>{let lbl=esc(t.name);if(t.orderType==='careLabel')lbl='🏷️'+esc(t.labelName||'케어라벨');else if(t.orderType==='mainLabel')lbl='🎫'+esc(t.labelName||t.midSize||'메인라벨');const q=t.calc?.isRoll?t.calc.rolls+'롤':(t.calc?.isJeol?t.calc.jeol+'절':t.calc?.qty+(t.calc?.unit||''));return `<span class="tag">${lbl} ${q}</span>`;}).join('')}</div>`;
     const poText=genPoText(o,sn);
     return`<div class="sc"><div class="sc-h"><div style="font-weight:600">${esc(sn)}</div><span class="badge ${sent?'b1':'b0'}">${sent?'발송':'미발송'}</span></div>
     <div class="sc-b">${matSum}
@@ -9753,6 +9769,94 @@ function showBrandManageModal(){
   showModal('brand-manage-modal');
   renderBrandManageList();
 }
+// 브랜드별 라벨 목록 (메인/케어) UI
+function renderBrandLabelsSection(b){
+  const mainLabels=b.mainLabels||[];
+  const careLabels=b.careLabels||[];
+  function labelRows(kind,list){
+    return list.map(function(lb,idx){
+      return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:4px">'
+        +'<input type="text" value="'+esc(lb.name||'')+'" onchange="updateBrandLabel(\''+b.id+'\',\''+kind+'\','+idx+',\'name\',this.value)" placeholder="라벨명" style="flex:1.4;font-size:11px;padding:4px 6px;border:1px solid var(--bd);border-radius:4px">'
+        +'<input type="number" value="'+(lb.price||0)+'" onchange="updateBrandLabel(\''+b.id+'\',\''+kind+'\','+idx+',\'price\',+this.value)" placeholder="단가" min="0" style="width:70px;font-size:11px;padding:4px 6px;border:1px solid var(--bd);border-radius:4px"><span style="font-size:10px;color:var(--t2)">원</span>'
+        +'<button class="btn s d" onclick="deleteBrandLabel(\''+b.id+'\',\''+kind+'\','+idx+')" style="padding:2px 6px;font-size:10px">×</button>'
+        +'</div>';
+    }).join('');
+  }
+  return '<div style="padding:7px 10px;border-top:1px dashed var(--bd)">'
+    // 메인라벨
+    +'<div style="font-size:10px;color:#854d0e;font-weight:700;margin-bottom:4px">🎫 메인라벨 목록</div>'
+    +(mainLabels.length?labelRows('main',mainLabels):'<div style="font-size:10px;color:var(--t3);margin-bottom:4px">등록된 라벨 없음</div>')
+    +'<button class="btn s" onclick="addBrandLabel(\''+b.id+'\',\'main\')" style="font-size:10px;padding:3px 8px;margin-bottom:8px;background:#fef3c7;border-color:#fcd34d">＋ 메인라벨 추가</button>'
+    // 케어라벨
+    +'<div style="font-size:10px;color:#166534;font-weight:700;margin-bottom:4px">🏷️ 케어라벨 목록</div>'
+    +(careLabels.length?labelRows('care',careLabels):'<div style="font-size:10px;color:var(--t3);margin-bottom:4px">등록된 라벨 없음</div>')
+    +'<button class="btn s" onclick="addBrandLabel(\''+b.id+'\',\'care\')" style="font-size:10px;padding:3px 8px;background:#dcfce7;border-color:#86efac">＋ 케어라벨 추가</button>'
+    +'</div>';
+}
+function _brandLabelArr(b,kind){
+  if(kind==='main'){if(!b.mainLabels)b.mainLabels=[];return b.mainLabels;}
+  if(!b.careLabels)b.careLabels=[];return b.careLabels;
+}
+function addBrandLabel(brandId,kind,opts){
+  const b=getBrands().find(x=>x.id===brandId);if(!b)return;
+  const arr=_brandLabelArr(b,kind);
+  const nm=(opts&&opts.name)||'';
+  const price=(opts&&opts.price)||0;
+  arr.push({name:nm,price:price});
+  saveData();
+  if(!opts)renderBrandManageList();
+  return arr.length-1;
+}
+function updateBrandLabel(brandId,kind,idx,field,val){
+  const b=getBrands().find(x=>x.id===brandId);if(!b)return;
+  const arr=_brandLabelArr(b,kind);
+  if(!arr[idx])return;
+  arr[idx][field]=val;
+  saveData();
+}
+function deleteBrandLabel(brandId,kind,idx){
+  const b=getBrands().find(x=>x.id===brandId);if(!b)return;
+  const arr=_brandLabelArr(b,kind);
+  arr.splice(idx,1);
+  saveData();
+  renderBrandManageList();
+}
+// 메인/케어라벨 폼에서 즉석으로 새 라벨 추가
+function addLabelToBrandInline(brandId,kind,trimIdx){
+  const b=getBrands().find(x=>x.id===brandId);
+  if(!b){alert('먼저 브랜드를 선택하세요');return;}
+  const nm=prompt('새 '+(kind==='main'?'메인':'케어')+'라벨 이름:');
+  if(!nm||!nm.trim())return;
+  const priceStr=prompt('단가 (원/개):','0');
+  const price=+priceStr||0;
+  addBrandLabel(brandId,kind,{name:nm.trim(),price:price});
+  // 폼의 해당 행 갱신
+  if(formTrims[trimIdx]){
+    formTrims[trimIdx].labelName=nm.trim();
+    formTrims[trimIdx].unitPrice=price;
+    renderTrimRows();
+  }
+  showToast('✅ '+nm.trim()+' 라벨 등록됨 ('+num(price)+'원)');
+}
+// 메인라벨 폼: 브랜드 변경 → 라벨 목록 갱신
+function onMainLabelBrandChange(i,brandId){
+  if(!formTrims[i])return;
+  formTrims[i].brandId=brandId;
+  formTrims[i].labelName=''; // 브랜드 바뀌면 라벨 초기화
+  renderTrimRows();
+}
+// 메인라벨 폼: 라벨 선택 → 단가 자동
+function onMainLabelSelect(i,labelName){
+  if(!formTrims[i])return;
+  formTrims[i].labelName=labelName;
+  const b=formTrims[i].brandId?getBrands().find(function(x){return x.id===formTrims[i].brandId;}):null;
+  if(b&&b.mainLabels){
+    const lb=b.mainLabels.find(function(x){return x.name===labelName;});
+    if(lb&&lb.price!==undefined)formTrims[i].unitPrice=lb.price;
+  }
+  renderTrimRows();
+}
+
 function renderBrandManageList(){
   const brands=getBrands();
   const html=`
@@ -9769,6 +9873,7 @@ function renderBrandManageList(){
           <div style="flex:2"><div style="font-size:10px;color:var(--t2);margin-bottom:3px;font-weight:600">사업자번호</div>
             <input type="text" value="${esc(b.bizNum||'')}" onchange="updateBrandField('${b.id}','bizNum',this.value)" style="width:100%;font-size:12px;padding:4px 7px;border:1px solid var(--bd);border-radius:5px" placeholder="000-00-00000"></div>
         </div>
+        ${renderBrandLabelsSection(b)}
       </div>`).join(''):'<div class="muted" style="font-size:12px;padding:8px;text-align:center">브랜드 없음. 아래에서 추가하세요.</div>'}
     </div>
     <div class="fr" style="gap:6px">
