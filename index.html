@@ -4692,20 +4692,35 @@ function genPoText(order,sn){
             L.push('');
           }
         }
-        // 수량 (의뢰수량 합계 + buffer) — 사이즈명 없이 숫자만
+        // 수량 (의뢰수량 + buffer) — 사이즈 여러 개면 사이즈별, 1개면 총합만
         if(oiC&&oiC.qtyGrid&&itC){
           const sizes=itC.sizes&&itC.sizes.length?itC.sizes:['free'];
           const colors=itC.colors&&itC.colors.length?itC.colors:[''];
           const buf=cl.qtyBuffer!==undefined?+cl.qtyBuffer:10;
+          // 사이즈별 합계 (모든 컬러)
+          const bySize={};
           let totalQty=0;
           sizes.forEach(function(sz){
+            let s=0;
             colors.forEach(function(c){
-              totalQty+=+(oiC.qtyGrid[c]&&oiC.qtyGrid[c][sz])||0;
+              s+=+(oiC.qtyGrid[c]&&oiC.qtyGrid[c][sz])||0;
             });
+            bySize[sz]=s;
+            totalQty+=s;
           });
+          const realSizes=sizes.filter(function(sz){return !(sizes.length===1&&(sz==='free'||sz===''));});
+          const multiSize=realSizes.length>1;
           if(totalQty>0){
-            L.push('수량');
-            L.push(String(totalQty+buf));
+            if(multiSize){
+              // 사이즈별 표시 (라벨집이 사이즈별로 적을 수 있게)
+              L.push('사이즈, 수량 (+'+buf+')');
+              sizes.forEach(function(sz){
+                if(bySize[sz]>0)L.push(sz+'  '+(bySize[sz]+buf));
+              });
+            }else{
+              L.push('수량');
+              L.push(String(totalQty+buf));
+            }
             L.push('');
           }
         }
@@ -4750,20 +4765,33 @@ function genPoText(order,sn){
           incOpts.forEach(function(o){L.push(o);});
           L.push('');
         }
-        // 수량 (의뢰수량 합계 + buffer) — 케어라벨과 동일
+        // 수량 (의뢰수량 + buffer) — 사이즈 여러 개면 사이즈별, 1개면 총합만
         if(oiM&&oiM.qtyGrid&&itM){
           const sizes=itM.sizes&&itM.sizes.length?itM.sizes:['free'];
           const colors=itM.colors&&itM.colors.length?itM.colors:[''];
           const buf=ml.qtyBuffer!==undefined?+ml.qtyBuffer:10;
+          const bySize={};
           let totalQty=0;
           sizes.forEach(function(sz){
+            let s=0;
             colors.forEach(function(c){
-              totalQty+=+(oiM.qtyGrid[c]&&oiM.qtyGrid[c][sz])||0;
+              s+=+(oiM.qtyGrid[c]&&oiM.qtyGrid[c][sz])||0;
             });
+            bySize[sz]=s;
+            totalQty+=s;
           });
+          const realSizes=sizes.filter(function(sz){return !(sizes.length===1&&(sz==='free'||sz===''));});
+          const multiSize=realSizes.length>1;
           if(totalQty>0){
-            L.push('수량');
-            L.push(String(totalQty+buf));
+            if(multiSize){
+              L.push('사이즈, 수량 (+'+buf+')');
+              sizes.forEach(function(sz){
+                if(bySize[sz]>0)L.push(sz+'  '+(bySize[sz]+buf));
+              });
+            }else{
+              L.push('수량');
+              L.push(String(totalQty+buf));
+            }
             L.push('');
           }
         }
@@ -5408,10 +5436,56 @@ function renderQtyStrip(o){
       tablesHtml+='</div>';
     }
     const summaryColor=hasShortage&&hasExpansion?'#9333ea':(hasShortage?'var(--red)':'var(--blue)');
-    html+='<details open style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;color:'+summaryColor+';padding:6px 10px;background:var(--bg2);border-radius:4px;font-weight:600;user-select:none">📊 컬러·사이즈별 분배 보기 (컬러별 ratio 자동 계산)</summary><div style="padding:8px 0">'+tablesHtml+'</div></details>';
+    html+='<details open style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;color:'+summaryColor+';padding:6px 10px;background:var(--bg2);border-radius:4px;font-weight:600;user-select:none">📊 컬러·사이즈별 분배 보기 (컬러별 ratio 자동 계산)</summary><div style="padding:8px 0">'+tablesHtml
+      +'<div style="text-align:center;margin-top:6px"><button class="btn s" onclick="copyQtyChangeNotice(\''+o.id+'\')" style="background:#0284c7;color:#fff;border:none;padding:8px 16px;font-size:12px;font-weight:600;border-radius:6px">📩 봉제공장 수량변경 안내 복사</button></div>'
+      +'</div></details>';
   }
 
   return html;
+}
+
+// 수량변경 안내 문자 생성 (봉제공장 전달용) — 컬러·사이즈별 변경 내역
+function genQtyChangeNotice(oid){
+  const o=S.orders[oid];if(!o)return'';
+  const L=[];
+  L.push('[수량 변경 안내]');
+  L.push('');
+  let any=false;
+  (o.orderItems||[]).forEach(function(oi){
+    const bd=typeof getEffectivePcsBreakdown==='function'?getEffectivePcsBreakdown(o,oi):null;
+    if(!bd)return;
+    any=true;
+    L.push('▶ '+oi.itemName);
+    L.push('기존 '+bd.origTotal+'장 → 변경 '+bd.effTotal+'장 ('+(bd.diff>0?'+':'')+bd.diff+'장)');
+    L.push('');
+    bd.colors.forEach(function(c){
+      const r=bd.colorRatios&&bd.colorRatios[c]!==undefined?bd.colorRatios[c]:1;
+      const p=Math.round((r-1)*100);
+      let cOrig=0,cEff=0;
+      const szParts=[];
+      bd.sizes.forEach(function(sz){
+        const oQ=bd.origGrid[c]&&bd.origGrid[c][sz]?bd.origGrid[c][sz]:0;
+        const eQ=bd.effGrid[c]&&bd.effGrid[c][sz]?bd.effGrid[c][sz]:0;
+        cOrig+=oQ;cEff+=eQ;
+        if(oQ>0||eQ>0)szParts.push(sz+':'+eQ);
+      });
+      if(cEff>0){
+        L.push('· '+(c||'기본')+' '+cOrig+'→'+cEff+'장 ('+(p>0?'+':'')+p+'%)');
+        if(szParts.length)L.push('  '+szParts.join(' '));
+      }
+    });
+    L.push('');
+  });
+  if(!any)return''; // 변경 없음
+  L.push('원단 입고량에 맞춰 수량이 조정되었습니다.');
+  L.push('변경된 수량으로 진행 부탁드립니다.');
+  return L.join('\n');
+}
+function copyQtyChangeNotice(oid){
+  const txt=genQtyChangeNotice(oid);
+  if(!txt){showToast('변경된 수량이 없어요');return;}
+  if(navigator.share){navigator.share({text:txt}).catch(function(){navigator.clipboard.writeText(txt).then(function(){showToast('📋 복사됨! 카톡에 붙여넣기',3000);});});}
+  else navigator.clipboard.writeText(txt).then(function(){showToast('📋 복사됨! 카톡에 붙여넣기',3000);}).catch(function(){alert(txt);});
 }
 
 // 원단 부족/초과로 생산 수량이 변경된 경우 사용자에게 명확한 안내 박스 + 작업지시서 복사 기능
@@ -6183,7 +6257,12 @@ function renderArrTab(o){
 
   return`${supCards}
   <div class="sec" style="margin-top:12px"><span>공장 입고 알림 발송</span></div>
-  <div class="g2" style="margin-bottom:8px"><div class="fg" style="margin-bottom:0"><label>알릴 공장</label><select id="arr-fc">${fcOpts('')}</select></div><div class="fg" style="margin-bottom:0"><label>입고 예정일</label><input type="date" id="arr-date" value="${todayISO()}"></div></div>
+  <div class="g2" style="margin-bottom:8px"><div class="fg" style="margin-bottom:0"><label>알릴 공장</label><select id="arr-fc">${(function(){
+    // 이 오더 아이템의 봉제공장을 기본 선택
+    var defFc='';
+    (o.orderItems||[]).some(function(oi){var it=S.items[oi.itemId];if(it&&it.sewingFcId&&S.factories[it.sewingFcId]){defFc=it.sewingFcId;return true;}return false;});
+    return fcOpts(defFc);
+  })()}</select></div><div class="fg" style="margin-bottom:0"><label>입고 예정일</label><input type="date" id="arr-date" value="${todayISO()}"></div></div>
   <div class="fr" style="gap:5px;flex-wrap:wrap">
     <button class="btn s" style="background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700" onclick="shareArrKakao('${o.id}')">💬 카카오톡</button>
     <button class="btn s" onclick="smsArrNotif('${o.id}')">💬 문자</button>
@@ -6196,23 +6275,46 @@ function genArrNotif(oid){
   const coNm=companies[curCoId]?.name||'';
   const fcId=document.getElementById('arr-fc')?.value||'';
   const arrDate=document.getElementById('arr-date')?.value||'미정';
-  // 아이템별 컬러+수량 정리
+  // 아이템별 총 수량 (의뢰수량 기준)
   const itemLines=(o.orderItems||[]).map(oi=>{
-    const it=S.items[oi.itemId];if(!it)return oi.itemName;
-    const colors=it.colors?.length?it.colors:[''];
-    const sizes=it.sizes?.length?it.sizes:['free'];
-    const colorQtys=colors.map(c=>{
-      const qty=sizes.reduce((s,sz)=>s+(+oi.qtyGrid?.[c]?.[sz]||0),0);
-      return qty>0?`${c}${qty}`:null;
-    }).filter(Boolean);
-    return colorQtys.length?`${it.name} ${colorQtys.join(' ')}`:it.name;
+    const it=S.items[oi.itemId];
+    const nm=it?it.name:(oi.itemName||'아이템');
+    // 총 의뢰수량
+    let total=0;
+    if(oi.qtyGrid){
+      for(const c in oi.qtyGrid){
+        for(const sz in oi.qtyGrid[c]){
+          total+=+oi.qtyGrid[c][sz]||0;
+        }
+      }
+    }
+    if(!total&&oi.grandTotal)total=oi.grandTotal;
+    return total>0?`${nm} ${total}장`:nm;
   }).join(', ');
-  // 원단만
+  // 원단: 발주(suppliers)에 있으면 거기서, 없으면 아이템 정의에서
   const fab=[];
+  let hasFromSup=false;
   for(const[sn,sup]of Object.entries(o.suppliers||{})){
     for(const m of sup.materials||[]){
-      if(m.type==='fabric')fab.push(`${sn} / ${m.displayName||m.name} ${m.totalYards}yard`);
+      if(m.type==='fabric'){
+        const partTag=m.part?`(${m.part}) `:'';
+        const y=m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''?+m.actualOrderedQty:m.totalYards;
+        fab.push(`${sn} / ${partTag}${m.displayName||m.name} ${y}yard`);
+        hasFromSup=true;
+      }
     }
+  }
+  // 발주 전이면 아이템 정의의 원단으로 폴백
+  if(!hasFromSup){
+    (o.orderItems||[]).forEach(oi=>{
+      const it=S.items[oi.itemId];
+      if(it&&it.fabrics){
+        it.fabrics.forEach(f=>{
+          const partTag=f.part?`(${f.part}) `:'';
+          fab.push(`${f.supplier||''} / ${partTag}${f.name}`.trim());
+        });
+      }
+    });
   }
   const L=[
     '안녕하세요.',
