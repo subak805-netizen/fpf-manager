@@ -3186,28 +3186,63 @@ function onFabColorSel(fabIdx,el){
 }
 
 /* ===== 컬러 선택 공통 헬퍼 ===== */
-function mkColorSec(idx,prefix,colorLinks){
+function mkColorSec(idx,prefix,colorLinks,showPrice){
   if(!formColors.length)return'';
   const hasLinks=colorLinks&&colorLinks.length>0;
-  // 한 줄씩, [체크박스 컬러명] → [업체 이름 입력]
+  // 한 줄씩, [체크박스 컬러명] → [업체 이름 입력] (+ 부자재면 컬러별 단가)
   const rows=formColors.map(c=>{
     const linked=hasLinks?colorLinks.find(l=>l.itemColor===c):null;
     const on=!!linked;
     const supName=linked?(linked.colorName||''):'';
+    const clPrice=linked&&linked.price!==undefined&&linked.price!==''?linked.price:'';
+    const priceCell=showPrice?`<span style="color:#854f0b;flex-shrink:0;font-size:11px">·</span>
+      <input type="number" data-clprice="${encodeURIComponent(c)}" data-prefix="${prefix}" data-idx="${idx}" value="${clPrice}" placeholder="단가" min="0" ${on?'':'disabled'} style="width:62px;padding:4px 6px;font-size:11px;${on?'':'background:var(--bg2);opacity:.5'}" oninput="setClrPrice('${prefix}',${idx},'${encodeURIComponent(c)}',this.value)" title="컬러별 단가 (비우면 기본 단가)"><span style="font-size:10px;color:var(--t3)">원</span>`:'';
     return`<div style="display:flex;align-items:center;gap:7px;padding:4px 6px;background:${on?'var(--bg)':'transparent'};border-radius:5px;margin-bottom:3px">
       <label style="display:inline-flex;align-items:center;gap:5px;min-width:75px;cursor:pointer">
         <input type="checkbox" data-cl-sel="${encodeURIComponent(c)}" ${on?'checked':''} onchange="onClrSel('${prefix}',${idx},this)" style="width:14px;height:14px;accent-color:#854f0b">
         <span style="font-size:12px;font-weight:${on?'600':'400'};color:${on?'var(--text)':'var(--t2)'}">${esc(c)}</span>
       </label>
       <span style="color:#854f0b;flex-shrink:0;font-size:11px;font-weight:600">→</span>
-      <input data-clnm="${encodeURIComponent(c)}" data-prefix="${prefix}" data-idx="${idx}" value="${esc(supName)}" placeholder="${on?'발주용 색상명 (예: 아이보리)':'(체크 후 입력)'}" ${on?'':'disabled'} style="flex:1;padding:4px 7px;font-size:11px;${on?'':'background:var(--bg2);opacity:.5;cursor:not-allowed'}" oninput="setClrName('${prefix}',${idx},'${encodeURIComponent(c)}',this.value)">
+      <input data-clnm="${encodeURIComponent(c)}" data-prefix="${prefix}" data-idx="${idx}" value="${esc(supName)}" placeholder="${on?'발주용 색상명':'(체크 후 입력)'}" ${on?'':'disabled'} style="flex:1;min-width:60px;padding:4px 7px;font-size:11px;${on?'':'background:var(--bg2);opacity:.5;cursor:not-allowed'}" oninput="setClrName('${prefix}',${idx},'${encodeURIComponent(c)}',this.value)">
+      ${priceCell}
     </div>`;
   }).join('');
   return`<div style="margin-top:8px;padding:8px 10px;background:#fef9c3;border:0.5px solid #fde68a;border-radius:6px">
-    <div style="font-size:11px;font-weight:600;color:#854f0b;margin-bottom:6px">📌 적용 컬러 <span style="font-weight:400">(체크 = 발주 / 미체크 = 제외)</span></div>
+    <div style="font-size:11px;font-weight:600;color:#854f0b;margin-bottom:6px">📌 적용 컬러 <span style="font-weight:400">(체크 = 발주 / 미체크 = 제외)</span>${showPrice?' <span style="font-weight:400;color:var(--t2)">· 컬러별 단가 다르면 입력 (단가장 자동 저장)</span>':''}</div>
     ${rows}
-    <div style="font-size:10px;color:#854f0b;opacity:.7;margin-top:5px">💡 발주용 이름 비워두면 우리 컬러명 그대로 사용</div>
+    <div style="font-size:10px;color:#854f0b;opacity:.7;margin-top:5px">💡 발주용 이름 비워두면 우리 컬러명 그대로 사용${showPrice?' · 컬러 단가 비우면 기본 단가 적용':''}</div>
   </div>`;
+}
+// 컬러별 단가 저장
+function setClrPrice(prefix,idx,colorEnc,val){
+  const cn=decodeURIComponent(colorEnc);
+  let arr;
+  if(prefix==='fr')arr=formFabs[idx]&&formFabs[idx].colorLinks;
+  else arr=formTrims[idx]&&formTrims[idx].colorLinks;
+  if(!arr)return;
+  const link=arr.find(l=>l.itemColor===cn);
+  if(!link)return;
+  if(val===''||val===null||+val<0)delete link.price;
+  else link.price=+val;
+  // 단가장 자동 저장 (발주명 기준 + 사이즈+컬러)
+  if(prefix!=='fr'&&formTrims[idx])saveTrimColorPriceToPB(formTrims[idx],link);
+}
+// 단가장에 컬러별 단가 저장: 부자재처 > 부자재명|사이즈|발주명
+function saveTrimColorPriceToPB(t,link){
+  if(!t.supplier||!link.price)return;
+  const orderNm=link.colorName||link.itemColor;
+  const key=(t.name||'')+'|'+(t.size||t.buttonSize||'')+'|'+orderNm;
+  if(!S.priceBook[t.supplier])S.priceBook[t.supplier]={email:'',phone:'',kakaoId:'',bank:'',materials:{},colorPrices:{}};
+  if(!S.priceBook[t.supplier].colorPrices)S.priceBook[t.supplier].colorPrices={};
+  S.priceBook[t.supplier].colorPrices[key]={price:+link.price,lastUpdated:todayISO()};
+  saveData();savePB();
+}
+// 단가장에서 컬러별 단가 불러오기
+function getTrimColorPriceFromPB(supplier,name,size,orderNm){
+  if(!supplier||!S.priceBook[supplier]||!S.priceBook[supplier].colorPrices)return undefined;
+  const key=(name||'')+'|'+(size||'')+'|'+(orderNm||'');
+  const rec=S.priceBook[supplier].colorPrices[key];
+  return rec?rec.price:undefined;
 }
 
 function setClrName(prefix,idx,colorEnc,val){
@@ -3217,7 +3252,20 @@ function setClrName(prefix,idx,colorEnc,val){
   else if(prefix==='trim'){if(formTrims[idx])arr=formTrims[idx].colorLinks;}
   else if(prefix==='tc'){if(formTrimCosts[idx])arr=formTrimCosts[idx].colorLinks;}
   const lk=arr?.find(l=>l.itemColor===cn);
-  if(lk)lk.colorName=val;
+  if(lk){
+    lk.colorName=val;
+    // 발주명 입력 시 단가장에서 컬러별 단가 자동 불러오기 (부자재만)
+    if(prefix==='trim'&&formTrims[idx]&&(lk.price===undefined||lk.price==='')){
+      const t=formTrims[idx];
+      const orderNm=val||cn;
+      const pbPrice=getTrimColorPriceFromPB(t.supplier,t.name,t.size||t.buttonSize,orderNm);
+      if(pbPrice!==undefined){
+        lk.price=pbPrice;
+        renderTrimRows();
+        showToast('💰 '+orderNm+' 단가 자동 적용: '+num(pbPrice)+'원');
+      }
+    }
+  }
 }
 
 function onClrSel(prefix,idx,el){
@@ -3329,7 +3377,8 @@ function applySizeRateMatch(t,curSize){
 function trimRowHTML(t,i){
   const isR=t.orderType==='roll';const isThread=t.orderType==='thread';const isYard=t.orderType==='yard';const isZip=t.orderType==='zipper';const isBtn=t.orderType==='button';
   const isCare=t.orderType==='careLabel';const isMain=t.orderType==='mainLabel';const isBias=t.orderType==='bias';
-  const colorSec=mkColorSec(i,'trim',t.colorLinks||[]);
+  // 라벨류 제외한 부자재는 컬러별 단가 입력 가능
+  const colorSec=mkColorSec(i,'trim',t.colorLinks||[],!isCare&&!isMain);
   
   // 바이어스재단 전용 UI (부자재집에서 가공·발주)
   if(isBias){
@@ -4440,8 +4489,11 @@ function calcSups(orderItems,opts){
           if(!t.colorLinks.find(l=>l.itemColor===c))continue;
           const cQty=effColorQtys[c]||0;if(!cQty)continue;
           const calc=calcTrimNeed(t,cQty);
-          const clNm=t.colorLinks.find(l=>l.itemColor===c)?.colorName||c;
-          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,itemColorName:c,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+          const clLink=t.colorLinks.find(l=>l.itemColor===c);
+          const clNm=clLink?.colorName||c;
+          // 컬러별 단가: colorLinks의 price 우선, 없으면 기본 단가
+          const clPrice=(clLink&&clLink.price!==undefined&&clLink.price!=='')?+clLink.price:(t.unitPrice||0);
+          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,itemColorName:c,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:clPrice,colorPrice:(clLink&&clLink.price!==undefined&&clLink.price!=='')?+clLink.price:undefined,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
         }
       }else{
         // 단일 — 도미노 적용 effTotalQty
