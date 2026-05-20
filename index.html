@@ -12298,6 +12298,30 @@ function setTaskViewMode(mode){
   window._taskViewMode=mode;
   renderTasksPane();
 }
+// 브랜드별 보기 안에서의 하위 정렬 (급한 순 / 아이템별 / 공정 단계별)
+function setTaskBrandSort(s){
+  window._taskBrandSort=s;
+  renderTasksPane();
+}
+// 공정 단계 분류 (생산 흐름 순서대로)
+var TASK_STAGES=[
+  {key:'sample',label:'🪡 샘플·패턴',color:'#7c3aed'},
+  {key:'order', label:'📝 발주',     color:'#2563eb'},
+  {key:'arrival',label:'📦 자재 입고',color:'#0891b2'},
+  {key:'ship',  label:'🚚 출고',     color:'#16a34a'},
+  {key:'pay',   label:'💰 결제',     color:'#a16207'},
+  {key:'etc',   label:'📌 기타',     color:'#64748b'}
+];
+function taskStage(t){
+  var at=t.autoType||'';
+  var nm=t.name||'';
+  if(at.indexOf('sample')>=0||nm.indexOf('샘플')>=0||nm.indexOf('패턴')>=0||nm.indexOf('지시서')>=0)return 'sample';
+  if(at==='unordered'||nm.indexOf('발주')>=0)return 'order';
+  if(at==='material_late'||at==='material_due'||nm.indexOf('입고')>=0)return 'arrival';
+  if(at==='ship_ready'||nm.indexOf('출고')>=0)return 'ship';
+  if(at==='payment'||at==='payment_check'||nm.indexOf('결제')>=0||nm.indexOf('입금')>=0)return 'pay';
+  return 'etc';
+}
 
 function getTaskStylesHTML(){return `
   <style>
@@ -12372,6 +12396,30 @@ var TASK_CATEGORIES=[
   {key:'other',label:'📌 기타',color:'#64748b',bg:'#f1f5f9'}
 ];
 
+// 브랜드별 보기 — 선택된 하위 정렬로 그룹 묶기
+function groupBrandTasks(tasks){
+  var sort=window._taskBrandSort||'urgent';
+  if(sort==='item'){
+    var byItem={};
+    tasks.forEach(function(t){var iid=t.itemId||'_none';(byItem[iid]=byItem[iid]||[]).push(t);});
+    var keys=Object.keys(byItem).sort(function(a,b){if(a==='_none')return 1;if(b==='_none')return -1;return 0;});
+    return keys.map(function(iid){
+      var it=iid!=='_none'?S.items[iid]:null;
+      var lbl=it?((it.code?it.code+' ':'')+it.name):'기타 (아이템 없음)';
+      return {label:'📦 '+esc(lbl),tasks:byItem[iid],color:'#2563eb'};
+    });
+  }
+  if(sort==='stage'){
+    var byStage={};
+    tasks.forEach(function(t){var s=taskStage(t);(byStage[s]=byStage[s]||[]).push(t);});
+    return TASK_STAGES.filter(function(s){return byStage[s.key]&&byStage[s.key].length;}).map(function(s){return {label:s.label,tasks:byStage[s.key],color:s.color};});
+  }
+  // 급한 순 (우선순위)
+  var byPri={};
+  tasks.forEach(function(t){var p=t.priority||'today';if(!TASK_PRIORITIES.find(function(x){return x.key===p;}))p='today';(byPri[p]=byPri[p]||[]).push(t);});
+  return TASK_PRIORITIES.filter(function(p){return byPri[p.key]&&byPri[p.key].length;}).map(function(p){return {label:p.label,tasks:byPri[p.key],cssText:p.cssText,cssBg:p.cssBg};});
+}
+
 // 브랜드별 보기
 function renderTasksPaneByBrand(){
   var manual=getTasks();
@@ -12380,7 +12428,10 @@ function renderTasksPaneByBrand(){
   var brands=getBrands();
   
   var html=getTaskStylesHTML()+getTaskViewToggleHTML();
-  html+='<div style="padding:12px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:10px;color:#4b5563">📋 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
+  html+='<div style="padding:12px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#4b5563">📋 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
+  var bsort=window._taskBrandSort||'urgent';
+  var bsorts=[{key:'urgent',label:'🔥 급한 순'},{key:'item',label:'📦 아이템별'},{key:'stage',label:'🪡 공정 단계별'}];
+  html+='<div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap">'+bsorts.map(function(s){var on=bsort===s.key;return '<button class="btn s" onclick="setTaskBrandSort(\''+s.key+'\')" style="font-size:11px;padding:4px 11px;background:'+(on?'#4b5563':'var(--bg)')+';color:'+(on?'#fff':'var(--t2)')+';border-color:'+(on?'#4b5563':'var(--bd)')+';font-weight:'+(on?'700':'500')+'">'+s.label+'</button>';}).join('')+'</div>';
   
   // 브랜드별로 분류
   var byBrand={};
@@ -12395,20 +12446,14 @@ function renderTasksPaneByBrand(){
     var brand=brandId==='_none'?null:brands.find(function(b){return b.id===brandId;});
     var brandName=brand?brand.name:'기타 (브랜드 없음)';
     var brandColor=brand?brand.color:'#94a3b8';
-    // 카테고리별 그룹
-    var byCat={};
-    tasks.forEach(function(t){
-      var cat=categorizeTask(t);
-      if(!byCat[cat])byCat[cat]=[];
-      byCat[cat].push(t);
-    });
+    // 선택된 하위 정렬로 그룹핑
+    var groups=groupBrandTasks(tasks);
     var h='<div class="task-group-card">';
     h+='<div class="task-group-hd" style="background:'+brandColor+'18;color:'+brandColor+';border-left:4px solid '+brandColor+'">'+esc(brandName)+' <span style="font-weight:400;font-size:11px;opacity:.8">('+tasks.length+'건)</span></div>';
-    TASK_CATEGORIES.forEach(function(cat){
-      var catTasks=byCat[cat.key]||[];
-      if(!catTasks.length)return;
-      h+='<div class="task-group-sub" style="color:'+cat.color+';background:'+cat.bg+'18">'+cat.label+' ('+catTasks.length+')</div>';
-      catTasks.forEach(function(t){
+    groups.forEach(function(g){
+      var hs=g.cssBg?('color:'+g.cssText+';background:'+g.cssBg):(g.color?('color:'+g.color+';background:'+g.color+'14'):'color:#4b5563;background:var(--bg2)');
+      h+='<div class="task-group-sub" style="'+hs+'">'+g.label+' ('+g.tasks.length+')</div>';
+      g.tasks.forEach(function(t){
         h+=renderTaskRow(t);
       });
     });
