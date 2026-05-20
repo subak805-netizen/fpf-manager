@@ -4664,18 +4664,23 @@ function genPoText(order,sn){
   }
   const coNm=companies[curCoId]?.name||'';
   const headerNm=brandName||coNm;
-  if(headerNm)L.push('상호 '+headerNm);
+  // 이 거래처가 메인/케어라벨로만 구성됐는지 (브랜드에 직접 발주하는 라벨류)
+  const onlyLabels=sup.materials.length>0&&sup.materials.every(function(m){return m.orderType==='mainLabel'||m.orderType==='careLabel';});
   // 오더명에서 날짜 단축 (2026. 05. 17. → 5/17)
   const shortName=(name)=>name.replace(/\d{4}\.\s*(\d{1,2})\.\s*(\d{1,2})\./g,(_,m,d)=>`${+m}/${+d}`);
-  // 품명: 아이템별로 나눠서 표시
-  const itemNames=[...new Set((order.orderItems||[]).map(oi=>S.items[oi.itemId]?.name).filter(Boolean))];
-  let orderSuffix=shortName(order.name);
-  itemNames.forEach(nm=>{orderSuffix=orderSuffix.replace(nm,'').trim();});
-  orderSuffix=orderSuffix.replace(/^[\/,\s]+/,'').trim()||shortName(order.name);
-  if(itemNames.length===1){L.push(`품명 ${itemNames[0]} ${orderSuffix}`);}
-  else if(itemNames.length>1){L.push(`품명 ${itemNames[0]}`);itemNames.slice(1).forEach(nm=>L.push(`      ${nm}`));L.push(`      (${orderSuffix})`);}
-  else L.push(`품명 ${shortName(order.name)}`);
-  L.push('');
+  if(!onlyLabels){
+    // 일반 거래처(원단/부자재): 상호 + 품명 헤더 표시
+    if(headerNm)L.push('상호 '+headerNm);
+    // 품명: 아이템별로 나눠서 표시
+    const itemNames=[...new Set((order.orderItems||[]).map(oi=>S.items[oi.itemId]?.name).filter(Boolean))];
+    let orderSuffix=shortName(order.name);
+    itemNames.forEach(nm=>{orderSuffix=orderSuffix.replace(nm,'').trim();});
+    orderSuffix=orderSuffix.replace(/^[\/,\s]+/,'').trim()||shortName(order.name);
+    if(itemNames.length===1){L.push(`품명 ${itemNames[0]} ${orderSuffix}`);}
+    else if(itemNames.length>1){L.push(`품명 ${itemNames[0]}`);itemNames.slice(1).forEach(nm=>L.push(`      ${nm}`));L.push(`      (${orderSuffix})`);}
+    else L.push(`품명 ${shortName(order.name)}`);
+    L.push('');
+  }
   // 원단: 아이템별로 섹션 구분
   if(fabs.length){
     // 업체명 + 동/호수 (있으면)
@@ -4702,8 +4707,9 @@ function genPoText(order,sn){
       let line=g.part?`(${g.part}) ${g.name}`:`${g.name}`; // 용도 있으면 (스트링감) 원단명
       if(g.width)line+=` ${g.width}"`;
       if(g.composition)line+=` ${g.composition}`;
-      if(g.pricingUnit==='kg')line+=` ${num(g.pricePerKg)}원/kg`;
-      else if(g.unitPrice)line+=` ${num(g.unitPrice)}원`;
+      // 단가: 협상가가 있을 때만 표시 (첫 발주는 협상 전이라 숨김, 리오더/협상후 표시)
+      const fabNego=g.colors.reduce((p,c)=>p||(c.negotiatedPrice!==undefined&&+c.negotiatedPrice>0?+c.negotiatedPrice:0),0);
+      if(fabNego>0)line+=` ${num(fabNego)}원${g.pricingUnit==='kg'?'/kg':''}`;
       L.push(line);
       g.colors.forEach((cl,idx)=>{
         // 첫 줄: *우리 컬러명 (거래처에 우리 부르는 이름을 인지시키는 라벨)
@@ -4764,7 +4770,8 @@ function genPoText(order,sn){
         if(bg.fabricSource)bhdr+=bg.fabricSource+' ';
         bhdr+='바이어스재단';
         if(bg.biasSpec)bhdr+=' '+bg.biasSpec;
-        if(bg.unitPrice)bhdr+=' '+num(bg.unitPrice)+'원/y';
+        const biasNego=bg.colors?bg.colors.reduce((p,c)=>p||(c.negotiatedPrice!==undefined&&+c.negotiatedPrice>0?+c.negotiatedPrice:0),0):(bg.negotiatedPrice||0);
+        if(biasNego>0)bhdr+=' '+num(biasNego)+'원/y';
         L.push(bhdr);
         let biasTot=0;
         bg.colors.forEach(function(bb){
@@ -4794,7 +4801,9 @@ function genPoText(order,sn){
           if(brObj)brName=brObj.name||'';
         }
         if(brName)titleLine+=brName+' / ';
-        titleLine+=(itC?itC.name:cl.itemName||'')+' '+shortName(order.name);
+        var clDateMatch=shortName(order.name).match(/\(([^)]*)\)/);
+        var clDate=clDateMatch?clDateMatch[1]:'';
+        titleLine+=(itC?itC.name:cl.itemName||'')+(clDate?' ('+clDate+')':'');
         L.push(titleLine);
         // 라벨 이름
         if(cl.labelName)L.push(cl.labelName);
@@ -4866,8 +4875,12 @@ function genPoText(order,sn){
       mainLabels.forEach(function(ml){
         const itM=S.items[ml.itemId];
         const oiM=(order.orderItems||[]).find(function(x){return x.itemId===ml.itemId;});
-        // 헤더: 품명 (날짜) — 브랜드 중복/품명 중복 제거
-        L.push((itM?itM.name:ml.itemName||'')+' '+shortName(order.name));
+        // 헤더: 아이템명 (날짜) — 깔끔하게, 품명/발주 중복 제거
+        var mlItemNm=itM?itM.name:(ml.itemName||'');
+        // order.name에서 날짜 부분만 추출 (예: "(5/20)")
+        var dateMatch=shortName(order.name).match(/\(([^)]*)\)/);
+        var mlDate=dateMatch?dateMatch[1]:'';
+        L.push(mlItemNm+(mlDate?' ('+mlDate+')':''));
         L.push('');
         // 메인라벨 + 라벨명
         L.push('메인라벨');
@@ -5025,8 +5038,9 @@ function genPoText(order,sn){
         if(b.buttonStyle)bhdr+=b.buttonStyle+' ';
         bhdr+=(b.name&&b.name!=='단추'?b.name:'단추');
         if(b.color)bhdr+=' ('+b.color+')';
-        // 단가표시
-        if(b.unitPrice)bhdr+=' '+num(b.unitPrice)+'원/개';
+        // 단가표시: 협상가 있을 때만
+        const bNego=b.colors?b.colors.reduce((p,c)=>p||(c.negotiatedPrice!==undefined&&+c.negotiatedPrice>0?+c.negotiatedPrice:0),0):(b.negotiatedPrice||0);
+        if(bNego>0)bhdr+=' '+num(bNego)+'원/개';
         L.push(bhdr);
         // 컬러별 수량 — 사이즈별 다르게 모드면 사이즈별로 분배 출력
         let bTotQty=0;
@@ -5792,11 +5806,15 @@ function refreshOrderSuppliers(o){
   if(!o||!o.orderItems||!o.suppliers)return;
   // 1) 수동 입력값 백업 — 키에 용도(part)+fabId 포함 (같은 원단 몸판/스트링감 구분)
   const overrides={};
+  const negoOverrides={};
   for(const sn in o.suppliers){
     for(const m of o.suppliers[sn].materials||[]){
+      const ok=sn+'|'+(m.fabId||m.name)+'|'+(m.colorName||'')+'|'+(m.type||'')+'|'+(m.part||'');
       if(m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''){
-        const ok=sn+'|'+(m.fabId||m.name)+'|'+(m.colorName||'')+'|'+(m.type||'')+'|'+(m.part||'');
         overrides[ok]=m.actualOrderedQty;
+      }
+      if(m.negotiatedPrice!==undefined&&m.negotiatedPrice!==''){
+        negoOverrides[ok]=m.negotiatedPrice;
       }
     }
   }
@@ -5834,6 +5852,7 @@ function refreshOrderSuppliers(o){
     for(const m of fresh[sn].materials||[]){
       const k=sn+'|'+(m.fabId||m.name)+'|'+(m.colorName||'')+'|'+(m.type||'')+'|'+(m.part||'');
       if(overrides[k]!==undefined)m.actualOrderedQty=overrides[k];
+      if(negoOverrides[k]!==undefined)m.negotiatedPrice=negoOverrides[k];
     }
   }
   o.suppliers=fresh;
@@ -5999,7 +6018,9 @@ function renderCheckTab(o){
         </td>
         <td style="padding:4px 6px">
           <div style="display:flex;align-items:center;gap:3px">
-            <input type="number" value="${negotiated}" placeholder="${num(savedPrice)||'0'}" min="0" style="width:70px;font-size:11px;padding:3px 5px"
+            <span class="muted" style="font-size:11px;min-width:54px;text-align:right">${num(orderPrice)}${isKg?'원/kg':'원'}</span>
+            <span style="color:var(--t3);font-size:11px">→</span>
+            <input type="number" value="${negotiated}" placeholder="${num(savedPrice)||num(orderPrice)||'0'}" min="0" style="width:70px;font-size:11px;padding:3px 5px;${negotiated!==''?'background:#fff7ed;border-color:var(--amber);font-weight:700':''}"
               onchange="setNegotiatedPrice('${o.id}','${esc(sn)}',${idx},'${m.name}',${isKg},+this.value)">
             <span class="muted" style="font-size:10px">${isKg?'원/kg':'원'}</span>
           </div>
@@ -6016,7 +6037,7 @@ function renderCheckTab(o){
           <th style="padding:4px 6px;text-align:left">자재명</th>
           <th style="padding:4px 6px;text-align:right;font-size:10px">계산수량<br>발주단가</th>
           <th style="padding:4px 6px;text-align:left;font-size:10px">실제 발주<br><span style="color:var(--blue);font-weight:400">(수량)</span></th>
-          <th style="padding:4px 6px;text-align:left;font-size:10px">협상 단가</th>
+          <th style="padding:4px 6px;text-align:left;font-size:10px">매장가 → 협상가</th>
         </tr></thead>
         <tbody>${matPriceRows}</tbody>
       </table>
@@ -9175,6 +9196,33 @@ function csSetOverride(itemId,kind,matId,val){
   lsSet('fpm_cs_overrides',window._csOverrides);
   renderCS();
 }
+// 원가용 단가 오버라이드 (수량과 별도)
+function csGetPriceOverride(itemId,kind,matId){
+  if(!window._csPriceOvr)window._csPriceOvr=lsGet('fpm_cs_price_ovr')||{};
+  const k=itemId+'__'+kind+'__'+matId;
+  return window._csPriceOvr[k];
+}
+function csSetPriceOverride(itemId,kind,matId,val){
+  if(!window._csPriceOvr)window._csPriceOvr=lsGet('fpm_cs_price_ovr')||{};
+  const k=itemId+'__'+kind+'__'+matId;
+  if(val===''||val===null||val===undefined||+val<0){delete window._csPriceOvr[k];}
+  else{window._csPriceOvr[k]=+val;}
+  lsSet('fpm_cs_price_ovr',window._csPriceOvr);
+  renderCS();
+}
+// 자재의 협상가 조회 (모든 오더의 suppliers에서 이 자재의 협상가 찾기)
+function getNegotiatedForMat(matName,matId){
+  for(const o of Object.values(S.orders||{})){
+    for(const sn in (o.suppliers||{})){
+      for(const m of (o.suppliers[sn].materials||[])){
+        if((m.fabId&&m.fabId===matId)||(m.name===matName)){
+          if(m.negotiatedPrice!==undefined&&+m.negotiatedPrice>0)return +m.negotiatedPrice;
+        }
+      }
+    }
+  }
+  return 0;
+}
 
 function renderCS(){
   const id=document.getElementById('cs-sel').value;const qty=Math.max(1,parseInt(document.getElementById('cs-qty').value)||1);
@@ -9199,9 +9247,9 @@ function renderCS(){
     }
     return +f.consumption||0;
   };
-  const fabPure=(f,q)=>{const cons=effConsumption(f);const orig=parseFloat((cons*q).toFixed(3));const override=csGetOverride(id,'fab',f.id);const ty=override!==undefined?override:orig;const isOverride=override!==undefined;if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(3));return{ty,tk,cost:tk*(f.pricePerKg||0),isKg:true,origTy:orig,isOverride};}return{ty,cost:ty*(f.unitPrice||0),isKg:false,origTy:orig,isOverride};};
+  const fabPure=(f,q)=>{const cons=effConsumption(f);const orig=parseFloat((cons*q).toFixed(3));const override=csGetOverride(id,'fab',f.id);const ty=override!==undefined?override:orig;const isOverride=override!==undefined;const _po=csGetPriceOverride(id,'fab',f.id);if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(3));const _pk=_po!==undefined?_po:(f.pricePerKg||0);return{ty,tk,cost:tk*_pk,isKg:true,origTy:orig,isOverride};}const _up=_po!==undefined?_po:(f.unitPrice||0);return{ty,cost:ty*_up,isKg:false,origTy:orig,isOverride};};
   // 로스율 반영: 요척×수량×(1+로스%)×단가
-  const fabWithLoss=(f,q,lp)=>{const cons=effConsumption(f);const override=csGetOverride(id,'fab',f.id);const ty=override!==undefined?override:parseFloat((cons*q*(1+lp/100)).toFixed(3));if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(3));return{ty,tk,cost:tk*(f.pricePerKg||0),isKg:true};}return{ty,cost:ty*(f.unitPrice||0),isKg:false};};
+  const fabWithLoss=(f,q,lp)=>{const cons=effConsumption(f);const override=csGetOverride(id,'fab',f.id);const ty=override!==undefined?override:parseFloat((cons*q*(1+lp/100)).toFixed(3));const _po=csGetPriceOverride(id,'fab',f.id);if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(3));const _pk=_po!==undefined?_po:(f.pricePerKg||0);return{ty,tk,cost:tk*_pk,isKg:true};}const _up=_po!==undefined?_po:(f.unitPrice||0);return{ty,cost:ty*_up,isKg:false};};
   const fr=it.fabrics.map(f=>{
     const cp=fabPure(f,qty);const cl=fabWithLoss(f,qty,fabLoss);
     const k='f-'+f.id;const inc=!isEx(k);if(inc){tf+=cp.cost;tfL+=cl.cost;}
@@ -9215,7 +9263,15 @@ function renderCS(){
         return avg+'y×'+qty+'<br><span style="font-size:9px;color:var(--blue)">'+detail+'</span>';
       }
       return f.consumption+'y×'+qty;
-    })()}</td><td style="text-align:right;font-size:10px">${cp.isOverride?`<b style="color:var(--blue)">${cp.ty}y</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origTy}y</span>`:`${cp.ty}y${cp.isKg?'<br>('+cp.tk+'kg)':''}`}<br><input type="number" value="${ovrVal!==undefined?ovrVal:''}" placeholder="실제발주" step="0.01" min="0" style="width:62px;font-size:10px;padding:2px 4px;margin-top:2px;${ovrVal!==undefined?'background:#f0f7ff;border-color:var(--blue)':''}" onchange="csSetOverride('${id}','fab','${f.id}',this.value)"></td><td style="text-align:right;font-size:10px">${cp.isKg?num(f.pricePerKg)+'원/kg':num(f.unitPrice)+'원/y'}</td><td style="text-align:right"><b>${num(Math.round(cp.cost))}원</b>${fabLoss>0?`<br><span style="font-size:10px;color:var(--blue)">${num(Math.round(cl.cost))}원<span style="font-size:9px;background:var(--bbg);border-radius:3px;padding:0 3px;margin-left:2px">+${fabLoss}%</span></span>`:''}</td></tr>`;}).join('');
+    })()}</td><td style="text-align:right;font-size:10px">${cp.isOverride?`<b style="color:var(--blue)">${cp.ty}y</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origTy}y</span>`:`${cp.ty}y${cp.isKg?'<br>('+cp.tk+'kg)':''}`}<br><input type="number" value="${ovrVal!==undefined?ovrVal:''}" placeholder="실제발주" step="0.01" min="0" style="width:62px;font-size:10px;padding:2px 4px;margin-top:2px;${ovrVal!==undefined?'background:#f0f7ff;border-color:var(--blue)':''}" onchange="csSetOverride('${id}','fab','${f.id}',this.value)"></td><td style="text-align:right;font-size:10px">${(function(){
+      const storePrice=cp.isKg?(f.pricePerKg||0):(f.unitPrice||0);
+      const nego=getNegotiatedForMat(f.name,f.id);
+      const poVal=csGetPriceOverride(id,'fab',f.id);
+      const unit=cp.isKg?'/kg':'/y';
+      return `<div style="font-size:9px;color:var(--t2)">매장 ${num(storePrice)}${unit}</div>`
+        +(nego>0?`<div style="font-size:9px;color:var(--amber)">협상 ${num(nego)}${unit}</div>`:'')
+        +`<input type="number" value="${poVal!==undefined?poVal:''}" placeholder="${num(storePrice)}" min="0" style="width:64px;font-size:10px;padding:2px 4px;margin-top:2px;${poVal!==undefined?'background:#ecfdf5;border-color:var(--green);font-weight:700':''}" onchange="csSetPriceOverride('${id}','fab','${f.id}',this.value)" title="원가용 단가 (비우면 매장가 적용)">`;
+    })()}</td><td style="text-align:right"><b>${num(Math.round(cp.cost))}원</b>${fabLoss>0?`<br><span style="font-size:10px;color:var(--blue)">${num(Math.round(cl.cost))}원<span style="font-size:9px;background:var(--bbg);border-radius:3px;padding:0 3px;margin-left:2px">+${fabLoss}%</span></span>`:''}</td></tr>`;}).join('');
   // 부자재 순수원가/로스반영 계산
   const trimPure=(t,q)=>{var extras=trimExtrasCost(t,q);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q;const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:true};}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*q;return{qty:parseFloat(ty.toFixed(2)),unit:'yard',cost:ty*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isRoll:false};}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isThread:true,minQ:minQ,perColor:perColor};}const n=(t.qtyPerPiece||1)*q;return{qty:parseFloat(n.toFixed(2)),unit:t.unit||'yard',cost:n*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false};};
   const trimWithLoss=(t,q,lp)=>{if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q*(1+lp/100);const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*(t.unitPrice||0),isRoll:true};}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*(t.unitPrice||0),isRoll:false,isThread:true,minQ:minQ,perColor:perColor};}const n=Math.ceil((t.qtyPerPiece||1)*q*(1+lp/100));return{qty:n,unit:t.unit||'yard',cost:n*(t.unitPrice||0),isRoll:false};};
@@ -9290,7 +9346,7 @@ function renderCS(){
     </div>
     <div class="info-box" style="font-size:11px;margin-bottom:10px">💡 각 항목 앞 체크박스로 원가 계산에 포함/제외할 수 있어요. 제외한 항목은 회색으로 표시돼요.</div>
     <style>.cs-tbl{font-size:11px;width:100%;table-layout:auto}.cs-tbl th{font-size:10px;padding:4px 5px;font-weight:600;color:var(--t2)}.cs-tbl td{padding:5px 5px;vertical-align:middle}.cs-tbl input[type=checkbox]{transform:scale(0.85)}</style>
-    ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><div style="overflow-x:auto"><table class="cs-tbl"><thead><tr><th style="text-align:left">원단명/원단처</th><th style="text-align:left">계산식</th><th style="text-align:right">사용량</th><th style="text-align:right">단가</th><th style="text-align:right">원단비</th></tr></thead><tbody>${fr}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tf))}원</td></tr></tbody></table></div>`:''}
+    ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><div style="overflow-x:auto"><table class="cs-tbl"><thead><tr><th style="text-align:left">원단명/원단처</th><th style="text-align:left">계산식</th><th style="text-align:right">사용량</th><th style="text-align:right">매장가 / 협상가<br><span style="font-size:9px;color:var(--green)">원가용 단가</span></th><th style="text-align:right">원단비</th></tr></thead><tbody>${fr}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tf))}원</td></tr></tbody></table></div>`:''}
     ${it.trims.length?`<div class="sec">부자재비</div><div style="overflow-x:auto"><table class="cs-tbl"><thead><tr><th style="text-align:left">부자재명/부자재처</th><th style="text-align:left">계산식</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:right">부자재비</th></tr></thead><tbody>${tr}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tt))}원</td></tr></tbody></table></div>`:''}
     ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr style="${exClass(k)}"><td>${chkBox(k)}${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${num(p.val)}원/pcs×${qty}</td><td colspan="2"></td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(pt))}원</td></tr></tbody></table>`:''}
     ${tcArr.length?`<div class="sec">부자재 가공비</div><table class="cs-tbl"><tbody>${tcArr.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const tcAllColors=it.colors?.length?it.colors:[''];const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const tcAmt=isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:(tc.costPerPcs||0)*qty*(tcActive.length/(tcAllColors.length||1));return`<tr style="${exClass(k)}"><td>${chkBox(k)}${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:`${num(tc.costPerPcs)}원/pcs×${qty}`}</td><td colspan="2"></td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tct))}원</td></tr></tbody></table>`:''}
