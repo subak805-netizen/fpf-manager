@@ -29,6 +29,10 @@
   --pri-later:#6B7F50;--pri-later-bg:#F0F3EA;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
+/* 전역: 셀·박스 안 글씨가 넘치지 않게 (모든 탭 공통) */
+td,th{word-break:keep-all;overflow-wrap:break-word;}
+table input,table select{max-width:100%;}
+.card,.tag,.badge{overflow-wrap:break-word;word-break:keep-all;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg2);color:var(--text);font-size:14px;line-height:1.5;height:100vh;overflow:hidden;}
 .shell{display:flex;flex-direction:column;height:100vh;}
 /* Header */
@@ -1763,7 +1767,20 @@ function migrateData(){
     if(it.patternCost===undefined)it.patternCost=0;if(it.sampleCost===undefined)it.sampleCost=0;
     if(it.onceCost===undefined)it.onceCost=0;if(!it.onceCostNm)it.onceCostNm='';if(it.inclOnce===undefined)it.inclOnce=false;
     for(const f of it.fabrics){if(!f.fabricColor)f.fabricColor='';if(f.width===undefined)f.width=null;if(!f.composition)f.composition='';if(!f.colorLinks)f.colorLinks=[];}
-    for(const t of it.trims){if(!t.colorLinks)t.colorLinks=[];}
+    for(const t of it.trims){
+      if(!t.colorLinks)t.colorLinks=[];
+      // 실/롤 미니멈 내장 → useMinSplit 버튼으로 통일 (기본 ON, 기존 동작 유지)
+      if(t._minSplitMigrated===undefined){
+        if(t.orderType==='thread'){
+          if(t.useMinSplit===undefined)t.useMinSplit=true;
+          if(!t.minSplitQty)t.minSplitQty=t.threadMin||30;
+        }else if(t.orderType==='roll'){
+          if(t.useMinSplit===undefined)t.useMinSplit=true;
+          if(!t.minSplitQty)t.minSplitQty=30;
+        }
+        t._minSplitMigrated=true;
+      }
+    }
   }
   // Orders
   for(const o of Object.values(S.orders||{})){
@@ -2310,6 +2327,24 @@ function switchTab(t){
     console.error('Tab render error:',err);
     if(pane)pane.innerHTML=`<div class="warn-box" style="margin:1rem">화면 오류: ${esc(err.message)}<br><div class="muted" style="margin-top:4px">새로고침 후 다시 시도해주세요</div></div>`;
   }
+  requestAnimationFrame(()=>{try{fitAllAmounts(pane);}catch(e){}});
+}
+// 전역: 박스 안 큰 글씨가 넘치면 자동 축소 (모든 탭 공통)
+function fitAllAmounts(scope){
+  const root=scope||document;
+  // .cs-fit-num (가운데), .cs-amt (우측) 클래스가 붙은 요소 자동 맞춤
+  root.querySelectorAll('.cs-fit-num').forEach(c=>{
+    c.style.transform='';c.style.display='';
+    const p=c.parentElement;if(!p)return;
+    const avail=p.clientWidth-16,w=c.scrollWidth;
+    if(w>avail&&avail>0){c.style.display='inline-block';c.style.transformOrigin='center';c.style.transform=`scale(${Math.max(0.55,avail/w)})`;}
+  });
+  root.querySelectorAll('.cs-amt').forEach(c=>{
+    c.style.transform='';c.style.display='';
+    const p=c.closest('td')||c.parentElement;if(!p)return;
+    const avail=p.clientWidth-10,w=c.scrollWidth;
+    if(w>avail&&avail>0){c.style.display='inline-block';c.style.transformOrigin='right center';c.style.transform=`scale(${Math.max(0.6,avail/w)})`;}
+  });
 }
 function render(){try{renderItemsList();renderCSDropdown();switchTab(activeTab);}catch(e){console.error('render error',e);}}
 
@@ -9391,7 +9426,7 @@ function renderCS(){
   const el=document.getElementById('cs-body');if(!id){el.innerHTML='';return;}const it=S.items[id];if(!it){el.innerHTML='';return;}
   const isEx=(k)=>csIsExcluded(id,k);
   const exClass=(k)=>isEx(k)?'opacity:0.4;text-decoration:line-through':'';
-  const chkBox=(k)=>`<input type="checkbox" ${isEx(k)?'':'checked'} onchange="csToggleExcl('${id}','${k}')" title="원가에 포함/제외" style="margin-right:4px;cursor:pointer">`;
+  const chkBox=(k)=>`<input type="checkbox" class="cs-chk cs-hide-on-img" ${isEx(k)?'':'checked'} onchange="csToggleExcl('${id}','${k}')" title="원가에 포함/제외" style="margin-right:4px;cursor:pointer">`;
   let tf=0,tt=0,tfL=0,ttL=0;
   // 순수원가: 요척×수량×단가 (로스 없음)
   // 사이즈별 요척이 있으면 평균을 효과적인 단일 요척으로 사용
@@ -9413,7 +9448,7 @@ function renderCS(){
     const k='f-'+f.id;const inc=!isEx(k);if(inc){tf+=cp.cost;tfL+=cl.cost;}
     const fabInfo=[f.width?f.width+'"':'',f.composition].filter(Boolean).join(' ');
     const ovrVal=csGetOverride(id,'fab',f.id);
-    return`<tr style="${exClass(k)}"><td>${chkBox(k)}<b>${esc(f.name)}</b>${fabInfo?` <span class="muted" style="font-size:10px">(${esc(fabInfo)})</span>`:''}${f.pricingUnit==='kg'?' <span class="badge b2" style="font-size:9px">KG</span>':''}<br><span class="muted" style="font-size:10px">${esc(f.supplier||'')}</span></td><td class="muted" style="font-size:10px">${(function(){
+    return`<tr style="${exClass(k)}"><td>${chkBox(k)}<b style="white-space:nowrap">${esc(f.name)}</b>${f.pricingUnit==='kg'?' <span class="badge b2" style="font-size:9px">KG</span>':''}${fabInfo?`<br><span class="muted" style="font-size:11px">${esc(fabInfo)}</span>`:''}<br><span class="muted" style="font-size:11px">${esc(f.supplier||'')}</span></td><td class="muted" style="font-size:13px">${(function(){
       if(f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0){
         var vals=Object.values(f.consumptionBySize).map(function(v){return +v||0;});
         var avg=(vals.reduce(function(s,v){return s+v;},0)/vals.length).toFixed(2);
@@ -9421,15 +9456,15 @@ function renderCS(){
         return avg+'y×'+qty+'<br><span style="font-size:9px;color:var(--blue)">'+detail+'</span>';
       }
       return f.consumption+'y×'+qty;
-    })()}</td><td style="text-align:right;font-size:10px">${cp.isOverride?`<b style="color:var(--blue)">${cp.ty}y</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origTy}y</span>`:`${cp.ty}y${cp.isKg?'<br>('+cp.tk+'kg)':''}`}<br><input type="number" value="${ovrVal!==undefined?ovrVal:''}" placeholder="실제발주" step="0.01" min="0" style="width:62px;font-size:10px;padding:2px 4px;margin-top:2px;${ovrVal!==undefined?'background:#f0f7ff;border-color:var(--blue)':''}" onchange="csSetOverride('${id}','fab','${f.id}',this.value)"></td><td style="text-align:right;font-size:10px">${(function(){
+    })()}</td><td style="text-align:right;font-size:10px">${cp.isOverride?`<b style="color:var(--blue)">${cp.ty}y</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origTy}y</span>`:`${cp.ty}y${cp.isKg?'<br>('+cp.tk+'kg)':''}`}<br><input type="number" value="${ovrVal!==undefined?ovrVal:''}" placeholder="실제발주" step="0.01" min="0" style="width:52px;font-size:10px;padding:2px 4px;margin-top:2px;${ovrVal!==undefined?'background:#f0f7ff;border-color:var(--blue)':''}" onchange="csSetOverride('${id}','fab','${f.id}',this.value)"></td><td style="text-align:right;font-size:10px">${(function(){
       const storePrice=cp.isKg?(f.pricePerKg||0):(f.unitPrice||0);
       const nego=getNegotiatedForMat(f.name,f.id);
       const poVal=csGetPriceOverride(id,'fab',f.id);
       const unit=cp.isKg?'/kg':'/y';
       return `<div style="font-size:9px;color:var(--t2)">매장 ${num(storePrice)}${unit}</div>`
         +(nego>0?`<div style="font-size:9px;color:var(--amber)">협상 ${num(nego)}${unit}</div>`:'')
-        +`<input type="number" value="${poVal!==undefined?poVal:''}" placeholder="${num(storePrice)}" min="0" style="width:64px;font-size:10px;padding:2px 4px;margin-top:2px;${poVal!==undefined?'background:#ecfdf5;border-color:var(--green);font-weight:700':''}" onchange="csSetPriceOverride('${id}','fab','${f.id}',this.value)" title="원가용 단가 (비우면 매장가 적용)">`;
-    })()}</td><td style="text-align:right"><b>${num(Math.round(cp.cost))}원</b>${fabLoss>0?`<br><span style="font-size:10px;color:var(--blue)">${num(Math.round(cl.cost))}원<span style="font-size:9px;background:var(--bbg);border-radius:3px;padding:0 3px;margin-left:2px">+${fabLoss}%</span></span>`:''}</td></tr>`;}).join('');
+        +`<input type="number" value="${poVal!==undefined?poVal:''}" placeholder="${num(storePrice)}" min="0" style="width:52px;font-size:10px;padding:2px 4px;margin-top:2px;${poVal!==undefined?'background:#ecfdf5;border-color:var(--green);font-weight:700':''}" onchange="csSetPriceOverride('${id}','fab','${f.id}',this.value)" title="원가용 단가 (비우면 매장가 적용)">`;
+    })()}</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div>${fabLoss>0?`<div style="font-size:11px;color:var(--blue);white-space:nowrap;margin-top:2px;text-align:right">${num(Math.round(cl.cost))}원</div><div style="font-size:9px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 5px;display:inline-block;margin-top:2px">+${fabLoss}%</div>`:''}</td></tr>`;}).join('');
   // 부자재 순수원가/로스반영 계산
   const _applyMinSplit=(t,res,q)=>{
     // 미니멈으로 나누기: 원가(extras 제외 본체)를 minSplitQty로 나눠서 1장당 × 생산수량
@@ -9452,33 +9487,26 @@ function renderCS(){
     }
     return +t.unitPrice||0;
   };
-  const trimPure=(t,q)=>{var extras=trimExtrasCost(t,q);var up=trimUnitPrice(t);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q;const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return _applyMinSplit(t,{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*up+extras,extrasCost:extras,isRoll:true,_up:up},q);}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*q;return _applyMinSplit(t,{qty:parseFloat(ty.toFixed(2)),unit:'yard',cost:ty*up+extras,extrasCost:extras,isYard:true,isRoll:false,_up:up},q);}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*up+extras,extrasCost:extras,isRoll:false,isThread:true,minQ:minQ,perColor:perColor,_up:up};}const n=(t.qtyPerPiece||1)*q;return _applyMinSplit(t,{qty:parseFloat(n.toFixed(2)),unit:t.unit||'yard',cost:n*up+extras,extrasCost:extras,isRoll:false,_up:up},q);};
-  const trimWithLoss=(t,q,lp)=>{var up=trimUnitPrice(t);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q*(1+lp/100);const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return _applyMinSplit(t,{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*up,isRoll:true,_up:up},q);}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*up,isRoll:false,isThread:true,minQ:minQ,perColor:perColor,_up:up};}const n=Math.ceil((t.qtyPerPiece||1)*q*(1+lp/100));return _applyMinSplit(t,{qty:n,unit:t.unit||'yard',cost:n*up,isRoll:false,_up:up},q);};
+  const trimPure=(t,q)=>{var extras=trimExtrasCost(t,q);var up=trimUnitPrice(t);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q;const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return _applyMinSplit(t,{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*up+extras,extrasCost:extras,isRoll:true,_up:up},q);}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*q;return _applyMinSplit(t,{qty:parseFloat(ty.toFixed(2)),unit:'yard',cost:ty*up+extras,extrasCost:extras,isYard:true,isRoll:false,_up:up},q);}if(t.orderType==='thread'){const perColor=t.threadQty||10;return _applyMinSplit(t,{qty:perColor,unit:'개',cost:perColor*up+extras,extrasCost:extras,isRoll:false,isThread:true,perColor:perColor,_up:up},q);}const n=(t.qtyPerPiece||1)*q;return _applyMinSplit(t,{qty:parseFloat(n.toFixed(2)),unit:t.unit||'yard',cost:n*up+extras,extrasCost:extras,isRoll:false,_up:up},q);};
+  const trimWithLoss=(t,q,lp)=>{var up=trimUnitPrice(t);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q*(1+lp/100);const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return _applyMinSplit(t,{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*up,isRoll:true,_up:up},q);}if(t.orderType==='thread'){const perColor=t.threadQty||10;return _applyMinSplit(t,{qty:perColor,unit:'개',cost:perColor*up,isRoll:false,isThread:true,perColor:perColor,_up:up},q);}const n=Math.ceil((t.qtyPerPiece||1)*q*(1+lp/100));return _applyMinSplit(t,{qty:n,unit:t.unit||'yard',cost:n*up,isRoll:false,_up:up},q);};
   const tr=it.trims.map(t=>{
     let cp,cl,minNote='';
-    if(t.orderType==='roll'){
-      const cMin=trimPure(t,minQty);const perPcs=cMin.cost/minQty;cp={...cMin,cost:Math.round(perPcs*qty)};
-      const cMinL=trimWithLoss(t,minQty,trimLoss);const perPcsL=cMinL.cost/minQty;cl={...cMinL,cost:Math.round(perPcsL*qty)};
-      minNote=` <span class="badge b0" style="font-size:9px">미니멈 ${minQty}</span>`;
-    }else if(t.orderType==='thread'){
-      // 실: 컬러당 개수 × 단가 ÷ 미니멈 = pcs당 원가 (원가용 오버라이드 적용)
+    if(t.orderType==='thread'){
+      // 실: 컬러당 개수 원가용 오버라이드 적용 후 trimPure (미니멈은 useMinSplit으로 처리)
       const csOvr=csGetOverride(id,'trim',t.id);
-      const effectivePerColor=csOvr!==undefined?csOvr:(t.threadQty||10);
-      const threadMinQ=t.threadMin||30;
-      const perColorCost=effectivePerColor*(t.unitPrice||0);
-      const perPcs=perColorCost/threadMinQ;
-      cp={qty:effectivePerColor,unit:'개',cost:Math.round(perPcs*qty),isRoll:false,isThread:true,minQ:threadMinQ,perColor:effectivePerColor,isOverride:csOvr!==undefined,origQty:t.threadQty||10};
-      cl={...cp};
-      minNote=` <span class="badge b0" style="font-size:9px">실 미니멈 ${threadMinQ}장</span>`;
+      const tt2={...t};
+      if(csOvr!==undefined)tt2.threadQty=csOvr;
+      cp=trimPure(tt2,qty);cl=trimWithLoss(tt2,qty,trimLoss);
+      cp.isOverride=csOvr!==undefined;cp.origQty=t.threadQty||10;
     }else{cp=trimPure(t,qty);cl=trimWithLoss(t,qty,trimLoss);}
     const k='t-'+t.id;const inc=!isEx(k);if(inc){tt+=cp.cost;ttL+=cl.cost;}
     const trimOvr=csGetOverride(id,'trim',t.id);
-    const qs=cp.isRoll?`${cp.rolls}롤(${cp.ay}y)`:cp.isThread?`${cp.isOverride?`<b style="color:var(--blue)">${cp.perColor}개/색</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origQty}개</span>`:`${cp.perColor}개/색`}`:cp.qty+(cp.unit||'y');
+    const qs=cp.isRoll?`${cp.rolls}롤(${cp.ay}y)`:cp.isThread?`${cp.isOverride?`<b style="color:var(--blue)">${cp.perColor}개/색</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origQty}개</span>`:`${cp.perColor}개/색`}`:`<span style="white-space:nowrap">${cp.qty}${(cp.unit||'y').replace('yard','y')}</span>`;
     const ovrInput=(t.orderType==='thread')?`<br><input type="number" value="${trimOvr!==undefined?trimOvr:''}" placeholder="실제" min="0" step="1" style="width:55px;font-size:10px;padding:2px 4px;margin-top:2px;${trimOvr!==undefined?'background:#f0f7ff;border-color:var(--blue)':''}" onchange="csSetOverride('${id}','trim','${t.id}',this.value)" title="원가용 실제 발주개수">`:'';
-    // 미니멈 나누기 버튼 (실·롤 제외 — 이미 내장)
-    const canMinSplit=t.orderType!=='thread'&&t.orderType!=='roll';
+    // 미니멈 나누기 버튼 (전체 부자재 통일 — 실/롤도 포함)
+    const canMinSplit=true;
     const msBtn=canMinSplit?`<br><button onclick="toggleCsMinSplit('${id}','${t.id}')" style="margin-top:3px;padding:2px 8px;font-size:10px;border-radius:100px;cursor:pointer;border:1px solid ${t.useMinSplit?'#10b981':'var(--bd)'};background:${t.useMinSplit?'#ecfdf5':'var(--bg)'};color:${t.useMinSplit?'#047857':'var(--t2)'};font-weight:600">${t.useMinSplit?`✓ 미니멈 ÷${t.minSplitQty||30}`:'미니멈 나누기'}</button>${t.useMinSplit?`<input type="number" value="${t.minSplitQty||30}" min="1" onchange="setCsMinSplitQty('${id}','${t.id}',this.value)" style="width:48px;font-size:10px;padding:2px 4px;margin-left:4px" title="미니멈 장수">`:''}`:'';
-    return`<tr style="${exClass(k)}"><td>${chkBox(k)}<b>${esc(t.name)}</b>${t.size?` <span class="muted" style="font-size:10px">${esc(t.size)}</span>`:''}${t.orderType==='roll'?' <span class="badge b3" style="font-size:9px">롤</span>':''}${t.orderType==='thread'?' <span class="badge b3" style="font-size:9px">실</span>':''}${t.useMinSplit?` <span class="badge" style="font-size:9px;background:#ecfdf5;color:#047857">÷${t.minSplitQty||30}</span>`:''}${minNote}<br><span class="muted" style="font-size:10px">${esc(t.supplier||'')}</span>${msBtn}</td><td class="muted" style="font-size:10px">${t.orderType==='roll'?`${t.consumptionPerPiece}y×${minQty}`:t.orderType==='thread'?`${cp.perColor}개×${num(t.unitPrice||0)}원÷${t.threadMin||30}장${cp.isOverride?' <span style="color:var(--blue)">(실제)</span>':''}`:t.orderType==='button'?`${cp.qty}개`:t.orderType==='yard'?`${cp.qty}y`:`${(t.qtyPerPiece||1)}×${qty}`}${t.useMinSplit?`<br><span style="color:#047857">÷${t.minSplitQty||30}장</span>`:''}</td><td style="text-align:right;font-size:10px">${qs}${ovrInput}</td><td style="text-align:right;font-size:10px">${num(Math.round(cp._up!==undefined?cp._up:(t.unitPrice||0)))}원${(cp._up!==undefined&&cp._up!==(+t.unitPrice||0))?'<br><span style="font-size:8px;color:var(--t2)">최고가</span>':''}</td><td style="text-align:right"><b>${num(Math.round(cp.cost))}원</b>${trimLoss>0&&!cp.isThread?`<br><span style="font-size:10px;color:var(--blue)">${num(Math.round(cl.cost))}원<span style="font-size:9px;background:var(--bbg);border-radius:3px;padding:0 3px;margin-left:2px">+${trimLoss}%</span></span>`:''}</td></tr>`;}).join('');
+    return`<tr style="${exClass(k)}"><td>${chkBox(k)}<b style="white-space:nowrap">${esc(t.name)}</b>${t.size?` <span class="muted" style="font-size:11px">${esc(t.size)}</span>`:''}${t.orderType==='roll'?' <span class="badge b3" style="font-size:9px">롤</span>':''}${t.orderType==='thread'?' <span class="badge b3" style="font-size:9px">실</span>':''}${t.useMinSplit?` <span class="badge" style="font-size:9px;background:#ecfdf5;color:#047857">÷${t.minSplitQty||30}</span>`:''}${minNote}<br><span class="muted" style="font-size:11px">${esc(t.supplier||'')}</span>${msBtn}</td><td class="muted" style="font-size:13px">${t.orderType==='roll'?`${t.consumptionPerPiece}y/pcs`:t.orderType==='thread'?`${cp.perColor}개/색×${num(cp._up!==undefined?cp._up:(t.unitPrice||0))}원${cp.isOverride?' <span style="color:var(--blue)">(실제)</span>':''}`:t.orderType==='button'?`${cp.qty}개`:t.orderType==='yard'?`${cp.qty}y`:`${(t.qtyPerPiece||1)}×${qty}`}${t.useMinSplit?`<br><span style="color:#047857">÷${t.minSplitQty||30}장 분배</span>`:''}</td><td style="text-align:right;font-size:13px">${qs}${ovrInput}</td><td style="text-align:right;font-size:13px">${num(Math.round(cp._up!==undefined?cp._up:(t.unitPrice||0)))}원${(cp._up!==undefined&&cp._up!==(+t.unitPrice||0))?'<br><span style="font-size:8px;color:var(--t2)">최고가</span>':''}</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div>${trimLoss>0&&!cp.isThread?`<div style="font-size:11px;color:var(--blue);white-space:nowrap;margin-top:2px;text-align:right">${num(Math.round(cl.cost))}원</div><div style="font-size:9px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 5px;display:inline-block;margin-top:2px">+${trimLoss}%</div>`:''}</td></tr>`;}).join('');
   // 가공비
   const pArr=COST_DEFS.map(([k,l,fk])=>{const v=it[k]||0;if(!v)return null;const fcNm=it[fk]&&S.factories[it[fk]]?S.factories[it[fk]].name:'';return{ck:k,lbl:l,val:v,fcNm};}).filter(Boolean);
   let pt=0;for(const p of pArr){if(!isEx('p-'+p.ck))pt+=p.val*qty;}
@@ -9519,31 +9547,59 @@ function renderCS(){
   const marginColor=marginAmt>0?'var(--green)':marginAmt<0?'var(--red)':'var(--text)';
   const hasExcl=window._csExclusions?.[id]&&Object.values(window._csExclusions[id]).some(v=>v);
   el.innerHTML=`<div class="card">
-    <div class="fb" style="margin-bottom:10px">
-      <div>
-        <div style="font-weight:700;font-size:15px">${esc(it.name)}</div>
-        <div class="muted">${[it.client?`브랜드: ${it.client}`:'',it.code?'품번: '+it.code:'',it.season?'시즌: '+it.season:''].filter(Boolean).join(' · ')}</div>
-        ${(function(){var fc=it.sewingFcId&&S.factories[it.sewingFcId];return fc?`<div class="muted">🏭 생산처: ${esc(fc.name)}</div>`:'';})()}
-        ${it.careInstructions?`<div class="muted">세탁: ${esc(it.careInstructions)}</div>`:''}
-      </div>
-      ${hasExcl?`<button class="btn s" onclick="csResetExcl('${id}')">↻ 모두 포함</button>`:''}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+      ${hasExcl?`<button class="btn s cs-hide-on-img" onclick="csResetExcl('${id}')">↻ 모두 포함</button>`:''}
     </div>
-    <div class="info-box" style="font-size:11px;margin-bottom:10px">💡 각 항목 앞 체크박스로 원가 계산에 포함/제외할 수 있어요. 제외한 항목은 회색으로 표시돼요.</div>
-    <style>.cs-tbl{font-size:13px;width:100%;table-layout:auto;border-collapse:collapse}.cs-tbl th{font-size:12px;padding:6px 6px;font-weight:700;color:var(--t2);border-bottom:1.5px solid var(--bd)}.cs-tbl td{padding:7px 6px;vertical-align:middle;border-bottom:1px solid var(--bd)}.cs-tbl input[type=checkbox]{transform:scale(0.95)}.cs-tbl input[type=number]{font-size:12px}.cs-tbl .muted{font-size:11px}.cs-tbl tbody tr:last-child td{border-bottom:none}.cs-tbl .sec,#cs-body .sec{font-size:14px}</style>
-    ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><div style="overflow-x:auto"><table class="cs-tbl"><thead><tr><th style="text-align:left">원단명/원단처</th><th style="text-align:left">계산식</th><th style="text-align:right">사용량</th><th style="text-align:right">매장가 / 협상가<br><span style="font-size:9px;color:var(--green)">원가용 단가</span></th><th style="text-align:right">원단비</th></tr></thead><tbody>${fr}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tf))}원</td></tr></tbody></table></div>`:''}
-    ${it.trims.length?`<div class="sec">부자재비</div><div style="overflow-x:auto"><table class="cs-tbl"><thead><tr><th style="text-align:left">부자재명/부자재처</th><th style="text-align:left">계산식</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:right">부자재비</th></tr></thead><tbody>${tr}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tt))}원</td></tr></tbody></table></div>`:''}
-    ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr style="${exClass(k)}"><td>${chkBox(k)}${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${num(p.val)}원/pcs×${qty}</td><td colspan="2"></td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(pt))}원</td></tr></tbody></table>`:''}
-    ${tcArr.length?`<div class="sec">부자재 가공비</div><table class="cs-tbl"><tbody>${tcArr.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const tcAllColors=it.colors?.length?it.colors:[''];const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const tcAmt=isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:(tc.costPerPcs||0)*qty*(tcActive.length/(tcAllColors.length||1));return`<tr style="${exClass(k)}"><td>${chkBox(k)}${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:`${num(tc.costPerPcs)}원/pcs×${qty}`}</td><td colspan="2"></td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tct))}원</td></tr></tbody></table>`:''}
+    <div style="margin-bottom:20px">
+      <div style="font-size:12px;font-weight:600;color:var(--t3,#9ca3af);letter-spacing:2px;margin-bottom:8px">COST SHEET · 원가계산서</div>
+      <div style="font-size:26px;font-weight:800;letter-spacing:-0.5px;line-height:1.2;color:#374151">${esc(it.name)}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        ${it.code?`<span style="font-size:13px;background:var(--bg2);padding:5px 12px;border-radius:8px;color:var(--t2)">품번 <b style="color:#374151">${esc(it.code)}</b></span>`:''}
+        ${it.season?`<span style="font-size:13px;background:var(--bg2);padding:5px 12px;border-radius:8px;color:var(--t2)">시즌 <b style="color:#374151">${esc(it.season)}</b></span>`:''}
+        ${(function(){var fc=it.sewingFcId&&S.factories[it.sewingFcId];return fc?`<span style="font-size:13px;background:var(--bg2);padding:5px 12px;border-radius:8px;color:var(--t2)">생산처 <b style="color:#374151">${esc(fc.name)}</b></span>`:'';})()}
+        ${it.client?`<span style="font-size:13px;background:var(--bg2);padding:5px 12px;border-radius:8px;color:var(--t2)">브랜드 <b style="color:#374151">${esc(it.client)}</b></span>`:''}
+      </div>
+    </div>
+    <div class="info-box cs-hide-on-img" style="font-size:11px;margin-bottom:10px">💡 각 항목 앞 체크박스로 원가 계산에 포함/제외할 수 있어요. 제외한 항목은 회색으로 표시돼요.</div>
+    <style>
+    .cs-tbl{font-size:14px;width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;word-break:keep-all}
+    .cs-tbl th,.cs-tbl td{word-break:keep-all;overflow-wrap:break-word;text-align:center!important}
+    .cs-tbl th:last-child,.cs-tbl td:last-child{text-align:right!important}
+    .cs-tbl td:last-child .cs-amt{text-align:right;width:100%}
+    .cs-tbl td b{word-break:keep-all}
+    .cs-tbl th{font-size:12px;padding:9px 5px;font-weight:600;color:#9ca3af;border-bottom:1px solid var(--bd);line-height:1.4}
+    .cs-tbl td{padding:11px 5px;vertical-align:middle;border-bottom:1px solid var(--bg2);line-height:1.5}
+    .cs-tbl input[type=checkbox]{transform:scale(0.9);opacity:0.4}
+    .cs-tbl input[type=number]{font-size:13px;max-width:100%;box-sizing:border-box;text-align:center}
+    .cs-tbl input[type=text]{max-width:100%;box-sizing:border-box;text-align:center}
+    .cs-tbl .muted{font-size:13px;color:#9ca3af;word-break:keep-all}
+    .cs-tbl td.muted{font-size:13px}
+    .cs-tbl tbody tr:last-child td{border-bottom:none}
+    .cs-tbl tbody tr:hover td{background:var(--bg2)}
+    .cs-tbl b{font-weight:700;color:#374151}
+    .cs-amt{white-space:nowrap;font-weight:700;color:#374151}
+    .cs-subtotal td{background:var(--bg2)!important;font-weight:700;border:none!important;color:#374151;font-size:12px;padding-top:12px;padding-bottom:12px}
+    .cs-tbl tbody tr:nth-last-child(2) td{border-bottom:none!important}
+    .cs-fit{white-space:nowrap;display:inline-block;transform-origin:right center}
+    .cs-subtotal td:first-child{padding-left:14px;border-radius:8px 0 0 8px}
+    .cs-subtotal td:last-child{white-space:nowrap;padding-right:14px;border-radius:0 8px 8px 0}
+    #cs-body .sec{font-size:15px;font-weight:700;margin:24px 0 6px;color:#374151;display:flex;justify-content:space-between;align-items:center}
+    #cs-body .sec:first-of-type{margin-top:0}
+    </style>
+    ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><table class="cs-tbl"><colgroup><col style="width:24%"><col style="width:15%"><col style="width:19%"><col style="width:22%"><col style="width:20%"></colgroup><thead><tr><th style="text-align:left">원단명<br><span style="font-weight:400">원단처</span></th><th style="text-align:left">계산식</th><th style="text-align:right">사용량</th><th style="text-align:right">매장/협상가<br><span style="font-size:10px;color:var(--green)">원가용</span></th><th style="text-align:right">원단비</th></tr></thead><tbody>${fr}<tr class="cs-subtotal"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tf))}원</td></tr></tbody></table>`:''}
+    ${it.trims.length?`<div class="sec">부자재비</div><table class="cs-tbl"><colgroup><col style="width:28%"><col style="width:24%"><col style="width:16%"><col style="width:15%"><col style="width:17%"></colgroup><thead><tr><th style="text-align:left">부자재명<br><span style="font-weight:400">부자재처</span></th><th style="text-align:left">계산식</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:right">부자재비</th></tr></thead><tbody>${tr}<tr class="cs-subtotal"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tt))}원</td></tr></tbody></table>`:''}
+    ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr style="${exClass(k)}"><td>${chkBox(k)}${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${num(p.val)}원/pcs×${qty}</td><td colspan="2"></td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}<tr class="cs-subtotal"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(pt))}원</td></tr></tbody></table>`:''}
+    ${tcArr.length?`<div class="sec">부자재 가공비</div><table class="cs-tbl"><tbody>${tcArr.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const tcAllColors=it.colors?.length?it.colors:[''];const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const tcAmt=isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:(tc.costPerPcs||0)*qty*(tcActive.length/(tcAllColors.length||1));return`<tr style="${exClass(k)}"><td>${chkBox(k)}${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:`${num(tc.costPerPcs)}원/pcs×${qty}`}</td><td colspan="2"></td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}<tr class="cs-subtotal"><td colspan="4">소계</td><td style="text-align:right">${num(Math.round(tct))}원</td></tr></tbody></table>`:''}
     <div class="sec">
       <span>완성 부자재 비용 <span class="muted" style="font-size:10px;font-weight:400">(라벨·택·케어라벨·포장 등)</span></span>
       <button class="btn s p" type="button" onclick="addCsFinishCost('${id}')">+ 추가</button>
     </div>
     ${finishCosts.length?`<table class="cs-tbl"><tbody>${finishCosts.map((fc2,i)=>{const k='fc-'+i;return`<tr style="${exClass(k)}">
-      <td style="display:flex;align-items:center;gap:5px">${chkBox(k)}<input type="text" value="${esc(fc2.name||'')}" placeholder="항목명 (예: 행택)" style="flex:1;font-size:11px;padding:3px 5px;min-width:80px" onchange="updateCsFinishCost('${id}',${i},'name',this.value)"></td>
+      <td style="display:flex;align-items:center;gap:5px;justify-content:center">${chkBox(k)}<input type="text" value="${esc(fc2.name||'')}" placeholder="항목명 (예: 행택)" style="flex:1;font-size:11px;padding:3px 5px;min-width:80px" onchange="updateCsFinishCost('${id}',${i},'name',this.value)"></td>
       <td><input type="number" value="${fc2.costPerPcs||0}" min="0" placeholder="원/pcs" style="width:80px;font-size:11px;padding:3px 5px" onchange="updateCsFinishCost('${id}',${i},'costPerPcs',+this.value)"><span class="muted" style="font-size:10px;margin-left:3px">원/pcs×${qty}</span></td>
       <td colspan="2"></td>
       <td style="text-align:right;font-weight:700">${num((fc2.costPerPcs||0)*qty)}원<button class="btn s d" type="button" style="margin-left:4px;padding:2px 6px" onclick="removeCsFinishCost('${id}',${i})">✕</button></td>
-    </tr>`;}).join('')}<tr style="background:var(--bg2);font-weight:700"><td colspan="4">소계</td><td style="text-align:right">${num(finishTotal)}원</td></tr></tbody></table>`:'<div class="muted" style="font-size:11px;padding:8px 4px">+ 추가 버튼으로 라벨·택·포장 등 완성 부자재 비용을 추가하세요</div>'}
+    </tr>`;}).join('')}<tr class="cs-subtotal"><td colspan="4">소계</td><td style="text-align:right">${num(finishTotal)}원</td></tr></tbody></table>`:'<div class="muted" style="font-size:11px;padding:8px 4px">+ 추가 버튼으로 라벨·택·포장 등 완성 부자재 비용을 추가하세요</div>'}
     ${onceParts.length?`<div class="sec" style="${inclOnce?'':'color:var(--t2)'}">
       <span>일회비 (패턴비·샘플비 등)</span>
       ${inclOnce?`<span class="badge b3" style="font-size:10px">원가에 포함 — 미니멈 ${minQty}pcs 기준</span>`:'<span class="badge b0" style="font-size:10px">참고용 — 원가 미포함</span>'}
@@ -9553,22 +9609,22 @@ function renderCS(){
     </tbody></table>`:''}
     <div class="sec">로스 & 기타 <span class="muted" style="font-size:10px;font-weight:400">(고정)</span></div>
     <table class="cs-tbl"><tbody><tr><td>로스 & 기타</td><td class="muted">${num(FIXED_LOSS)}원/pcs×${qty}</td><td colspan="2"></td><td style="text-align:right;font-weight:700">${num(FIXED_LOSS*qty)}원</td></tr></tbody></table>
-    <div class="info-box" style="font-size:10px">📌 <b>미니멈 ${minQty}pcs 기준</b> — 롤 부자재비·lot 염색비·일회비는 미니멈 수량으로 나눠 pcs당 원가를 산출합니다</div>    <div style="margin-top:1rem;padding:1rem;background:var(--bg2);border-radius:var(--r)">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-        <div style="background:var(--bg);border:1px solid var(--bd);border-radius:7px;padding:10px;text-align:center">
-          <div style="font-size:10px;font-weight:700;color:var(--t2);margin-bottom:3px">📦 순수 원가</div>
-          <div style="font-size:18px;font-weight:800">${num(Math.round(per))}원</div>
-          <div style="font-size:10px;color:var(--t2)">${qty}pcs=${num(Math.round(total))}원</div>
+    <div class="info-box cs-hide-on-img" style="font-size:10px">📌 <b>미니멈 ${minQty}pcs 기준</b> — 롤 부자재비·lot 염색비·일회비는 미니멈 수량으로 나눠 pcs당 원가를 산출합니다</div>    <div style="margin-top:1.2rem;padding:1.2rem;background:var(--bg2);border-radius:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;align-items:stretch">
+        <div style="background:var(--bg);border-radius:12px;padding:14px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:5px">순수 원가</div>
+          <div class="cs-fit-num" style="font-size:20px;font-weight:800;letter-spacing:-0.5px;white-space:nowrap">${num(Math.round(per))}원</div>
+          <div style="font-size:10px;color:var(--t3,#9ca3af);margin-top:2px">${qty}pcs · ${num(Math.round(total))}원</div>
         </div>
-        <div style="background:var(--bg);border:1px solid var(--bd);border-radius:7px;padding:10px;text-align:center">
-          <div style="font-size:10px;font-weight:700;color:#9333ea;margin-bottom:3px">💳 부가세 포함 (10%)</div>
-          <div style="font-size:18px;font-weight:800;color:#9333ea">${num(Math.round(per*1.1))}원</div>
-          <div style="font-size:10px;color:var(--t2)">부가세 ${num(Math.round(per*0.1))}원</div>
+        <div style="background:#faf5ff;border-radius:12px;padding:14px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:11px;font-weight:600;color:#9333ea;margin-bottom:5px">부가세 포함 (10%)</div>
+          <div class="cs-fit-num" style="font-size:20px;font-weight:800;color:#9333ea;letter-spacing:-0.5px;white-space:nowrap">${num(Math.round(per*1.1))}원</div>
+          <div style="font-size:10px;color:var(--t3,#9ca3af);margin-top:2px">부가세 ${num(Math.round(per*0.1))}원</div>
         </div>
-        <div style="background:var(--bbg);border:1px solid var(--blue)33;border-radius:7px;padding:10px;text-align:center">
-          <div style="font-size:10px;font-weight:700;color:var(--blue);margin-bottom:3px">📊 로스 반영 원가</div>
-          <div style="font-size:18px;font-weight:800;color:var(--blue)">${num(Math.round(perL))}원</div>
-          <div style="font-size:10px;color:var(--t2)">원단+${fabLoss}% 부자재+${trimLoss}%</div>
+        <div style="background:var(--bbg);border-radius:12px;padding:14px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:11px;font-weight:600;color:var(--blue);margin-bottom:5px">로스 반영 원가</div>
+          <div class="cs-fit-num" style="font-size:20px;font-weight:800;color:var(--blue);letter-spacing:-0.5px;white-space:nowrap">${num(Math.round(perL))}원</div>
+          <div style="font-size:10px;color:var(--t3,#9ca3af);margin-top:2px">원단+${fabLoss}% 부자재+${trimLoss}%</div>
         </div>
       </div>
       <div class="cs-hide-on-img">
@@ -9591,6 +9647,39 @@ function renderCS(){
       <button class="btn s em" onclick="downloadCostExcel()">📊 엑셀 다운로드</button>
     </div>
   </div>`;
+  // 금액 칸이 좁아서 "원"이 떨어지는 것 방지: 칸 너비보다 넓으면 자동 축소
+  requestAnimationFrame(()=>csFitAmounts());
+}
+// 금액 텍스트가 셀 너비를 넘으면 자동으로 폰트 축소 (transform scale)
+function csFitAmounts(){
+  const el=document.getElementById('cs-body');if(!el)return;
+  // 표 안 금액 (우측 정렬)
+  const cells=el.querySelectorAll('.cs-amt, .cs-subtotal td:last-child');
+  cells.forEach(c=>{
+    c.style.transform='';c.style.display='';
+    const parent=c.closest('td')||c.parentElement;
+    if(!parent)return;
+    const avail=parent.clientWidth-10;
+    const w=c.scrollWidth;
+    if(w>avail&&avail>0){
+      const scale=Math.max(0.6,avail/w);
+      c.style.display='inline-block';c.style.transformOrigin='right center';
+      c.style.transform=`scale(${scale})`;
+    }
+  });
+  // 요약 카드 큰 숫자 (가운데 정렬)
+  const cards=el.querySelectorAll('.cs-fit-num');
+  cards.forEach(c=>{
+    c.style.transform='';c.style.display='';
+    const parent=c.parentElement;if(!parent)return;
+    const avail=parent.clientWidth-16;
+    const w=c.scrollWidth;
+    if(w>avail&&avail>0){
+      const scale=Math.max(0.55,avail/w);
+      c.style.display='inline-block';c.style.transformOrigin='center';
+      c.style.transform=`scale(${scale})`;
+    }
+  });
 }
 function downloadCostExcel(){
   const id=document.getElementById('cs-sel').value;if(!id){alert('아이템 선택');return;}
@@ -12212,6 +12301,45 @@ function setTaskViewMode(mode){
   renderTasksPane();
 }
 
+function getTaskStylesHTML(){return `
+  <style>
+    .task-pri-card{padding:16px;border-radius:14px;border:1px solid var(--bd);background:var(--bg);transition:all .15s;}
+    .task-pri-card .pri-num{font-size:26px;font-weight:800;line-height:1;letter-spacing:-0.5px;}
+    .task-pri-card .pri-lbl{font-size:11px;font-weight:600;margin-top:5px;letter-spacing:.2px;color:#4b5563;}
+    .task-pri-card .pri-desc{font-size:10px;color:var(--t3,#9ca3af);margin-top:3px;line-height:1.4;}
+    .task-list{background:var(--bg);border:1px solid var(--bd);border-radius:14px;overflow:hidden;margin-bottom:14px;}
+    .task-list-hd{padding:11px 16px;font-weight:700;font-size:12.5px;display:flex;align-items:center;gap:8px;letter-spacing:.2px;color:#4b5563;}
+    .task-row{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-top:1px solid var(--bg2);cursor:pointer;transition:background .12s;position:relative;}
+    .task-row:first-child{border-top:none;}
+    .task-row:hover{background:var(--bg2);}
+    .task-row.done{opacity:.4;}
+    .task-row.done .task-name{text-decoration:line-through;}
+    .task-row .task-chk{width:20px;height:20px;border:2px solid var(--bd2);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;margin-top:1px;transition:all .15s;}
+    .task-row .task-chk:hover{border-color:var(--text);}
+    .task-row .task-chk.on{background:var(--green,#16a34a);border-color:var(--green,#16a34a);color:#fff;}
+    .task-name{flex:1;font-size:14px;line-height:1.45;font-weight:500;color:#374151;}
+    .task-meta{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
+    .task-badge{font-size:10px;padding:3px 9px;border-radius:20px;font-weight:600;background:var(--bg2);color:var(--t2);white-space:nowrap;}
+    .task-badge.auto{background:var(--bbg);color:var(--blue);}
+    .task-group-card{background:var(--bg);border:1px solid var(--bd);border-radius:14px;overflow:hidden;margin-bottom:14px;}
+    .task-group-hd{padding:11px 16px;font-weight:700;font-size:13px;}
+    .task-group-sub{padding:8px 16px;font-size:11px;font-weight:600;border-top:1px solid var(--bg2);}
+    .qadd-collapsed{display:flex;gap:8px;align-items:center;}
+    .qadd-detail{display:none;margin-top:10px;}
+    .qadd-detail.open{display:block;animation:qaddSlide .18s ease;}
+    @keyframes qaddSlide{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+    .qadd-toggle-btn{background:var(--bg2);border:1px solid var(--bd);color:var(--t2);border-radius:10px;padding:10px 13px;cursor:pointer;font-size:13px;font-family:inherit;transition:all .12s;flex-shrink:0;}
+    .qadd-toggle-btn:hover{background:var(--bd);}
+    .qadd-toggle-btn.on{background:var(--blue);color:#fff;border-color:var(--blue);}
+    .ai-box-pro{background:linear-gradient(135deg,#2c2a26,#3d3b36);color:#e8e2d8;border-radius:14px;padding:16px;margin-bottom:14px;}
+    .ai-box-pro .ai-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+    .ai-box-pro .ai-hd h3{font-size:13px;font-weight:800;}
+    .ai-box-pro .ai-badge{font-size:9px;padding:2px 8px;background:#6b5a4a;border-radius:20px;color:#d4c4b0;}
+    .ai-box-pro .ai-text{font-size:13px;color:#c8c0b0;line-height:1.7;white-space:pre-wrap;}
+    .ai-box-pro .ai-btn-r{margin-top:10px;padding:7px 14px;background:#4a3a2a;border:1px solid #6b5a4a;border-radius:8px;color:#d4c4b0;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;}
+    .ai-box-pro .ai-btn-r:hover{background:#5a4a3a;}
+    .ai-box-pro .ai-btn-r:disabled{opacity:.5;cursor:not-allowed;}
+  </style>`;}
 function getTaskViewToggleHTML(){
   var modes=[
     {key:'brand',label:'🎯 브랜드별'},
@@ -12253,8 +12381,8 @@ function renderTasksPaneByBrand(){
   var all=[...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';});
   var brands=getBrands();
   
-  var html=getTaskViewToggleHTML();
-  html+='<div style="padding:10px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">📋 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
+  var html=getTaskStylesHTML()+getTaskViewToggleHTML();
+  html+='<div style="padding:12px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:10px;color:#4b5563">📋 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
   
   // 브랜드별로 분류
   var byBrand={};
@@ -12276,12 +12404,12 @@ function renderTasksPaneByBrand(){
       if(!byCat[cat])byCat[cat]=[];
       byCat[cat].push(t);
     });
-    var h='<div style="margin-bottom:14px;border:1px solid var(--bd);border-radius:8px;overflow:hidden">';
-    h+='<div style="background:'+brandColor+'22;color:'+brandColor+';padding:8px 12px;font-weight:700;font-size:13px;border-left:4px solid '+brandColor+'">'+esc(brandName)+' <span style="font-weight:400;font-size:11px;opacity:.8">('+tasks.length+'건)</span></div>';
+    var h='<div class="task-group-card">';
+    h+='<div class="task-group-hd" style="background:'+brandColor+'18;color:'+brandColor+';border-left:4px solid '+brandColor+'">'+esc(brandName)+' <span style="font-weight:400;font-size:11px;opacity:.8">('+tasks.length+'건)</span></div>';
     TASK_CATEGORIES.forEach(function(cat){
       var catTasks=byCat[cat.key]||[];
       if(!catTasks.length)return;
-      h+='<div style="padding:6px 12px;font-size:11px;font-weight:600;color:'+cat.color+';background:'+cat.bg+'22;border-top:1px solid var(--bd)">'+cat.label+' ('+catTasks.length+')</div>';
+      h+='<div class="task-group-sub" style="color:'+cat.color+';background:'+cat.bg+'18">'+cat.label+' ('+catTasks.length+')</div>';
       catTasks.forEach(function(t){
         h+=renderTaskRow(t);
       });
@@ -12303,7 +12431,7 @@ function renderTasksPaneByBrand(){
   }
   
   // 빠른 추가
-  html+='<div style="margin-top:14px;padding:10px 12px;background:var(--bg2);border-radius:8px"><div style="font-size:11px;font-weight:600;margin-bottom:6px">➕ 빠른 추가</div>';
+  html+='<div style="margin-top:14px;padding:12px 14px;background:var(--bg2);border-radius:12px"><div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#4b5563">➕ 빠른 추가</div>';
   html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="new-task-name" placeholder="할 일 내용..." style="flex:1;min-width:140px;font-size:12px;padding:6px 8px"><select id="new-task-pri" style="font-size:11px;padding:5px"><option value="urgent">🔴 급한</option><option value="today" selected>🟠 오늘</option><option value="tomorrow">🟡 내일</option><option value="week">🟢 이번주</option></select><select id="new-task-type" style="font-size:11px;padding:5px"><option value="기타">기타</option><option value="전화">전화</option><option value="사무">사무</option><option value="미팅">미팅</option><option value="픽업">픽업</option></select><select id="new-task-loc" style="font-size:11px;padding:5px"><option value="">위치</option><option value="office">사무실</option><option value="market">시장</option><option value="phone">전화</option></select><select id="new-task-brand" style="font-size:11px;padding:5px"><option value="">브랜드</option>'+brands.map(function(b){return '<option value="'+b.id+'">'+esc(b.name)+'</option>';}).join('')+'</select><input id="new-task-item" type="hidden"><button class="btn p" onclick="addTaskQuick()" style="font-size:11px;padding:5px 10px">추가</button></div></div>';
   
   html+='</div>';
@@ -12317,8 +12445,8 @@ function renderTasksPaneByCategory(){
   var auto=generateAutoTasks();
   var all=[...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';});
   
-  var html=getTaskViewToggleHTML();
-  html+='<div style="padding:10px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">📋 카테고리별 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
+  var html=getTaskStylesHTML()+getTaskViewToggleHTML();
+  html+='<div style="padding:12px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:10px;color:#4b5563">📋 카테고리별 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
   
   // 카테고리별로 분류
   var byCat={};
@@ -12331,8 +12459,8 @@ function renderTasksPaneByCategory(){
   TASK_CATEGORIES.forEach(function(cat){
     var catTasks=byCat[cat.key]||[];
     if(!catTasks.length)return;
-    html+='<div style="margin-bottom:14px;border:1px solid var(--bd);border-radius:8px;overflow:hidden">';
-    html+='<div style="background:'+cat.bg+';color:'+cat.color+';padding:8px 12px;font-weight:700;font-size:13px">'+cat.label+' <span style="font-weight:400;font-size:11px">('+catTasks.length+'건)</span></div>';
+    html+='<div class="task-group-card">';
+    html+='<div class="task-group-hd" style="background:'+cat.bg+';color:'+cat.color+'">'+cat.label+' <span style="font-weight:400;font-size:11px">('+catTasks.length+'건)</span></div>';
     catTasks.forEach(function(t){
       html+=renderTaskRow(t);
     });
@@ -12477,42 +12605,7 @@ function renderTasksPane(){
   const settings=getAutoTaskSettings();
   
   const html=`
-  <style>
-    .task-pri-card{padding:14px 16px;border-radius:var(--rl);border:1px solid var(--bd);background:var(--bg);transition:all .15s;}
-    .task-pri-card .pri-num{font-size:28px;font-weight:900;line-height:1;}
-    .task-pri-card .pri-lbl{font-size:11px;font-weight:700;margin-top:4px;letter-spacing:.3px;}
-    .task-pri-card .pri-desc{font-size:10px;color:var(--t2);margin-top:3px;line-height:1.4;}
-    .task-list{background:var(--bg);border:1px solid var(--bd);border-radius:var(--rl);overflow:hidden;margin-bottom:12px;}
-    .task-list-hd{padding:9px 14px;font-weight:800;font-size:12px;display:flex;align-items:center;gap:8px;letter-spacing:.3px;}
-    .task-row{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;border-top:1px solid var(--bg2);cursor:pointer;transition:background .12s;position:relative;}
-    .task-row:first-child{border-top:none;}
-    .task-row:hover{background:var(--bg2);}
-    .task-row.done{opacity:.45;}
-    .task-row.done .task-name{text-decoration:line-through;}
-    .task-row .task-chk{width:20px;height:20px;border:2px solid var(--bd2);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;margin-top:1px;transition:all .15s;}
-    .task-row .task-chk:hover{border-color:var(--text);}
-    .task-row .task-chk.on{background:var(--green,#16a34a);border-color:var(--green,#16a34a);color:#fff;}
-    .task-name{flex:1;font-size:13.5px;line-height:1.4;font-weight:500;}
-    .task-meta{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
-    .task-badge{font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600;background:var(--bg2);color:var(--t2);white-space:nowrap;}
-    .task-badge.auto{background:var(--bbg);color:var(--blue);}
-    /* 빠른 추가 접기/펴기 */
-    .qadd-collapsed{display:flex;gap:8px;align-items:center;}
-    .qadd-detail{display:none;margin-top:10px;}
-    .qadd-detail.open{display:block;animation:qaddSlide .18s ease;}
-    @keyframes qaddSlide{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
-    .qadd-toggle-btn{background:var(--bg2);border:1px solid var(--bd);color:var(--t2);border-radius:9px;padding:9px 12px;cursor:pointer;font-size:13px;font-family:inherit;transition:all .12s;flex-shrink:0;}
-    .qadd-toggle-btn:hover{background:var(--bd);}
-    .qadd-toggle-btn.on{background:var(--blue);color:#fff;border-color:var(--blue);}
-    .ai-box-pro{background:linear-gradient(135deg,#2c2a26,#3d3b36);color:#e8e2d8;border-radius:var(--rl);padding:14px 16px;margin-bottom:14px;}
-    .ai-box-pro .ai-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-    .ai-box-pro .ai-hd h3{font-size:13px;font-weight:800;}
-    .ai-box-pro .ai-badge{font-size:9px;padding:2px 8px;background:#6b5a4a;border-radius:20px;color:#d4c4b0;}
-    .ai-box-pro .ai-text{font-size:13px;color:#c8c0b0;line-height:1.7;white-space:pre-wrap;}
-    .ai-box-pro .ai-btn-r{margin-top:10px;padding:7px 14px;background:#4a3a2a;border:1px solid #6b5a4a;border-radius:7px;color:#d4c4b0;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;}
-    .ai-box-pro .ai-btn-r:hover{background:#5a4a3a;}
-    .ai-box-pro .ai-btn-r:disabled{opacity:.5;cursor:not-allowed;}
-  </style>
+  ${getTaskStylesHTML()}
   
   <div class="fb" style="margin-bottom:12px">
     <div>
