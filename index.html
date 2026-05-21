@@ -6006,7 +6006,7 @@ function refreshOrderSuppliers(o){
   const meta={};
   for(const sn in o.suppliers){
     const s=o.suppliers[sn];
-    meta[sn]={status:s.status,poOpts:s.poOpts,recipient:s.recipient,deliveryFcId:s.deliveryFcId,expectedShipDate:s.expectedShipDate,arrivalDate:s.arrivalDate,fabricReadyColors:s.fabricReadyColors,trimReadyItems:s.trimReadyItems,invoiceReceived:s.invoiceReceived,actualShipDate:s.actualShipDate};
+    meta[sn]={status:s.status,orderDate:s.orderDate,sentAt:s.sentAt,poOpts:s.poOpts,recipient:s.recipient,deliveryFcId:s.deliveryFcId,expectedShipDate:s.expectedShipDate,arrivalDate:s.arrivalDate,fabricReadyColors:s.fabricReadyColors,trimReadyItems:s.trimReadyItems,invoiceReceived:s.invoiceReceived,actualShipDate:s.actualShipDate};
   }
   // 3) 재계산 (최신 아이템 정의 반영)
   let fresh;
@@ -10813,7 +10813,8 @@ function generateAutoTasks(){
     Object.values(S.orders||{}).forEach(o=>{
       if(o.status==='완료')return;
       Object.entries(o.suppliers||{}).forEach(([sn,s])=>{
-        if(!s.orderDate){
+        var alreadyOrdered=!!s.orderDate||s.status==='sent'||s.status==='shipped'||s.status==='arrived';
+        if(!alreadyOrdered){
           // 발주 안됨
           autoTasks.push({
             id:'auto_unord_'+o.id+'_'+sn,
@@ -12532,7 +12533,11 @@ function renderTasksPaneByBrand(){
   
   var html=getTaskStylesHTML()+getTaskViewToggleHTML();
   html+='<div style="display:flex;gap:5px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid var(--bd);background:var(--bg2)">'+getBrandPillsHTML(window._taskBrandFilter||'','setTaskBrandFilter',{includeNone:true})+'</div>';
-  html+='<div style="padding:12px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#4b5563">📋 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
+  html+='<div style="padding:12px 14px">';
+  // 빠른 추가 (상단)
+  html+='<div style="margin-bottom:14px;padding:12px 14px;background:var(--bg2);border-radius:12px"><div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#4b5563">➕ 빠른 추가</div>';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="new-task-name" placeholder="할 일 내용..." style="flex:1;min-width:140px;font-size:12px;padding:6px 8px"><select id="new-task-pri" style="font-size:11px;padding:5px"><option value="urgent">🔴 급한</option><option value="today" selected>🟠 오늘</option><option value="tomorrow">🟡 내일</option><option value="week">🟢 이번주</option></select><select id="new-task-type" style="font-size:11px;padding:5px"><option value="기타">기타</option><option value="전화">전화</option><option value="사무">사무</option><option value="미팅">미팅</option><option value="픽업">픽업</option></select><select id="new-task-loc" style="font-size:11px;padding:5px"><option value="">위치</option><option value="office">사무실</option><option value="market">시장</option><option value="phone">전화</option></select><select id="new-task-brand" style="font-size:11px;padding:5px"><option value="">브랜드</option>'+brands.map(function(b){return '<option value="'+b.id+'">'+esc(b.name)+'</option>';}).join('')+'</select><input id="new-task-item" type="hidden"><button class="btn p" onclick="addTaskQuick()" style="font-size:11px;padding:5px 10px">추가</button></div></div>';
+  html+='<div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#4b5563">📋 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
   var bsort=window._taskBrandSort||'urgent';
   var bsorts=[{key:'urgent',label:'🔥 급한 순'},{key:'item',label:'📦 아이템별'},{key:'stage',label:'🪡 공정 단계별'}];
   html+='<div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap">'+bsorts.map(function(s){var on=bsort===s.key;return '<button class="btn s" onclick="setTaskBrandSort(\''+s.key+'\')" style="font-size:11px;padding:4px 11px;background:'+(on?'#4b5563':'var(--bg)')+';color:'+(on?'#fff':'var(--t2)')+';border-color:'+(on?'#4b5563':'var(--bd)')+';font-weight:'+(on?'700':'500')+'">'+s.label+'</button>';}).join('')+'</div>';
@@ -12576,10 +12581,6 @@ function renderTasksPaneByBrand(){
       html+=renderBrandSection(bid,byBrand[bid]);
     });
   }
-  
-  // 빠른 추가
-  html+='<div style="margin-top:14px;padding:12px 14px;background:var(--bg2);border-radius:12px"><div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#4b5563">➕ 빠른 추가</div>';
-  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="new-task-name" placeholder="할 일 내용..." style="flex:1;min-width:140px;font-size:12px;padding:6px 8px"><select id="new-task-pri" style="font-size:11px;padding:5px"><option value="urgent">🔴 급한</option><option value="today" selected>🟠 오늘</option><option value="tomorrow">🟡 내일</option><option value="week">🟢 이번주</option></select><select id="new-task-type" style="font-size:11px;padding:5px"><option value="기타">기타</option><option value="전화">전화</option><option value="사무">사무</option><option value="미팅">미팅</option><option value="픽업">픽업</option></select><select id="new-task-loc" style="font-size:11px;padding:5px"><option value="">위치</option><option value="office">사무실</option><option value="market">시장</option><option value="phone">전화</option></select><select id="new-task-brand" style="font-size:11px;padding:5px"><option value="">브랜드</option>'+brands.map(function(b){return '<option value="'+b.id+'">'+esc(b.name)+'</option>';}).join('')+'</select><input id="new-task-item" type="hidden"><button class="btn p" onclick="addTaskQuick()" style="font-size:11px;padding:5px 10px">추가</button></div></div>';
   
   html+='</div>';
   var el=document.getElementById('tasks-body');
