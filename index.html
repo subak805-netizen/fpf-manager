@@ -3065,6 +3065,8 @@ function mkPriceAdditionsSec(i,f,colorList){
       html+='<input data-fa-name="'+addIdx+'" value="'+esc(add.name||'')+'" placeholder="항목명 (예: 바이오워싱)" style="flex:1.5;font-size:11px;padding:3px 6px">';
       html+='<input data-fa-price="'+addIdx+'" type="number" value="'+(add.price||0)+'" placeholder="+단가" style="flex:.7;font-size:11px;padding:3px 6px;text-align:right">';
       html+='<span style="font-size:10px;color:#047857;white-space:nowrap">'+(f.pricingUnit==='kg'?'원/kg':'원/y')+'</span>';
+      html+='<input data-fa-shrink="'+addIdx+'" type="number" value="'+(add.shrinkPct||0)+'" min="0" max="50" step="0.5" placeholder="축률" title="워싱 등으로 원단이 줄어드는 비율 — 이만큼 발주 수량을 더 늘립니다" style="flex:.55;font-size:11px;padding:3px 6px;text-align:right;background:#fff7ed;border-color:#fdba74">';
+      html+='<span style="font-size:10px;color:#c2410c;white-space:nowrap">% 축률</span>';
       html+='<button class="btn s d g" type="button" onclick="rmFabPriceAddition('+i+','+addIdx+')" style="padding:2px 6px;font-size:10px">🗑</button>';
       html+='</div>';
       // 둘째 줄: 적용 대상 (전체 컬러 / 특정 컬러)
@@ -3088,7 +3090,7 @@ function mkPriceAdditionsSec(i,f,colorList){
       }
       html+='</div>';
     });
-    html+='<div style="font-size:9px;color:#047857;opacity:.8;margin-top:3px">💡 가산은 단가에 더해져서 원가 / 발주서에 자동 반영됩니다</div>';
+    html+='<div style="font-size:9px;color:#047857;opacity:.8;margin-top:3px">💡 <b>단가</b>는 원가/발주서 단가에 더해지고, <b>축률%</b>는 발주 <b>수량</b>을 그만큼 늘려요 (워싱 줄어듦 보정). 둘 다 비워도 돼요.</div>';
   }
   html+='</div>';
   return html;
@@ -3099,7 +3101,7 @@ function addFabPriceAddition(i){
   colFR();
   if(!formFabs[i])return;
   formFabs[i].priceAdditions=formFabs[i].priceAdditions||[];
-  formFabs[i].priceAdditions.push({id:uid(),name:'',price:0,applyTo:'all',colors:[]});
+  formFabs[i].priceAdditions.push({id:uid(),name:'',price:0,shrinkPct:0,applyTo:'all',colors:[]});
   renderFabRows();
 }
 function rmFabPriceAddition(i,addIdx){
@@ -3142,6 +3144,22 @@ function calcFabAdditionForColor(f,colorName){
     }
   });
   return add;
+}
+
+// 축률 계산: 특정 컬러에 적용되는 가산항목의 축률(%) 합 — 발주 수량 증가용
+function calcFabShrinkForColor(f,colorName){
+  if(!f.priceAdditions||f.priceAdditions.length===0)return 0;
+  let sh=0;
+  f.priceAdditions.forEach(function(item){
+    const s=+item.shrinkPct||0;
+    if(s<=0)return;
+    if(item.applyTo==='all'){
+      sh+=s;
+    }else if(item.applyTo==='colors'&&item.colors&&item.colors.indexOf(colorName)>=0){
+      sh+=s;
+    }
+  });
+  return sh;
 }
 
 function fabRowHTML(f,i){
@@ -3734,6 +3752,7 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r,i)=>{if(!form
   // 가산 항목 데이터 수집 (이름/단가만 — applyTo와 colors는 라디오/체크박스 onchange로 즉시 저장됨)
   const faNameInputs=r.querySelectorAll('[data-fa-name]');
   const faPriceInputs=r.querySelectorAll('[data-fa-price]');
+  const faShrinkInputs=r.querySelectorAll('[data-fa-shrink]');
   if(faNameInputs.length>0||faPriceInputs.length>0){
     formFabs[i].priceAdditions=formFabs[i].priceAdditions||[];
     const cnt=Math.max(faNameInputs.length,faPriceInputs.length);
@@ -3741,6 +3760,7 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r,i)=>{if(!form
       if(!formFabs[i].priceAdditions[k])formFabs[i].priceAdditions[k]={id:uid(),name:'',price:0,applyTo:'all',colors:[]};
       if(faNameInputs[k])formFabs[i].priceAdditions[k].name=faNameInputs[k].value||'';
       if(faPriceInputs[k])formFabs[i].priceAdditions[k].price=+faPriceInputs[k].value||0;
+      if(faShrinkInputs[k])formFabs[i].priceAdditions[k].shrinkPct=+faShrinkInputs[k].value||0;
     }
   }
   // 사이즈별 요척 수집
@@ -4343,6 +4363,8 @@ function calcFabYards(f,qty,qtyBySize,colorName){
   // === 가산 단가 계산 ===
   // 해당 컬러에 적용되는 가산항목 합산
   const addPerUnit=calcFabAdditionForColor(f,colorName||'');
+  const shrinkPct=calcFabShrinkForColor(f,colorName||'');
+  const shrinkF=1+(shrinkPct/100);
   
   if(hasSizeMap&&hasSizeQty){
     // 사이즈별 정밀 계산: Σ(요척[sz] × 수량[sz])
@@ -4356,7 +4378,7 @@ function calcFabYards(f,qty,qtyBySize,colorName){
       rawTotal+=szYards;
       sizeBreakdown[sz]={consumption:szConsumption,qty:szQty,yards:szYards};
     });
-    const withBuffer=rawTotal*(1+((f.buffer??FAB_LOSS_PCT)/100));
+    const withBuffer=rawTotal*(1+((f.buffer??FAB_LOSS_PCT)/100))*shrinkF;
     const tyS=roundYards(withBuffer);
     const result={ty:tyS,isKg:false,bySize:sizeBreakdown,isSizeCalc:true,addPerUnit:addPerUnit};
     if(f.pricingUnit==='kg'){
@@ -4371,7 +4393,7 @@ function calcFabYards(f,qty,qtyBySize,colorName){
   }
   
   // 옛 로직 (단일 consumption × 총 수량)
-  const raw=f.consumption*qty*(1+((f.buffer??FAB_LOSS_PCT)/100));
+  const raw=f.consumption*qty*(1+((f.buffer??FAB_LOSS_PCT)/100))*shrinkF;
   const ty=roundYards(raw);
   if(f.pricingUnit==='kg'){
     const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(2));
@@ -6030,7 +6052,7 @@ function renderPoTab(o){
     const fabs=sup.materials.filter(m=>m.type==='fabric');const trims=sup.materials.filter(m=>m.type==='trim');
     const matSum=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">${fabs.map(f=>`<span class="tag">${esc(f.displayName||f.name)} ${f.totalYards}yd${f.totalKg?'('+f.totalKg+'kg)':''}</span>`).join('')}${trims.map(t=>{let lbl=esc(t.name);if(t.orderType==='careLabel')lbl='🏷️'+esc(t.labelName||'케어라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');else if(t.orderType==='mainLabel')lbl='🎫'+esc(t.labelName||t.midSize||'메인라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');const q=t.calc?.isRoll?t.calc.rolls+'롤':(t.calc?.isJeol?t.calc.jeol+'절':t.calc?.qty+(t.calc?.unit||''));return `<span class="tag">${lbl} ${q}</span>`;}).join('')}</div>`;
     const poText=genPoText(o,sn);
-    return`<div class="sc"><div class="sc-h"><div style="font-weight:600">${esc(sn)}</div><span class="badge ${sent?'b1':'b0'}">${sent?'발송':'미발송'}</span></div>
+    return`<div class="sc"><div class="sc-h"><div style="font-weight:600">${esc(sn)}</div><div style="display:flex;align-items:center;gap:6px"><span class="badge ${sent?'b1':'b0'}">${sent?'발송':'미발송'}</span><button class="btn s g" style="font-size:10px;padding:2px 8px" onclick="deleteOrderSupplier('${o.id}','${sn}')" title="이 발주서 삭제">🗑 삭제</button></div></div>
     <div class="sc-b">${matSum}
       <div class="g2" style="margin-bottom:8px"><div class="fg" style="margin-bottom:0"><label>담당자</label><input value="${esc(sup.recipient||'')}" placeholder="담당자명" onchange="S.orders['${o.id}'].suppliers['${sn}'].recipient=this.value;saveData()"></div><div class="fg" style="margin-bottom:0"><label>출고처 (납품 공장)</label><select onchange="S.orders['${o.id}'].suppliers['${sn}'].deliveryFcId=this.value;saveData();renderOTab()">${fcOpts(sup.deliveryFcId||'')}</select></div></div>
       <div class="sec"><span>발주 내용 선택</span></div>
@@ -6068,6 +6090,21 @@ function renderPoTab(o){
       ${pb.email||pb.phone?`<div class="muted" style="margin-top:6px;font-size:11px">${pb.email?'✉ '+pb.email+' ':''}${pb.phone?'📱 '+pb.phone:''}</div>`:''}
     </div></div>`;
   }).join('');
+}
+
+// 발주서(거래처) 삭제 — 잘못 생긴 추가발주 등을 직접 제거
+function deleteOrderSupplier(oid,sn){
+  var o=S.orders[oid];if(!o||!o.suppliers||!o.suppliers[sn])return;
+  var isExtra=sn.indexOf('(추가발주)')>=0;
+  var msg='"'+sn+'" 발주서를 삭제할까요?\n\n'+(isExtra
+    ?'※ 추가발주 항목이 사라지고, 자재는 다음 발주서 열람 시 원래 거래처로 다시 합쳐집니다.'
+    :'※ 이 거래처 발주 정보가 이 오더에서 제거됩니다. (아이템의 자재 정의는 그대로 남아요)');
+  if(!confirm(msg))return;
+  delete o.suppliers[sn];
+  saveData();
+  showToast('🗑 "'+sn+'" 발주서 삭제됨');
+  if(typeof renderOTab==='function')renderOTab();
+  if(typeof renderOrderPane==='function')renderOrderPane();
 }
 
 function sharePoKakao(oid,sn){
