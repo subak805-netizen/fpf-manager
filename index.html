@@ -757,6 +757,9 @@ tryInitFirebase();
     <button class="btn p" style="width:100%" onclick="addCo()">등록</button>
   </div>
 </div>
+<div class="overlay" id="task-next-modal" style="display:none" onclick="if(event.target===this)closeModal('task-next-modal')">
+  <div class="modal" style="max-width:420px"><div id="task-next-body"></div></div>
+</div>
 <div class="overlay" id="qty-edit-modal" style="display:none" onclick="if(event.target===this)closeModal('qty-edit-modal')">
   <div class="modal" style="max-width:540px"><div id="qty-edit-body"></div></div>
 </div>
@@ -12504,7 +12507,7 @@ function renderSampleList(){
     return;
   }
   
-  el.innerHTML=filtered.map(function(so){
+  el.innerHTML=(function(){var _cardHtml=function(so){
     var brand=so.brandId?getBrands().find(function(b){return b.id===so.brandId;}):null;
     var stData=SAMPLE_STATUS.find(function(s){return s.key===so.status;})||SAMPLE_STATUS[0];
     var it=so.itemId?S.items[so.itemId]:null;
@@ -12539,7 +12542,19 @@ function renderSampleList(){
       +'<div style="height:3px;background:var(--bg2);border-radius:2px;overflow:hidden"><div style="height:100%;width:'+progress+'%;background:'+stData.color+'"></div></div>'
       +'<div style="font-size:8px;color:var(--t2);text-align:right;margin-top:2px">'+done+'/'+SAMPLE_CHECKLIST.length+'</div>'
       +'</div>';
+  };
+  // 진행률로 그룹 (준비 / 진행중 / 완료)
+  var groups=[{label:'🔵 준비',list:[]},{label:'⏳ 진행중',list:[]},{label:'✅ 완료',list:[]}];
+  filtered.forEach(function(so){
+    var checks=so.checklist||{};
+    var dn=SAMPLE_CHECKLIST.filter(function(c){return checks[c.key];}).length;
+    var gi=dn===0?0:(dn>=SAMPLE_CHECKLIST.length?2:1);
+    groups[gi].list.push(so);
+  });
+  return groups.filter(function(g){return g.list.length;}).map(function(g){
+    return '<div style="font-size:11px;font-weight:700;color:var(--t2);margin:12px 2px 6px 2px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--bd);padding-bottom:4px"><span>'+g.label+'</span><span style="background:var(--bg3);border-radius:100px;padding:1px 8px;font-size:10px">'+g.list.length+'</span></div>'+g.list.map(_cardHtml).join('');
   }).join('');
+  })();
 }
 
 function selectSample(soId){
@@ -13601,10 +13616,12 @@ function renderTaskRow(t){
     <div style="flex:1;min-width:0">
       <div class="task-name">${it&&it.code?`<span style="color:var(--t2);font-weight:700">${esc(it.code)}</span> `:''}${esc(t.name)}</div>
       ${(itBadge||brandBadge||locBadge||supLocBadge||isAuto||t.type)?`<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">${isAuto?'<span class="task-badge auto">⚡자동</span>':''}${brandBadge}${itBadge}${locBadge}${supLocBadge}${t.type&&t.type!=='기타'?`<span class="task-badge">${esc(t.type)}</span>`:''}</div>`:''}
+      ${(t.history&&t.history.length)?`<div style="margin-top:5px"><span onclick="event.stopPropagation();var d=this.nextElementSibling;d.style.display=d.style.display==='none'?'block':'none'" style="font-size:10px;color:var(--t2);cursor:pointer;user-select:none">🔗 지난 단계 ${t.history.length} ▸</span><div style="display:none;margin-top:4px;padding-left:8px;border-left:2px solid var(--bd)">${t.history.map(h=>`<div style="font-size:10px;color:var(--t2);padding:1px 0">✓ ${esc(h.text)}${h.doneAt?` <span style="color:var(--t3)">· ${esc(h.doneAt)}</span>`:''}</div>`).join('')}</div></div>`:''}
     </div>
     <div class="task-meta">
       ${navBtn}
       ${t.autoType==='sample_arrival_check'?`<button class="btn s" onclick="event.stopPropagation();sendArrivalCheckMessage('${t.id}')" style="padding:3px 8px;font-size:10px;background:#fef3c7;color:#92400e;border-color:#fde68a" title="카톡으로 보내기">📩 카톡</button><button class="btn s ok" onclick="event.stopPropagation();markSampleArrivalConfirmed('${t.id}')" style="padding:3px 8px;font-size:10px">✅ 도착함</button>`:''}
+      ${isAuto?'':'<button class="btn s" onclick="event.stopPropagation();openTaskNext(\''+t.id+'\')" style="padding:3px 7px;font-size:10px;background:#eef2ff;color:#4338ca;border-color:#c7d2fe" title="다음 할 일로 잇기">🔗</button>'}
       ${isAuto?'':'<button class="btn s" onclick="event.stopPropagation();editTaskManual(\''+t.id+'\')" style="padding:3px 7px;font-size:10px" title="수정">✎</button>'}
       ${isAuto?'':'<button class="btn s d" onclick="event.stopPropagation();deleteTaskManual(\''+t.id+'\')" style="padding:3px 7px;font-size:10px" title="삭제">×</button>'}
     </div>
@@ -13770,10 +13787,38 @@ function toggleTaskManual(id){
   const tasks=getTasks();
   const t=tasks.find(x=>x.id===id);
   if(!t)return;
-  t.done=!t.done;
-  if(t.done)t.doneAt=new Date().toISOString();
+  if(!t.done){ openTaskNext(id); return; } // 체크 → 다음 할 일 물어보기(건너뛰기 가능)
+  t.done=false;t.doneAt='';
   saveData();
   renderTasksPane();
+}
+function openTaskNext(id){
+  var t=getTasks().find(function(x){return x.id===id;});if(!t)return;
+  var presets=['소통중','소통완료','발주','공장입고','도착','출고예정'];
+  var h='<div class="fb" style="margin-bottom:10px"><b>🔗 다음 할 일 잇기</b><button class="btn s" onclick="closeModal(\'task-next-modal\')">✕</button></div>';
+  h+='<div style="font-size:11px;color:var(--t2);margin-bottom:3px">방금 끝낸 일</div><div style="font-weight:600;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border-radius:6px">✓ '+esc(t.name)+'</div>';
+  h+='<div style="font-size:12px;font-weight:600;margin-bottom:6px">다음 할 일이 있나요? <span class="muted" style="font-weight:400">(없으면 끝내기)</span></div>';
+  h+='<div class="fr" style="gap:5px;flex-wrap:wrap;margin-bottom:8px">'+presets.map(function(p){return '<button class="btn s" type="button" onclick="taskNextContinue(\''+id+'\',\''+p+'\')" style="background:#eef2ff;color:#4338ca;border-color:#c7d2fe">'+p+'</button>';}).join('')+'</div>';
+  h+='<div class="fr" style="gap:6px;margin-bottom:14px"><input id="task-next-input" placeholder="다음 할 일 직접 입력…" style="flex:1" onkeydown="if(event.key===\'Enter\')taskNextContinue(\''+id+'\')"><button class="btn p" type="button" onclick="taskNextContinue(\''+id+'\')">이어가기</button></div>';
+  h+='<div class="fr" style="justify-content:space-between"><button class="btn" type="button" onclick="closeModal(\'task-next-modal\')">취소</button><button class="btn ok" type="button" onclick="taskNextDone(\''+id+'\')">✓ 다음 없음 · 완료(끝)</button></div>';
+  document.getElementById('task-next-body').innerHTML=h;
+  document.getElementById('task-next-modal').style.display='flex';
+  setTimeout(function(){var i=document.getElementById('task-next-input');if(i)i.focus();},60);
+}
+function taskNextContinue(id,preset){
+  var t=getTasks().find(function(x){return x.id===id;});if(!t)return;
+  var next=preset||((document.getElementById('task-next-input')||{}).value||'').trim();
+  if(!next){showToast('다음 할 일을 입력하거나 완료를 누르세요');return;}
+  if(!t.history)t.history=[];
+  t.history.push({text:t.name,doneAt:today()});
+  t.name=next;t.done=false;t.doneAt='';
+  saveData();closeModal('task-next-modal');renderTasksPane();
+  showToast('🔗 이어졌어요 → '+next);
+}
+function taskNextDone(id){
+  var t=getTasks().find(function(x){return x.id===id;});if(!t)return;
+  t.done=true;t.doneAt=new Date().toISOString();
+  saveData();closeModal('task-next-modal');renderTasksPane();
 }
 
 function deleteTaskManual(id){
