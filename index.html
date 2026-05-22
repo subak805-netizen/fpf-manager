@@ -1959,6 +1959,14 @@ function migrateData(){
       if(!sch.extraShipments)sch.extraShipments=[];
       if(!sch.cuttingGrid)sch.cuttingGrid={};
       if(!sch.shippingGrid)sch.shippingGrid={};
+      // 분할 출고: shipments 단일 원천으로 이관 (1회)
+      if(!sch.shipments){
+        var _ships=[];
+        for(var _it in(sch.shippingGrid||{})){var _ig=sch.shippingGrid[_it];for(var _c in _ig){for(var _sz in _ig[_c]){var _q=+_ig[_c][_sz]||0;if(_q>0)_ships.push({id:uid(),date:sch.shippingDate||todayISO(),itemId:_it,color:_c,size:_sz,qty:_q,note:'기존 출고'});}}}
+        for(var _e=0;_e<(sch.extraShipments||[]).length;_e++){var _ex=sch.extraShipments[_e],_eq=+_ex.qty||0;if(_eq>0)_ships.push({id:_ex.id||uid(),date:_ex.date||'',itemId:'',color:'',size:'',qty:_eq,note:_ex.note||'추가 출고'});}
+        sch.shipments=_ships;sch.extraShipments=[];
+        recomputeShipping(sch);
+      }
       if(sch.processDone===undefined)sch.processDone=false;
       if(!sch.processDate)sch.processDate='';
       if(sch.advanceRate===undefined)sch.advanceRate=0;
@@ -2863,7 +2871,42 @@ function updatePBNegoPrice(encSup,encNm,priceType,val){
 function savePB(){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
 
 /* ===== ITEM FORM ===== */
-function renderColorChips(){const el=document.getElementById('color-chips');if(!el)return;el.innerHTML=formColors.map((c,i)=>`<span class="chip">${esc(c)}<button onclick="removeColor(${i})">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">단색 (추가하면 컬러별 발주)</span>';}
+function colorToHex(name){
+  if(!name)return '#cbd5e1';
+  var n=(''+name).toLowerCase().replace(/\s/g,'');
+  var map=[
+    [['검정','블랙','black','먹'],'#222222'],
+    [['아이보리','ivory','아이','상아'],'#f3edda'],
+    [['크림','cream'],'#fff2cf'],
+    [['흰','화이트','white','백'],'#ffffff'],
+    [['베이지','beige'],'#e3cda4'],
+    [['카멜','camel','탄색','tan'],'#c19a6b'],
+    [['초콜','choco','갈','브라운','brown'],'#8b5e3c'],
+    [['차콜','챠콜','charcoal'],'#4b4f56'],
+    [['회','그레이','gray','grey'],'#9aa0a6'],
+    [['빨','레드','red','적색'],'#e03131'],
+    [['주황','오렌지','orange'],'#ff922b'],
+    [['머스타드','mustard'],'#d6a300'],
+    [['노랑','노란','옐로','yellow','황색'],'#fcc419'],
+    [['카키','khaki'],'#6b8e23'],
+    [['올리브','olive'],'#808000'],
+    [['민트','mint'],'#63e6be'],
+    [['초록','녹색','그린','green'],'#2f9e44'],
+    [['소라','하늘','스카이','sky'],'#74c0fc'],
+    [['곤색','곤','네이비','navy'],'#1a237e'],
+    [['데님','denim','청색'],'#4a6fa5'],
+    [['파랑','파란','블루','blue'],'#1c7ed6'],
+    [['라벤더','lavender'],'#b197fc'],
+    [['보라','퍼플','purple','자주'],'#7048e8'],
+    [['분홍','핑크','pink'],'#f06595'],
+    [['와인','버건디','burgundy','wine'],'#842029'],
+  ];
+  for(var k=0;k<map.length;k++){for(var j=0;j<map[k][0].length;j++){if(n.indexOf(map[k][0][j])>=0)return map[k][1];}}
+  var h=0;for(var c=0;c<n.length;c++)h=(h*31+n.charCodeAt(c))%360;
+  return 'hsl('+h+',55%,68%)';
+}
+function colorDot(name){return '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:'+colorToHex(name)+';border:1px solid rgba(0,0,0,.18);margin-right:5px;vertical-align:-1px"></span>';}
+function renderColorChips(){const el=document.getElementById('color-chips');if(!el)return;el.innerHTML=formColors.map((c,i)=>`<span class="chip">${colorDot(c)}${esc(c)}<button onclick="removeColor(${i})">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">단색 (추가하면 컬러별 발주)</span>';}
 function renderSizeChips(){const el=document.getElementById('size-chips');if(!el)return;el.innerHTML=formSizes.map((s,i)=>`<span class="chip">${esc(s)}<button onclick="removeSize(${i})">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">프리사이즈</span>';}
 function addColor(){const inp=document.getElementById('color-input');const v=inp.value.trim();if(!v||formColors.includes(v)){inp.value='';return;}formColors.push(v);inp.value='';renderColorChips();}
 function removeColor(i){formColors.splice(i,1);renderColorChips();}
@@ -3110,12 +3153,12 @@ function showItemForm(id){
     <div style="margin-top:8px;text-align:center"><button class="btn s" type="button" onclick="addFabRow()" style="padding:8px 20px">＋ 원단 추가</button></div>
     
     <!-- 2. 부자재 -->
-    <div class="sec" style="margin-top:12px"><span>부자재</span><div class="fr" style="gap:4px;flex-wrap:wrap"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 심지</button><button class="btn s" type="button" onclick="addTrimRow('yardp')" style="background:#dbeafe;border-color:#93c5fd">+ 야드</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('lace')" style="background:#f3e8ff;border-color:#d8b4fe">+ 레이스(컷)</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button><button class="btn s" type="button" onclick="addTrimRow('button')" style="background:#ede9fe;border-color:#c4b5fd">+ 단추</button><button class="btn s" type="button" onclick="addTrimRow('buttonloop')" style="background:#e0f2fe;border-color:#7dd3fc">+ 단추고리</button><button class="btn s" type="button" onclick="addTrimRow('bag')" style="background:#dcfce7;border-color:#86efac">+ 봉지(스냅)</button><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('bias')" style="background:#ffe4e6;border-color:#fda4af">+ 바이어스재단</button></div></div>
+    <div class="sec" style="margin-top:12px"><span>부자재</span></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px;margin-top:6px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 심지</button><button class="btn s" type="button" onclick="addTrimRow('yardp')" style="background:#dbeafe;border-color:#93c5fd">+ 야드</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('lace')" style="background:#f3e8ff;border-color:#d8b4fe">+ 레이스(컷)</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button><button class="btn s" type="button" onclick="addTrimRow('button')" style="background:#ede9fe;border-color:#c4b5fd">+ 단추</button><button class="btn s" type="button" onclick="addTrimRow('buttonloop')" style="background:#e0f2fe;border-color:#7dd3fc">+ 단추고리</button><button class="btn s" type="button" onclick="addTrimRow('bag')" style="background:#dcfce7;border-color:#86efac">+ 봉지(스냅)</button><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('bias')" style="background:#ffe4e6;border-color:#fda4af">+ 바이어스재단</button></div>
     <div id="trim-rows"></div>
     <!-- 부자재 하단 추가 버튼: 스크롤 안 해도 계속 추가 가능 -->
     <div style="margin-top:8px;padding:10px 12px;background:var(--bg2);border-radius:var(--r);border:1px dashed var(--bd)">
       <div style="font-size:11px;color:var(--t2);margin-bottom:6px;font-weight:600">➕ 부자재 추가 (스크롤 없이 바로 추가)</div>
-      <div class="fr" style="gap:4px;flex-wrap:wrap"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 심지</button><button class="btn s" type="button" onclick="addTrimRow('yardp')" style="background:#dbeafe;border-color:#93c5fd">+ 야드</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('lace')" style="background:#f3e8ff;border-color:#d8b4fe">+ 레이스(컷)</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button><button class="btn s" type="button" onclick="addTrimRow('button')" style="background:#ede9fe;border-color:#c4b5fd">+ 단추</button><button class="btn s" type="button" onclick="addTrimRow('buttonloop')" style="background:#e0f2fe;border-color:#7dd3fc">+ 단추고리</button><button class="btn s" type="button" onclick="addTrimRow('bag')" style="background:#dcfce7;border-color:#86efac">+ 봉지(스냅)</button><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('bias')" style="background:#ffe4e6;border-color:#fda4af">+ 바이어스재단</button></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 심지</button><button class="btn s" type="button" onclick="addTrimRow('yardp')" style="background:#dbeafe;border-color:#93c5fd">+ 야드</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('lace')" style="background:#f3e8ff;border-color:#d8b4fe">+ 레이스(컷)</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button><button class="btn s" type="button" onclick="addTrimRow('button')" style="background:#ede9fe;border-color:#c4b5fd">+ 단추</button><button class="btn s" type="button" onclick="addTrimRow('buttonloop')" style="background:#e0f2fe;border-color:#7dd3fc">+ 단추고리</button><button class="btn s" type="button" onclick="addTrimRow('bag')" style="background:#dcfce7;border-color:#86efac">+ 봉지(스냅)</button><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('bias')" style="background:#ffe4e6;border-color:#fda4af">+ 바이어스재단</button></div>
     </div>
     
     <!-- 3. 부자재 가공비 -->
@@ -3554,7 +3597,7 @@ function trimRowHTML(t,i){
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap">'
       +'<span style="font-size:13px;font-weight:700;color:#9f1239">✂️ 바이어스재단</span>'
       +'<input type="hidden" data-f="orderType" value="bias">'
-      +'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
+      +'<button class="btn s" onclick="addTrimCostFor('+i+')" style="background:#fef9c3;border-color:#fde68a;color:#854f0b;font-size:10px" title="이 부자재에 염색·나염 등 가공비 추가">＋가공비</button>'+'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
       +'</div>'
       // 가공처(부자재집) / 원단출처 / 규격
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
@@ -3600,7 +3643,7 @@ function trimRowHTML(t,i){
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap">'
       +'<span style="font-size:13px;font-weight:700;color:#166534">🏷️ 케어라벨</span>'
       +'<input type="hidden" data-f="orderType" value="careLabel">'
-      +'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
+      +'<button class="btn s" onclick="addTrimCostFor('+i+')" style="background:#fef9c3;border-color:#fde68a;color:#854f0b;font-size:10px" title="이 부자재에 염색·나염 등 가공비 추가">＋가공비</button>'+'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
       +'</div>'
       // 부자재처, 라벨이름
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
@@ -3634,7 +3677,7 @@ function trimRowHTML(t,i){
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap">'
       +'<span style="font-size:13px;font-weight:700;color:#854d0e">🎫 메인라벨</span>'
       +'<input type="hidden" data-f="orderType" value="mainLabel">'
-      +'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
+      +'<button class="btn s" onclick="addTrimCostFor('+i+')" style="background:#fef9c3;border-color:#fde68a;color:#854f0b;font-size:10px" title="이 부자재에 염색·나염 등 가공비 추가">＋가공비</button>'+'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
       +'</div>'
       // 브랜드 선택, 라벨명 선택(단가 자동), 단가
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
@@ -3690,7 +3733,7 @@ function trimRowHTML(t,i){
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap">'
       +'<span style="font-size:13px;font-weight:700;color:#be185d">🤐 지퍼</span>'
       +'<input type="hidden" data-f="orderType" value="zipper">'
-      +'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
+      +'<button class="btn s" onclick="addTrimCostFor('+i+')" style="background:#fef9c3;border-color:#fde68a;color:#854f0b;font-size:10px" title="이 부자재에 염색·나염 등 가공비 추가">＋가공비</button>'+'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
       +'</div>'
       // 거래처/이름
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
@@ -3728,7 +3771,7 @@ function trimRowHTML(t,i){
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap">'
       +'<span style="font-size:13px;font-weight:700;color:#6d28d9">🔘 단추</span>'
       +'<input type="hidden" data-f="orderType" value="button">'
-      +'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
+      +'<button class="btn s" onclick="addTrimCostFor('+i+')" style="background:#fef9c3;border-color:#fde68a;color:#854f0b;font-size:10px" title="이 부자재에 염색·나염 등 가공비 추가">＋가공비</button>'+'<button class="btn s d g" onclick="rmTrimRow('+i+')">🗑</button>'
       +'</div>'
       // 거래처/이름/사이즈/스타일
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
@@ -4291,36 +4334,8 @@ function saveItemForm(){
   S.items[id]=item;
   // 브랜드 저장
   item.brandId=document.getElementById('f-brand')?.value||'';
-  // === 자동 샘플 생성 (새 아이템만) ===
+  // === 새 아이템 등록 시 샘플 자동 생성은 제거됨 (사용자가 필요할 때 샘플 탭에서 추가) ===
   var isNewItem=!editItemId;
-  var autoCreatedSample=false;
-  if(isNewItem){
-    if(!S.sampleOrders)S.sampleOrders=[];
-    var alreadyHasSample=S.sampleOrders.some(function(so){return so.itemId===id;});
-    if(!alreadyHasSample){
-      var newSampleId='so_'+uid();
-      var firstFabric=(item.fabrics&&item.fabrics[0])||{};
-      var firstTrim=(item.trims&&item.trims[0])||{};
-      S.sampleOrders.unshift({
-        id:newSampleId,
-        name:item.name+' 샘플',
-        itemId:id,
-        brandId:item.brandId||'',
-        status:'prep',
-        checklist:{fabric:false,trim:false,sewInstr:false,pattern:false,patternInstr:false},
-        fabricSupplier:firstFabric.supplier||'',
-        trimSupplier:firstTrim.supplier||'',
-        patternMaker:'',
-        sampleColors:[],
-        colorQtys:{},
-        expectedArrivalDate:'',
-        patternArrivalDate:'',
-        notes:'',
-        createdAt:new Date().toISOString()
-      });
-      autoCreatedSample=true;
-    }
-  }
   saveToPB(item);saveData();renderItemsList();renderCSDropdown();
   // 폼은 닫지 않고 그대로 유지 (사용자가 추가 편집할 수 있도록)
   // 다만 신규 → 편집 모드로 전환되어야 다음 저장 시 동일 아이템 업데이트됨
@@ -4332,17 +4347,7 @@ function saveItemForm(){
   if(!isNewItem){
     notifyOrdersAffectedByItemChange(item.id,item.name);
   }
-  if(autoCreatedSample){
-    showToast('✅ 아이템 저장 + 샘플 자동 생성! 컬러·수량 입력하러 가요',3500);
-    setTimeout(function(){
-      if(confirm('🪡 "'+item.name+' 샘플"이 생성됐어요.\n샘플 발주 탭으로 이동할까요? (컬러·수량 입력 필요)')){
-        hideItemForm(); // 샘플 탭으로 이동할 때는 폼 닫기
-        switchTab('sample');
-      }
-    },300);
-  }else{
-    showToast('💾 저장됨 — 계속 편집하거나 ✕로 닫으세요',2500);
-  }
+  showToast(isNewItem?'✅ 아이템 등록 완료':'💾 저장됨 — 계속 편집하거나 ✕로 닫으세요',2500);
 }
 
 /* ===== ORDER CREATION (GRID) ===== */
@@ -4922,7 +4927,7 @@ function togglePoAddrOpt(oid,sn,key,checked){
 }
 
 function savePoOptsDefault(sn,key,val){if(!S.priceBook[sn])S.priceBook[sn]={email:'',phone:'',memo:'',materials:{}};if(!S.priceBook[sn].defaultPoOpts)S.priceBook[sn].defaultPoOpts={};S.priceBook[sn].defaultPoOpts[key]=val;lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
-function mkFcSch(){return{expectedArrivalDate:'',cuttingDate:'',cuttingQty:0,cuttingGrid:{},sewingCompleteDate:'',shipExpectedDate:'',shipDone:false,shipDoneDate:'',shippingDate:'',shippingQty:0,shippingGrid:{},vatRate:10,paymentSent:false,paymentSentAt:'',notified:false,extraShipments:[],processDone:false,processDate:''};}
+function mkFcSch(){return{expectedArrivalDate:'',cuttingDate:'',cuttingQty:0,cuttingGrid:{},sewingCompleteDate:'',shipExpectedDate:'',shipDone:false,shipDoneDate:'',shippingDate:'',shippingQty:0,shippingGrid:{},vatRate:10,paymentSent:false,paymentSentAt:'',notified:false,extraShipments:[],shipments:[],processDone:false,processDate:''};}
 
 /* ===== PO TEXT (새 형식 — 간단명료) ===== */
 // ===== 브랜드 예상 일정 안내 (날짜별 묶음 + 선택) =====
@@ -5725,6 +5730,7 @@ function renderOrderPane(){
         ${renderCardQtyBadge(o)}
       </div>
       <div class="pbar" style="margin-top:5px"><div class="pfill" style="width:${prog}%"></div></div>
+      ${o.shippingDate?`<div style="font-size:10px;color:var(--t2);margin-top:4px">🚚 출고예정 <b>${esc(o.shippingDate)}</b>${di.text?` <span class="dday-badge ${di.cls}" style="padding:0 5px;font-size:9px">${di.text}</span>`:''}</div>`:''}
     </div>`;
   }).join('');
   if(curOid&&S.orders[curOid])renderOrderDetail();
@@ -7099,10 +7105,12 @@ function renderProdTab(o){
         const sGrid=sch.shippingGrid?.[oi.itemId]||{};
         const cTotal=Object.values(cGrid).reduce((s,c)=>s+Object.values(c).reduce((a,v)=>a+(+v||0),0),0);
         const sTotal=Object.values(sGrid).reduce((s,c)=>s+Object.values(c).reduce((a,v)=>a+(+v||0),0),0);
-        // 오더수량 표 (읽기전용)
+        // 오더수량 표 (읽기전용) + 재분배 수량 표 (나란히)
         const ordTotal=colors.reduce((s,c)=>s+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);
-        const ordGrid=`<div style="margin-bottom:8px;padding:7px 10px;background:var(--bbg);border-radius:6px;border:1px solid #BFDBFE">
-          <div style="font-size:11px;font-weight:600;color:var(--blue);margin-bottom:5px">📋 오더수량 (읽기전용) — 합계 ${ordTotal}pcs${(function(){var ep=getEffectivePcsForOrderItem(o,oi);if(ep===null||ep===ordTotal)return '';var short=ep<ordTotal;return ` <span style="color:${short?'var(--red)':'var(--blue)'};font-weight:700">→ 실제 ${ep}pcs (${short?'원단부족':'원단여유'})</span>`;})()}</div>
+        const _bd=getEffectivePcsBreakdown(o,oi);
+        const _hasDist=_bd&&_bd.diff!==0;
+        const _ordBox=`<div style="flex:1 1 240px;min-width:0;padding:7px 10px;background:var(--bbg);border-radius:6px;border:1px solid #BFDBFE">
+          <div style="font-size:11px;font-weight:600;color:var(--blue);margin-bottom:5px">📋 오더수량 (읽기전용) — 합계 ${ordTotal}pcs</div>
           <div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:11px"><thead><tr>
             <th style="padding:3px 8px;background:var(--bbg);color:var(--blue)">컬러</th>
             ${sizes.map(s=>`<th style="padding:3px 8px;background:var(--bbg);color:var(--blue);text-align:center">${esc(s)}</th>`).join('')}
@@ -7115,11 +7123,29 @@ function renderProdTab(o){
           </tr>`;}).join('')}
           </tbody></table></div>
         </div>`;
+        const _distBox=_hasDist?`<div style="flex:1 1 240px;min-width:0;padding:7px 10px;background:var(--gbg);border-radius:6px;border:1px solid #BBF7D0">
+          <div style="font-size:11px;font-weight:600;color:var(--green);margin-bottom:5px">🧵 재분배 수량 (봉제공장 전달) — 합계 ${_bd.effTotal}pcs <span style="color:${_bd.diff<0?'var(--red)':'var(--green)'};font-weight:700">(${_bd.diff>0?'+':''}${_bd.diff}장)</span></div>
+          <div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:11px"><thead><tr>
+            <th style="padding:3px 8px;background:var(--gbg);color:var(--green)">컬러</th>
+            ${sizes.map(s=>`<th style="padding:3px 8px;background:var(--gbg);color:var(--green);text-align:center">${esc(s)}</th>`).join('')}
+            <th style="padding:3px 8px;background:var(--gbg);color:var(--green);text-align:center">합계</th>
+          </tr></thead><tbody>
+          ${colors.map(c=>{const cT=sizes.reduce((s,sz)=>s+(+(_bd.effGrid[c]?.[sz])||0),0);const rt=_bd.colorRatios[c]||1;const rp=Math.round((rt-1)*100);const oc=rt<1?'var(--red)':rt>1?'var(--green)':'var(--text)';return`<tr>
+            <td style="padding:3px 8px;font-weight:600;white-space:nowrap">${esc(c)||'─'}</td>
+            ${sizes.map(sz=>`<td style="padding:3px 8px;text-align:center;font-weight:500">${_bd.effGrid[c]?.[sz]||0}</td>`).join('')}
+            <td style="padding:3px 8px;text-align:center;font-weight:700;color:${oc}">${cT}${rp!==0?` <span style="font-size:9px;font-weight:600">(${rp>0?'+':''}${rp}%)</span>`:''}</td>
+          </tr>`;}).join('')}
+          </tbody></table></div>
+        </div>`:'';
+        const ordGrid=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin-bottom:8px">${_ordBox}${_distBox}</div>`;
         return`<div style="margin-bottom:8px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:4px">${esc(it.name)}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+            <div style="font-size:11px;font-weight:600">${esc(it.name)}</div>
+            <button class="btn s" style="font-size:10px;padding:3px 9px;flex-shrink:0" onclick="openTaskAddModal('${it.brandId||''}','${oi.itemId}')">📝 할 일</button>
+          </div>
           ${ordGrid}
           <div style="overflow-x:auto"><table class="tbl fcgrid"><thead>
-            <tr><th rowspan="2">컬러</th><th colspan="${sizes.length+1}" class="th-cut">재단수량</th><th colspan="${sizes.length+1}" class="th-shp">출고수량</th></tr>
+            <tr><th rowspan="2">컬러</th><th colspan="${sizes.length+1}" class="th-cut">재단수량</th><th colspan="${sizes.length+1}" class="th-shp">출고수량</th><th rowspan="2" style="background:var(--rbg);color:var(--red)">미출</th></tr>
             <tr>${sizes.map(s=>`<th class="th-cut">${esc(s)}</th>`).join('')}<th class="th-cut">합계</th>${sizes.map(s=>`<th class="th-shp">${esc(s)}</th>`).join('')}<th class="th-shp">합계</th></tr>
           </thead><tbody>
           ${colors.map(c=>{
@@ -7129,16 +7155,18 @@ function renderProdTab(o){
               <td style="font-size:11px;padding:3px 8px;white-space:nowrap">${esc(c)||'─'}</td>
               ${sizes.map(sz=>`<td class="th-cut" style="background:transparent"><input type="number" value="${cGrid[c]?.[sz]||0}" min="0"  oninput="setFcGrid('${o.id}','${fcId}','${oi.itemId}','cut','${encodeURIComponent(c)}','${sz}',+this.value)"></td>`).join('')}
               <td id="fcg-cut-${fcId}-${oi.itemId}-${encodeURIComponent(c)}" class="th-cut" style="text-align:center;font-weight:700">${cTot}</td>
-              ${sizes.map(sz=>`<td class="th-shp" style="background:transparent"><input type="number" value="${sGrid[c]?.[sz]||0}" min="0"  oninput="setFcGrid('${o.id}','${fcId}','${oi.itemId}','shp','${encodeURIComponent(c)}','${sz}',+this.value)"></td>`).join('')}
+              ${sizes.map(sz=>`<td class="th-shp" style="text-align:center;font-weight:500;color:${(sGrid[c]?.[sz]||0)>0?'inherit':'var(--t3)'}">${sGrid[c]?.[sz]||0}</td>`).join('')}
               <td id="fcg-shp-${fcId}-${oi.itemId}-${encodeURIComponent(c)}" class="th-shp" style="text-align:center;font-weight:700">${sTot}</td>
+              <td id="fcg-un-${fcId}-${oi.itemId}-${encodeURIComponent(c)}" style="text-align:center;font-weight:700;color:${(cTot-sTot)>0?'var(--red)':'var(--t3)'};${(cTot-sTot)>0?'background:var(--rbg)':''}">${(cTot-sTot)>0?(cTot-sTot):'✓'}</td>
             </tr>`;
           }).join('')}
           <tr class="tot-r"><td style="font-size:10px;text-align:right">합계</td>
             <td colspan="${sizes.length}" class="th-cut"></td><td class="th-cut" style="text-align:center">${cTotal}</td>
             <td colspan="${sizes.length}" class="th-shp"></td><td class="th-shp" style="text-align:center">${sTotal}</td>
+            <td style="text-align:center;color:${(cTotal-sTotal)>0?'var(--red)':'var(--t3)'};${(cTotal-sTotal)>0?'background:var(--rbg)':''}">${(cTotal-sTotal)>0?(cTotal-sTotal):'✓'}</td>
           </tr>
           </tbody></table></div>
-          <div class="info-box" style="margin-top:4px;font-size:10px">✅ 위에 입력한 수량이 생산 추적표에 자동으로 반영됩니다</div>
+          <div class="info-box" style="margin-top:4px;font-size:10px">✅ 재단수량은 직접 입력 · <b>출고수량은 아래 출고 기록의 합계가 자동 표시</b>됩니다 (미출 = 재단−출고)</div>
           ${cTotal>ordTotal?`<button class="btn s" style="margin-top:6px;background:#fef3c7;border-color:#fde68a;color:#854f0b;font-weight:700" onclick="openExtraOrder('${o.id}','${oi.itemId}',${cTotal-ordTotal})">➕ 재단 초과분 추가 발주 (+${cTotal-ordTotal}장)</button>`:''}
         </div>`;
       }).join('');
@@ -7153,47 +7181,49 @@ function renderProdTab(o){
           <div class="fg"><label>봉제 완료 예정</label><input type="date" value="${sch.sewingCompleteDate||''}" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].sewingCompleteDate=this.value;saveData()"></div>
           <div class="fg"><label>부가세율 (%)</label><input type="number" value="${sch.vatRate||10}" min="0" max="100" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].vatRate=+this.value;saveData()"></div>
         </div>
-        <div class="info-box" style="margin-bottom:8px">
-          💡 <b>선결제 (재단 후)</b>: 재단 완료 후 일부 금액 선지급 — 출고 후 잔금 정산하는 방식이 일반적입니다.
+        <details class="info-box" style="margin-bottom:8px">
+          <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#854f0b;user-select:none">💡 선결제 (재단 후) <span style="font-weight:400;color:var(--t2)">· 현재 ${sch.advanceRate>0?sch.advanceRate+'%':'없음 (출고 후 일괄)'}</span></summary>
+          <div style="margin-top:6px;font-size:11px;color:var(--t2)">재단 완료 후 일부 금액 선지급 — 출고 후 잔금 정산하는 방식이 일반적입니다.</div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:11px;font-weight:600">선결제 비율:</span>
-            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="0" ${!sch.advanceRate?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=0;saveData()"> 없음 (출고 후 일괄)</label>
-            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="30" ${sch.advanceRate===30?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=30;saveData()"> 30%</label>
-            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="50" ${sch.advanceRate===50?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=50;saveData()"> 50%</label>
-            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="70" ${sch.advanceRate===70?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=70;saveData()"> 70%</label>
-            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="100" ${sch.advanceRate===100?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=100;saveData()"> 100% (선불)</label>
+            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="0" ${!sch.advanceRate?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=0;saveData();renderOrderPane()"> 없음 (출고 후 일괄)</label>
+            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="30" ${sch.advanceRate===30?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=30;saveData();renderOrderPane()"> 30%</label>
+            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="50" ${sch.advanceRate===50?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=50;saveData();renderOrderPane()"> 50%</label>
+            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="70" ${sch.advanceRate===70?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=70;saveData();renderOrderPane()"> 70%</label>
+            <label style="font-size:11px"><input type="radio" name="adv-${fcId}" value="100" ${sch.advanceRate===100?'checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].advanceRate=100;saveData();renderOrderPane()"> 100% (선불)</label>
             ${sch.advanceRate>0?`<div style="margin-top:4px;font-size:11px;color:var(--blue)">선결제: 재단 후 ${sch.advanceRate}% / 출고 후 ${100-sch.advanceRate}%</div>`:''}
           </div>
-        </div>
+        </details>
         ${itemGrids}
-        <!-- 출고 기록 -->
-        <div class="sec" style="margin-top:4px"><span>📦 출고 기록</span><span class="muted" style="font-size:10px;font-weight:400">추가 출고분 자유롭게 입력 가능</span></div>
+        <!-- 출고 기록 (분할 출고) -->
+        <div class="sec" style="margin-top:4px"><span>📦 출고 기록</span><span class="muted" style="font-size:10px;font-weight:400">날짜·컬러·사이즈·수량 입력 → 위 그리드 자동 합산</span></div>
         <div style="overflow-x:auto">
-        <table class="tbl"><thead><tr><th>출고일</th><th style="text-align:center">수량(pcs)</th><th>메모</th><th>결제</th><th>결제일</th><th></th></tr></thead>
-        <tbody>
-          <tr style="background:var(--bg2)">
-            <td><input type="date" value="${sch.shippingDate||''}" style="font-size:11px;padding:3px;width:130px" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].shippingDate=this.value;saveData();renderOrderPane()"></td>
-            <td style="text-align:center"><input type="number" value="${sch.shippingQty||0}" min="0" style="width:60px;font-size:12px;text-align:center" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].shippingQty=+this.value;saveData();renderOrderPane()"></td>
-            <td><span class="muted" style="font-size:11px">1차 출고</span></td>
-            <td style="text-align:center"><input type="checkbox" ${sch.paymentSent?' checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].paymentSent=this.checked;S.orders['${o.id}'].factorySchedules['${fcId}'].paymentSentAt=this.checked?today():'';saveData();renderOrderPane()"></td>
-            <td><span class="muted" style="font-size:10px">${sch.paymentSentAt||''}</span></td>
-            <td></td>
-          </tr>
-          ${extras.map((e,ei)=>`<tr>
-            <td><input type="date" value="${e.date||''}" style="font-size:11px;padding:3px;width:130px" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].extraShipments[${ei}].date=this.value;saveData()"></td>
-            <td style="text-align:center"><input type="number" value="${e.qty||0}" min="0" style="width:60px;font-size:12px;text-align:center" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].extraShipments[${ei}].qty=+this.value;saveData()"></td>
-            <td><input type="text" value="${esc(e.note||'')}" placeholder="메모" style="font-size:11px;padding:3px" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].extraShipments[${ei}].note=this.value;saveData()"></td>
-            <td style="text-align:center"><input type="checkbox" ${e.paid?' checked':''} onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].extraShipments[${ei}].paid=this.checked;S.orders['${o.id}'].factorySchedules['${fcId}'].extraShipments[${ei}].paidAt=this.checked?today():'';saveData()"></td>
-            <td><span class="muted" style="font-size:10px">${e.paidAt||''}</span></td>
-            <td><button class="btn s d g" onclick="rmExtraShip('${o.id}','${fcId}',${ei})">✕</button></td>
-          </tr>`).join('')}
-        </tbody>
-        <tfoot><tr style="background:var(--gbg);font-weight:700">
-          <td style="text-align:right;font-size:11px">합계</td><td style="text-align:center">${totalShipped}pcs</td>
-          <td colspan="4" style="font-size:10px;color:var(--t2)">${extras.length?`추가 출고 ${extras.length}건`:'추가 출고 없음'}</td>
-        </tr></tfoot>
-        </table></div>
-        <button class="btn s ok" style="margin-top:6px" onclick="addExtraShip('${o.id}','${fcId}')">＋ 추가 출고 추가</button>
+        ${(function(){
+          var myItems=fcSewItems(o,fcId);var multi=myItems.length>1;var ships=sch.shipments||[];
+          var rows=ships.map(function(sp){
+            var rit=S.items[sp.itemId];
+            var rcolors=rit?((rit.colors&&rit.colors.length)?rit.colors:['']):[];
+            var rsizes=rit?((rit.sizes&&rit.sizes.length)?rit.sizes:['free']):[];
+            var itemCell=multi?`<td><select style="font-size:11px;max-width:120px" onchange="setShipment('${o.id}','${fcId}','${sp.id}','itemId',this.value)"><option value="">아이템</option>${myItems.map(function(oi){return '<option value="'+oi.itemId+'" '+(sp.itemId===oi.itemId?'selected':'')+'>'+esc((S.items[oi.itemId]||{}).name||'')+'</option>';}).join('')}</select></td>`:'';
+            var colorCell=`<td>${rit?`<select style="font-size:11px;max-width:110px" onchange="setShipment('${o.id}','${fcId}','${sp.id}','color',this.value)">${rcolors.map(function(c){return '<option value="'+esc(c)+'" '+(sp.color===c?'selected':'')+'>'+(esc(c)||'─')+'</option>';}).join('')}</select>`:'<span class="muted" style="font-size:11px">—</span>'}</td>`;
+            var sizeCell=`<td>${rit?`<select style="font-size:11px;max-width:90px" onchange="setShipment('${o.id}','${fcId}','${sp.id}','size',this.value)">${rsizes.map(function(s){return '<option value="'+esc(s)+'" '+(sp.size===s?'selected':'')+'>'+esc(s)+'</option>';}).join('')}</select>`:'<span class="muted" style="font-size:11px">—</span>'}</td>`;
+            return `<tr>
+              <td><input type="date" value="${sp.date||''}" style="font-size:11px;padding:3px;width:130px" onchange="setShipment('${o.id}','${fcId}','${sp.id}','date',this.value)"></td>
+              ${itemCell}${colorCell}${sizeCell}
+              <td style="text-align:center"><input type="number" value="${sp.qty||0}" min="0" style="width:56px;font-size:16px;text-align:center" onchange="setShipment('${o.id}','${fcId}','${sp.id}','qty',this.value)"></td>
+              <td><input type="text" value="${esc(sp.note||'')}" placeholder="메모" style="font-size:11px;padding:3px;width:84px" onchange="setShipment('${o.id}','${fcId}','${sp.id}','note',this.value)"></td>
+              <td><button class="btn s d g" onclick="rmShipment('${o.id}','${fcId}','${sp.id}')">✕</button></td>
+            </tr>`;
+          }).join('');
+          var colCount=multi?7:6;
+          if(!ships.length)rows=`<tr><td colspan="${colCount}" style="text-align:center;color:var(--t3);font-size:11px;padding:12px">아직 출고 기록이 없어요. 아래 ＋버튼으로 추가하세요.</td></tr>`;
+          return `<table class="tbl"><thead><tr><th>출고일</th>${multi?'<th>아이템</th>':''}<th>컬러</th><th>사이즈</th><th style="text-align:center">수량</th><th>메모</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr style="background:var(--gbg);font-weight:700"><td colspan="${multi?4:3}" style="text-align:right;font-size:11px">합계</td><td style="text-align:center">${totalShipped}pcs</td><td colspan="2" style="font-size:10px;color:var(--t2)">${ships.length}건</td></tr></tfoot>
+          </table>`;
+        })()}
+        </div>
+        <button class="btn s ok" style="margin-top:6px" onclick="addShipment('${o.id}','${fcId}')">＋ 출고 추가</button>
       </div></div>`;
     }
 
@@ -7321,6 +7351,15 @@ function extraOrdersSectionHTML(o){
   h+='<div style="font-size:10px;color:var(--t2)">💰 추가분 금액은 거래처 결제 명세서에 자동으로 더해져요</div></div>';
   return h;
 }
+function extraUseForTrim(o,trimId){
+  var sum=0;
+  (o.extraOrders||[]).forEach(function(ex){
+    Object.keys(ex.bySupplier||{}).forEach(function(sn){
+      (ex.bySupplier[sn].lines||[]).forEach(function(l){if(l.trimId===trimId)sum+=(+l.qty||0);});
+    });
+  });
+  return sum;
+}
 function trimTheoUse(t,qty){
   if(!t||!qty)return null;
   if(t.orderType==='roll'){var ypr=t.yardsPerRoll||1;var ty=(t.consumptionPerPiece||0)*qty;if(!ty)return null;return{use:ty/ypr,unit:'롤',note:ty.toFixed(1)+'y 사용'};}
@@ -7338,16 +7377,17 @@ function trimRecoveryHTML(o){
     if(!qty){var cs=(it.colors&&it.colors.length)?it.colors:[''];var szs=(it.sizes&&it.sizes.length)?it.sizes:['free'];qty=cs.reduce(function(s,c){return s+szs.reduce(function(ss,sz){return ss+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);},0);}
     (it.trims||[]).forEach(function(t){
       var theo=trimTheoUse(t,qty);if(!theo)return;
+      var exUse=extraUseForTrim(o,t.id);var totalUse=theo.use+exUse;
       var key=oi.itemId+'_'+t.id;
       var rec=o.trimRecovery[key]||{sent:0,status:'',note:''};
-      var sent=+rec.sent||0;var left=sent-theo.use;
+      var sent=+rec.sent||0;var left=sent-totalUse;
       var stMap={'':'미요청','요청':'🔁 회수요청','완료':'✅ 회수완료'};
       var stColor={'':'var(--t2)','요청':'var(--amber)','완료':'var(--green)'};
       var st=rec.status||'';
       rows.push('<tr style="border-bottom:1px dashed var(--bd)">'
         +'<td style="padding:7px 4px;font-weight:600">'+esc(t.name||'자재')+' <span class="muted" style="font-size:9px">'+esc(it.name)+'</span></td>'
-        +'<td style="text-align:right;padding:7px 4px;white-space:nowrap">'+theo.use.toFixed(1)+theo.unit+(theo.note?'<br><span class="muted" style="font-size:9px">'+theo.note+'</span>':'')+'</td>'
-        +'<td style="text-align:center;padding:7px 4px;white-space:nowrap"><input id="rsent-'+key+'" type="number" value="'+(sent||'')+'" min="0" step="0.1" placeholder="0" style="width:62px;text-align:center;font-size:12px" oninput="updTrimLeft(\''+key+'\','+theo.use+')" onchange="saveTrimSent(\''+o.id+'\',\''+key+'\',this.value)"> '+theo.unit+'</td>'
+        +'<td style="text-align:right;padding:7px 4px;white-space:nowrap">'+totalUse.toFixed(1)+theo.unit+(theo.note?'<br><span class="muted" style="font-size:9px">'+theo.note+'</span>':'')+(exUse>0?'<br><span style="font-size:9px;color:var(--amber)">+'+exUse.toFixed(1)+theo.unit+' 추가발주</span>':'')+'</td>'
+        +'<td style="text-align:center;padding:7px 4px;white-space:nowrap"><input id="rsent-'+key+'" type="number" value="'+(sent||'')+'" min="0" step="0.1" placeholder="0" style="width:62px;text-align:center;font-size:12px" oninput="updTrimLeft(\''+key+'\','+totalUse+')" onchange="saveTrimSent(\''+o.id+'\',\''+key+'\',this.value)"> '+theo.unit+'</td>'
         +'<td style="text-align:right;padding:7px 4px;font-weight:700;white-space:nowrap"><span id="rleft-'+key+'" style="color:'+(left>0.05?'var(--blue)':(left<-0.05?'var(--red)':'var(--t2)'))+'">'+left.toFixed(1)+'</span>'+theo.unit+'</td>'
         +'<td style="text-align:center;padding:7px 4px"><button class="btn s" style="font-size:10px;font-weight:700;color:'+stColor[st]+'" onclick="cycleTrimRecov(\''+o.id+'\',\''+key+'\')">'+stMap[st]+'</button></td>'
         +'</tr>');
@@ -7373,11 +7413,12 @@ function renderLeftoverTab(){
       var fcName=(it.sewingFcId&&S.factories[it.sewingFcId])?S.factories[it.sewingFcId].name:(Object.keys(o.factorySchedules||{}).map(function(fid){return S.factories[fid]?S.factories[fid].name:'';}).filter(Boolean)[0]||'미지정 공장');
       (it.trims||[]).forEach(function(t){
         var theo=trimTheoUse(t,qty);if(!theo)return;
+        var exUse=extraUseForTrim(o,t.id);var totalUse=theo.use+exUse;
         var key=oi.itemId+'_'+t.id;
         var rec=(o.trimRecovery&&o.trimRecovery[key])||{sent:0,status:'',note:''};
         var sent=+rec.sent||0;if(!sent)return;
         if(!byFc[fcName])byFc[fcName]=[];
-        byFc[fcName].push({oid:o.id,key:key,orderName:o.name,itemName:it.name,trimName:t.name||'자재',unit:theo.unit,use:theo.use,sent:sent,left:sent-theo.use,status:rec.status||''});
+        byFc[fcName].push({oid:o.id,key:key,orderName:o.name,itemName:it.name,trimName:t.name||'자재',unit:theo.unit,use:totalUse,sent:sent,left:sent-totalUse,status:rec.status||''});
       });
     });
   });
@@ -7423,13 +7464,18 @@ function setFcGrid(oid,fcId,itemId,type,colorEnc,sz,val){
   sch[gridKey][itemId][cn][sz]=val;
   // 합계 업데이트
   sch.cuttingQty=Object.values(sch.cuttingGrid||{}).reduce((t,ig)=>t+Object.values(ig).reduce((s,cg)=>s+Object.values(cg).reduce((a,v)=>a+(+v||0),0),0),0);
-  sch.shippingQty=Object.values(sch.shippingGrid||{}).reduce((t,ig)=>t+Object.values(ig).reduce((s,cg)=>s+Object.values(cg).reduce((a,v)=>a+(+v||0),0),0),0);
+  recomputeShipping(sch);
   saveData();
   // DOM 컬러 합계 즉시 업데이트
   const sizes=Object.keys(sch[gridKey]?.[itemId]?.[cn]||{});
   const colorTot=sizes.reduce((s,s2)=>s+(+sch[gridKey][itemId][cn][s2]||0),0);
   const totEl=document.getElementById(`fcg-${type}-${fcId}-${itemId}-${colorEnc}`);
   if(totEl)totEl.textContent=colorTot;
+  // 미출(재단−출고) 셀 즉시 업데이트
+  var _cutC=Object.values(sch.cuttingGrid?.[itemId]?.[cn]||{}).reduce((a,v)=>a+(+v||0),0);
+  var _shpC=Object.values(sch.shippingGrid?.[itemId]?.[cn]||{}).reduce((a,v)=>a+(+v||0),0);
+  var unEl=document.getElementById(`fcg-un-${fcId}-${itemId}-${colorEnc}`);
+  if(unEl){var un=_cutC-_shpC;unEl.textContent=un>0?un:'✓';unEl.style.color=un>0?'var(--red)':'var(--t3)';unEl.style.background=un>0?'var(--rbg)':'';}
   // ★ 생산 추적표 동기화
   syncFcToTrack(oid,fcId);
 }
@@ -7454,6 +7500,52 @@ function rmExtraShip(oid,fcId,idx){
   if(!confirm('삭제?'))return;
   o.factorySchedules[fcId].extraShipments.splice(idx,1);
   saveData();renderOTab();
+}
+
+/* ── 분할 출고: shipments 단일 원천 ── */
+function recomputeShipping(sch){
+  if(!sch)return;
+  var grid={},total=0;
+  (sch.shipments||[]).forEach(function(s){
+    var q=+s.qty||0;total+=q;
+    if(s.itemId){ // 아이템 지정된 출고만 그리드에 누적 (컬러/사이즈는 빈값=무컬러/free 허용)
+      var it=s.itemId,c=s.color||'',sz=s.size||'';
+      grid[it]=grid[it]||{};grid[it][c]=grid[it][c]||{};
+      grid[it][c][sz]=(grid[it][c][sz]||0)+q;
+    }
+  });
+  sch.shippingGrid=grid;sch.shippingQty=total;
+  var _dts=(sch.shipments||[]).filter(function(s){return(+s.qty>0)&&s.date;}).map(function(s){return s.date;}).sort();
+  if(_dts.length)sch.shippingDate=_dts[0];
+}
+function fcSewItems(o,fcId){return(o.orderItems||[]).filter(function(oi){return S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===fcId;});}
+function addShipment(oid,fcId,itemId){
+  var o=S.orders[oid];if(!o||!o.factorySchedules[fcId])return;
+  var sch=o.factorySchedules[fcId];if(!Array.isArray(sch.shipments))sch.shipments=[];
+  if(!itemId){var its=fcSewItems(o,fcId);itemId=its.length===1?its[0].itemId:'';}
+  var def={id:uid(),date:todayISO(),itemId:itemId||'',color:'',size:'',qty:0,note:''};
+  // 아이템 컬러/사이즈 하나뿐이면 자동 선택
+  if(itemId){var it=S.items[itemId];if(it){if((it.colors||[]).length===1)def.color=it.colors[0];if((it.colors||[]).length===0)def.color='';if((it.sizes||[]).length===1)def.size=it.sizes[0];}}
+  sch.shipments.push(def);
+  recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();renderOTab();
+}
+function setShipment(oid,fcId,shipId,field,val){
+  var o=S.orders[oid];if(!o||!o.factorySchedules[fcId])return;
+  var sch=o.factorySchedules[fcId];var sp=(sch.shipments||[]).find(function(s){return s.id===shipId;});if(!sp)return;
+  if(field==='qty')val=+val||0;
+  sp[field]=val;
+  // 아이템 변경 시 컬러/사이즈 리셋
+  if(field==='itemId'){sp.color='';sp.size='';var it=S.items[val];if(it){if((it.colors||[]).length===1)sp.color=it.colors[0];if((it.sizes||[]).length===1)sp.size=it.sizes[0];}}
+  recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();
+  // 그리드/미출에 영향 주는 필드면 탭 재렌더
+  if(field==='qty'||field==='color'||field==='size'||field==='itemId'){renderOTab();}else{renderOrderPane();}
+}
+function rmShipment(oid,fcId,shipId){
+  var o=S.orders[oid];if(!o||!o.factorySchedules[fcId])return;
+  if(!confirm('이 출고 기록을 삭제할까요?'))return;
+  var sch=o.factorySchedules[fcId];
+  sch.shipments=(sch.shipments||[]).filter(function(s){return s.id!==shipId;});
+  recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();renderOTab();
 }
 function addFcToOrder(){const sel=document.getElementById('add-fc-sel');const id=sel?.value;if(!id){alert('공장/처 선택');return;}const o=S.orders[curOid];if(!o.factorySchedules)o.factorySchedules={};if(o.factorySchedules[id]){showToast('이미 추가됨');return;}const sch=mkFcSch();if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[id]=sch;saveData();renderOTab();}
 function removeFcFromOrder(id){if(!confirm('제거?'))return;delete S.orders[curOid].factorySchedules[id];saveData();renderOTab();}
@@ -8128,10 +8220,10 @@ function renderDash(){
       <div class="stat"><div class="stat-n" style="font-size:14px">${num(tot-paid)}<span style="font-size:10px">원</span></div><div class="stat-l">미결제</div></div>
     </div>
     ${urgent.length||late.length?`<div class="alert-bar"><b style="color:var(--red)">🚨 긴급 출고 알림</b><div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px">${[...late,...urgent].map(o=>{const di=ddayInfo(o.shippingDate);return`<span class="dday-badge ${di.cls}" style="cursor:pointer" onclick="goToOrder('${o.id}')">${esc(o.name)} ${di.text} ${o.clientName?'('+esc(o.clientName)+')':''}</span>`;}).join('')}</div></div>`:''}
+    <div id="dash-factory-section">${renderDashFactory()}</div>
     ${renderSupplierStatusBoard()}
     ${renderDeliveryCalendar()}
     <div id="dash-materials-section">${renderDashMaterials('all')}</div>
-    <div id="dash-factory-section">${renderDashFactory()}</div>
     <div id="dash-orders-section">${renderDashOrders('all')}</div>`;
 }
 
@@ -8149,6 +8241,7 @@ function renderDashFactory(){
       rows.push({o,fcId,sch,fc});
     }
   }
+  rows.sort(function(a,b){var da=calcDday(a.o.shippingDate);var db=calcDday(b.o.shippingDate);da=(da==null?9999:da);db=(db==null?9999:db);return da-db;});
   let body;
   if(!rows.length){
     body='<div class="muted" style="padding:14px;text-align:center;font-size:12px">표시할 봉제공장 진행이 없어요</div>';
@@ -9372,10 +9465,14 @@ function buildChartRow(o){
   var allShipments=[];
   for(var fid in(o.factorySchedules||{})){
     var sch=o.factorySchedules[fid];
-    if(sch.shippingQty>0)allShipments.push({date:sch.shippingDate||'',qty:sch.shippingQty,fcId:fid,seq:1});
-    for(var es=0;es<(sch.extraShipments||[]).length;es++){
-      var e=sch.extraShipments[es];
-      if(e.qty>0)allShipments.push({date:e.date||'',qty:+e.qty,fcId:fid,seq:es+2});
+    if(Array.isArray(sch.shipments)&&sch.shipments.length){
+      for(var sm=0;sm<sch.shipments.length;sm++){var sp=sch.shipments[sm];if(+sp.qty>0)allShipments.push({date:sp.date||'',qty:+sp.qty,fcId:fid,seq:sm+1});}
+    }else{
+      if(sch.shippingQty>0)allShipments.push({date:sch.shippingDate||'',qty:sch.shippingQty,fcId:fid,seq:1});
+      for(var es=0;es<(sch.extraShipments||[]).length;es++){
+        var e=sch.extraShipments[es];
+        if(e.qty>0)allShipments.push({date:e.date||'',qty:+e.qty,fcId:fid,seq:es+2});
+      }
     }
   }
   allShipments.sort(function(a,b){return(a.date||'').localeCompare(b.date||'');});
@@ -12244,7 +12341,7 @@ function genSamplePoText(so,kind){
   
   // supplier에 여러개 있으면 첫번째만 (또는 전체)
   var firstSup=supplier.split(',')[0].trim();
-  if(firstSup)lines.push(firstSup);
+  if(firstSup&&kind!=='trim')lines.push(firstSup); // 부자재집(메이드) 발주는 상단 이름 생략 → 하단에 >공장이름
   
   // 선택된 컬러 + 수량 가져오기
   var selColors=so.sampleColors||[];
@@ -12266,7 +12363,7 @@ function genSamplePoText(so,kind){
       // 컬러별로 한 줄씩
       var fabricColors=hasColors?effectiveColors:[''];
       var totalY=0;
-      var perColorY=(+f.usagePerPiece||1.5); // 한장당 요척 (없으면 1.5y 폴백)
+      var perColorY=(+f.consumption||+f.usagePerPiece||1.5); // 아이템에 적힌 요척(consumption) 우선, 없으면 1.5y
       for(var ci=0;ci<fabricColors.length;ci++){
         var c=fabricColors[ci];
         var q=hasColors?(+qtys[c]||0):1;
@@ -12279,10 +12376,10 @@ function genSamplePoText(so,kind){
           var lk=f.colorLinks.find(function(x){return x.itemColor===c;});
           if(lk&&lk.fabricColor)fcName=lk.fabricColor;
         }
-        var label='- '+y+'y ('+q+'장 샘플감)';
+        var label='- '+y+'y';
         if(c){
           // fcName이 이미 #로 시작하면 그대로, 아니면 컬러명 그대로
-          label=fcName+' - '+y+'y ('+q+'장 샘플감)';
+          label=fcName+' - '+y+'y';
         }
         lines.push(label);
       }
@@ -12315,10 +12412,17 @@ function genSamplePoText(so,kind){
     if(it&&it.sizes&&it.sizes.length)lines.push('사이즈: '+it.sizes.join(', '));
   }
   
-  lines.push('');
-  lines.push('[요청사항]');
-  lines.push('세액포함 영수증 보내주세요.');
-  lines.push('메이드 C1106으로 이동후 사진 부탁드립니다.');
+  if(kind==='trim'){
+    // 부자재집(메이드) 발주: 맨 하단에 >공장이름 (아이템 봉제공장)
+    var fcNm=(it&&it.sewingFcId&&S.factories[it.sewingFcId])?S.factories[it.sewingFcId].name:'';
+    if(fcNm){lines.push('');lines.push('>'+fcNm);}
+  }else{
+    lines.push('');
+    lines.push('[요청사항]');
+    lines.push('세액포함 영수증 보내주세요.');
+    lines.push('메이드 C1106으로 이동가능할까요?');
+    lines.push('이동후 사진 부탁드립니다.');
+  }
   
   return lines.join('\n').trim();
 }
@@ -14065,10 +14169,7 @@ function editTaskManual(id){
             ${getBrands().map(b=>`<option value="${b.id}"${t.brandId===b.id?' selected':''}>${esc(b.name)}</option>`).join('')}
           </select></div>
         <div><label style="font-size:11px;color:var(--t2);margin-bottom:3px;display:block">아이템</label>
-          <select id="edt-item" style="width:100%;font-size:12px">
-            <option value="">— 선택 —</option>
-            ${Object.values(S.items||{}).filter(it=>!t.brandId||it.brandId===t.brandId).map(it=>`<option value="${it.id}"${t.itemId===it.id?' selected':''}>${esc(it.name)}</option>`).join('')}
-          </select></div>
+          ${taskItemSearchHTML('edt',t.brandId,t.itemId)}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
         <div><label style="font-size:11px;color:var(--t2);margin-bottom:3px;display:block">위치</label>
@@ -14093,11 +14194,37 @@ function editTaskManual(id){
 }
 
 function onEditBrandChange(){
-  const bSel=document.getElementById('edt-brand');const iSel=document.getElementById('edt-item');
-  if(!bSel||!iSel)return;
-  const bid=bSel.value;
-  const items=Object.values(S.items||{}).filter(it=>!bid||it.brandId===bid);
-  iSel.innerHTML='<option value="">— 선택 —</option>'+items.map(it=>`<option value="${it.id}">${esc(it.name)}</option>`).join('');
+  const bSel=document.getElementById('edt-brand');
+  if(!bSel)return;
+  refreshTaskItemDatalist('edt',bSel.value);
+  const s=document.getElementById('edt-item-search');if(s)s.value='';
+  const h=document.getElementById('edt-item');if(h)h.value='';
+}
+
+/* ── 할 일 모달 공용: 아이템 검색 input ── */
+function taskItemSearchHTML(prefix,brandId,itemId){
+  brandId=brandId||'';
+  var items=Object.values(S.items||{}).filter(function(it){return !brandId||it.brandId===brandId;});
+  var disp=function(i){return i.name+(i.code?' ('+i.code+')':'');};
+  var cur=(itemId&&S.items[itemId])?disp(S.items[itemId]):'';
+  return '<input id="'+prefix+'-item-search" list="dl-'+prefix+'-items" value="'+esc(cur)+'" placeholder="🔍 아이템 검색" oninput="onTaskItemSearch(\''+prefix+'\')" style="width:100%;font-size:12px;box-sizing:border-box">'
+    +'<input type="hidden" id="'+prefix+'-item" value="'+esc(itemId||'')+'">'
+    +'<datalist id="dl-'+prefix+'-items">'+items.map(function(it){return '<option value="'+esc(disp(it))+'"></option>';}).join('')+'</datalist>';
+}
+function onTaskItemSearch(prefix){
+  var inp=document.getElementById(prefix+'-item-search');var hid=document.getElementById(prefix+'-item');
+  if(!inp||!hid)return;
+  var txt=(inp.value||'').trim();
+  if(!txt){hid.value='';return;}
+  var items=Object.values(S.items||{});var disp=function(i){return i.name+(i.code?' ('+i.code+')':'');};
+  var found=items.find(function(i){return disp(i)===txt;})||items.find(function(i){return i.name===txt;})||items.find(function(i){return disp(i).toLowerCase().indexOf(txt.toLowerCase())>=0;});
+  hid.value=found?found.id:'';
+}
+function refreshTaskItemDatalist(prefix,brandId){
+  var dl=document.getElementById('dl-'+prefix+'-items');if(!dl)return;
+  var items=Object.values(S.items||{}).filter(function(it){return !brandId||it.brandId===brandId;});
+  var disp=function(i){return i.name+(i.code?' ('+i.code+')':'');};
+  dl.innerHTML=items.map(function(it){return '<option value="'+esc(disp(it))+'"></option>';}).join('');
 }
 
 function saveTaskEdit(id){
@@ -14113,6 +14240,70 @@ function saveTaskEdit(id){
   closeGenericModal();
   renderTasksPane();
   showToast('💾 저장됨');
+}
+
+/* ── 아이템에서 바로 할 일 추가 (편집 모달과 동일 구성) ── */
+function openTaskAddModal(brandId,itemId){
+  brandId=brandId||'';itemId=itemId||'';
+  if(itemId&&!brandId&&S.items[itemId])brandId=S.items[itemId].brandId||'';
+  const html=`
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div><label style="font-size:11px;color:var(--t2);margin-bottom:3px;display:block">업무 내용</label>
+        <input id="tadd-name" placeholder="할 일 내용..." style="width:100%" onkeydown="if(event.key==='Enter')saveTaskAdd()"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div><label style="font-size:11px;color:var(--t2);margin-bottom:3px;display:block">브랜드</label>
+          <select id="tadd-brand" onchange="onTaddBrandChange()" style="width:100%;font-size:12px">
+            <option value="">— 선택 —</option>
+            ${getBrands().map(b=>`<option value="${b.id}"${brandId===b.id?' selected':''}>${esc(b.name)}</option>`).join('')}
+          </select></div>
+        <div><label style="font-size:11px;color:var(--t2);margin-bottom:3px;display:block">아이템</label>
+          ${taskItemSearchHTML('tadd',brandId,itemId)}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+        <div><label style="font-size:11px;color:var(--t2);margin-bottom:3px;display:block">위치</label>
+          <select id="tadd-loc" style="width:100%;font-size:12px">
+            ${TASK_LOCATIONS.map(l=>`<option value="${l.key}"${l.key==='office'?' selected':''}>${l.icon} ${l.label}</option>`).join('')}
+          </select></div>
+        <div><label style="font-size:11px;color:var(--t2);margin-bottom:3px;display:block">우선순위</label>
+          <select id="tadd-pri" style="width:100%;font-size:12px">
+            ${TASK_PRIORITIES.map(p=>`<option value="${p.key}"${p.key==='today'?' selected':''}>${p.label}</option>`).join('')}
+          </select></div>
+        <div><label style="font-size:11px;color:var(--t2);margin-bottom:3px;display:block">종류</label>
+          <select id="tadd-type" style="width:100%;font-size:12px">
+            ${TASK_TYPES.map(tp=>`<option${tp==='확인'?' selected':''}>${tp}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="fr" style="gap:6px;justify-content:flex-end;margin-top:6px">
+        <button class="btn" onclick="closeGenericModal()">취소</button>
+        <button class="btn p" onclick="saveTaskAdd()">저장</button>
+      </div>
+    </div>`;
+  showGenericModal('📝 할 일 추가',html);
+}
+function onTaddBrandChange(){
+  const b=document.getElementById('tadd-brand');
+  refreshTaskItemDatalist('tadd',b?b.value:'');
+  const s=document.getElementById('tadd-item-search');if(s)s.value='';
+  const h=document.getElementById('tadd-item');if(h)h.value='';
+}
+function saveTaskAdd(){
+  const nm=(document.getElementById('tadd-name').value||'').trim();
+  if(!nm){showToast('업무 내용을 입력하세요');return;}
+  const itemId=document.getElementById('tadd-item').value||'';
+  const brandId=document.getElementById('tadd-brand').value||'';
+  const tasks=getTasks();
+  tasks.unshift({
+    id:'tk_'+uid(),name:nm,
+    priority:document.getElementById('tadd-pri').value,
+    type:document.getElementById('tadd-type').value,
+    itemId:itemId,
+    brandId:brandId||(itemId&&S.items[itemId]?S.items[itemId].brandId:''),
+    location:document.getElementById('tadd-loc').value,
+    supplierName:'',auto:false,done:false,createdAt:new Date().toISOString()
+  });
+  S.tasks=tasks;saveData();closeGenericModal();
+  if(typeof renderTasksPane==='function')renderTasksPane();
+  showToast('✅ 할 일 추가됨');
 }
 
 function handleAutoTaskChk(id){
