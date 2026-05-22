@@ -81,6 +81,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn.sms{background:#7B3F00;color:#fff;border-color:transparent;}
 .btn.d{color:var(--red);border-color:var(--rbg);}.btn.d:hover{background:var(--rbg);}
 .btn.s{padding:7px 11px;font-size:13px;min-height:30px;}.btn.g{border-color:transparent;}
+.trim-add-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:5px;}
+.trim-add-grid .btn{min-height:0;padding:5px 4px;font-size:11px;}
 /* Forms */
 .fg{margin-bottom:10px;}
 label{display:block;font-size:11px;color:var(--t2);margin-bottom:2px;font-weight:500;}
@@ -893,13 +895,81 @@ async function cloudGet(key){
 async function cloudSet(key,value){
   if(!isCloudOn())return false;
   try{
+    var _ts=new Date().toISOString();
     await window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key).set({
       value: JSON.stringify(value),
-      ts: new Date().toISOString()
+      ts: _ts
     });
+    if(!window._lastPushTs)window._lastPushTs={};
+    window._lastPushTs[key]=_ts;
     return true;
   }catch(e){console.error('cloudSet '+key+':',e);return false;}
 }
+
+/* ===== 실시간 동기화 (Firestore onSnapshot) ===== */
+var _rtUnsub=null, _rtPending=null, _rtAppliedTs={};
+function isEditingNow(){
+  var ae=document.activeElement;
+  if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return true;
+  var ipf=document.getElementById('ipf');
+  if(ipf&&ipf.style.display&&ipf.style.display!=='none')return true;
+  var mods=document.querySelectorAll('[id$="-modal"]');
+  for(var i=0;i<mods.length;i++){var s=mods[i].style.display;if(s&&s!=='none')return true;}
+  return false;
+}
+function applyRemoteCoData(data){
+  if(!data)return;
+  S.items=data.items||{};S.orders=data.orders||{};S.brands=data.brands||[];
+  S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=data.tasks||[];
+  S.brandConfig=data.brandConfig||{};S.deductions=data.deductions||[];
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
+  try{switchTab(activeTab);}catch(e){try{render();}catch(e2){}}
+}
+function showRemoteBanner(){
+  var b=document.getElementById('rt-banner');
+  if(!b){
+    b=document.createElement('div');b.id='rt-banner';
+    b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:64px;z-index:9998;background:var(--blue,#185FA5);color:#fff;padding:9px 16px;border-radius:20px;font-size:13px;font-weight:600;box-shadow:0 3px 12px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;gap:6px';
+    b.onclick=function(){applyPendingRemote();};
+    document.body.appendChild(b);
+  }
+  b.innerHTML='🔄 다른 기기에서 변경됨 · 탭하여 받기';
+  b.style.display='flex';
+}
+function hideRemoteBanner(){var b=document.getElementById('rt-banner');if(b)b.style.display='none';}
+function applyPendingRemote(){
+  if(!_rtPending)return hideRemoteBanner();
+  var d=_rtPending;_rtPending=null;hideRemoteBanner();
+  if(d.coId!==curCoId)return; // 회사 바뀌었으면 무시
+  applyRemoteCoData(d.data);
+  showToast('🔄 다른 기기 변경이 반영됐어요');
+}
+function startRealtimeSync(){
+  if(!isCloudOn()||!curCoId)return;
+  if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}
+  hideRemoteBanner();_rtPending=null;
+  var key='fpm_'+curCoId, coAtSub=curCoId, _first=true;
+  try{
+    var ref=window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key);
+    _rtUnsub=ref.onSnapshot(function(snap){
+      if(!snap.exists)return;
+      if(snap.metadata&&snap.metadata.hasPendingWrites)return; // 내 로컬 쓰기 진행 중
+      if(curCoId!==coAtSub)return; // 회사 전환됨
+      var d=snap.data();if(!d)return;
+      var ts=d.ts||'';
+      if(_first){_first=false;_rtAppliedTs[key]=ts;return;} // 구독 직후 첫 스냅샷 = 이미 가진 데이터
+      if(ts&&window._lastPushTs&&ts===window._lastPushTs[key])return; // 내가 방금 올림
+      if(ts&&ts===_rtAppliedTs[key])return; // 이미 반영
+      var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
+      if(!data)return;
+      _rtAppliedTs[key]=ts;
+      if(isEditingNow()){_rtPending={coId:coAtSub,data:data};showRemoteBanner();return;}
+      applyRemoteCoData(data);showToast('🔄 다른 기기 변경이 반영됐어요');
+    },function(err){console.error('onSnapshot 오류:',err);});
+    console.log('🔄 실시간 동기화 시작:',key);
+  }catch(e){console.error('startRealtimeSync 실패:',e);}
+}
+function stopRealtimeSync(){if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}hideRemoteBanner();}
 
 function skipLoginAndRegister(){
   // 로그인을 건너뛰고 로컬에서만 회사를 만든다.
@@ -989,6 +1059,7 @@ async function onFirebaseLogin(){
       const changed=await cloudSyncLoad(curCoId);
       renderCoSel();
       render();
+      startRealtimeSync();
 
       // 회사 등록 모달이 떠 있었다면 닫는다.
       const regModal=document.getElementById('add-co-modal');
@@ -2092,7 +2163,7 @@ function importData(file){
 
 /* ===== COMPANY ===== */
 function renderCoSel(){const s=document.getElementById('co-sel');if(!s)return;s.innerHTML=Object.values(companies).map(c=>`<option value="${c.id}"${c.id===curCoId?' selected':''}>${esc(c.name)}</option>`).join('');}
-function onCoChange(id){curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();}
+function onCoChange(id){curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();startRealtimeSync();}
 function showModal(id){const el=document.getElementById(id);if(!el)return;el.style.display='flex';if(id==='o-new-modal'){window._onPage=0;window._ncChecked={};window._ncQtyCache={};const bs=document.getElementById('on-brand-flt');if(bs)bs.dataset.populated='';renderOrderNewItems();}if(id==='cloud-modal')updateCloudModal();}
 function closeModal(id){const el=document.getElementById(id);if(el)el.style.display='none';}
 function addCo(){const nm=document.getElementById('new-co-nm').value.trim();if(!nm)return;const id='co_'+uid();companies[id]={id,name:nm};lsSet('fpm_cos',companies);closeModal('add-co-modal');curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();}
@@ -2598,21 +2669,12 @@ function autofillTrim(r){
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;
   const allSups=Object.keys(S.priceBook).sort();
-  // 검색어로 필터링 (거래처명, 품목명, 색상 모두 검색)
-  const qBook=(window._bookSearch||'').toLowerCase().trim();
-  const sups=qBook?allSups.filter(function(s){
-    if(s.toLowerCase().includes(qBook))return true;
-    const mats=S.priceBook[s].materials||{};
-    return Object.values(mats).some(function(m){
-      return (m.name||'').toLowerCase().includes(qBook)||(m.color||'').toLowerCase().includes(qBook);
-    });
-  }):allSups;
   const searchBox=`<div class="card" style="margin-bottom:10px;padding:10px 12px;background:#f8fafc">
     <div style="display:flex;gap:8px;align-items:center">
       <span style="font-size:14px">🔎</span>
-      <input id="book-search" value="${esc(window._bookSearch||'')}" placeholder="거래처/품목/색상으로 검색…" oninput="window._bookSearch=this.value;clearTimeout(window._bookSearchTimer);window._bookSearchTimer=setTimeout(renderBook,200)" style="flex:1;font-size:13px;padding:6px 10px">
-      ${qBook?`<button class="btn s" onclick="window._bookSearch='';renderBook()">✕ 초기화</button>`:''}
-      <span class="muted" style="font-size:11px;white-space:nowrap">${qBook?sups.length+'/'+allSups.length:allSups.length+'곳'}</span>
+      <input id="book-search" value="${esc(window._bookSearch||'')}" placeholder="거래처/품목/색상으로 검색…" oninput="window._bookSearch=this.value;if(event.isComposing)return;clearTimeout(window._bookSearchTimer);window._bookSearchTimer=setTimeout(renderBookList,150)" style="flex:1;font-size:13px;padding:6px 10px">
+      <button class="btn s" onclick="window._bookSearch='';var i=document.getElementById('book-search');if(i)i.value='';renderBookList()">✕</button>
+      <span id="book-count" class="muted" style="font-size:11px;white-space:nowrap">${allSups.length+'곳'}</span>
     </div>
   </div>`;
   const addForm=`<div class="card" style="margin-bottom:10px;border:2px dashed var(--bd)">
@@ -2627,9 +2689,22 @@ function renderBook(){
       <button class="btn p s" style="align-self:flex-end" onclick="addPriceBookEntry()">+ 추가</button>
     </div>
   </div>`;
-  if(!allSups.length){el.innerHTML=searchBox+addForm+'<div class="empty">아이템 저장 시 자동 등록됩니다</div>';return;}
-  if(!sups.length){el.innerHTML=searchBox+addForm+'<div class="empty">검색 결과가 없습니다</div>';return;}
-  el.innerHTML=searchBox+addForm+sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{});return`
+  el.innerHTML=searchBox+addForm+'<div id="book-list"></div>';
+  renderBookList();
+}
+function renderBookList(){
+  const lst=document.getElementById('book-list');if(!lst)return;
+  const allSups=Object.keys(S.priceBook).sort();
+  const qBook=(window._bookSearch||'').toLowerCase().trim();
+  const sups=qBook?allSups.filter(function(s){
+    if(s.toLowerCase().includes(qBook))return true;
+    const mats=S.priceBook[s].materials||{};
+    return Object.values(mats).some(function(m){return (m.name||'').toLowerCase().includes(qBook)||(m.color||'').toLowerCase().includes(qBook);});
+  }):allSups;
+  const cnt=document.getElementById('book-count');if(cnt)cnt.textContent=qBook?(sups.length+'/'+allSups.length):(allSups.length+'곳');
+  if(!allSups.length){lst.innerHTML='<div class="empty">아이템 저장 시 자동 등록됩니다</div>';return;}
+  if(!sups.length){lst.innerHTML='<div class="empty">검색 결과가 없습니다</div>';return;}
+  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{});return`
   <div class="card" style="margin-bottom:10px">
     <div class="fb" style="margin-bottom:8px;cursor:pointer" onclick="toggleBookCard(${si})">
       <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px"><span id="bookcaret-${si}" style="font-size:11px;color:var(--t2)">▶</span>${esc(s)}</div>
@@ -2890,6 +2965,9 @@ function colorToHex(name){
     [['노랑','노란','옐로','yellow','황색'],'#fcc419'],
     [['카키','khaki'],'#6b8e23'],
     [['올리브','olive'],'#808000'],
+    [['연두','연녹','라임','lime','yellowgreen'],'#94c11f'],
+    [['청록','틸','teal','에메랄드','emerald'],'#0ca678'],
+    [['살구','코랄','coral','연주황','피치','peach'],'#ff8787'],
     [['민트','mint'],'#63e6be'],
     [['초록','녹색','그린','green'],'#2f9e44'],
     [['소라','하늘','스카이','sky'],'#74c0fc'],
@@ -3153,17 +3231,17 @@ function showItemForm(id){
     <div style="margin-top:8px;text-align:center"><button class="btn s" type="button" onclick="addFabRow()" style="padding:8px 20px">＋ 원단 추가</button></div>
     
     <!-- 2. 부자재 -->
-    <div class="sec" style="margin-top:12px"><span>부자재</span></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px;margin-top:6px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 심지</button><button class="btn s" type="button" onclick="addTrimRow('yardp')" style="background:#dbeafe;border-color:#93c5fd">+ 야드</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('lace')" style="background:#f3e8ff;border-color:#d8b4fe">+ 레이스(컷)</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button><button class="btn s" type="button" onclick="addTrimRow('button')" style="background:#ede9fe;border-color:#c4b5fd">+ 단추</button><button class="btn s" type="button" onclick="addTrimRow('buttonloop')" style="background:#e0f2fe;border-color:#7dd3fc">+ 단추고리</button><button class="btn s" type="button" onclick="addTrimRow('bag')" style="background:#dcfce7;border-color:#86efac">+ 봉지(스냅)</button><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('bias')" style="background:#ffe4e6;border-color:#fda4af">+ 바이어스재단</button></div>
+    <div class="sec" style="margin-top:12px"><span>부자재</span></div><div class="trim-add-grid" style="margin-top:6px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 심지</button><button class="btn s" type="button" onclick="addTrimRow('yardp')" style="background:#dbeafe;border-color:#93c5fd">+ 야드</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('lace')" style="background:#f3e8ff;border-color:#d8b4fe">+ 레이스(컷)</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button><button class="btn s" type="button" onclick="addTrimRow('button')" style="background:#ede9fe;border-color:#c4b5fd">+ 단추</button><button class="btn s" type="button" onclick="addTrimRow('buttonloop')" style="background:#e0f2fe;border-color:#7dd3fc">+ 단추고리</button><button class="btn s" type="button" onclick="addTrimRow('bag')" style="background:#dcfce7;border-color:#86efac">+ 봉지(스냅)</button><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('bias')" style="background:#ffe4e6;border-color:#fda4af">+ 바이어스재단</button></div>
     <div id="trim-rows"></div>
     <!-- 부자재 하단 추가 버튼: 스크롤 안 해도 계속 추가 가능 -->
     <div style="margin-top:8px;padding:10px 12px;background:var(--bg2);border-radius:var(--r);border:1px dashed var(--bd)">
       <div style="font-size:11px;color:var(--t2);margin-bottom:6px;font-weight:600">➕ 부자재 추가 (스크롤 없이 바로 추가)</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 심지</button><button class="btn s" type="button" onclick="addTrimRow('yardp')" style="background:#dbeafe;border-color:#93c5fd">+ 야드</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('lace')" style="background:#f3e8ff;border-color:#d8b4fe">+ 레이스(컷)</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button><button class="btn s" type="button" onclick="addTrimRow('button')" style="background:#ede9fe;border-color:#c4b5fd">+ 단추</button><button class="btn s" type="button" onclick="addTrimRow('buttonloop')" style="background:#e0f2fe;border-color:#7dd3fc">+ 단추고리</button><button class="btn s" type="button" onclick="addTrimRow('bag')" style="background:#dcfce7;border-color:#86efac">+ 봉지(스냅)</button><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('bias')" style="background:#ffe4e6;border-color:#fda4af">+ 바이어스재단</button></div>
+      <div class="trim-add-grid"><button class="btn s" type="button" onclick="addTrimRow('count')">+ 개수</button><button class="btn s" type="button" onclick="addTrimRow('yard')" style="background:#e0f2fe;border-color:#7dd3fc">+ 심지</button><button class="btn s" type="button" onclick="addTrimRow('yardp')" style="background:#dbeafe;border-color:#93c5fd">+ 야드</button><button class="btn s ok" type="button" onclick="addTrimRow('roll')">+ 롤</button><button class="btn s" type="button" onclick="addTrimRow('lace')" style="background:#f3e8ff;border-color:#d8b4fe">+ 레이스(컷)</button><button class="btn s" type="button" onclick="addTrimRow('thread')" style="background:#fff8e1;border-color:#e0c46a">+ 실</button><button class="btn s" type="button" onclick="addTrimRow('zipper')" style="background:#fce7f3;border-color:#f9a8d4">+ 지퍼</button><button class="btn s" type="button" onclick="addTrimRow('button')" style="background:#ede9fe;border-color:#c4b5fd">+ 단추</button><button class="btn s" type="button" onclick="addTrimRow('buttonloop')" style="background:#e0f2fe;border-color:#7dd3fc">+ 단추고리</button><button class="btn s" type="button" onclick="addTrimRow('bag')" style="background:#dcfce7;border-color:#86efac">+ 봉지(스냅)</button><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('bias')" style="background:#ffe4e6;border-color:#fda4af">+ 바이어스재단</button></div>
     </div>
     
     <!-- 3. 부자재 가공비 -->
-    <div class="sec" style="margin-top:12px"><span>부자재 가공비</span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimCostRow()">+ 추가</button></div></div>
-    <div class="info-box">💡 단추·스트링 등 부자재에 별도 가공이 붙는 경우 (염색비, 나염비 등) 여기에 입력하세요</div>
+    <div class="sec" style="margin-top:12px"><span>기타 가공비 <span style="font-weight:400;font-size:10px;color:var(--t2)">(부자재 미연결)</span></span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimCostRow()">+ 추가</button></div></div>
+    <div class="info-box">💡 가공비는 각 <b>부자재 카드의 ＋가공비</b> 버튼으로 카드 안에 바로 추가돼요. 특정 부자재에 안 묶이는 가공비만 여기에 입력하세요.</div>
     <div id="tc-rows"></div>
     
     <!-- 4. 완성 부자재 비용 -->
@@ -3497,7 +3575,7 @@ function onClrSel(prefix,idx,el){
     colTrimCosts();if(!formTrimCosts[idx].colorLinks)formTrimCosts[idx].colorLinks=[];const a=formTrimCosts[idx].colorLinks;
     if(el.checked){if(!a.find(l=>l.itemColor===c))a.push({itemColor:c,colorName:''});}
     else a.splice(a.findIndex(l=>l.itemColor===c),1);
-    renderTrimCostRows();
+    renderTrimAndCosts();
   }
 }
 
@@ -3885,6 +3963,16 @@ function onTrimMinQty(i,val){
 
 function updFnmDL(inp){const sup=inp.value.trim();const dl=document.getElementById('dl-fnm');if(!dl)return;const m=S.priceBook[sup]?.materials||{};dl.innerHTML=Object.keys(m).filter(k=>m[k].type==='fabric').map(k=>`<option value="${esc(k)}">`).join('');}
 function renderFabRows(){const el=document.getElementById('fab-rows');if(!el)return;el.innerHTML=formFabs.length?formFabs.map((f,i)=>fabRowHTML(f,i)).join(''):'<div class="muted" style="text-align:center;padding:.5rem">원단 없음</div>';var dl=document.getElementById('dl-fnm');if(dl){var fdb=buildFabDB();dl.innerHTML=Object.keys(fdb).map(function(k){return '<option value="'+esc(k)+'">';}).join('');}}
+function inlineTrimCostsHTML(t){
+  if(!t||!t.id)return'';
+  const linked=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>x.tc.trimId===t.id);
+  if(!linked.length)return'';
+  return '<div style="margin:-4px 0 10px;padding:8px 10px 4px;background:#fffbeb;border:1px dashed #fcd34d;border-radius:0 0 8px 8px">'
+    +'<div style="font-size:11px;font-weight:700;color:#854f0b;margin-bottom:6px">💰 이 부자재 가공비 (염색·나염 등)</div>'
+    +linked.map(x=>trimCostRowHTML(x.tc,x.i)).join('')
+    +'</div>';
+}
+function renderTrimAndCosts(){renderTrimRows();renderTrimCostRows();}
 function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)return;
   if(typeof buildCareLabelDB==='function')buildCareLabelDB();
   if(typeof buildLoopDB==='function')buildLoopDB();
@@ -3897,11 +3985,11 @@ function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)r
   });
   let html='';
   if(basics.length){
-    html+=basics.map(x=>trimRowHTML(x.t,x.i)).join('');
+    html+=basics.map(x=>trimRowHTML(x.t,x.i)+inlineTrimCostsHTML(x.t)).join('');
   }
   if(labels.length){
     html+='<div style="margin:14px 0 8px;padding:6px 10px;background:#f3f4f6;border-radius:6px;border-left:3px solid #9ca3af;font-size:12px;font-weight:700;color:#374151">📋 완성 부자재 (라벨)</div>';
-    html+=labels.map(x=>trimRowHTML(x.t,x.i)).join('');
+    html+=labels.map(x=>trimRowHTML(x.t,x.i)+inlineTrimCostsHTML(x.t)).join('');
   }
   el.innerHTML=html;
 }
@@ -3939,7 +4027,7 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r,i)=>{if(!form
     if(maxCons>0)formFabs[i].consumption=maxCons;
   }
 });}
-function colTrimCosts(){document.querySelectorAll('[id^=tc-]').forEach((r,i)=>{if(!formTrimCosts[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;formTrimCosts[i].name=g('name')||'';formTrimCosts[i].factory=g('factory')||'';const ct=g('costType')||'perPcs';formTrimCosts[i].costType=ct;const amt=+g('costAmt')||0;if(ct==='perLot'){formTrimCosts[i].costPerLot=amt;formTrimCosts[i].costPerPcs=0;}else{formTrimCosts[i].costPerPcs=amt;formTrimCosts[i].costPerLot=0;}r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(formTrimCosts[i].colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
+function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{const _id=r.getAttribute('data-tcid');const tc=formTrimCosts.find(x=>x.id===_id);if(!tc)return;const g=f=>r.querySelector('[data-f='+f+']')?.value;tc.name=g('name')||'';tc.factory=g('factory')||'';const ct=g('costType')||'perPcs';tc.costType=ct;const amt=+g('costAmt')||0;if(ct==='perLot'){tc.costPerLot=amt;tc.costPerPcs=0;}else{tc.costPerPcs=amt;tc.costPerLot=0;}r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(tc.colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
 function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r,i)=>{if(!formTrims[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const tp=g('orderType')||'count';formTrims[i].orderType=tp;formTrims[i].supplier=g('supplier')||'';formTrims[i].name=g('name')||'';formTrims[i].size=g('size')||'';formTrims[i].color=g('color')||'';
     // 추가 옵션: 공통 사용/로고/팁/비고
     const commonChk=r.querySelector('[data-trim-common]');
@@ -4059,7 +4147,7 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r,i)=>{if(!form
 function trimCostRowHTML(tc,i){
   const isLot=tc.costType==='perLot';
   const colorSec=mkColorSec(i,'tc',tc.colorLinks||[]);
-  return`<div class="fab-row" id="tc-${i}">
+  return`<div class="fab-row" id="tc-${i}" data-tcid="${tc.id}">
   <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end">
     <div style="flex:1.5;min-width:100px"><label>항목명</label><input data-f="name" value="${esc(tc.name||'')}" placeholder="예: 단추 염색비, 스트링 염색"></div>
     <div style="flex:.7;min-width:60px">
@@ -4086,12 +4174,12 @@ function onTcTypeChange(i,val){
   formTrimCosts[i].costType=val;
   if(val==='perLot'){formTrimCosts[i].costPerLot=formTrimCosts[i].costPerPcs||0;formTrimCosts[i].costPerPcs=0;}
   else{formTrimCosts[i].costPerPcs=formTrimCosts[i].costPerLot||0;formTrimCosts[i].costPerLot=0;}
-  renderTrimCostRows();
+  renderTrimAndCosts();
 }
 
-function renderTrimCostRows(){const el=document.getElementById('tc-rows');if(!el)return;el.innerHTML=formTrimCosts.length?formTrimCosts.map((tc,i)=>trimCostRowHTML(tc,i)).join(''):'<div class="muted" style="text-align:center;padding:.4rem;font-size:11px">추가 가공비 없음</div>';}
+function renderTrimCostRows(){const el=document.getElementById('tc-rows');if(!el)return;const list=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>!x.tc.trimId||!formTrims.find(t=>t.id===x.tc.trimId));el.innerHTML=list.length?list.map(x=>trimCostRowHTML(x.tc,x.i)).join(''):'<div class="muted" style="text-align:center;padding:.4rem;font-size:11px">부자재에 연결되지 않은 가공비 없음 — 각 부자재 카드의 ＋가공비로 추가하세요</div>';}
 function addTrimCostRow(){colTrimCosts();formTrimCosts.push({id:uid(),name:'',costType:'perPcs',costPerPcs:0,costPerLot:0,factory:'',colorLinks:[]});renderTrimCostRows();}
-function addTrimCostFor(i){colTR();var t=formTrims[i]||{};colTrimCosts();formTrimCosts.push({id:uid(),name:(t.name?t.name+' 가공':''),costType:'perLot',costPerPcs:0,costPerLot:0,factory:t.supplier||'',colorLinks:(t.colorLinks?JSON.parse(JSON.stringify(t.colorLinks)):[])});renderTrimCostRows();showToast('💰 가공비 추가됨 — 아래 "부자재 가공비"에서 금액 입력');var el=document.getElementById('tc-rows');if(el)el.scrollIntoView({behavior:'smooth',block:'center'});}
+function addTrimCostFor(i){colTR();colTrimCosts();var t=formTrims[i]||{};formTrimCosts.push({id:uid(),trimId:t.id||'',name:(t.name?t.name+' 가공':''),costType:'perLot',costPerPcs:0,costPerLot:0,factory:t.supplier||'',colorLinks:(t.colorLinks?JSON.parse(JSON.stringify(t.colorLinks)):[])});renderTrimAndCosts();showToast('💰 가공비 추가됨 — 이 부자재 카드 안에서 입력하세요');}
 function addFinishCostRow(){
   const container=document.getElementById('finish-cost-rows');if(!container)return;
   const idx=container.children.length;
@@ -4188,7 +4276,7 @@ function renderCSSummary(){
   </table></div>
   <div class="muted" style="font-size:11px;margin-top:6px">* 수량 1pcs 기준 계산 · 롤/lot비 미니멈 미적용 · 아이템 탭하면 상세 원가 보기</div>`;
 }
-function rmTrimCostRow(i){colTrimCosts();formTrimCosts.splice(i,1);renderTrimCostRows();}
+function rmTrimCostRow(i){colTrimCosts();formTrimCosts.splice(i,1);renderTrimAndCosts();}
 function addFabRow(){colFR();formFabs.push({id:uid(),supplier:'',name:'',pricingUnit:'yard',unitPrice:0,pricePerKg:0,yardsPerKg:1,consumption:0,buffer:FAB_LOSS_PCT,fabricColor:'',width:null,composition:'',priceAdditions:[]});renderFabRows();}
 function rmFabRow(i){colFR();formFabs.splice(i,1);renderFabRows();}
 function addTrimRow(t){
@@ -12393,10 +12481,17 @@ function genSamplePoText(so,kind){
       var t=it.trims[i];
       if(firstSup&&t.supplier!==firstSup)continue;
       var line=t.name||'부자재';
-      if(t.size)line+=' '+t.size;
+      var _spec=t.size||t.buttonSize||t.zipperSize||'';
+      if(_spec)line+=' '+_spec;
+      if(t.color)line+=' '+t.color;
       lines.push(line);
       // 샘플은 적은 수량
-      if(t.orderType==='thread'){
+      if((t.name||'').includes('밴드')){
+        // 밴드: 무조건 1야드부터, 요척×샘플수가 1야드 넘으면 그 값으로
+        var bandNeed=Math.round((+t.consumptionPerPiece||0)*totalSamples*10)/10;
+        var bandY=bandNeed>1?bandNeed:1;
+        lines.push('- '+bandY+'y'+(bandNeed>1?' (요척 '+(+t.consumptionPerPiece||0)+'y×'+totalSamples+'장)':' (최소)'));
+      }else if(t.orderType==='thread'){
         // 실: 컬러당 개수 × 선택된 컬러 수 (미니멈 무시, 샘플감)
         var perColor=+t.threadQty||10;
         lines.push('- '+(perColor*nColors)+'개 ('+nColors+'컬러)');
@@ -12404,7 +12499,7 @@ function genSamplePoText(so,kind){
         lines.push('- 1롤');
       }else{
         var perPc=+t.qtyPerPiece||1;
-        lines.push('- '+(perPc*totalSamples)+'개 (샘플 '+totalSamples+'장용)');
+        lines.push('- '+(perPc*totalSamples)+'개');
       }
     }
   }else if(kind==='pattern'){
