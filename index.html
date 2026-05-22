@@ -425,6 +425,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-defect" onclick="switchTab('defect')">🚨 불량 관리</button>
   <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
   <button class="ntab" id="nt-costs" onclick="switchTab('costs')">원가계산서</button>
+  <button class="ntab" id="nt-leftover" onclick="switchTab('leftover')">🧵 잔량 관리</button>
   <button class="ntab" id="nt-analytics" onclick="switchTab('analytics')">📊 분석</button>
   <!-- 픽업/동선 탭은 할일&동선으로 통합됨 -->
   <button class="ntab" id="nt-factories" onclick="switchTab('factories')">공장 관리</button>
@@ -584,6 +585,7 @@ tryInitFirebase();
     <div id="pay-content"></div>
   </div>
   <!-- Costs -->
+  <div id="pane-leftover" class="panel" style="display:none"><div id="leftover-tab-body"></div></div>
   <div id="pane-costs" class="panel" style="display:none">
     <!-- 상단: 보기 전환 -->
     <div class="fr" style="margin-bottom:12px;gap:6px;flex-wrap:wrap;align-items:center">
@@ -2344,7 +2346,7 @@ function loadXLSX(){
 
 function switchTab(t){
   activeTab=t;
-  ['dash','items','factories','book','orders','track','defect','pay','costs','notif','pickup','tasks','route','analytics','board','sample'].forEach(n=>{
+  ['dash','items','factories','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -2363,6 +2365,7 @@ function switchTab(t){
     else if(t==='tasks')renderTasksPane();
     else if(t==='route')renderRoutePane();
     else if(t==='analytics')renderAnalyticsPane();
+    else if(t==='leftover')renderLeftoverTab();
   }catch(err){
     console.error('Tab render error:',err);
     if(pane)pane.innerHTML=`<div class="warn-box" style="margin:1rem">화면 오류: ${esc(err.message)}<br><div class="muted" style="margin-top:4px">새로고침 후 다시 시도해주세요</div></div>`;
@@ -7231,6 +7234,48 @@ function trimRecoveryHTML(o){
 function updTrimLeft(key,theo){var i=document.getElementById('rsent-'+key);var el=document.getElementById('rleft-'+key);if(!i||!el)return;var s=+i.value||0;var left=s-theo;el.textContent=left.toFixed(1);el.style.color=left>0.05?'var(--blue)':(left<-0.05?'var(--red)':'var(--t2)');}
 function saveTrimSent(oid,key,val){var o=S.orders[oid];if(!o)return;if(!o.trimRecovery)o.trimRecovery={};if(!o.trimRecovery[key])o.trimRecovery[key]={sent:0,status:'',note:''};o.trimRecovery[key].sent=+val||0;saveData();}
 function cycleTrimRecov(oid,key){var o=S.orders[oid];if(!o)return;if(!o.trimRecovery)o.trimRecovery={};if(!o.trimRecovery[key])o.trimRecovery[key]={sent:0,status:'',note:''};var cur=o.trimRecovery[key].status||'';o.trimRecovery[key].status=cur===''?'요청':(cur==='요청'?'완료':'');saveData();var c=document.getElementById('trim-recov-'+oid);if(c)c.innerHTML=trimRecoveryHTML(o);}
+function renderLeftoverTab(){
+  var el=document.getElementById('leftover-tab-body');if(!el)return;
+  var byFc={};
+  Object.values(S.orders||{}).forEach(function(o){
+    (o.orderItems||[]).forEach(function(oi){
+      var it=S.items[oi.itemId];if(!it)return;
+      var qty=oi.grandTotal||0;
+      if(!qty){var cs=(it.colors&&it.colors.length)?it.colors:[''];var szs=(it.sizes&&it.sizes.length)?it.sizes:['free'];qty=cs.reduce(function(s,c){return s+szs.reduce(function(ss,sz){return ss+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);},0);}
+      var fcName=(it.sewingFcId&&S.factories[it.sewingFcId])?S.factories[it.sewingFcId].name:(Object.keys(o.factorySchedules||{}).map(function(fid){return S.factories[fid]?S.factories[fid].name:'';}).filter(Boolean)[0]||'미지정 공장');
+      (it.trims||[]).forEach(function(t){
+        var theo=trimTheoUse(t,qty);if(!theo)return;
+        var key=oi.itemId+'_'+t.id;
+        var rec=(o.trimRecovery&&o.trimRecovery[key])||{sent:0,status:'',note:''};
+        var sent=+rec.sent||0;if(!sent)return;
+        if(!byFc[fcName])byFc[fcName]=[];
+        byFc[fcName].push({oid:o.id,key:key,orderName:o.name,itemName:it.name,trimName:t.name||'자재',unit:theo.unit,use:theo.use,sent:sent,left:sent-theo.use,status:rec.status||''});
+      });
+    });
+  });
+  var facs=Object.keys(byFc).sort();
+  if(!facs.length){el.innerHTML='<div class="empty" style="padding:40px;text-align:center">아직 "보낸 양"을 입력한 부자재가 없어요.<div style="font-size:12px;color:var(--t2);margin-top:8px">오더 → ④공장진행 → "🧵 부자재 잔량"에서 공장에 보낸 양을 적으면, 여기 <b>공장별</b>로 모여요.</div></div>';return;}
+  var totPend=0;facs.forEach(function(fc){byFc[fc].forEach(function(r){if(r.left>0.05&&r.status!=='완료')totPend++;});});
+  var html='<div style="margin-bottom:12px"><div style="font-size:14px;font-weight:700">🧵 공장별 부자재 잔량 · 회수</div><div class="muted" style="font-size:11px;margin-top:3px">공장에 보낸 자재 중 "남아야 할 양"을 한눈에 — 회수 독촉 근거로 쓰세요'+(totPend?' · <span style="color:var(--red);font-weight:700">미회수 '+totPend+'건</span>':'')+'</div></div>';
+  facs.forEach(function(fc){
+    var rows=byFc[fc];var pend=rows.filter(function(r){return r.left>0.05&&r.status!=='완료';}).length;
+    html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px"><div class="fb" style="padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--bd)"><b style="font-size:13px">🏭 '+esc(fc)+'</b>'+(pend?'<span class="badge" style="background:var(--rbg);color:var(--red);font-weight:700">미회수 '+pend+'건</span>':'<span class="badge b3">정리됨</span>')+'</div>';
+    html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="color:var(--t2);border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:6px 8px">부자재 (오더)</th><th style="text-align:right;padding:6px 8px">이론사용</th><th style="text-align:center;padding:6px 8px">보낸 양</th><th style="text-align:right;padding:6px 8px">남아야 함</th><th style="text-align:center;padding:6px 8px">회수</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      var did=(r.oid+'_'+r.key).replace(/\W/g,'');
+      var stMap={'':'미요청','요청':'🔁 요청','완료':'✅ 완료'};var stColor={'':'var(--t2)','요청':'var(--amber)','완료':'var(--green)'};
+      html+='<tr style="border-bottom:1px dashed var(--bd)"><td style="padding:7px 8px"><b>'+esc(r.trimName)+'</b><div style="font-size:9px;color:var(--t2)">'+esc(r.itemName)+' · '+esc(r.orderName)+'</div></td>'
+        +'<td style="text-align:right;padding:7px 8px;white-space:nowrap">'+r.use.toFixed(1)+r.unit+'</td>'
+        +'<td style="text-align:center;padding:7px 8px;white-space:nowrap"><input id="lrsent-'+did+'" type="number" value="'+r.sent+'" min="0" step="0.1" style="width:56px;text-align:center;font-size:11px" oninput="lupdLeft(\''+did+'\','+r.use+')" onchange="saveTrimSent(\''+r.oid+'\',\''+r.key+'\',this.value);renderLeftoverTab()"> '+r.unit+'</td>'
+        +'<td style="text-align:right;padding:7px 8px;font-weight:700;white-space:nowrap"><span id="lrleft-'+did+'" style="color:'+(r.left>0.05?'var(--blue)':(r.left<-0.05?'var(--red)':'var(--t2)'))+'">'+r.left.toFixed(1)+'</span>'+r.unit+'</td>'
+        +'<td style="text-align:center;padding:7px 8px"><button class="btn s" style="font-size:10px;font-weight:700;color:'+stColor[r.status]+'" onclick="leftoverCycle(\''+r.oid+'\',\''+r.key+'\')">'+stMap[r.status]+'</button></td></tr>';
+    });
+    html+='</tbody></table></div></div>';
+  });
+  el.innerHTML=html;
+}
+function lupdLeft(did,theo){var i=document.getElementById('lrsent-'+did);var el=document.getElementById('lrleft-'+did);if(!i||!el)return;var s=+i.value||0;var left=s-theo;el.textContent=left.toFixed(1);el.style.color=left>0.05?'var(--blue)':(left<-0.05?'var(--red)':'var(--t2)');}
+function leftoverCycle(oid,key){var o=S.orders[oid];if(!o)return;if(!o.trimRecovery)o.trimRecovery={};if(!o.trimRecovery[key])o.trimRecovery[key]={sent:0,status:'',note:''};var cur=o.trimRecovery[key].status||'';o.trimRecovery[key].status=cur===''?'요청':(cur==='요청'?'완료':'');saveData();renderLeftoverTab();}
 function addExtraShip(oid,fcId){
   const o=S.orders[oid];if(!o?.factorySchedules[fcId])return;
   if(!o.factorySchedules[fcId].extraShipments)o.factorySchedules[fcId].extraShipments=[];
@@ -7285,24 +7330,31 @@ function rmExtraShip(oid,fcId,idx){
 function addFcToOrder(){const sel=document.getElementById('add-fc-sel');const id=sel?.value;if(!id){alert('공장/처 선택');return;}const o=S.orders[curOid];if(!o.factorySchedules)o.factorySchedules={};if(o.factorySchedules[id]){showToast('이미 추가됨');return;}const sch=mkFcSch();if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[id]=sch;saveData();renderOTab();}
 function removeFcFromOrder(id){if(!confirm('제거?'))return;delete S.orders[curOid].factorySchedules[id];saveData();renderOTab();}
 
+function fmtKoDate(iso){if(!iso)return today();var p=(''+iso).split('-');if(p.length!==3)return iso;return p[0]+'. '+p[1]+'. '+p[2]+'.';}
+function getPayDate(o,key){return (o&&o.payDates&&o.payDates[key])||todayISO();}
+function setPayDate(oid,key,val){var o=S.orders[oid];if(!o)return;if(!o.payDates)o.payDates={};o.payDates[key]=val||todayISO();saveData();renderOTab();}
+function payDatePicker(oid,key){return '<div class="fr" style="gap:6px;align-items:center;margin-top:8px;font-size:12px"><span style="color:var(--t2)">📅 명세서 날짜</span><input type="date" value="'+getPayDate(S.orders[oid],key)+'" onchange="setPayDate(\''+oid+'\',\''+key+'\',this.value)" style="font-size:12px;padding:5px 7px"></div>';}
 function getPayFees(o,key){return (o&&o.payFees&&o.payFees[key])||[];}
-function addPayFee(oid,key,name){var o=S.orders[oid];if(!o)return;if(!o.payFees)o.payFees={};if(!o.payFees[key])o.payFees[key]=[];o.payFees[key].push({name:name||'운임',amount:0});saveData();renderOTab();}
+function payFeeAmt(f){if(f.qty!=null&&f.qty!=='')return (+f.qty||0)*(+f.unitPrice||0);return +f.amount||0;}
+function addPayFee(oid,key,name){var o=S.orders[oid];if(!o)return;if(!o.payFees)o.payFees={};if(!o.payFees[key])o.payFees[key]=[];o.payFees[key].push({name:name||'운임',qty:1,unitPrice:0,amount:0});saveData();renderOTab();}
 function setPayFeeName(oid,key,idx,v){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr&&arr[idx]){arr[idx].name=v;saveData();}}
-function setPayFeeAmt(oid,key,idx,v){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr&&arr[idx]){arr[idx].amount=+v||0;saveData();renderOTab();}}
+function setPayFeeQty(oid,key,idx,v){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr&&arr[idx]){arr[idx].qty=(v===''?'':+v||0);arr[idx].amount=payFeeAmt(arr[idx]);saveData();renderOTab();}}
+function setPayFeeUnitPrice(oid,key,idx,v){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr&&arr[idx]){arr[idx].unitPrice=+v||0;arr[idx].amount=payFeeAmt(arr[idx]);saveData();renderOTab();}}
 function rmPayFee(oid,key,idx){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr){arr.splice(idx,1);saveData();renderOTab();}}
 function payFeeBlock(oid,key,labelColspan){
   var o=S.orders[oid];var fees=getPayFees(o,key);
-  var feeTot=fees.reduce(function(s,f){return s+(+f.amount||0);},0);
-  var rows=fees.map(function(f){return '<tr style="border-bottom:1px dashed var(--bd)"><td colspan="'+labelColspan+'" style="padding:6px 4px"><span class="badge" style="background:#fef3c7;color:#854d0e">🚚 '+esc(f.name||'운임')+'</span></td><td style="text-align:right;padding:6px 4px;font-weight:600">'+num(+f.amount||0)+'원</td></tr>';}).join('');
+  var feeTot=fees.reduce(function(s,f){return s+payFeeAmt(f);},0);
+  var rows=fees.map(function(f){var amt=payFeeAmt(f);var sub=(f.qty!=null&&f.qty!=='')?(num(+f.qty||0)+'개 × '+num(+f.unitPrice||0)+'원'):'';return '<tr style="border-bottom:1px dashed var(--bd)"><td colspan="'+labelColspan+'" style="padding:6px 4px"><span class="badge" style="background:#fef3c7;color:#854d0e">🚚 '+esc(f.name||'운임')+'</span>'+(sub?' <span style="font-size:9px;color:var(--t2)">'+sub+'</span>':'')+'</td><td style="text-align:right;padding:6px 4px;font-weight:600">'+num(amt)+'원</td></tr>';}).join('');
   var editor='<div style="margin-top:10px;padding:9px 11px;background:#fffbeb;border:1px dashed #fde68a;border-radius:7px">'
-    +'<div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">🚚 운임·기타 비용 (이 명세서에 더해져요)</div>'
-    +fees.map(function(f,idx){return '<div class="fr" style="gap:5px;margin-bottom:5px"><input value="'+esc(f.name||'')+'" onchange="setPayFeeName(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="flex:1;font-size:12px" placeholder="비용명"><input type="number" value="'+(+f.amount||0)+'" onchange="setPayFeeAmt(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="width:100px;font-size:12px" placeholder="금액"><button class="btn s d" onclick="rmPayFee(\''+oid+'\',\''+key+'\','+idx+')">🗑</button></div>';}).join('')
+    +'<div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">🚚 운임·기타 비용 (박스수 × 단가 = 합계, 이 명세서에 더해져요)</div>'
+    +fees.map(function(f,idx){var amt=payFeeAmt(f);return '<div class="fr" style="gap:4px;margin-bottom:5px;align-items:center;flex-wrap:nowrap"><input value="'+esc(f.name||'')+'" onchange="setPayFeeName(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="flex:1;min-width:60px;font-size:12px" placeholder="비용명"><input type="number" value="'+(f.qty!=null&&f.qty!==''?f.qty:1)+'" onchange="setPayFeeQty(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="width:48px;font-size:12px;text-align:center" placeholder="박스" title="박스/수량"><span style="font-size:10px;color:var(--t2)">×</span><input type="number" value="'+(+f.unitPrice||0)+'" onchange="setPayFeeUnitPrice(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="width:78px;font-size:12px;text-align:right" placeholder="단가"><span style="font-size:11px;font-weight:700;min-width:62px;text-align:right">='+num(amt)+'</span><button class="btn s d" onclick="rmPayFee(\''+oid+'\',\''+key+'\','+idx+')">🗑</button></div>';}).join('')
+    +'<div style="font-size:9px;color:var(--t2);margin:2px 0 5px">※ 박스수를 비우고 단가만 넣으면 그 금액이 그대로 합계예요</div>'
     +'<div class="fr" style="gap:4px;flex-wrap:wrap;margin-top:2px">'
     +'<button class="btn s" type="button" onclick="addPayFee(\''+oid+'\',\''+key+'\',\'택배비\')">+ 택배비</button>'
     +'<button class="btn s" type="button" onclick="addPayFee(\''+oid+'\',\''+key+'\',\'박스비\')">+ 박스비</button>'
     +'<button class="btn s" type="button" onclick="addPayFee(\''+oid+'\',\''+key+'\',\'운임\')">+ 운임</button>'
     +'</div></div>';
-  return {feeTot:feeTot,rows:rows,editor:editor,txt:fees.map(function(f){return (f.name||'운임')+'  '+num(+f.amount||0)+'원';})};
+  return {feeTot:feeTot,rows:rows,editor:editor,txt:fees.map(function(f){var sub=(f.qty!=null&&f.qty!=='')?(' ('+num(+f.qty||0)+'×'+num(+f.unitPrice||0)+')'):'';return (f.name||'운임')+sub+'  '+num(payFeeAmt(f))+'원';})};
 }
 function getTrimCostRows(o,sn){
   var out=[];
@@ -7396,12 +7448,12 @@ function renderPayShtTab(o){
         <div style="border:1px solid var(--bd);border-radius:8px;padding:16px;margin-bottom:12px;background:white">
           <div style="display:flex;border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:12px">
             <div style="flex:1;text-align:center;padding:11px;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center">결제 명세서</div>
-            <div style="width:80px;border-left:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">${today()}</div>
+            <div style="min-width:98px;white-space:nowrap;padding:0 8px;border-left:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">${fmtKoDate(getPayDate(o,'fc:'+fcId))}</div>
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">
             <tr>
               <td style="background:var(--bg2);padding:7px 6px;font-weight:600;color:var(--t2);text-align:center;border:1px solid var(--bd);width:16%">공급</td>
-              <td style="padding:7px 6px;text-align:center;font-weight:700;border:1px solid var(--bd)">${esc(fc.name||'')}</td>
+              <td style="padding:7px 6px;text-align:center;font-weight:700;border:1px solid var(--bd)">${esc(fc.name||'')}${fc.phone?`<div style="font-size:10px;font-weight:400;color:var(--t2)">${esc(fc.phone)}</div>`:''}</td>
               <td style="background:var(--bg2);padding:7px 6px;font-weight:600;color:var(--t2);text-align:center;border:1px solid var(--bd);width:16%">출고처</td>
               <td style="padding:7px 6px;text-align:center;font-weight:700;border:1px solid var(--bd)">${esc(orderBrandNm)}${orderBrandBizNum?`<div style="font-size:10px;font-weight:400;color:var(--t2)">${orderBrandBizNum}</div>`:''}</td>
             </tr>
@@ -7438,6 +7490,7 @@ function renderPayShtTab(o){
             🏦 <b>입금 계좌:</b> ${esc(bankAcc)}
           </div>`:''}
         </div>
+        ${payDatePicker(o.id,'fc:'+fcId)}
         ${_feeF.editor}
         <div class="fr" style="gap:6px;flex-wrap:wrap">
           <button class="btn s" style="background:#FEE500;color:#3C1E1E;font-weight:700" onclick='sharePaySheet(${JSON.stringify(ptxt)},"${fc.phone||''}")'>💬 카카오톡</button>
@@ -7505,12 +7558,12 @@ function renderPayShtTab(o){
         <div style="border:1px solid var(--bd);border-radius:8px;padding:16px;margin-bottom:12px;background:white">
           <div style="display:flex;border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:12px">
             <div style="flex:1;text-align:center;padding:11px;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center">결제 내역서</div>
-            <div style="width:80px;border-left:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">${today()}</div>
+            <div style="min-width:98px;white-space:nowrap;padding:0 8px;border-left:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">${fmtKoDate(getPayDate(o,'sp:'+sn))}</div>
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">
             <tr>
               <td style="background:var(--bg2);padding:7px 6px;font-weight:600;color:var(--t2);text-align:center;border:1px solid var(--bd);width:16%">공급</td>
-              <td style="padding:7px 6px;text-align:center;font-weight:700;border:1px solid var(--bd)">${esc(sn)}</td>
+              <td style="padding:7px 6px;text-align:center;font-weight:700;border:1px solid var(--bd)">${esc(sn)}${pb.phone?`<div style="font-size:10px;font-weight:400;color:var(--t2)">${esc(pb.phone)}</div>`:''}</td>
               <td style="background:var(--bg2);padding:7px 6px;font-weight:600;color:var(--t2);text-align:center;border:1px solid var(--bd);width:16%">출고처</td>
               <td style="padding:7px 6px;text-align:center;font-weight:700;border:1px solid var(--bd)">${esc(orderBrandNm)}</td>
             </tr>
@@ -7528,6 +7581,7 @@ function renderPayShtTab(o){
           </table>
           ${bankAcc?`<div style="margin-top:10px;padding:8px 10px;background:#f0f7ff;border-radius:5px;font-size:12px">🏦 <b>입금 계좌:</b> ${esc(bankAcc)}</div>`:''}
         </div>
+        ${payDatePicker(o.id,'sp:'+sn)}
         ${_feeS.editor}
         <div class="fr" style="gap:6px;flex-wrap:wrap">
           <button class="btn s" style="background:#FEE500;color:#3C1E1E;font-weight:700" onclick='sharePaySheet(${JSON.stringify(ptxt)},"${pb.phone||''}")'>💬 카카오톡</button>
@@ -7553,7 +7607,7 @@ function renderPayShtTab(o){
     var _feeP=payFeeBlock(o.id,'pf:'+sn,4);tB+=_feeP.feeTot;tV=Math.round(tB*vatRate/100);
     html+='<div class="sc" style="margin-bottom:12px" id="'+psid+'"><div class="sc-h"><div style="font-weight:700;font-size:15px">'+esc(sn)+' <span class="badge b2" style="font-size:10px">🎨 가공처</span></div><span class="badge '+(paid?'b3':'b0')+'">'+(paid?'결제완료':'미결제')+'</span></div><div class="sc-b">'
       +'<div style="border:1px solid var(--bd);border-radius:8px;padding:16px;margin-bottom:12px;background:white">'
-      +'<div style="display:flex;border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:12px"><div style="flex:1;text-align:center;padding:11px;font-size:16px;font-weight:700">가공비 내역서</div><div style="width:80px;border-left:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">'+today()+'</div></div>'
+      +'<div style="display:flex;border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:12px"><div style="flex:1;text-align:center;padding:11px;font-size:16px;font-weight:700">가공비 내역서</div><div style="min-width:98px;white-space:nowrap;padding:0 8px;border-left:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">'+fmtKoDate(getPayDate(o,'pf:'+sn))+'</div></div>'
       +'<div style="background:var(--bg2);border-radius:5px;padding:8px;font-size:12px;margin-bottom:12px">공급: <b>'+esc(sn)+'</b>　오더: <b>'+esc(o.name)+'</b></div>'
       +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:4px"><thead><tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:5px 4px">가공 항목</th><th style="text-align:right;padding:5px 4px">수량</th><th style="text-align:right;padding:5px 4px">단가</th><th style="text-align:right;padding:5px 4px">금액</th></tr></thead><tbody>'
       +rows.map(function(r){return '<tr style="border-bottom:1px dashed var(--bd)"><td style="padding:6px 4px">'+esc(r.name)+'</td><td style="text-align:right;padding:6px 4px">'+num(r.qty)+esc(r.unit)+'</td><td style="text-align:right;padding:6px 4px">'+num(r.price)+'</td><td style="text-align:right;padding:6px 4px;font-weight:600">'+num(r.amount)+'</td></tr>';}).join('')
@@ -7562,6 +7616,7 @@ function renderPayShtTab(o){
       +'<tr><td colspan="3" style="padding:4px 4px;color:var(--t2)">부가세 ('+vatRate+'%)</td><td style="text-align:right;padding:4px 4px">'+num(tV)+'원</td></tr>'
       +'<tr style="border-top:2px solid var(--text);background:var(--bg2)"><td colspan="3" style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 <span class="badge b3" style="font-size:10px">VAT 포함</span></td><td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:var(--blue)">'+num(tB+tV)+'원</td></tr>'
       +'</tbody></table>'+(bankAcc?'<div style="margin-top:10px;padding:8px 10px;background:#f0f7ff;border-radius:5px;font-size:12px">🏦 <b>입금 계좌:</b> '+esc(bankAcc)+'</div>':'')+'</div>'
+      +payDatePicker(o.id,'pf:'+sn)
       +_feeP.editor
       +'<div class="fr" style="gap:6px;flex-wrap:wrap"><button class="btn s" style="background:#FEE500;color:#3C1E1E;font-weight:700" onclick=\'sharePaySheet('+JSON.stringify(ptxt)+',"'+(pb.phone||'')+'")\'>💬 카카오톡</button><button class="btn s" onclick=\'navigator.clipboard.writeText('+JSON.stringify(ptxt)+').then(()=>showToast("📋 복사 완료"))\'>📋 복사</button><button class="btn s" onclick=\'savePaySheetImage("'+psid+'","'+esc(sn)+'")\'>🖼 이미지 저장</button></div>'
       +'</div></div>';
@@ -7596,7 +7651,7 @@ function clearPaySelection(fcId){
   renderPayContent();
 }
 
-async function downloadPayGroupReceipt(entityId, entityName, entityType){
+function buildPayReceiptHTML(entityId, entityName, entityType){
   // entityType: 'fc' (공장) or 'sp' (거래처)
   // 선택된(체크된) 항목 또는 모든 미결제 항목으로 거래명세서 생성
   var rows=[]; // {date, itemName, color, size, qty, unitPrice, amount, costType, oid, payKey}
@@ -7671,6 +7726,7 @@ async function downloadPayGroupReceipt(entityId, entityName, entityType){
       if(!sup)continue;
       var smats=(sup.materials||[]).filter(function(m){return getMatActualQty(m)>0;});
       if(!smats.length)continue;
+      if(!brandNm){var _oi=so.orderItems&&so.orderItems[0];var _it=_oi&&S.items[_oi.itemId];if(_it&&_it.brandId){brandNm=getBrandName(_it.brandId);bizNum=getBrandBizNum(_it.brandId);}}
       if(sup.vatRate)vatPct=sup.vatRate;
       for(var smi=0;smi<smats.length;smi++){
         var sm=smats[smi];
@@ -7695,7 +7751,7 @@ async function downloadPayGroupReceipt(entityId, entityName, entityType){
     if(!brandNm)brandNm=coNm;
   }
   
-  if(!rows.length){showToast('표시할 항목이 없어요');return;}
+  if(!rows.length)return {hasRows:false};
   
   var tBase=rows.reduce(function(s,r){return s+r.amount;},0);
   var tVAT=Math.round(tBase*vatPct/100);
@@ -7726,10 +7782,9 @@ async function downloadPayGroupReceipt(entityId, entityName, entityType){
     lastDate=r.date;lastItem=r.itemName;
   }
   
-  var tmpHtml='<div id="'+tmpId+'" style="position:fixed;left:-9999px;top:0;background:#fff;width:560px;padding:18px;font-family:inherit;color:#000">'
-    +'<div style="display:flex;border:1px solid #000;margin-bottom:12px">'
+  var inner='<div style="display:flex;border:1px solid #000;margin-bottom:12px">'
     +'<div style="flex:1;text-align:center;padding:11px;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center">거래 명세서</div>'
-    +'<div style="width:92px;border-left:1px solid #000;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">'+today()+'</div>'
+    +'<div style="min-width:92px;white-space:nowrap;padding:0 8px;border-left:1px solid #000;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">'+today()+'</div>'
     +'</div>'
     +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">'
     +'<tr>'
@@ -7755,15 +7810,17 @@ async function downloadPayGroupReceipt(entityId, entityName, entityType){
     +'<tr style="border-top:2px solid #000"><td style="padding:8px 4px;font-weight:700;text-align:right">합계</td><td style="padding:8px 4px;text-align:right;font-weight:700;width:120px">'+num(tBase)+'</td></tr>'
     +'<tr style="background:#f5f5f5"><td style="padding:8px 4px;font-weight:700;text-align:right;font-size:13px">부가세 포함 합계</td><td style="padding:8px 4px;text-align:right;font-weight:700;font-size:14px;color:#1976d2">'+num(tTotal)+'</td></tr>'
     +'</table>'
-    +(fc.bank?'<div style="margin-top:14px;padding:10px;background:#e8f4ff;border-radius:5px;font-size:12px;text-align:center"><b>입금 계좌</b><br>'+esc(fc.bank)+'</div>':'')
-    +'</div>';
-  
-  // 모달로 미리보기 + 다운로드 버튼
-  var receiptBodyId='receipt-body-'+Date.now();
-  var modalHtml=tmpHtml.replace('position:fixed;left:-9999px;top:0;','').replace('id="'+tmpId+'"','id="'+receiptBodyId+'"');
-  // 모달 외부 헤더/액션 추가
-  var actions='<div class="fr" style="gap:8px;margin-top:14px;justify-content:flex-end;border-top:1px solid var(--bd);padding-top:12px"><button class="btn" onclick="closeGenericModal()">닫기</button><button class="btn p" onclick="savePayReceiptImage(\''+receiptBodyId+'\',\''+esc((fc.name||entityName).replace(/'+"'"+'/g,""))+'\')">📷 이미지 저장</button></div>';
-  showGenericModal('📋 거래 명세서 미리보기',modalHtml+actions);
+    +(fc.bank?'<div style="margin-top:14px;padding:10px;background:#e8f4ff;border-radius:5px;font-size:12px;text-align:center"><b>입금 계좌</b><br>'+esc(fc.bank)+'</div>':'');
+  return {hasRows:true,innerHtml:inner,name:(fc.name||entityName),total:tTotal};
+}
+function downloadPayGroupReceipt(entityId,entityName,entityType){
+  var r=buildPayReceiptHTML(entityId,entityName,entityType);
+  if(!r||!r.hasRows){showToast('표시할 항목이 없어요');return;}
+  var rid='receipt-body-'+Date.now();
+  var nm=(r.name||'').replace(/['"\\]/g,'');
+  var modalHtml='<div id="'+rid+'" style="background:#fff;padding:16px;color:#000">'+r.innerHtml+'</div>';
+  var actions='<div class="fr" style="gap:8px;margin-top:14px;justify-content:flex-end;border-top:1px solid var(--bd);padding-top:12px"><button class="btn" onclick="closeGenericModal()">닫기</button><button class="btn p" onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')">📷 이미지 저장</button></div>';
+  showGenericModal('📋 거래 명세서',modalHtml+actions);
 }
 
 async function savePayReceiptImage(elId,name){
@@ -7810,6 +7867,13 @@ function renderSupplierStatusBoard(){
     return true;
   });
   if(!orders.length)return '';
+  var fBrand=window._supFltBrand||'';var fSup=window._supFltSup||'';
+  var brandSet={},supSet={};
+  orders.forEach(function(o){
+    var bId=o.brandId||(o.orderItems&&o.orderItems[0]&&S.items[o.orderItems[0].itemId]?S.items[o.orderItems[0].itemId].brandId:'');
+    if(bId)brandSet[bId]=1;
+    Object.keys(o.suppliers||{}).forEach(function(sn){supSet[sn]=1;});
+  });
   
   // 셀 헬퍼: 상태별 아이콘+색상
   function cell(done,pending,late,onclick,title){
@@ -7823,6 +7887,10 @@ function renderSupplierStatusBoard(){
   var today=todayISO();
   orders.forEach(function(o){
     var sups=Object.entries(o.suppliers||{});
+    if(!sups.length)return;
+    var oBrand=o.brandId||(o.orderItems&&o.orderItems[0]&&S.items[o.orderItems[0].itemId]?S.items[o.orderItems[0].itemId].brandId:'');
+    if(fBrand&&oBrand!==fBrand)return;
+    if(fSup)sups=sups.filter(function(a){return a[0]===fSup;});
     if(!sups.length)return;
     sups.forEach(function(arr,idx){
       var sn=arr[0],sup=arr[1];
@@ -7873,7 +7941,7 @@ function renderSupplierStatusBoard(){
   
   return '<div class="card" style="margin-top:10px;padding:0;overflow:hidden">'
     +'<div class="fb" style="padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--bd)"><b style="font-size:13px">🏭 원단·부자재 진행 현황</b>'
-    +'<div class="fr" style="gap:6px;align-items:center;font-size:11px"><label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" '+(window._showCompletedSup?'checked':'')+' onchange="window._showCompletedSup=this.checked;renderDash()"> 완료 포함</label></div></div>'
+    +'<div class="fr" style="gap:6px;align-items:center;font-size:11px"><select onchange="window._supFltBrand=this.value;renderDash()" style="font-size:11px;padding:4px 6px"><option value="">전체 브랜드</option>'+Object.keys(brandSet).map(function(b){return '<option value="'+b+'"'+(fBrand===b?' selected':'')+'>'+esc(getBrandName(b))+'</option>';}).join('')+'</select><select onchange="window._supFltSup=this.value;renderDash()" style="font-size:11px;padding:4px 6px"><option value="">전체 거래처</option>'+Object.keys(supSet).map(function(s){return '<option value="'+esc(s)+'"'+(fSup===s?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select><label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" '+(window._showCompletedSup?'checked':'')+' onchange="window._showCompletedSup=this.checked;renderDash()"> 완료 포함</label></div></div>'
     +'<div style="overflow-x:auto;-webkit-overflow-scrolling:touch" class="scroll-hint"><table style="min-width:680px;width:100%;font-size:11px;border-collapse:collapse">'
     +'<thead style="background:var(--bg2)"><tr><th style="padding:6px 7px;text-align:left">오더</th><th style="padding:6px 7px;text-align:left">거래처</th><th style="padding:6px 7px">📋 PO</th><th style="padding:6px 7px">📤 출고</th><th style="padding:6px 7px">📦 입고</th><th style="padding:6px 7px">💰 결제</th><th style="padding:6px 7px">📅 입고예정</th></tr></thead>'
     +'<tbody>'+rows.join('')+'</tbody>'
@@ -9593,7 +9661,7 @@ function renderFcPay(){
       <div style="display:flex;gap:5px;flex-wrap:wrap">
       ${(()=>{const sel=window._paySelected&&window._paySelected[thisFcId]||[];return `
         ${sel.length?`<button class="btn s g" onclick="clearPaySelection('${thisFcId}')" style="font-size:10px;padding:3px 6px">선택 해제 (${sel.length})</button>`:''}
-        <button class="btn s ok" onclick="downloadPayGroupReceipt('${thisFcId}','${esc(fn).replace(/\'/g,'')}','fc')" title="거래명세서 이미지 다운로드">📷 ${sel.length?'선택':'전체'} 거래명세서</button>`;})()}
+        ${(function(){var r=buildPayReceiptHTML(thisFcId,fn,'fc');if(!r.hasRows)return '';var rid='payrcpt-fc-'+(''+thisFcId).replace(/\W/g,'');var nm=(r.name||'').replace(/['"\\]/g,'');return '<div style="width:100%"><div id="'+rid+'" style="background:#fff;padding:14px;color:#000;border:1px solid var(--bd);border-radius:8px;overflow-x:auto">'+r.innerHtml+'</div><div class="fr" style="margin-top:8px;justify-content:flex-end"><button class="btn s ok" onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')">📷 이미지 저장'+(sel.length?' (선택분)':'')+'</button></div></div>';})()}`;})()}
       </div>
     </div>
     ${visibleMain.map(r=>{
@@ -9763,7 +9831,7 @@ function renderSpPay(){
         </div>
       </div>
       <div style="display:flex;gap:5px;flex-wrap:wrap">
-        <button class="btn s ok" onclick="downloadPayGroupReceipt('${sn.replace(/'/g,"\\'")}','${sn.replace(/'/g,"\\'")}','sup')" title="거래명세서 이미지 다운로드">📷 전체 거래명세서</button>
+        ${(function(){var r=buildPayReceiptHTML(sn,sn,'sup');if(!r.hasRows)return '';var rid='payrcpt-sp-'+(''+sn).replace(/\W/g,'');var nm=(r.name||'').replace(/['"\\]/g,'');return '<div style="width:100%"><div id="'+rid+'" style="background:#fff;padding:14px;color:#000;border:1px solid var(--bd);border-radius:8px;overflow-x:auto">'+r.innerHtml+'</div><div class="fr" style="margin-top:8px;justify-content:flex-end"><button class="btn s ok" onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')">📷 이미지 저장</button></div></div>';})()}
       </div>
     </div>
     ${visibleRows.map(r=>`<div class="pay-row${r.paid?' paid-r':''}">
@@ -13165,6 +13233,16 @@ function taskLoc(t){
   return '';
 }
 function setTaskLocFilter(loc){window._taskLocFilter=loc;renderTasksPane();}
+function setTaskSrcFilter(s){window._taskSrcFilter=s;renderTasksPane();}
+function filterTasksBySrc(arr){
+  var sf=window._taskSrcFilter||'';if(!sf)return arr;
+  return arr.filter(function(t){var st=taskStage(t);if(sf==='sample')return st==='sample';if(sf==='prod')return st==='order'||st==='arrival'||st==='ship'||st==='pay';return true;});
+}
+function getSrcPillsHTML(){
+  var cur=window._taskSrcFilter||'';
+  var opts=[{v:'',l:'전체'},{v:'sample',l:'🪡 샘플'},{v:'prod',l:'🏭 생산'}];
+  return opts.map(function(o){var on=cur===o.v;return '<button onclick="setTaskSrcFilter(\''+o.v+'\')" style="padding:5px 12px;border-radius:100px;font-size:12px;font-weight:'+(on?'700':'500')+';cursor:pointer;border:1px solid '+(on?'#7c3aed':'var(--bd)')+';background:'+(on?'#7c3aed':'var(--bg)')+';color:'+(on?'#fff':'var(--t2)')+';white-space:nowrap">'+o.l+'</button>';}).join('');
+}
 function filterTasksByLoc(arr){
   var lf=window._taskLocFilter||'';
   if(!lf)return arr;
@@ -13298,12 +13376,12 @@ function renderTasksPaneByBrand(){
   if(typeof updateSupDL==='function')updateSupDL();
   var manual=getTasks();
   var auto=generateAutoTasks();
-  var all=filterTasksByLoc(filterTasksByBrand([...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';})));
+  var all=filterTasksBySrc(filterTasksByLoc(filterTasksByBrand([...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';}))));
   var brands=getBrands();
   
   var html=getTaskStylesHTML()+getTaskViewToggleHTML();
   html+='<div style="display:flex;gap:5px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid var(--bd);background:var(--bg2)">'+getBrandPillsHTML(window._taskBrandFilter||'','setTaskBrandFilter',{includeNone:true})+'</div>';
-  html+='<div style="display:flex;gap:5px;padding:6px 14px 8px;flex-wrap:wrap;background:var(--bg2);border-bottom:1px solid var(--bd)">'+getLocPillsHTML()+'</div>';
+  html+='<div style="display:flex;gap:5px;padding:6px 14px 8px;flex-wrap:wrap;background:var(--bg2);border-bottom:1px solid var(--bd)">'+getLocPillsHTML()+getSrcPillsHTML()+'</div>';
   html+='<div style="padding:12px 14px">';
   // 빠른 추가 (상단)
   html+='<div style="margin-bottom:14px;padding:12px 14px;background:var(--bg2);border-radius:12px"><div style="font-size:11px;font-weight:600;margin-bottom:8px;color:#4b5563">➕ 빠른 추가</div>';
@@ -13371,11 +13449,11 @@ function renderTasksPaneByCategory(){
   if(typeof updateSupDL==='function')updateSupDL();
   var manual=getTasks();
   var auto=generateAutoTasks();
-  var all=filterTasksByLoc(filterTasksByBrand([...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';})));
+  var all=filterTasksBySrc(filterTasksByLoc(filterTasksByBrand([...auto,...manual].filter(function(t){return !t.done&&t.type!=='픽업'&&t.autoType!=='pickup';}))));
   
   var html=getTaskStylesHTML()+getTaskViewToggleHTML();
   html+='<div style="display:flex;gap:5px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid var(--bd);background:var(--bg2)">'+getBrandPillsHTML(window._taskBrandFilter||'','setTaskBrandFilter',{includeNone:true})+'</div>';
-  html+='<div style="display:flex;gap:5px;padding:6px 14px 8px;flex-wrap:wrap;background:var(--bg2);border-bottom:1px solid var(--bd)">'+getLocPillsHTML()+'</div>';
+  html+='<div style="display:flex;gap:5px;padding:6px 14px 8px;flex-wrap:wrap;background:var(--bg2);border-bottom:1px solid var(--bd)">'+getLocPillsHTML()+getSrcPillsHTML()+'</div>';
   html+='<div style="padding:12px 14px"><div style="font-size:13px;font-weight:700;margin-bottom:10px;color:#4b5563">📋 카테고리별 할 일 <span style="font-weight:400;color:var(--t2);font-size:11px">('+all.length+'건)</span></div>';
   
   // 카테고리별로 분류
