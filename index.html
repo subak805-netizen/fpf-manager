@@ -828,7 +828,7 @@ tryInitFirebase();
       </div>
     </div>
     <div class="sec"><span>아이템 선택 및 수량 입력</span></div>
-    <div id="o-new-items"></div>
+    <div id="o-new-items" style="height:46vh;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
     <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="closeModal('o-new-modal')">취소</button><button class="btn p" onclick="createOrder()">✓ 오더 생성</button></div>
   </div>
 </div>
@@ -2039,6 +2039,15 @@ function migrateData(){
         sch.shipments=_ships;sch.extraShipments=[];
         recomputeShipping(sch);
       }
+      // itemId 없는 출고를 단일 봉제 아이템에 자동 귀속 (그리드 합산 누락 방지) — 매 로드
+      if(Array.isArray(sch.shipments)&&sch.shipments.length){
+        var _sew=(o.orderItems||[]).filter(function(oi){return S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===fcId;});
+        if(_sew.length===1){
+          var _fb=_sew[0].itemId,_chg=false;
+          sch.shipments.forEach(function(s){if(!s.itemId){s.itemId=_fb;_chg=true;}});
+          if(_chg)recomputeShipping(sch);
+        }
+      }
       if(sch.processDone===undefined)sch.processDone=false;
       if(!sch.processDate)sch.processDate='';
       if(sch.advanceRate===undefined)sch.advanceRate=0;
@@ -2950,6 +2959,9 @@ function updatePBNegoPrice(encSup,encNm,priceType,val){
   showToast('💰 네고가 저장됨');
 }
 function savePB(){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
+// 시즌 최근순 정렬 (예: 27SS > 26FW > 26SS > 25FW). SS=상반기, FW=하반기
+function seasonKey(s){var m=(''+s).match(/(\d{2})\s*(SS|SP|SU|FW|AW|FA)?/i);if(!m)return -1;var y=+m[1];var h=(m[2]||'').toUpperCase();var half=(h==='SS'||h==='SP'||h==='SU')?1:((h==='FW'||h==='AW'||h==='FA')?2:0);return y*10+half;}
+function sortSeasonsDesc(arr){return (arr||[]).slice().sort(function(a,b){var ka=seasonKey(a),kb=seasonKey(b);if(kb!==ka)return kb-ka;return (''+b).localeCompare(''+a);});}
 
 /* ===== ITEM FORM ===== */
 function colorToHex(name){
@@ -3060,7 +3072,7 @@ function renderItemsList(){
   const hasUnassigned=allItems.some(function(it){return !it.brandId;});
   renderBrandPills('item-brand-pills', window._itemBrandFlt||'', 'setItemBrandFilter', {includeNone:hasUnassigned});
   const seasonSel=document.getElementById('item-season-flt');
-  if(seasonSel){const cur=seasonSel.value;const seasons=[...new Set(allItems.map(it=>it.season).filter(Boolean))].sort();seasonSel.innerHTML='<option value="">전체 시즌</option>'+seasons.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');seasonSel.value=cur;}
+  if(seasonSel){const cur=seasonSel.value;const seasons=sortSeasonsDesc([...new Set(allItems.map(it=>it.season).filter(Boolean))]);seasonSel.innerHTML='<option value="">전체 시즌</option>'+seasons.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');seasonSel.value=cur;}
   const fcSel=document.getElementById('item-factory-flt');
   if(fcSel){const cur=fcSel.value;const fcs=Object.values(S.factories||{}).filter(f=>f.type==='봉제'||allItems.some(it=>it.sewingFcId===f.id));fcSel.innerHTML='<option value="">전체 공장</option>'+fcs.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('');fcSel.value=cur;}
   // 필터 적용
@@ -3092,7 +3104,7 @@ function renderItemsList(){
     const brandNm=it.brandId?getBrandName(it.brandId):'';
     const brandCol=it.brandId?getBrandColor(it.brandId):'';
     const brandBadge=brandNm?`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:${brandCol}22;color:${brandCol}"><span style="width:6px;height:6px;border-radius:50%;background:${brandCol}"></span>${esc(brandNm)}</span>`:'';
-    return`<div class="card" style="padding:9px 12px;margin-bottom:7px"><div class="fb"><div style="flex:1;min-width:0"><div style="font-weight:600">${it.code?`<span class="tag" style="font-weight:700;background:var(--bg3);color:var(--text)">${esc(it.code)}</span> `:''}${esc(it.name)} ${brandBadge}</div><div class="fr" style="margin-top:4px;gap:3px;flex-wrap:wrap">${(it.colors||[]).map(c=>`<span class="chip" style="padding:1px 6px;font-size:10px">${esc(c)}</span>`).join('')}${(it.sizes||[]).map(s=>`<span class="tag" style="font-size:10px">${esc(s)}</span>`).join('')}${fabInfo}${widthInfo}${[it.client,it.season,fcName?`✂${fcName}`:''].filter(Boolean).map(x=>`<span class="tag" style="font-size:10px">${esc(x)}</span>`).join('')}${it.careInstructions?`<span class="tag" style="font-size:10px">🧺 ${esc(it.careInstructions.substring(0,20))}</span>`:''}</div></div><div class="fr" style="flex-shrink:0"><span class="tag">${(it.fabrics||[]).length}원단</span><span class="tag">${(it.trims||[]).length}부자재</span><button class="btn s" onclick="showItemForm('${it.id}')">✎</button><button class="btn s" onclick="dupItem('${it.id}')" title="복사"></button><button class="btn s d" onclick="delItem('${it.id}')">🗑</button></div></div></div>`;
+    return`<div class="card" style="padding:9px 12px;margin-bottom:7px"><div class="fb"><div style="flex:1;min-width:0"><div style="font-weight:600">${it.code?`<span class="tag" style="font-weight:700;background:var(--bg3);color:var(--text)">${esc(it.code)}</span> `:''}${esc(it.name)} ${brandBadge}</div><div class="fr" style="margin-top:4px;gap:3px;flex-wrap:wrap">${(it.colors||[]).map(c=>`<span class="chip" style="padding:1px 6px 1px 5px;font-size:10px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colorToHex(c)};border:1px solid rgba(0,0,0,.18);margin-right:4px;vertical-align:0"></span>${esc(c)}</span>`).join('')}${(it.sizes||[]).map(s=>`<span class="tag" style="font-size:10px">${esc(s)}</span>`).join('')}${fabInfo}${widthInfo}${[it.client,it.season,fcName?`✂${fcName}`:''].filter(Boolean).map(x=>`<span class="tag" style="font-size:10px">${esc(x)}</span>`).join('')}${it.careInstructions?`<span class="tag" style="font-size:10px">🧺 ${esc(it.careInstructions.substring(0,20))}</span>`:''}</div></div><div class="fr" style="flex-shrink:0"><span class="tag">${(it.fabrics||[]).length}원단</span><span class="tag">${(it.trims||[]).length}부자재</span><button class="btn s" onclick="showItemForm('${it.id}')">✎</button><button class="btn s" onclick="dupItem('${it.id}')" title="복사"></button><button class="btn s d" onclick="delItem('${it.id}')">🗑</button></div></div></div>`;
   }).join('');
 }
 function dupItem(id){const it=S.items[id];if(!it)return;const nid=uid();S.items[nid]={...JSON.parse(JSON.stringify(it)),id:nid,name:it.name+' (복사)'};saveData();renderItemsList();showToast('아이템 복사 완료');}
@@ -4228,7 +4240,7 @@ function renderCSSummary(){
   // 브랜드 버튼 렌더 (아이템 탭과 동일한 pill 디자인)
   renderBrandPills('cs-brand-btns', brandFlt, 'setCsBrandFilter', {includeNone:true});
   // 필터 드롭다운 채우기
-  const seasons=[...new Set(items.map(it=>it.season).filter(Boolean))].sort();
+  const seasons=sortSeasonsDesc([...new Set(items.map(it=>it.season).filter(Boolean))]);
   const sEl=document.getElementById('cs-season-flt');
   if(sEl&&sEl.children.length<=1)sEl.innerHTML='<option value="">전체 시즌</option>'+seasons.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
   const fEl=document.getElementById('cs-factory-flt');
@@ -4473,7 +4485,7 @@ function renderOrderNewItems(){
   const seasonSel=document.getElementById('on-season-flt');
   if(seasonSel){
     const cur=seasonSel.value;
-    const seasons=[...new Set(allItems.map(i=>i.season).filter(Boolean))].sort();
+    const seasons=sortSeasonsDesc([...new Set(allItems.map(i=>i.season).filter(Boolean))]);
     seasonSel.innerHTML='<option value="">전체 시즌</option>'+seasons.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
     seasonSel.value=cur;
   }
@@ -7328,7 +7340,7 @@ function renderProdTab(o){
             var rit=S.items[sp.itemId];
             var rcolors=rit?((rit.colors&&rit.colors.length)?rit.colors:['']):[];
             var rsizes=rit?((rit.sizes&&rit.sizes.length)?rit.sizes:['free']):[];
-            var itemCell=multi?`<td><select style="font-size:11px;max-width:120px" onchange="setShipment('${o.id}','${fcId}','${sp.id}','itemId',this.value)"><option value="">아이템</option>${myItems.map(function(oi){return '<option value="'+oi.itemId+'" '+(sp.itemId===oi.itemId?'selected':'')+'>'+esc((S.items[oi.itemId]||{}).name||'')+'</option>';}).join('')}</select></td>`:'';
+            var itemCell=multi?`<td><select style="font-size:11px;max-width:120px;${sp.itemId?'':'border:2px solid var(--red);background:var(--rbg)'}" onchange="setShipment('${o.id}','${fcId}','${sp.id}','itemId',this.value)"><option value="">⚠ 아이템 선택</option>${myItems.map(function(oi){return '<option value="'+oi.itemId+'" '+(sp.itemId===oi.itemId?'selected':'')+'>'+esc((S.items[oi.itemId]||{}).name||'')+'</option>';}).join('')}</select></td>`:'';
             var colorCell=`<td>${rit?`<select style="font-size:11px;max-width:110px" onchange="setShipment('${o.id}','${fcId}','${sp.id}','color',this.value)">${rcolors.map(function(c){return '<option value="'+esc(c)+'" '+(sp.color===c?'selected':'')+'>'+(esc(c)||'─')+'</option>';}).join('')}</select>`:'<span class="muted" style="font-size:11px">—</span>'}</td>`;
             var sizeCell=`<td>${rit?`<select style="font-size:11px;max-width:90px" onchange="setShipment('${o.id}','${fcId}','${sp.id}','size',this.value)">${rsizes.map(function(s){return '<option value="'+esc(s)+'" '+(sp.size===s?'selected':'')+'>'+esc(s)+'</option>';}).join('')}</select>`:'<span class="muted" style="font-size:11px">—</span>'}</td>`;
             return `<tr>
@@ -7348,6 +7360,8 @@ function renderProdTab(o){
         })()}
         </div>
         <button class="btn s ok" style="margin-top:6px" onclick="addShipment('${o.id}','${fcId}')">＋ 출고 추가</button>
+        <button class="btn s" style="margin-top:6px;margin-left:6px" onclick="bulkShipToggle('${fcId}')">📋 한번에 입력</button>
+        ${bulkShipGridHTML(o,fcId)}
       </div></div>`;
     }
 
@@ -7681,6 +7695,12 @@ function rmExtraShip(oid,fcId,idx){
 }
 
 /* ── 분할 출고: shipments 단일 원천 ── */
+// 단일 봉제 아이템이면 itemId 없는 출고를 자동 귀속 (그리드 합산 누락 방지)
+function backfillShipItemIds(o,fcId){
+  var sch=o&&o.factorySchedules&&o.factorySchedules[fcId];if(!sch||!Array.isArray(sch.shipments))return;
+  var sew=(o.orderItems||[]).filter(function(oi){return S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===fcId;});
+  if(sew.length===1)sch.shipments.forEach(function(s){if(!s.itemId)s.itemId=sew[0].itemId;});
+}
 function recomputeShipping(sch){
   if(!sch)return;
   var grid={},total=0;
@@ -7705,7 +7725,7 @@ function addShipment(oid,fcId,itemId){
   // 아이템 컬러/사이즈 하나뿐이면 자동 선택
   if(itemId){var it=S.items[itemId];if(it){if((it.colors||[]).length===1)def.color=it.colors[0];if((it.colors||[]).length===0)def.color='';if((it.sizes||[]).length===1)def.size=it.sizes[0];}}
   sch.shipments.push(def);
-  recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();renderOTab();
+  backfillShipItemIds(o,fcId);recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();renderOTab();
 }
 function setShipment(oid,fcId,shipId,field,val){
   var o=S.orders[oid];if(!o||!o.factorySchedules[fcId])return;
@@ -7714,7 +7734,7 @@ function setShipment(oid,fcId,shipId,field,val){
   sp[field]=val;
   // 아이템 변경 시 컬러/사이즈 리셋
   if(field==='itemId'){sp.color='';sp.size='';var it=S.items[val];if(it){if((it.colors||[]).length===1)sp.color=it.colors[0];if((it.sizes||[]).length===1)sp.size=it.sizes[0];}}
-  recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();
+  backfillShipItemIds(o,fcId);recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();
   // 그리드/미출에 영향 주는 필드면 탭 재렌더
   if(field==='qty'||field==='color'||field==='size'||field==='itemId'){renderOTab();}else{renderOrderPane();}
 }
@@ -7723,7 +7743,43 @@ function rmShipment(oid,fcId,shipId){
   if(!confirm('이 출고 기록을 삭제할까요?'))return;
   var sch=o.factorySchedules[fcId];
   sch.shipments=(sch.shipments||[]).filter(function(s){return s.id!==shipId;});
-  recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();renderOTab();
+  backfillShipItemIds(o,fcId);recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();renderOTab();
+}
+/* ── 한번에 입력 (컬러×사이즈 그리드) ── */
+function bulkShipToggle(fcId){var el=document.getElementById('bulkship-'+fcId);if(el)el.style.display=(el.style.display==='none'||!el.style.display)?'block':'none';}
+function setBulkShipItem(fcId,itemId){window._bulkShipItem=window._bulkShipItem||{};window._bulkShipItem[fcId]=itemId;renderOTab();var el=document.getElementById('bulkship-'+fcId);if(el)el.style.display='block';}
+function bulkShipGridHTML(o,fcId){
+  var its=fcSewItems(o,fcId);if(!its.length)return '';
+  var sel=(window._bulkShipItem&&window._bulkShipItem[fcId])||its[0].itemId;
+  if(!its.find(function(x){return x.itemId===sel;}))sel=its[0].itemId;
+  var it=S.items[sel];if(!it)return '';
+  var colors=(it.colors&&it.colors.length)?it.colors:[''];
+  var sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+  var h='<div id="bulkship-'+fcId+'" style="display:none;margin-top:8px;padding:10px;background:#eef6ff;border:1px solid #bfdbfe;border-radius:8px">';
+  h+='<div class="fr" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><b style="font-size:12px">📋 한번에 입력</b><input type="date" id="bsg-date-'+fcId+'" value="'+todayISO()+'" style="font-size:11px;padding:3px 5px">';
+  if(its.length>1){h+='<select onchange="setBulkShipItem(\''+fcId+'\',this.value)" style="font-size:11px">'+its.map(function(oi){return '<option value="'+oi.itemId+'" '+(oi.itemId===sel?'selected':'')+'>'+esc((S.items[oi.itemId]||{}).name||'')+'</option>';}).join('')+'</select>';}
+  h+='</div>';
+  h+='<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>컬러</th>'+sizes.map(function(s){return '<th style="text-align:center">'+esc(s)+'</th>';}).join('')+'</tr></thead><tbody>';
+  colors.forEach(function(c,ci){h+='<tr><td style="font-size:11px;white-space:nowrap">'+(esc(c)||'─')+'</td>'+sizes.map(function(s,si){return '<td style="text-align:center"><input type="number" id="bsg-'+fcId+'-'+ci+'-'+si+'" min="0" placeholder="0" style="width:50px;font-size:15px;text-align:center"></td>';}).join('')+'</tr>';});
+  h+='</tbody></table></div>';
+  h+='<div style="margin-top:8px"><button class="btn s ok" onclick="applyBulkShip(\''+o.id+'\',\''+fcId+'\',\''+sel+'\')">✓ 이 날짜로 출고 추가</button><button class="btn s g" style="margin-left:6px" onclick="bulkShipToggle(\''+fcId+'\')">닫기</button></div>';
+  h+='</div>';
+  return h;
+}
+function applyBulkShip(oid,fcId,itemId){
+  var o=S.orders[oid];if(!o||!o.factorySchedules[fcId])return;
+  var sch=o.factorySchedules[fcId];if(!Array.isArray(sch.shipments))sch.shipments=[];
+  var it=S.items[itemId];if(!it){showToast('아이템을 찾을 수 없어요');return;}
+  var colors=(it.colors&&it.colors.length)?it.colors:[''];
+  var sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+  var dEl=document.getElementById('bsg-date-'+fcId);var date=(dEl&&dEl.value)||todayISO();
+  var added=0;
+  colors.forEach(function(c,ci){sizes.forEach(function(s,si){
+    var el=document.getElementById('bsg-'+fcId+'-'+ci+'-'+si);var v=el?(+el.value||0):0;
+    if(v>0){sch.shipments.push({id:uid(),date:date,itemId:itemId,color:c,size:s,qty:v,note:''});added++;}
+  });});
+  if(!added){showToast('입력된 수량이 없어요');return;}
+  backfillShipItemIds(o,fcId);recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();renderOTab();showToast('✅ '+added+'건 출고 추가됨');
 }
 function addFcToOrder(){const sel=document.getElementById('add-fc-sel');const id=sel?.value;if(!id){alert('공장/처 선택');return;}const o=S.orders[curOid];if(!o.factorySchedules)o.factorySchedules={};if(o.factorySchedules[id]){showToast('이미 추가됨');return;}const sch=mkFcSch();if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[id]=sch;saveData();renderOTab();}
 function removeFcFromOrder(id){if(!confirm('제거?'))return;delete S.orders[curOid].factorySchedules[id];saveData();renderOTab();}
@@ -8930,12 +8986,64 @@ function renderTrack(onlyOid,targetId){
     t+=`</tbody></table>`;
 
     // 요척 분석
+    // 컬러별 요척 분석 (발주원단/오더합계 → 투입원단/재단합계)
+    let colorYardHtml='';
+    {
+      const cyRows=b.colors.map(c=>{
+        const cOrd=allSz.reduce((s,sz)=>s+(+(c.orderQty&&c.orderQty[sz])||0),0);
+        const cCut=allSz.reduce((s,sz)=>s+(+(c.cuttingQty&&c.cuttingQty[sz])||0),0);
+        const ordY=orderedFabByColor[c.colorName]||0;
+        const cutY=colorFab[c.colorName]||0;
+        return {name:c.colorName||'─',planR:(cOrd>0&&ordY>0)?ordY/cOrd:null,cutR:(cCut>0&&cutY>0)?cutY/cCut:null};
+      }).filter(r=>r.planR!=null||r.cutR!=null);
+      if(cyRows.length){
+        colorYardHtml='<table style="width:100%;border-collapse:collapse;margin-top:7px;font-size:11px"><thead><tr style="color:var(--t2)">'
+          +'<th style="text-align:left;padding:2px 4px">컬러</th><th style="text-align:right;padding:2px 4px">발주 요척</th><th style="text-align:right;padding:2px 4px">재단 요척</th><th style="text-align:right;padding:2px 4px">차이</th></tr></thead><tbody>'
+          +cyRows.map(r=>{
+            const diff=(r.planR!=null&&r.cutR!=null)?(r.planR-r.cutR):null;
+            const diffTxt=diff==null?'─':(diff>0.0049?'<span style="color:var(--green)">↓'+diff.toFixed(2)+'y 절감</span>':(diff<-0.0049?'<span style="color:var(--red)">↑'+(-diff).toFixed(2)+'y 초과</span>':'≈'));
+            return '<tr style="border-top:1px solid #ffe082">'
+              +'<td style="text-align:left;padding:3px 4px;font-weight:600">'+esc(r.name)+'</td>'
+              +'<td style="text-align:right;padding:3px 4px">'+(r.planR!=null?r.planR.toFixed(2)+'y':'─')+'</td>'
+              +'<td style="text-align:right;padding:3px 4px;font-weight:600">'+(r.cutR!=null?r.cutR.toFixed(2)+'y':'─')+'</td>'
+              +'<td style="text-align:right;padding:3px 4px">'+diffTxt+'</td></tr>';
+          }).join('')
+          +'</tbody></table>';
+      }
+    }
+    // 사이즈별 투입원단 입력 + 사이즈별 요척 (정확 계산)
+    const sizeFabIn=b.sizeFabricUsed||{};
+    const sizeFabInputHtml='<div style="margin-top:7px;padding:7px 10px;background:#e8f5e9;border-radius:6px">'
+      +'<div style="font-size:11px;font-weight:600;color:#2e7d32;margin-bottom:5px">📐 사이즈별 투입원단 <span style="font-weight:400;color:var(--t2)">(입력하면 사이즈별 요척 정확 계산)</span></div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +allSz.map(s=>'<div style="text-align:center"><div style="font-size:10px;color:var(--t2);margin-bottom:1px">'+esc(s)+' <span style="color:#bbb">('+(szCut[s]||0)+'장)</span></div><input type="number" value="'+(sizeFabIn[s]||'')+'" min="0" step="0.01" placeholder="0" style="width:58px;font-size:11px;text-align:right;padding:2px 4px" oninput="setTkSizeFab(\''+b.ordId+'\',\''+b.id+'\',\''+encodeURIComponent(s)+'\',+this.value)"></div>').join('')
+      +'</div></div>';
+    let sizeYardHtml='';
+    {
+      const syRows=allSz.map(s=>{const cut=szCut[s]||0;const fab=+sizeFabIn[s]||0;return {size:s,cutR:(cut>0&&fab>0)?fab/cut:null};}).filter(r=>r.cutR!=null);
+      if(syRows.length){
+        sizeYardHtml='<table style="width:100%;border-collapse:collapse;margin-top:7px;font-size:11px"><thead><tr style="color:var(--t2)">'
+          +'<th style="text-align:left;padding:2px 4px">사이즈</th><th style="text-align:right;padding:2px 4px">발주 요척</th><th style="text-align:right;padding:2px 4px">재단 요척</th><th style="text-align:right;padding:2px 4px">차이</th></tr></thead><tbody>'
+          +syRows.map(r=>{
+            const diff=(ydPlan&&r.cutR!=null)?(ydPlan-r.cutR):null;
+            const diffTxt=diff==null?'─':(diff>0.0049?'<span style="color:var(--green)">↓'+diff.toFixed(2)+'y 절감</span>':(diff<-0.0049?'<span style="color:var(--red)">↑'+(-diff).toFixed(2)+'y 초과</span>':'≈'));
+            return '<tr style="border-top:1px solid #ffe082"><td style="text-align:left;padding:3px 4px;font-weight:600">'+esc(r.size)+'</td>'
+              +'<td style="text-align:right;padding:3px 4px">'+(ydPlan?ydPlan+'y':'─')+'</td>'
+              +'<td style="text-align:right;padding:3px 4px;font-weight:600">'+r.cutR.toFixed(2)+'y</td>'
+              +'<td style="text-align:right;padding:3px 4px">'+diffTxt+'</td></tr>';
+          }).join('')
+          +'</tbody></table>';
+      }
+    }
     const yardHtml=`<div style="padding:7px 12px;background:#FFF8E1;border-top:1px solid #ffe082;font-size:12px">
       <span style="font-weight:600">📐 요척 분석</span>
       <span style="margin-left:12px">발주 요척: <b>${ydPlan?ydPlan+'y/pcs':'미설정'}</b></span>
       ${ydCut?`<span style="margin-left:8px">→ 재단 요척: <b style="color:${ydCut>ydPlan?'var(--red)':'var(--green)'}">${ydCut}y/pcs ${ydPlan?(ydCut>ydPlan?'↑ '+(ydCut-ydPlan).toFixed(2)+'y 초과':'↓ '+(ydPlan-ydCut).toFixed(2)+'y 절감'):''}</b></span>`:''}
       ${ydShip&&ydShip!==ydCut?`<span style="margin-left:8px">→ 출고 기준: <b style="color:${ydShip>ydPlan?'var(--red)':'var(--green)'}">${ydShip}y/pcs</b></span>`:''}
       <span id="yard-ind-${b.id}"></span>
+      ${colorYardHtml?`<div style="margin-top:4px;font-size:10px;color:var(--t2)">🎨 컬러별</div>${colorYardHtml}`:''}
+      ${sizeFabInputHtml}
+      ${sizeYardHtml?`<div style="margin-top:4px;font-size:10px;color:var(--t2)">📏 사이즈별</div>${sizeYardHtml}`:''}
     </div>`;
 
     // 불량 섹션
@@ -9121,6 +9229,13 @@ function setTkColorFab(oid,bid,colorEncoded,val){
   const cn=decodeURIComponent(colorEncoded);
   if(!b.colorFabricUsed)b.colorFabricUsed={};
   b.colorFabricUsed[cn]=val;
+  saveData();
+}
+function setTkSizeFab(oid,bid,sizeEncoded,val){
+  const b=S.orders[oid]?.trackBlocks?.find(x=>x.id===bid);if(!b)return;
+  const sz=decodeURIComponent(sizeEncoded);
+  if(!b.sizeFabricUsed)b.sizeFabricUsed={};
+  b.sizeFabricUsed[sz]=val;
   saveData();
 }
 
@@ -10555,7 +10670,7 @@ function renderCSDropdown(){
   if(bEl){const curB=bEl.value;bEl.innerHTML='<option value="">전체 브랜드</option>'+getBrands().map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');bEl.value=curB;}
   // 요약 탭 필터 채우기
   const items=Object.values(S.items);
-  const seasons=[...new Set(items.map(it=>it.season).filter(Boolean))].sort();
+  const seasons=sortSeasonsDesc([...new Set(items.map(it=>it.season).filter(Boolean))]);
   const sEl=document.getElementById('cs-season-flt');
   if(sEl)sEl.innerHTML='<option value="">전체 시즌</option>'+seasons.map(s2=>`<option value="${esc(s2)}">${esc(s2)}</option>`).join('');
   const fEl=document.getElementById('cs-factory-flt');
