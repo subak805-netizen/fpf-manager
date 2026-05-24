@@ -483,7 +483,7 @@ tryInitFirebase();
   <!-- Items -->
   <div id="pane-items" class="panel" style="display:none">
     <div id="ipl">
-      <div class="fb" style="margin-bottom:8px"><div class="muted" id="i-cnt"></div><div class="fr" style="gap:6px"><button class="btn s" onclick="showBrandManageModal()">🏷 브랜드</button><button class="btn p s" onclick="showItemForm(null)">＋ 아이템 추가</button></div></div>
+      <div class="fb" style="margin-bottom:8px"><div class="muted" id="i-cnt"></div><div class="fr" style="gap:6px"><button class="btn s" onclick="openJobImport()" title="작업지시서 사진 데이터(JSON)로 아이템 자동 등록">📋 작지 가져오기</button><button class="btn s" onclick="showBrandManageModal()">🏷 브랜드</button><button class="btn p s" onclick="showItemForm(null)">＋ 아이템 추가</button></div></div>
       <div class="fr" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">
         <div id="item-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"></div>
         <select id="item-season-flt" style="font-size:12px" onchange="renderItemsList()"><option value="">전체 시즌</option></select>
@@ -3065,6 +3065,72 @@ function renderBrandPills(containerId, currentVal, onChangeFnName, opts){
   el.innerHTML=getBrandPillsHTML(currentVal, onChangeFnName, opts);
 }
 
+// ===== 작지(작업지시서) 가져오기 =====
+function openJobImport(){
+  var ov=document.getElementById('jobimp-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='jobimp-ov';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:14px';
+    ov.innerHTML='<div style="background:var(--bg,#fff);border-radius:12px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.25)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:15px">📋 작지 가져오기</b><button id="jobimp-x" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--t2)">✕</button></div>'
+      +'<div style="font-size:12px;color:var(--t2,#666);margin-bottom:8px;line-height:1.6">작업지시서 사진을 Claude에게 올리면 아래에 붙여넣을 데이터(JSON)를 만들어드려요.<br>그걸 붙여넣고 <b>가져오기</b>를 누르면 <b>아이템(원단·부자재 포함)이 자동 등록</b>돼요. 단가는 등록 후 입력하세요.<br>※ 기존 데이터는 그대로, 새 아이템만 추가돼요.</div>'
+      +'<textarea id="jobimp-ta" placeholder="여기에 JSON 붙여넣기..." style="width:100%;height:240px;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--bd,#ccc);border-radius:8px;box-sizing:border-box"></textarea>'
+      +'<div style="display:flex;gap:8px;margin-top:10px"><button id="jobimp-go" class="btn p" style="flex:1">가져오기</button><button id="jobimp-cancel" class="btn">취소</button></div></div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeJobImport();});
+    document.getElementById('jobimp-x').onclick=closeJobImport;
+    document.getElementById('jobimp-cancel').onclick=closeJobImport;
+    document.getElementById('jobimp-go').onclick=function(){importJobSheet(document.getElementById('jobimp-ta').value);};
+  }
+  ov.style.display='flex';
+  var ta=document.getElementById('jobimp-ta');if(ta)ta.value='';
+}
+function closeJobImport(){var ov=document.getElementById('jobimp-ov');if(ov)ov.style.display='none';}
+function importJobSheet(txt){
+  if(!txt||!txt.trim()){alert('JSON을 붙여넣어 주세요');return;}
+  var data;try{data=JSON.parse(txt);}catch(e){alert('JSON 형식 오류:\n'+e.message);return;}
+  var arr=Array.isArray(data)?data:[data];
+  var TL=(typeof TRIM_LOSS_PCT!=='undefined'?TRIM_LOSS_PCT:0);
+  var FL=(typeof FAB_LOSS_PCT!=='undefined'?FAB_LOSS_PCT:0);
+  var created=[];
+  arr.forEach(function(d){
+    if(!d||!d.name)return;
+    // 브랜드 매칭/생성
+    var brandId='';
+    if(d.brand){var bs=(typeof getBrands==='function'?getBrands():(S.brands||[]))||[];var b=bs.find(function(x){return x.name===d.brand;});if(b)brandId=b.id;else{brandId=uid();if(!S.brands)S.brands=[];S.brands.push({id:brandId,name:d.brand});}}
+    // 봉제공장 매칭/생성
+    var sewFc='';
+    if(d.sewingFactory){var fcs=Object.values(S.factories||{});var f=fcs.find(function(x){return x.name===d.sewingFactory;});if(f)sewFc=f.id;else{sewFc=uid();if(!S.factories)S.factories={};S.factories[sewFc]={id:sewFc,name:d.sewingFactory,type:'봉제',contact:'',address:'',phone:'',email:'',bank:''};}}
+    // 원단
+    var fabrics=(d.fabrics||[]).map(function(f){return {id:uid(),supplier:f.supplier||'',name:f.name||'',pricingUnit:'yard',unitPrice:0,pricePerKg:0,yardsPerKg:1,consumption:0,buffer:FL,fabricColor:'',width:(f.width!=null&&f.width!==''?+f.width:null),composition:f.composition||'',part:f.part||'',priceAdditions:[],colorLinks:[]};});
+    // 부자재
+    var trims=(d.trims||[]).map(function(t){
+      var ot=t.orderType||'count';var base;
+      if(ot==='button')base={id:uid(),supplier:'',name:'단추',orderType:'button',buttonSize:'',buttonStyle:'',unitPrice:0,qtyPerPiece:1,buffer:TL,sizeRates:[],colorLinks:[]};
+      else if(ot==='loop'||ot==='buttonloop')base={id:uid(),supplier:'',name:'단추고리',orderType:'yard',isButtonLoop:true,loopPerPiece:(+t.loopPerPiece||1),loopPerYard:(+t.loopPerYard||0),consumptionPerPiece:0,unitPrice:0,buffer:0,sizeRates:[],colorLinks:[]};
+      else if(ot==='yard')base={id:uid(),supplier:'',name:'심지',orderType:'yard',consumptionPerPiece:0.5,unitPrice:0,buffer:TL,sizeRates:[],colorLinks:[]};
+      else if(ot==='roll')base={id:uid(),supplier:'',name:'',orderType:'roll',consumptionPerPiece:0,yardsPerRoll:100,unitPrice:0,buffer:TL,sizeRates:[],colorLinks:[]};
+      else if(ot==='zipper')base={id:uid(),supplier:'',name:'지퍼',orderType:'zipper',zipperSize:'',zipperLength:'',zipperDirection:'오픈',toothColor:'',sliderModel:'',sliderColor:'',hasSliderLogo:false,sliderLogoText:'',qtyPerPiece:1,unitPrice:0,buffer:TL,sizeRates:[],colorLinks:[]};
+      else base={id:uid(),supplier:'',name:'',orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:TL,sizeRates:[],colorLinks:[]};
+      if(t.supplier)base.supplier=t.supplier;
+      if(t.name)base.name=t.name;
+      if(t.part)base.part=t.part;
+      if(t.spec&&base.orderType==='button')base.buttonSize=t.spec;
+      return base;
+    });
+    var id=uid();
+    var item={id:id,name:d.name,code:d.code||'',client:d.client||'',season:d.season||'',notes:d.notes||'',careInstructions:'',brandId:brandId,colors:(d.colors||[]).slice(),sizes:(d.sizes||[]).slice(),fabrics:fabrics,trims:trims,trimCosts:[],finishCosts:[],patternCost:0,sampleCost:0,onceCost:0,onceCostNm:'',inclOnce:false};
+    if(typeof COST_DEFS!=='undefined')COST_DEFS.forEach(function(cd){item[cd[0]]=0;item[cd[2]]='';});
+    if(sewFc)item.sewingFcId=sewFc;
+    S.items[id]=item;
+    created.push(item.name);
+  });
+  if(!created.length){alert('가져올 아이템이 없어요 (name 필드를 확인하세요)');return;}
+  saveData();
+  if(typeof renderItemsList==='function')renderItemsList();
+  closeJobImport();
+  if(typeof showToast==='function')showToast('✅ 작지 가져오기 완료: '+created.join(', '),4000);
+}
 function renderItemsList(){
   const allItems=Object.values(S.items);
   // 필터 드롭다운 채우기
@@ -5047,7 +5113,7 @@ function togglePoAddrOpt(oid,sn,key,checked){
 }
 
 function savePoOptsDefault(sn,key,val){if(!S.priceBook[sn])S.priceBook[sn]={email:'',phone:'',memo:'',materials:{}};if(!S.priceBook[sn].defaultPoOpts)S.priceBook[sn].defaultPoOpts={};S.priceBook[sn].defaultPoOpts[key]=val;lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
-function mkFcSch(){return{expectedArrivalDate:'',cuttingDate:'',cuttingQty:0,cuttingGrid:{},sewingCompleteDate:'',shipExpectedDate:'',shipDone:false,shipDoneDate:'',shippingDate:'',shippingQty:0,shippingGrid:{},vatRate:10,paymentSent:false,paymentSentAt:'',notified:false,extraShipments:[],shipments:[],processDone:false,processDate:''};}
+function mkFcSch(){return{expectedArrivalDate:'',cuttingDate:'',cuttingQty:0,cuttingGrid:{},sewingCompleteDate:'',inspectionDate:'',shipExpectedDate:'',shipDone:false,shipDoneDate:'',shippingDate:'',shippingQty:0,shippingGrid:{},vatRate:10,paymentSent:false,paymentSentAt:'',notified:false,extraShipments:[],shipments:[],processDone:false,processDate:''};}
 
 /* ===== PO TEXT (새 형식 — 간단명료) ===== */
 // ===== 브랜드 예상 일정 안내 (날짜별 묶음 + 선택) =====
@@ -5698,6 +5764,16 @@ function genPoText(order,sn){
       L.push('> '+fc.name);
     }
   }
+  // ➕ 재단 초과분 추가 발주 (이 거래처분) — 발주서에도 표기
+  var _exLines=[];
+  (order.extraOrders||[]).forEach(function(ex){
+    var g=ex.bySupplier&&ex.bySupplier[sn];if(!g||!g.lines)return;
+    g.lines.forEach(function(l){if((+l.qty||0)<=0)return;_exLines.push('· '+l.name+' '+num(l.qty)+((l.unit||'').replace(/yard|야드/,'y'))+' (추가+'+ex.qty+'장)');});
+  });
+  if(_exLines.length){
+    L.push('');L.push('━━━━━━━━━━');L.push('➕ 추가 발주 (재단 초과분)');
+    _exLines.forEach(function(x){L.push(x);});
+  }
   return L.join('\n').trimEnd();
 }
 
@@ -5795,6 +5871,37 @@ function orderShipETA(o){
   var dates=[];Object.values(o.factorySchedules||{}).forEach(function(f){if(f.shipExpectedDate)dates.push(f.shipExpectedDate);if(f.shipDoneDate)dates.push(f.shipDoneDate);(f.shipments||[]).forEach(function(s){if(s&&s.date)dates.push(s.date);});if(f.shippingDate)dates.push(f.shippingDate);});
   if(o.shippingDate)dates.push(o.shippingDate);
   dates=dates.filter(Boolean).sort();return dates[0]||'';
+}
+// 출고예정(자동계산 포함): 입력 출고예정 → 검품완료+1 → 봉제완료+2
+function fcShipETA(sch){
+  if(!sch)return '';
+  if(sch.shipExpectedDate)return sch.shipExpectedDate;
+  if(sch.inspectionDate){var d=new Date(sch.inspectionDate);d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);}
+  if(sch.sewingCompleteDate){var d2=new Date(sch.sewingCompleteDate);d2.setDate(d2.getDate()+2);return d2.toISOString().slice(0,10);}
+  return '';
+}
+// 출고 여부: 수동 출고완료 OR 출고기록(출고수량) 있음 — "첫 출고 적히면 출고완료"
+function fcShippedQty(sch){
+  if(!sch)return 0;
+  var s=(sch.shipments||[]).reduce(function(a,x){return a+(+(x&&x.qty)||0);},0);
+  return s||(+sch.shippingQty||0);
+}
+function fcShipped(sch){return !!(sch&&(sch.shipDone||fcShippedQty(sch)>0));}
+function fcLastShipDate(sch){
+  if(!sch)return '';
+  if(sch.shipDoneDate)return sch.shipDoneDate;
+  var ds=(sch.shipments||[]).map(function(x){return x&&x.date;}).filter(Boolean).sort();
+  return ds.length?ds[ds.length-1]:(sch.shippingDate||'');
+}
+function orderShipETAAuto(o){
+  var dates=[];
+  Object.values(o.factorySchedules||{}).forEach(function(f){if(fcShipped(f))return;var e=fcShipETA(f);if(e)dates.push(e);});
+  if(o.shippingDate)dates.push(o.shippingDate);
+  dates=dates.filter(Boolean).sort();return dates[0]||'';
+}
+function orderAllShipped(o){
+  var fcs=Object.values(o.factorySchedules||{});if(!fcs.length)return false;
+  return fcs.every(function(f){return fcShipped(f)||f.paymentSent;});
 }
 function orderSortKey(o){
   var fcs=Object.values(o.factorySchedules||{});
@@ -7244,6 +7351,51 @@ function smsArrNotif(oid){const txt=genArrNotif(oid);const fcId=document.getElem
 // ── 재단/출고 안내 (브랜드 전달용 복사·공유) ──
 function notifShare(txt){if(!txt){showToast('내용이 없어요');return;}if(navigator.share){navigator.share({text:txt}).catch(function(){if(navigator.clipboard)navigator.clipboard.writeText(txt).then(function(){showToast('📋 복사됨! 붙여넣기',2500);});});}else if(navigator.clipboard){navigator.clipboard.writeText(txt).then(function(){showToast('📋 복사됨! 붙여넣기',2500);}).catch(function(){alert(txt);});}else alert(txt);}
 function notifCopy(txt){if(!txt){showToast('내용이 없어요');return;}if(navigator.clipboard){navigator.clipboard.writeText(txt).then(function(){showToast('📋 복사 완료');}).catch(function(){alert(txt);});}else alert(txt);}
+function genFcCutCheckText(oid,fcId){
+  var o=S.orders[oid];if(!o)return '';
+  var sch=o.factorySchedules&&o.factorySchedules[fcId];var fc=S.factories[fcId];if(!sch||!fc)return '';
+  var oi0=(o.orderItems||[])[0];var itemNm=(oi0&&S.items[oi0.itemId]&&S.items[oi0.itemId].name)||o.name;
+  var L=[];
+  L.push('['+itemNm+'] 재단 진행 확인 부탁드려요');
+  if(sch.cuttingDate)L.push('재단 예정일: '+fmtKoDate(sch.cuttingDate));
+  L.push('');
+  L.push('재단 완료하셨을까요?');
+  L.push('완료되었으면 컬러·사이즈별 재단 장수 알려주세요~');
+  L.push('출고예정일도 알려주세요~');
+  return L.join('\n');
+}
+function genFcSewCheckText(oid,fcId){
+  var o=S.orders[oid];if(!o)return '';
+  var sch=o.factorySchedules&&o.factorySchedules[fcId];var fc=S.factories[fcId];if(!sch||!fc)return '';
+  var oi0=(o.orderItems||[])[0];var itemNm=(oi0&&S.items[oi0.itemId]&&S.items[oi0.itemId].name)||o.name;
+  var ship=(typeof fcShipETA==='function')?fcShipETA(sch):'';
+  var L=[];
+  L.push('['+itemNm+'] 봉제 진행 확인차 연락드려요.');
+  if(sch.sewingCompleteDate)L.push('봉제 완료 예정: '+fmtKoDate(sch.sewingCompleteDate));
+  if(ship)L.push('출고 예정: '+fmtKoDate(ship));
+  L.push('');
+  L.push('봉제 잘 진행되고 있을까요?');
+  L.push('예정일대로 출고 가능하신지 확인 부탁드려요. 감사합니다!');
+  return L.join('\n');
+}
+function genFcShipCheckText(oid,fcId){
+  var o=S.orders[oid];if(!o)return '';
+  var sch=o.factorySchedules&&o.factorySchedules[fcId];var fc=S.factories[fcId];
+  if(!sch||!fc)return '';
+  var ship=sch.shipExpectedDate||'';
+  if(!ship&&sch.inspectionDate){var d=new Date(sch.inspectionDate);d.setDate(d.getDate()+1);ship=d.toISOString().slice(0,10);}
+  else if(!ship&&sch.sewingCompleteDate){var d2=new Date(sch.sewingCompleteDate);d2.setDate(d2.getDate()+2);ship=d2.toISOString().slice(0,10);}
+  var oi0=(o.orderItems||[])[0];var itemNm=(oi0&&S.items[oi0.itemId]&&S.items[oi0.itemId].name)||o.name;
+  var dd=ship?calcDday(ship):null;
+  var ddTxt=(dd==null)?'':(dd<0?(' — 예정일 '+(-dd)+'일 지났어요'):dd===0?' — 오늘이에요!':(' (D-'+dd+')'));
+  var L=[];
+  L.push('['+itemNm+'] 출고 예정일이');
+  L.push((ship?fmtKoDate(ship):'미정')+ddTxt+' 입니다.');
+  L.push('');
+  L.push('일정대로 출고 가능하신지 확인 부탁드려요.');
+  L.push('변동 있으면 편하게 알려주세요. 감사합니다!');
+  return L.join('\n');
+}
 function genCutText(oid,fcId,itemId){
   var o=S.orders[oid];if(!o)return '';
   var oi=(o.orderItems||[]).find(function(x){return x.itemId===itemId;});if(!oi)return '';
@@ -7271,20 +7423,34 @@ function genShipText(oid,fcId,itemId){
   var oi=(o.orderItems||[]).find(function(x){return x.itemId===itemId;});if(!oi)return '';
   var it=S.items[itemId];if(!it)return '';
   var sch=o.factorySchedules&&o.factorySchedules[fcId];if(!sch)return '';
-  var sGrid=(sch.shippingGrid&&sch.shippingGrid[itemId])||{};
   var colors=(it.colors&&it.colors.length)?it.colors:[''];
   var sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
-  var sd='';(sch.shipments||[]).forEach(function(s){if(s.itemId===itemId&&s.date&&s.date>sd)sd=s.date;});
-  var L=['['+(it.name||o.name||'')+' 출고 안내]','출고일: '+fmtKoDate(sd||todayISO()),'','■ 오더 → 출고 (장)'];
-  var totO=0,totS=0;
-  colors.forEach(function(c){
-    var co=0,cs=0,parts=[];
-    sizes.forEach(function(sz){var oq=+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz]))||0;var sq=+((sGrid[c]&&sGrid[c][sz]))||0;co+=oq;cs+=sq;if(oq||sq)parts.push(sz+' '+oq+'→'+sq);});
-    if(!co&&!cs)return;totO+=co;totS+=cs;
-    L.push((c||'기본')+'  '+co+'→'+cs);if(parts.length)L.push('  '+parts.join(', '));
+  var shortD=function(iso){var p=(''+iso).split('-');return p.length===3?((+p[1])+'/'+(+p[2])):iso;};
+  // 단일 봉제아이템이면 itemId 비어있는 기록도 포함
+  var sewItems=(o.orderItems||[]).filter(function(x){return S.items[x.itemId]&&S.items[x.itemId].sewingFcId===fcId;});
+  var single=sewItems.length===1;
+  var shs=(sch.shipments||[]).filter(function(s){return s&&(+s.qty||0)>0&&(s.itemId===itemId||(single&&!s.itemId));});
+  if(!shs.length)return '';
+  // 날짜(회차)별 그룹
+  var byDate={};var dates=[];
+  shs.forEach(function(s){var d=s.date||'';if(!(d in byDate)){byDate[d]={};dates.push(d);}var c=s.color||'기본';byDate[d][c]=(byDate[d][c]||0)+(+s.qty||0);});
+  dates.sort();
+  var order=colors.map(function(c){return c||'기본';});
+  var totS=0;var lines=[];
+  dates.forEach(function(d,i){
+    var cs=byDate[d];var rtot=0;
+    var keys=Object.keys(cs).sort(function(a,b){var ia=order.indexOf(a);var ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib);});
+    var cstr=keys.map(function(k){rtot+=cs[k];return k+' '+cs[k];});
+    totS+=rtot;
+    lines.push((i+1)+'차 출고 ('+shortD(d)+'): '+cstr.join(', '));
   });
   if(!totS)return '';
-  L.push('───────────','합계  오더 '+totO+' → 출고 '+totS);
+  var totO=0;colors.forEach(function(c){sizes.forEach(function(sz){totO+=+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz]))||0;});});
+  var un=totO-totS;
+  var L=['['+(it.name||o.name||'')+' 출고 안내]','출고일: '+fmtKoDate(dates[dates.length-1]||todayISO()),''];
+  L=L.concat(lines);
+  L.push('───────────');
+  L.push('누적 출고 '+totS+' / 오더 '+totO+(un>0?(' · 미출 '+un):' · 완료'));
   return L.join('\n');
 }
 
@@ -7313,6 +7479,8 @@ function renderProdTab(o){
         const sTotal=Object.values(sGrid).reduce((s,c)=>s+Object.values(c).reduce((a,v)=>a+(+v||0),0),0);
         // 오더수량 표 (읽기전용) + 재분배 수량 표 (나란히)
         const ordTotal=colors.reduce((s,c)=>s+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);
+        // 재단/출고 그리드: 오더·재단·출고가 모두 0인 컬러는 숨김 (발주한 컬러만)
+        const cutColors=(function(){var _cc=colors.filter(function(c){var oq=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);var cq=sizes.reduce(function(s,sz){return s+(+(cGrid[c]&&cGrid[c][sz])||0);},0);var sq=sizes.reduce(function(s,sz){return s+(+(sGrid[c]&&sGrid[c][sz])||0);},0);return oq>0||cq>0||sq>0;});return _cc.length?_cc:colors;})();
         const _bd=getEffectivePcsBreakdown(o,oi);
         const _hasDist=_bd&&_bd.diff!==0;
         const _ordBox=`<div style="flex:1 1 240px;min-width:0;padding:7px 10px;background:var(--bbg);border-radius:6px;border:1px solid #BFDBFE">
@@ -7354,7 +7522,7 @@ function renderProdTab(o){
             <tr><th rowspan="2">컬러</th><th colspan="${sizes.length+1}" class="th-cut">재단수량</th><th colspan="${sizes.length+1}" class="th-shp">출고수량</th><th rowspan="2" style="background:var(--rbg);color:var(--red)">미출</th></tr>
             <tr>${sizes.map(s=>`<th class="th-cut">${esc(s)}</th>`).join('')}<th class="th-cut">합계</th>${sizes.map(s=>`<th class="th-shp">${esc(s)}</th>`).join('')}<th class="th-shp">합계</th></tr>
           </thead><tbody>
-          ${colors.map(c=>{
+          ${cutColors.map(c=>{
             const cTot=sizes.reduce((s,sz)=>s+(+cGrid[c]?.[sz]||0),0);
             const sTot=sizes.reduce((s,sz)=>s+(+sGrid[c]?.[sz]||0),0);
             return`<tr>
@@ -7386,6 +7554,7 @@ function renderProdTab(o){
         <div class="g3" style="margin-bottom:8px">
           <div class="fg"><label>재단 예정일</label><input type="date" value="${sch.cuttingDate||''}" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].cuttingDate=this.value;saveData();renderOrderPane()"></div>
           <div class="fg"><label>봉제 완료 예정</label><input type="date" value="${sch.sewingCompleteDate||''}" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].sewingCompleteDate=this.value;saveData()"></div>
+          <div class="fg"><label>검품 완료 예정 <span class="muted" style="font-size:9px">(출고예정 = 검품완료+1일)</span></label><input type="date" value="${sch.inspectionDate||''}" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].inspectionDate=this.value;saveData();renderDash&&renderDash()"></div>
           <div class="fg"><label>부가세율 (%)</label><input type="number" value="${sch.vatRate||10}" min="0" max="100" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].vatRate=+this.value;saveData()"></div>
         </div>
         <details class="info-box" style="margin-bottom:8px">
@@ -8060,7 +8229,7 @@ function renderPayShtTab(o){
   const supsE=Object.entries(o.suppliers||{});
   for(const[sn,sup]of supsE){
     const mats=(sup.materials||[]).filter(function(m){return getMatActualQty(m)>0&&!isSkippedMat(o,sn,m);});
-    if(!mats.length)continue;
+    if(!mats.length&&!extraOrderRowsForSupplier(o,sn).length)continue;
     const isFabricSup=mats.some(function(m){return m.type==='fabric';});
     const pb=S.priceBook[sn]||{};
     const vatRate=sup.vatRate||10;
@@ -8528,19 +8697,40 @@ function renderSupplierStatusBoard(){
   +'</div>';
 }
 
+// ===== 대시보드 브랜드 필터 =====
+function dashBrandId(o){
+  var cnt={};
+  (o.orderItems||[]).forEach(function(oi){var it=S.items[oi.itemId];if(it&&it.brandId)cnt[it.brandId]=(cnt[it.brandId]||0)+1;});
+  var best='',bn=0;Object.keys(cnt).forEach(function(b){if(cnt[b]>bn){bn=cnt[b];best=b;}});
+  return best;
+}
+function dashFilteredOrders(){
+  var b=window._dashBrand||'';
+  return Object.values(S.orders).filter(function(o){return !b||dashBrandId(o)===b;});
+}
+function dashBrandBar(){
+  var brands=(typeof getBrands==='function'?getBrands():(S.brands||[]))||[];
+  if(!brands.length)return '';
+  var cur=window._dashBrand||'';
+  var btn=function(id,nm){var on=cur===id;return '<button onclick="window._dashBrand=\''+id+'\';renderDash()" style="padding:6px 13px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;border:1px solid '+(on?'var(--blue)':'var(--bd)')+';background:'+(on?'#EFF6FF':'var(--bg)')+';color:'+(on?'#1D4ED8':'var(--t2)')+'">'+esc(nm)+'</button>';};
+  var h='<div style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;-webkit-overflow-scrolling:touch">'+btn('','전체');
+  brands.forEach(function(b){h+=btn(b.id,b.name);});
+  return h+'</div>';
+}
 function renderDash(){
-  const orders=Object.values(S.orders);const el=document.getElementById('dash-body');if(!el)return;
-  const urgent=orders.filter(o=>{const d=calcDday(o.shippingDate);return d!==null&&d>=0&&d<=3;});
-  const late=orders.filter(o=>{const d=calcDday(o.shippingDate);return d!==null&&d<0;});
+  const orders=dashFilteredOrders();const el=document.getElementById('dash-body');if(!el)return;
+  const urgent=orders.filter(o=>{if(orderAllShipped(o))return false;const e=orderShipETAAuto(o);const d=e?calcDday(e):null;return d!==null&&d>=0&&d<=3;});
+  const late=orders.filter(o=>{if(orderAllShipped(o))return false;const e=orderShipETAAuto(o);const d=e?calcDday(e):null;return d!==null&&d<0;});
   let tot=0,paid=0;for(const o of orders){for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){for(const[ck,]of COST_DEFS){let b=0;for(const oi of(o.orderItems||[])){const it=S.items[oi.itemId];if(it)b+=(it[ck]||0)*(oi.grandTotal||0);}if(!b)continue;const v=Math.round(b*((sch.vatRate||10)/100));tot+=b+v;if(o.payments?.['fc_'+fcId+'_'+ck]?.paid)paid+=b+v;}}}
   el.innerHTML=`
+    ${dashBrandBar()}
     <div class="stats">
       <div class="stat"><div class="stat-n">${orders.filter(o=>!Object.values(o.factorySchedules||{}).every(f=>f.paymentSent)).length}</div><div class="stat-l">진행 중 오더</div></div>
       <div class="stat" style="${urgent.length?'border-color:var(--amber)':''}"><div class="stat-n" style="${urgent.length?'color:var(--amber)':''}">${urgent.length}</div><div class="stat-l">⚠ D-3 이내 출고</div></div>
       <div class="stat" style="${late.length?'border-color:var(--red)':''}"><div class="stat-n" style="${late.length?'color:var(--red)':''}">${late.length}</div><div class="stat-l">🔴 출고 지연</div></div>
       <div class="stat"><div class="stat-n" style="font-size:14px">${num(tot-paid)}<span style="font-size:10px">원</span></div><div class="stat-l">미결제</div></div>
     </div>
-    ${urgent.length||late.length?`<div class="alert-bar"><b style="color:var(--red)">🚨 긴급 출고 알림</b><div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px">${[...late,...urgent].map(o=>{const di=ddayInfo(o.shippingDate);return`<span class="dday-badge ${di.cls}" style="cursor:pointer" onclick="goToOrder('${o.id}')">${esc(o.name)} ${di.text} ${o.clientName?'('+esc(o.clientName)+')':''}</span>`;}).join('')}</div></div>`:''}
+    ${urgent.length||late.length?`<div class="alert-bar"><b style="color:var(--red)">🚨 긴급 출고 알림</b><div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px">${[...late,...urgent].map(o=>{const di=ddayInfo(orderShipETAAuto(o));return`<span class="dday-badge ${di.cls}" style="cursor:pointer" onclick="goToOrder('${o.id}')">${esc(o.name)} ${di.text} ${o.clientName?'('+esc(o.clientName)+')':''}</span>`;}).join('')}</div></div>`:''}
     <div id="dash-factory-section">${renderDashFactory()}</div>
     ${renderSupplierStatusBoard()}
     ${renderDeliveryCalendar()}
@@ -8552,17 +8742,18 @@ function renderDash(){
 function renderDashFactory(){
   const showDone=window._dashFcShowDone;
   const rows=[];
-  for(const o of Object.values(S.orders)){
+  for(const o of dashFilteredOrders()){
     for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){
       const fc=S.factories[fcId];if(!fc)continue;
       // 봉제공장만 (이 오더의 봉제공장인 경우)
       const isSewing=(o.orderItems||[]).some(oi=>S.items[oi.itemId]?.sewingFcId===fcId);
       if(!isSewing)continue;
       if(!showDone&&sch.paymentSent)continue;
-      // 출고예정일: 입력값 우선, 없으면 봉제완료+2일 자동
+      // 출고예정일: 입력값 우선, 없으면 검품완료+1일, 그것도 없으면 봉제완료+2일 자동
       let shipExp=sch.shipExpectedDate||'';
       let autoExp='';
-      if(!shipExp&&sch.sewingCompleteDate){const _d=new Date(sch.sewingCompleteDate);_d.setDate(_d.getDate()+2);autoExp=_d.toISOString().slice(0,10);}
+      if(!shipExp&&sch.inspectionDate){const _d=new Date(sch.inspectionDate);_d.setDate(_d.getDate()+1);autoExp=_d.toISOString().slice(0,10);}
+      else if(!shipExp&&sch.sewingCompleteDate){const _d=new Date(sch.sewingCompleteDate);_d.setDate(_d.getDate()+2);autoExp=_d.toISOString().slice(0,10);}
       const shipExpVal=shipExp||autoExp;
       const dday=shipExpVal?calcDday(shipExpVal):null;
       rows.push({o,fcId,sch,fc,shipExp,autoExp,shipExpVal,dday});
@@ -8584,6 +8775,7 @@ function renderDashFactory(){
       +'<th style="text-align:left;padding:8px 8px">공장</th>'
       +'<th style="padding:8px 6px">재단예정</th>'
       +'<th style="padding:8px 6px">봉제완료예정</th>'
+      +'<th style="padding:8px 6px">검품완료예정</th>'
       +'<th style="padding:8px 6px">출고예정</th>'
       +'<th style="padding:8px 6px">출고</th>'
       +'<th style="padding:8px 6px">결제</th>'
@@ -8593,25 +8785,28 @@ function renderDashFactory(){
       const firstItem=S.items[(o.orderItems||[])[0]?.itemId];
       const itemNm=firstItem?firstItem.name:o.name;
       const shipDone=sch.shipDone;
+      const autoShipped=fcShipped(sch);
+      const shipDt=fcLastShipDate(sch);
       const paid=sch.paymentSent;
       // 3일 이내 출고예정 강조 (지연=빨강, D-3~D-DAY=주황)
       let urgentBorder='';let urgentBadge='';
-      if(!shipDone&&dday!=null){
+      if(!autoShipped&&dday!=null){
         if(dday<0){urgentBorder=';border-left:3px solid var(--red)';urgentBadge=' <span style="padding:1px 5px;border-radius:8px;background:var(--rbg);color:var(--red);font-size:9px;font-weight:700">지연 '+(-dday)+'일</span>';}
         else if(dday<=3){urgentBorder=';border-left:3px solid var(--amber)';urgentBadge=' <span style="padding:1px 5px;border-radius:8px;background:#fff7ed;color:var(--amber);font-size:9px;font-weight:700">'+(dday===0?'D-DAY':'D-'+dday)+'</span>';}
       }
       body+=`<tr style="border-bottom:1px solid var(--bd)${urgentBorder}">
         <td style="padding:8px 10px;cursor:pointer" onclick="goToOrder('${oid}')"><div style="font-weight:600">${esc(itemNm)}${urgentBadge}</div><div class="muted" style="font-size:10px">${esc(o.name)}</div></td>
         <td style="padding:8px 8px"><span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:100px;background:var(--gbg);border:1px solid var(--green);font-size:11px;font-weight:600;color:var(--green)">✂ ${esc(fc.name)}</span></td>
-        <td style="text-align:center;padding:6px"><input type="date" value="${sch.cuttingDate||''}" onchange="setFcSchField('${oid}','${fcId}','cuttingDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"></td>
-        <td style="text-align:center;padding:6px"><input type="date" value="${sch.sewingCompleteDate||''}" onchange="setFcSchField('${oid}','${fcId}','sewingCompleteDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"></td>
-        <td style="text-align:center;padding:6px"><input type="date" value="${shipExpVal}" onchange="setFcSchField('${oid}','${fcId}','shipExpectedDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid ${shipExp?'var(--bd)':'var(--amber)'};border-radius:4px;width:118px" title="${shipExp?'':'봉제완료+2일 자동 (수정 가능)'}">${!shipExp&&autoExp?'<div style="font-size:9px;color:var(--amber)">자동</div>':''}</td>
-        <td style="text-align:center;padding:6px">${shipDone
-          ?`<span class="badge b3" style="font-size:10px">✅ ${sch.shipDoneDate||'완료'}</span>`
-          :`<button class="btn s ok" style="font-size:10px;padding:3px 8px;white-space:nowrap" onclick="markShipDone('${oid}','${fcId}')">출고완료</button>`}</td>
+        <td style="text-align:center;padding:6px"><input type="date" value="${sch.cuttingDate||''}" onchange="setFcSchField('${oid}','${fcId}','cuttingDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"><div style="margin-top:4px"><button class="btn s" style="font-size:9px;padding:2px 8px;background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700;white-space:nowrap" onclick="notifShare(genFcCutCheckText('${oid}','${fcId}'))" title="공장에 재단 완료·장수 확인 메시지 보내기">💬 재단확인</button></div></td>
+        <td style="text-align:center;padding:6px"><input type="date" value="${sch.sewingCompleteDate||''}" onchange="setFcSchField('${oid}','${fcId}','sewingCompleteDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"><div style="margin-top:4px"><button class="btn s" style="font-size:9px;padding:2px 8px;background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700;white-space:nowrap" onclick="notifShare(genFcSewCheckText('${oid}','${fcId}'))" title="공장에 봉제 진행·출고 가능 확인 메시지 보내기">💬 봉제확인</button></div></td>
+        <td style="text-align:center;padding:6px"><input type="date" value="${sch.inspectionDate||''}" onchange="setFcSchField('${oid}','${fcId}','inspectionDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"></td>
+        <td style="text-align:center;padding:6px"><input type="date" value="${shipExpVal}" onchange="setFcSchField('${oid}','${fcId}','shipExpectedDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid ${shipExp?'var(--bd)':'var(--amber)'};border-radius:4px;width:118px" title="${shipExp?'':(sch.inspectionDate?'검품완료+1일 자동 (수정 가능)':'봉제완료+2일 자동 (수정 가능)')}">${!shipExp&&autoExp?'<div style="font-size:9px;color:var(--amber)">자동</div>':''}<div style="margin-top:4px"><button class="btn s" style="font-size:9px;padding:2px 8px;background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700;white-space:nowrap" onclick="notifShare(genFcShipCheckText('${oid}','${fcId}'))" title="공장에 출고예정 확인 메시지 보내기">💬 출고확인</button></div></td>
+        <td style="text-align:center;padding:6px">${autoShipped
+          ?`<span class="badge b3" style="font-size:10px">✅ ${shipDt||'완료'}</span>${(!shipDone&&fcShippedQty(sch)>0)?'<div style="font-size:8px;color:var(--green);margin-top:1px">출고기록 자동</div>':''}`
+          :`<button class="btn s ok" style="font-size:10px;padding:3px 8px;white-space:nowrap" onclick="markShipDone('${oid}','${fcId}')" title="출고기록 없이 강제로 완료처리 (불량 등)">완료처리</button>`}</td>
         <td style="text-align:center;padding:6px">${paid
           ?`<span class="badge b3" style="font-size:10px">결제완료</span>`
-          :shipDone
+          :autoShipped
             ?`<span class="badge" style="font-size:10px;background:var(--rbg);color:var(--red);font-weight:700;cursor:pointer" onclick="goToOrderPay('${oid}')">💰 결제 체크요청</span>`
             :'<span class="muted">—</span>'}</td>
       </tr>`;
@@ -8629,6 +8824,7 @@ function setFcSchField(oid,fcId,field,val){
   const o=S.orders[oid];if(!o||!o.factorySchedules?.[fcId])return;
   o.factorySchedules[fcId][field]=val;
   saveData();
+  if(typeof renderDash==='function')renderDash();
 }
 // 출고완료 표시 (날짜 기록) → 결제 체크요청 연동
 function markShipDone(oid,fcId){
@@ -8647,7 +8843,7 @@ function goToOrderPay(oid){
 }
 
 function renderDashMaterials(groupBy){
-  const orders=Object.values(S.orders);
+  const orders=dashFilteredOrders();
   const rows=[];
   for(const o of orders){
     for(const[sn,sup]of Object.entries(o.suppliers||{})){
@@ -8743,7 +8939,7 @@ function setDashMatFilter(key,allChecked){
   if(allChecked){window._dashMatFilters[key]=[];}
   else{
     if(key==='excludedSuppliers'){
-      const sns=new Set();for(const o of Object.values(S.orders))for(const sn of Object.keys(o.suppliers||{}))sns.add(sn);
+      const sns=new Set();for(const o of dashFilteredOrders())for(const sn of Object.keys(o.suppliers||{}))sns.add(sn);
       window._dashMatFilters.excludedSuppliers=[...sns];
     }else if(key==='excludedTypes'){window._dashMatFilters.excludedTypes=['fabric','trim'];}
     else if(key==='excludedStatuses'){window._dashMatFilters.excludedStatuses=['미발주','발주완료','출고완료','입고완료'];}
@@ -8753,7 +8949,7 @@ function setDashMatFilter(key,allChecked){
 }
 
 function renderDashOrders(groupBy){
-  const orders=Object.values(S.orders);
+  const orders=dashFilteredOrders();
   const curFlt=groupBy||'all';
   // 봉제공장 목록
   const sewFcs=[...new Set(orders.flatMap(o=>Object.keys(o.factorySchedules||{}).filter(fcId=>o.orderItems?.some(oi=>S.items[oi.itemId]?.sewingFcId===fcId))))].map(id=>({id,name:S.factories[id]?.name||'(알수없음)'}));
@@ -8773,7 +8969,7 @@ function renderDashOrders(groupBy){
 
 function renderDeliveryCalendar(){
   const today=new Date();today.setHours(0,0,0,0);
-  const orders=Object.values(S.orders);
+  const orders=dashFilteredOrders();
   const upcomingDays=14;
   const days=[];for(let i=0;i<upcomingDays;i++){const d=new Date(today);d.setDate(today.getDate()+i);days.push(d);}
   const delivsByDate={};orders.forEach(o=>{if(!o.shippingDate)return;const d=new Date(o.shippingDate);d.setHours(0,0,0,0);const k=d.toISOString().slice(0,10);if(!delivsByDate[k])delivsByDate[k]=[];delivsByDate[k].push(o);});
@@ -8873,7 +9069,7 @@ function renderTrackFilter(){
   const fcSel=document.getElementById('tk-fc-filter');
   if(fcSel){
     const fcSet=new Set();
-    for(const o of Object.values(S.orders)){
+    for(const o of dashFilteredOrders()){
       for(const b of(o.trackBlocks||[])){
         if(b.factoryId&&S.factories[b.factoryId])fcSet.add(b.factoryId);
       }
@@ -10909,8 +11105,18 @@ function renderCS(){
     if(t.useMinSplit&&t.minSplitQty>0&&q>0){
       const minQ=t.minSplitQty;
       const ex=res.extrasCost||0;
-      const bodyCost=res.cost-ex; // 본체 원가
-      const perPcs=bodyCost/minQ; // 미니멈으로 나눈 1장당
+      let perPcs;
+      if(res.isYard){
+        // 루프·야드형: 미니멈(minQ장) 생산 기준 올림야드 × 단가 ÷ minQ (보수적)
+        const per=t.consumptionPerPiece||((t.loopPerYard&&t.loopPerPiece)?(t.loopPerPiece/t.loopPerYard):0)||0;
+        const up=res._up||0;
+        const lotY=per>0?Math.ceil(per*minQ):0;
+        res.lotYards=lotY;
+        perPcs=minQ>0?(lotY*up/minQ):0;
+      }else{
+        const bodyCost=res.cost-ex; // 본체 원가
+        perPcs=bodyCost/minQ; // 미니멈으로 나눈 1장당
+      }
       res.cost=perPcs*q+ex; // 생산수량만큼
       res.isMinSplit=true;res.minSplitQty=minQ;
     }
@@ -10938,13 +11144,16 @@ function renderCS(){
       cp.isOverride=csOvr!==undefined;cp.origQty=t.threadQty||10;
     }else{cp=trimPure(t,qty);cl=trimWithLoss(t,qty,trimLoss);}
     const k='t-'+t.id;const inc=!isEx(k);if(inc){tt+=cp.cost;ttL+=cl.cost;}
+    const _isLoopT=t.orderType==='yard'&&(t.isButtonLoop||(t.loopPerYard&&t.loopPerPiece));
+    const _perL=t.consumptionPerPiece||((t.loopPerYard&&t.loopPerPiece)?(t.loopPerPiece/t.loopPerYard):0)||0;
+    const _ordY=cp.lotYards!=null?cp.lotYards:(_perL>0?Math.ceil(_perL*qty):0);
     const trimOvr=csGetOverride(id,'trim',t.id);
-    const qs=cp.isRoll?`${cp.rolls}롤(${cp.ay}y)`:cp.isThread?`${cp.isOverride?`<b style="color:var(--blue)">${cp.perColor}개/색</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origQty}개</span>`:`${cp.perColor}개/색`}`:`<span style="white-space:nowrap">${cp.qty}${(cp.unit||'y').replace('yard','y')}</span>`;
+    const qs=cp.isRoll?`${cp.rolls}롤(${cp.ay}y)`:cp.isThread?`${cp.isOverride?`<b style="color:var(--blue)">${cp.perColor}개/색</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origQty}개</span>`:`${cp.perColor}개/색`}`:_isLoopT?`<span style="white-space:nowrap">${t.loopPerPiece||'?'}개 → ${_ordY}y</span>`:`<span style="white-space:nowrap">${cp.qty}${(cp.unit||'y').replace('yard','y')}</span>`;
     const ovrInput=(t.orderType==='thread')?`<br><input type="number" class="cs-hide-on-img" value="${trimOvr!==undefined?trimOvr:''}" placeholder="실제" min="0" step="1" style="width:55px;font-size:11px;padding:2px 4px;margin-top:2px;${trimOvr!==undefined?'background:#f0f7ff;border-color:var(--blue)':''}" onchange="csSetOverride('${id}','trim','${t.id}',this.value)" title="원가용 실제 발주개수">`:'';
     // 미니멈 나누기 버튼 (전체 부자재 통일 — 실/롤도 포함)
     const canMinSplit=true;
     const msBtn=canMinSplit?`<span class="cs-hide-on-img" style="display:inline-flex;gap:3px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:3px"><button onclick="toggleCsMinSplit('${id}','${t.id}')" style="padding:2px 7px;font-size:10px;border-radius:100px;cursor:pointer;border:1px solid ${t.useMinSplit?'#10b981':'var(--bd)'};background:${t.useMinSplit?'#ecfdf5':'var(--bg)'};color:${t.useMinSplit?'#047857':'var(--t2)'};font-weight:600;white-space:nowrap">${t.useMinSplit?`✓ ÷${t.minSplitQty||30}`:'미니멈'}</button>${t.useMinSplit?`<input type="number" value="${t.minSplitQty||30}" min="1" onchange="setCsMinSplitQty('${id}','${t.id}',this.value)" style="width:38px;font-size:10px;padding:1px 3px" title="미니멈 장수">`:''}</span>`:'';
-    return`<tr style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td class="muted" style="font-size:12px">${esc(t.supplier||'')}</td><td><b style="word-break:keep-all;line-height:1.25">${esc(t.name)}</b>${t.size?` <span class="muted" style="font-size:11px">${esc(t.size)}</span>`:''}${t.orderType==='roll'?` <span class="badge b3" style="font-size:9px">${t.isLace?'컷':'롤'}</span>`:''}${t.orderType==='thread'?' <span class="badge b3" style="font-size:9px">실</span>':''}${minNote}</td><td class="muted" style="font-size:13px">${t.orderType==='roll'?`${t.consumptionPerPiece}y/pcs`:t.orderType==='thread'?`${cp.perColor}개/색×${num(cp._up!==undefined?cp._up:(t.unitPrice||0))}원${cp.isOverride?' <span style="color:var(--blue)">(실제)</span>':''}`:t.orderType==='button'?`${cp.qty}개`:t.orderType==='yard'?`${cp.qty}y`:`${(t.qtyPerPiece||1)}×${qty}`}</td><td style="text-align:right;font-size:13px">${qs}${ovrInput}</td><td style="text-align:right;font-size:13px">${num(Math.round(cp._up!==undefined?cp._up:(t.unitPrice||0)))}원${(cp._up!==undefined&&cp._up!==(+t.unitPrice||0))?'<br><span class="cs-hide-on-img" style="font-size:9px;color:var(--t2)">최고가</span>':''}</td><td style="text-align:center">${t.useMinSplit?`<span class="badge" style="font-size:10px;background:#ecfdf5;color:#047857;white-space:nowrap">÷${t.minSplitQty||30} 분배</span>`:'<span class="muted" style="font-size:12px">–</span>'}${msBtn}</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div></td><td style="text-align:right">${trimLoss>0&&!cp.isThread?`<div class="cs-amt" style="font-size:12px;color:var(--blue);text-align:right">${num(Math.round(cl.cost))}원</div><div style="font-size:10px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 6px;display:inline-block;margin-top:2px;font-weight:600">+${trimLoss}%</div>`:'<span class="muted">–</span>'}</td></tr>`;}).join('');
+    return`<tr style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td class="muted" style="font-size:12px">${esc(t.supplier||'')}</td><td><b style="word-break:keep-all;line-height:1.25">${esc(t.name)}</b>${t.size?` <span class="muted" style="font-size:11px">${esc(t.size)}</span>`:''}${t.orderType==='roll'?` <span class="badge b3" style="font-size:9px">${t.isLace?'컷':'롤'}</span>`:''}${t.orderType==='thread'?' <span class="badge b3" style="font-size:9px">실</span>':''}${minNote}</td><td class="muted" style="font-size:13px">${t.orderType==='roll'?`${t.consumptionPerPiece}y/pcs`:t.orderType==='thread'?`${cp.perColor}개/색×${num(cp._up!==undefined?cp._up:(t.unitPrice||0))}원${cp.isOverride?' <span style="color:var(--blue)">(실제)</span>':''}`:t.orderType==='button'?`${cp.qty}개`:t.orderType==='yard'?(_isLoopT?`${t.loopPerPiece||'?'}개÷${t.loopPerYard||'?'}개/y`:`${cp.qty}y`):`${(t.qtyPerPiece||1)}×${qty}`}</td><td style="text-align:right;font-size:13px">${qs}${ovrInput}</td><td style="text-align:right;font-size:13px">${num(Math.round(cp._up!==undefined?cp._up:(t.unitPrice||0)))}원${(cp._up!==undefined&&cp._up!==(+t.unitPrice||0))?'<br><span class="cs-hide-on-img" style="font-size:9px;color:var(--t2)">최고가</span>':''}</td><td style="text-align:center">${t.useMinSplit?`<span class="badge" style="font-size:10px;background:#ecfdf5;color:#047857;white-space:nowrap">÷${t.minSplitQty||30} 분배</span>`:'<span class="muted" style="font-size:12px">–</span>'}${msBtn}</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div></td><td style="text-align:right">${trimLoss>0&&!cp.isThread?`<div class="cs-amt" style="font-size:12px;color:var(--blue);text-align:right">${num(Math.round(cl.cost))}원</div><div style="font-size:10px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 6px;display:inline-block;margin-top:2px;font-weight:600">+${trimLoss}%</div>`:'<span class="muted">–</span>'}</td></tr>`;}).join('');
   // 가공비
   const pArr=COST_DEFS.map(([k,l,fk])=>{const v=it[k]||0;if(!v)return null;const fcNm=it[fk]&&S.factories[it[fk]]?S.factories[it[fk]].name:'';return{ck:k,lbl:l,val:v,fcNm};}).filter(Boolean);
   let pt=0;for(const p of pArr){if(!isEx('p-'+p.ck))pt+=p.val*qty;}
