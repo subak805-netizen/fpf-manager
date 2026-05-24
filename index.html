@@ -3074,7 +3074,7 @@ function openJobImport(){
     ov.innerHTML='<div style="background:var(--bg,#fff);border-radius:12px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.25)">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:15px">📋 작지 가져오기</b><button id="jobimp-x" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--t2)">✕</button></div>'
       +'<div style="font-size:12px;color:var(--t2,#666);margin-bottom:8px;line-height:1.6">작업지시서 사진을 Claude에게 올리면 아래에 붙여넣을 데이터(JSON)를 만들어드려요.<br>그걸 붙여넣고 <b>가져오기</b>를 누르면 <b>아이템(원단·부자재 포함)이 자동 등록</b>돼요. 단가는 등록 후 입력하세요.<br>※ 기존 데이터는 그대로, 새 아이템만 추가돼요.</div>'
-      +'<div style="margin-bottom:8px"><label style="font-size:11px;color:var(--t2);display:block;margin-bottom:3px;font-weight:600">추가할 대상</label><select id="jobimp-target" style="width:100%;font-size:12px;padding:7px;border:1px solid var(--bd,#ccc);border-radius:8px;box-sizing:border-box"></select></div>'
+      +'<div style="margin-bottom:8px"><label style="font-size:11px;color:var(--t2);display:block;margin-bottom:3px;font-weight:600">추가할 대상</label><input id="jobimp-search" placeholder="🔍 아이템 이름·품번 검색..." style="width:100%;font-size:12px;padding:7px;border:1px solid var(--bd,#ccc);border-radius:8px;box-sizing:border-box;margin-bottom:5px"><select id="jobimp-target" size="1" style="width:100%;font-size:12px;padding:7px;border:1px solid var(--bd,#ccc);border-radius:8px;box-sizing:border-box"></select></div>'
       +'<textarea id="jobimp-ta" placeholder="여기에 JSON 붙여넣기..." style="width:100%;height:200px;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--bd,#ccc);border-radius:8px;box-sizing:border-box"></textarea>'
       +'<div style="display:flex;gap:8px;margin-top:10px"><button id="jobimp-go" class="btn p" style="flex:1">가져오기</button><button id="jobimp-cancel" class="btn">취소</button></div></div>';
     document.body.appendChild(ov);
@@ -3082,18 +3082,29 @@ function openJobImport(){
     document.getElementById('jobimp-x').onclick=closeJobImport;
     document.getElementById('jobimp-cancel').onclick=closeJobImport;
     document.getElementById('jobimp-go').onclick=function(){importJobSheet(document.getElementById('jobimp-ta').value);};
+    var _js=document.getElementById('jobimp-search');if(_js)_js.oninput=function(){fillJobImpTargets();};
   }
   ov.style.display='flex';
   var ta=document.getElementById('jobimp-ta');if(ta)ta.value='';
-  var sel=document.getElementById('jobimp-target');
-  if(sel){
-    var its=Object.values(S.items||{}).sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
-    sel.innerHTML='<option value="auto">🔍 자동 (같은 품번·이름이면 합치기, 없으면 새로)</option>'
-      +'<option value="new">➕ 무조건 새 아이템으로 생성</option>'
-      +(its.length?'<option value="" disabled>──── 또는 기존 아이템에 합치기 ────</option>':'')
-      +its.map(function(it){var bn=(it.brandId&&typeof getBrandName==='function')?getBrandName(it.brandId):'';return '<option value="'+it.id+'">'+(it.code?('['+esc(it.code)+'] '):'')+esc(it.name)+(bn?(' · '+esc(bn)):'')+' 에 합치기</option>';}).join('');
-    sel.value='auto';
-  }
+  var srch=document.getElementById('jobimp-search');if(srch)srch.value='';
+  fillJobImpTargets();
+}
+function fillJobImpTargets(){
+  var sel=document.getElementById('jobimp-target');if(!sel)return;
+  var q=((document.getElementById('jobimp-search')||{}).value||'').trim().toLowerCase();
+  var cur=sel.value;
+  var its=Object.values(S.items||{}).filter(function(it){
+    if(!q)return true;
+    var bn=(it.brandId&&typeof getBrandName==='function')?getBrandName(it.brandId):'';
+    return (it.name||'').toLowerCase().indexOf(q)>=0||(it.code||'').toLowerCase().indexOf(q)>=0||(bn||'').toLowerCase().indexOf(q)>=0;
+  }).sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
+  sel.innerHTML='<option value="auto">🔍 자동 (같은 품번·이름이면 합치기, 없으면 새로)</option>'
+    +'<option value="new">➕ 무조건 새 아이템으로 생성</option>'
+    +(its.length?'<option value="" disabled>──── 또는 기존 아이템에 합치기 ────</option>':'<option value="" disabled>(검색 결과 없음)</option>')
+    +its.map(function(it){var bn=(it.brandId&&typeof getBrandName==='function')?getBrandName(it.brandId):'';return '<option value="'+it.id+'">'+(it.code?('['+esc(it.code)+'] '):'')+esc(it.name)+(bn?(' · '+esc(bn)):'')+' 에 합치기</option>';}).join('');
+  if(cur&&[].slice.call(sel.options).some(function(o){return o.value===cur;}))sel.value=cur;
+  else if(q&&its.length)sel.value=its[0].id;
+  else sel.value='auto';
 }
 function closeJobImport(){var ov=document.getElementById('jobimp-ov');if(ov)ov.style.display='none';}
 function importJobSheet(txt){
