@@ -424,11 +424,11 @@ tryInitFirebase();
   </button>
   <button class="ntab" id="nt-tasks" onclick="switchTab('tasks')">📋 할 일</button>
   <button class="ntab" id="nt-route" onclick="switchTab('route')">🗺 동선</button>
-  <button class="ntab" id="nt-dash" onclick="switchTab('dash')">🏭 생산 대시보드</button>
   <button class="ntab" id="nt-items" onclick="switchTab('items')">아이템</button>
+  <button class="ntab" id="nt-dash" onclick="switchTab('dash')">🏭 생산 대시보드</button>
+  <button class="ntab" id="nt-orders" onclick="switchTab('orders')">오더 관리</button>
   <button class="ntab" id="nt-board" onclick="switchTab('board')">🪡 샘플 진행보드</button>
   <button class="ntab" id="nt-sample" onclick="switchTab('sample')">🪡 샘플발주</button>
-  <button class="ntab" id="nt-orders" onclick="switchTab('orders')">오더 관리</button>
   <button class="ntab" id="nt-defect" onclick="switchTab('defect')">🚨 불량 관리</button>
   <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
   <button class="ntab" id="nt-costs" onclick="switchTab('costs')">원가계산서</button>
@@ -6109,7 +6109,16 @@ function isoToCreated(iso){
 function setOrderDate(oid,iso){
   var o=S.orders[oid];if(!o)return;
   o.createdAt=iso?isoToCreated(iso):'';
+  // 오더 이름 끝의 (월/일)도 같이 갱신
+  if(iso){
+    var p=iso.split('-');
+    if(p.length===3&&o.name&&/\(\s*\d{1,2}\s*\/\s*\d{1,2}\s*\)\s*$/.test(o.name)){
+      o.name=o.name.replace(/\(\s*\d{1,2}\s*\/\s*\d{1,2}\s*\)\s*$/,'('+(+p[1])+'/'+(+p[2])+')');
+    }
+  }
   saveData();renderOrderDetail();if(typeof renderOrderPane==='function')renderOrderPane();
+  if(typeof renderDash==='function'){try{renderDash();}catch(e){}}
+  if(typeof renderPayContent==='function'){try{renderPayContent();}catch(e){}}
 }function deleteOrder(id){if(!confirm('오더를 삭제하시겠습니까?'))return;delete S.orders[id];curOid=null;
   // 결제 선택 캐시에서도 이 오더 항목 제거
   if(window._paySelected){for(var ent in window._paySelected){window._paySelected[ent]=(window._paySelected[ent]||[]).filter(function(k){return k.indexOf(id+':')!==0;});}}
@@ -8182,7 +8191,8 @@ function renderPayShtTab(o){
     const _feeF=payFeeBlock(o.id,'fc:'+fcId,1);
     // 검품 공장은 공임 없어도 표시 (택배비만 청구 가능하게)
     const isInspectionFc=(fc&&(fc.type||'').indexOf('검품')>=0)||(o.orderItems||[]).some(function(oi){return S.items[oi.itemId]&&S.items[oi.itemId].inspectionFcId===fcId;});
-    if(!cItems.length&&_feeF.feeTot<=0&&!isInspectionFc)continue;
+    // 오더에 추가된 공장은 비용 0이어도 표시 (삭제된 공장만 숨김)
+    if(!cItems.length&&_feeF.feeTot<=0&&!isInspectionFc&&fc.name==='(삭제됨)')continue;
     const tB=cItems.reduce((s,c)=>s+c.base,0);
     const tBf=tB+_feeF.feeTot;
     const vatRate=sch.vatRate||10;
@@ -8578,10 +8588,24 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
   var rowsHtml='';
   // 같은 오더의 같은 비용유형이 연속될 때 표시 그룹화
   var lastDate='';var lastItem='';
+  var grpQty=0,grpAmt=0,grpCount=0;
+  function flushSub(){
+    if(grpCount>1){
+      rowsHtml+='<tr style="background:#fafafa;border-bottom:1px solid #eee">'
+        +'<td></td><td></td>'
+        +'<td colspan="2" style="padding:5px 4px;font-size:10px;color:#888;text-align:right">소계 →</td>'
+        +'<td style="padding:5px 4px;font-size:11px;text-align:right;font-weight:700;border-top:1px solid #ddd">'+num(grpQty)+'</td>'
+        +'<td></td>'
+        +'<td style="padding:5px 4px;font-size:11px;text-align:right;font-weight:700;border-top:1px solid #ddd">'+num(grpAmt)+'</td>'
+        +'</tr>';
+    }
+    grpQty=0;grpAmt=0;grpCount=0;
+  }
   for(var ri=0;ri<rows.length;ri++){
     var r=rows[ri];
     var showDate=r.date!==lastDate;
     var showItem=r.itemName!==lastItem||showDate;
+    if(showItem&&ri>0)flushSub();
     rowsHtml+='<tr style="border-bottom:1px solid #eee">'
       +'<td style="padding:6px 4px;font-size:11px;color:#444">'+(showDate?esc(r.date.slice(5).replace('-','/')):'')+'</td>'
       +'<td style="padding:6px 4px;font-size:11px;font-weight:'+(showItem?'600':'400')+'">'+(showItem?esc(r.itemName):'')+'</td>'
@@ -8591,8 +8615,10 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
       +'<td style="padding:6px 4px;font-size:11px;text-align:right">'+num(r.unitPrice)+'</td>'
       +'<td style="padding:6px 4px;font-size:11px;text-align:right;font-weight:600">'+num(r.amount)+'</td>'
       +'</tr>';
+    grpQty+=(+r.qty||0);grpAmt+=(+r.amount||0);grpCount++;
     lastDate=r.date;lastItem=r.itemName;
   }
+  flushSub();
   
   var inner='<div style="display:flex;border:1px solid #000;margin-bottom:12px">'
     +'<div style="flex:1;text-align:center;padding:11px;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center">거래 명세서</div>'
@@ -8862,10 +8888,10 @@ function renderDashFactory(){
       body+=`<tr style="border-bottom:1px solid var(--bd)${urgentBorder}">
         <td style="padding:8px 10px;cursor:pointer" onclick="goToOrder('${oid}')"><div style="font-weight:600">${esc(itemNm)}${urgentBadge}</div><div class="muted" style="font-size:10px">${esc(o.name)}</div></td>
         <td style="padding:8px 8px"><span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:100px;background:var(--gbg);border:1px solid var(--green);font-size:11px;font-weight:600;color:var(--green)">✂ ${esc(fc.name)}</span></td>
-        <td style="padding:6px"><div style="display:flex;align-items:center;gap:4px;justify-content:center;flex-wrap:nowrap"><input type="date" value="${sch.cuttingDate||''}" onchange="setFcSchField('${oid}','${fcId}','cuttingDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"><button class="btn s" style="font-size:9px;padding:3px 7px;background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700;white-space:nowrap" onclick="notifShare(genFcCutCheckText('${oid}','${fcId}'))" title="공장에 재단 완료·장수 확인 메시지 보내기">💬 재단확인</button></div></td>
-        <td style="padding:6px"><div style="display:flex;align-items:center;gap:4px;justify-content:center;flex-wrap:nowrap"><input type="date" value="${sch.sewingCompleteDate||''}" onchange="setFcSchField('${oid}','${fcId}','sewingCompleteDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"><button class="btn s" style="font-size:9px;padding:3px 7px;background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700;white-space:nowrap" onclick="notifShare(genFcSewCheckText('${oid}','${fcId}'))" title="공장에 봉제 진행·출고 가능 확인 메시지 보내기">💬 봉제확인</button></div></td>
+        <td style="padding:6px"><div style="display:flex;align-items:center;gap:4px;justify-content:center;flex-wrap:nowrap"><input type="date" value="${sch.cuttingDate||''}" onchange="setFcSchField('${oid}','${fcId}','cuttingDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"><button class="btn s" style="font-size:9px;padding:3px 7px;background:#FEF3C7;color:#92400e;border-color:#FDE68A;font-weight:700;white-space:nowrap" onclick="notifShare(genFcCutCheckText('${oid}','${fcId}'))" title="공장에 재단 완료·장수 확인 메시지 보내기">💬 재단확인</button></div></td>
+        <td style="padding:6px"><div style="display:flex;align-items:center;gap:4px;justify-content:center;flex-wrap:nowrap"><input type="date" value="${sch.sewingCompleteDate||''}" onchange="setFcSchField('${oid}','${fcId}','sewingCompleteDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"><button class="btn s" style="font-size:9px;padding:3px 7px;background:#FEF3C7;color:#92400e;border-color:#FDE68A;font-weight:700;white-space:nowrap" onclick="notifShare(genFcSewCheckText('${oid}','${fcId}'))" title="공장에 봉제 진행·출고 가능 확인 메시지 보내기">💬 봉제확인</button></div></td>
         <td style="text-align:center;padding:6px"><input type="date" value="${sch.inspectionDate||''}" onchange="setFcSchField('${oid}','${fcId}','inspectionDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:118px"></td>
-        <td style="padding:6px"><div style="display:flex;align-items:center;gap:4px;justify-content:center;flex-wrap:nowrap"><div style="display:flex;flex-direction:column;align-items:center"><input type="date" value="${shipExpVal}" onchange="setFcSchField('${oid}','${fcId}','shipExpectedDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid ${shipExp?'var(--bd)':'var(--amber)'};border-radius:4px;width:118px" title="${shipExp?'':(sch.inspectionDate?'검품완료+1일 자동 (수정 가능)':'봉제완료+2일 자동 (수정 가능)')}">${!shipExp&&autoExp?'<div style="font-size:9px;color:var(--amber)">자동</div>':''}</div><button class="btn s" style="font-size:9px;padding:3px 7px;background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700;white-space:nowrap" onclick="notifShare(genFcShipCheckText('${oid}','${fcId}'))" title="공장에 출고예정 확인 메시지 보내기">💬 출고확인</button></div></td>
+        <td style="padding:6px"><div style="display:flex;align-items:center;gap:4px;justify-content:center;flex-wrap:nowrap"><div style="display:flex;flex-direction:column;align-items:center"><input type="date" value="${shipExpVal}" onchange="setFcSchField('${oid}','${fcId}','shipExpectedDate',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid ${shipExp?'var(--bd)':'var(--amber)'};border-radius:4px;width:118px" title="${shipExp?'':(sch.inspectionDate?'검품완료+1일 자동 (수정 가능)':'봉제완료+2일 자동 (수정 가능)')}">${!shipExp&&autoExp?'<div style="font-size:9px;color:var(--amber)">자동</div>':''}</div><button class="btn s" style="font-size:9px;padding:3px 7px;background:#FEF3C7;color:#92400e;border-color:#FDE68A;font-weight:700;white-space:nowrap" onclick="notifShare(genFcShipCheckText('${oid}','${fcId}'))" title="공장에 출고예정 확인 메시지 보내기">💬 출고확인</button></div></td>
         <td style="text-align:center;padding:6px">${autoShipped
           ?`<span class="badge b3" style="font-size:10px">✅ ${shipDt||'완료'}</span>${(!shipDone&&fcShippedQty(sch)>0)?'<div style="font-size:8px;color:var(--green);margin-top:1px">출고기록 자동</div>':''}`
           :`<button class="btn s ok" style="font-size:10px;padding:3px 8px;white-space:nowrap" onclick="markShipDone('${oid}','${fcId}')" title="출고기록 없이 강제로 완료처리 (불량 등)">완료처리</button>`}</td>
@@ -10038,7 +10064,9 @@ function renderPayFcPills(){
   var box=document.getElementById('pay-fc-pills');if(!box)return;
   if(!window._payFcMulti)window._payFcMulti=[];
   var ids={};for(var oid in S.orders){var o=S.orders[oid];for(var fid in (o.factorySchedules||{}))ids[fid]=1;}
-  var fcs=Object.keys(ids).map(function(id){return S.factories[id];}).filter(Boolean).sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
+  var _fcord=['봉제','워싱','자수','나염','완성','검품'];
+  function _fcrank(t){t=t||'';for(var i=0;i<_fcord.length;i++)if(t.indexOf(_fcord[i])>=0)return i;return 99;}
+  var fcs=Object.keys(ids).map(function(id){return S.factories[id];}).filter(Boolean).sort(function(a,b){var ra=_fcrank(a.type),rb=_fcrank(b.type);if(ra!==rb)return ra-rb;return (a.name||'').localeCompare(b.name||'');});
   var sel=window._payFcMulti;
   function chip(label,active,onclick){return '<button onclick="'+onclick+'" style="font-size:11px;padding:5px 11px;border-radius:14px;border:1px solid '+(active?'#1976d2':'var(--bd)')+';background:'+(active?'#1976d2':'var(--bg)')+';color:'+(active?'#fff':'var(--t1)')+';font-weight:'+(active?'700':'500')+';cursor:pointer;white-space:nowrap">'+label+'</button>';}
   var html='<span style="font-size:11px;color:var(--t2);align-self:center;margin-right:2px">공장 선택:</span>';
