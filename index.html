@@ -592,6 +592,7 @@ tryInitFirebase();
         <div id="batch-pay-result"></div>
       </div>
     </div>
+    <div id="pay-fc-pills" style="display:none;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
     <div id="pay-content"></div>
   </div>
   <!-- Costs -->
@@ -8499,10 +8500,15 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
           if(!brandNm&&it.brandId){brandNm=getBrandName(it.brandId);bizNum=getBrandBizNum(it.brandId);}
           var sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
           var colors=it.colors&&it.colors.length?it.colors:[''];
+          // 실제 출고량 우선 (해당 공장 스케줄의 출고 그리드), 없으면 오더수량
+          var _sch=o.factorySchedules&&o.factorySchedules[entityId];
+          var _sg=(_sch&&_sch.shippingGrid&&_sch.shippingGrid[oi.itemId])||null;
+          var _sgTot=0;if(_sg){for(var _cc in _sg){for(var _zz in _sg[_cc])_sgTot+=+_sg[_cc][_zz]||0;}}
+          var _useShip=_sgTot>0;
           for(var ci=0;ci<colors.length;ci++){
             for(var si=0;si<sizes.length;si++){
               var c=colors[ci],sz=sizes[si];
-              var q=+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);
+              var q=_useShip?(+((_sg[c]&&_sg[c][sz])||0)):(+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0));
               if(!q)continue;
               rows.push({
                 date:o.createdAt||today(),
@@ -10019,13 +10025,29 @@ function exportTrack(){
 function switchPayTab(t){
   curPayTab=t;
   ['all','fc','sp','chart','batch'].forEach(n=>{const el=document.getElementById('t-pay-'+n);if(el)el.className='dtab'+(n===t?' on':'');});
-  const ff=document.getElementById('pay-fc-flt');if(ff)ff.style.display=(t==='fc')?'block':'none';
+  const ff=document.getElementById('pay-fc-flt');if(ff)ff.style.display='none';
+  const fcp=document.getElementById('pay-fc-pills');if(fcp)fcp.style.display=(t==='fc')?'flex':'none';
   const sf=document.getElementById('pay-sp-flt');if(sf)sf.style.display=(t==='sp')?'block':'none';
   const bp=document.getElementById('batch-pay-panel');if(bp)bp.style.display=(t==='batch')?'block':'none';
   const pc=document.getElementById('pay-content');if(pc)pc.style.display=(t==='batch'||t==='deduct')?'none':'block';
   if(t==='batch'){populateBatchEntity();return;}
+  if(t==='fc')renderPayFcPills();
   renderPayContent();
 }
+function renderPayFcPills(){
+  var box=document.getElementById('pay-fc-pills');if(!box)return;
+  if(!window._payFcMulti)window._payFcMulti=[];
+  var ids={};for(var oid in S.orders){var o=S.orders[oid];for(var fid in (o.factorySchedules||{}))ids[fid]=1;}
+  var fcs=Object.keys(ids).map(function(id){return S.factories[id];}).filter(Boolean).sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
+  var sel=window._payFcMulti;
+  function chip(label,active,onclick){return '<button onclick="'+onclick+'" style="font-size:11px;padding:5px 11px;border-radius:14px;border:1px solid '+(active?'#1976d2':'var(--bd)')+';background:'+(active?'#1976d2':'var(--bg)')+';color:'+(active?'#fff':'var(--t1)')+';font-weight:'+(active?'700':'500')+';cursor:pointer;white-space:nowrap">'+label+'</button>';}
+  var html='<span style="font-size:11px;color:var(--t2);align-self:center;margin-right:2px">공장 선택:</span>';
+  html+=chip('전체',sel.length===0,"clearPayFcMulti()");
+  html+=fcs.map(function(f){return chip(esc(f.name)+(f.type?' ('+esc(f.type)+')':''), sel.indexOf(f.id)>=0, "togglePayFcMulti('"+f.id+"')");}).join('');
+  box.innerHTML=html;
+}
+function togglePayFcMulti(id){if(!window._payFcMulti)window._payFcMulti=[];var i=window._payFcMulti.indexOf(id);if(i>=0)window._payFcMulti.splice(i,1);else window._payFcMulti.push(id);renderPayFcPills();renderPayContent();}
+function clearPayFcMulti(){window._payFcMulti=[];renderPayFcPills();renderPayContent();}
 function populateBatchEntity(){
   const sel=document.getElementById('batch-entity');if(!sel)return;
   const fcs=Object.values(S.factories||{});
@@ -10287,7 +10309,7 @@ function renderPayChart(){
 function renderPayContent(){
   if(curPayTab==='batch'){renderBatchPay();return;}
   if(curPayTab==='chart'){renderPayChart();return;}
-  if(curPayTab==='sp')renderSpPay();else renderFcPay();
+  if(curPayTab==='sp')renderSpPay();else{var _fcp=document.getElementById('pay-fc-pills');if(_fcp){_fcp.style.display='flex';renderPayFcPills();}renderFcPay();}
 }
 
 /* ===== 일괄 결제 ===== */
@@ -10430,6 +10452,7 @@ function isInPayPeriod(shipDate,range){
 function renderFcPay(){
   const el=document.getElementById('pay-content');if(!el)return;
   const fltFcId=document.getElementById('pay-fc-flt')?.value||'';
+  const fcMulti=window._payFcMulti||[];
   const fltBrand=window._payBrandFlt||'';
   const periodRange=getPayPeriodRange();
   const byFc={};
@@ -10441,6 +10464,7 @@ function renderFcPay(){
     }
     for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){
       if(fltFcId&&fcId!==fltFcId)continue;
+      if(fcMulti.length&&fcMulti.indexOf(fcId)<0)continue;
       const fc=S.factories[fcId]||{name:'(삭제됨)',type:''};
       const fnm=`${fc.name}${fc.type?' ('+fc.type+')':''}`;
       if(!byFc[fnm])byFc[fnm]=[];
@@ -10522,7 +10546,11 @@ function renderFcPay(){
   }
   if(!Object.keys(byFc).length&&!Object.keys(fcDeductMap).length){el.innerHTML='<div class="empty">결제 데이터가 없습니다<br><div class="muted" style="margin-top:6px">아이템에 가공비와 담당 공장을 연결한 후, 오더의 "공장 진행" 탭에서 공장을 추가하세요</div></div>';return;}
   const showDone=document.getElementById('pay-show-done')?.checked;
-  el.innerHTML=Object.entries(byFc).map(([fn,rows])=>{
+  el.innerHTML=Object.entries(byFc).sort(function(a,b){
+    var da=a[1].map(function(r){return r.shipDate;}).filter(Boolean).sort()[0]||'9999-99-99';
+    var db=b[1].map(function(r){return r.shipDate;}).filter(Boolean).sort()[0]||'9999-99-99';
+    return da<db?-1:da>db?1:0;
+  }).map(([fn,rows])=>{
     if(!rows.length)return'';
     const thisFcId=rows[0]?.fcId||'';
     const mainRows=rows;
@@ -10565,9 +10593,7 @@ function renderFcPay(){
         </div>
       </div>
       <div style="display:flex;gap:5px;flex-wrap:wrap">
-      ${(()=>{const sel=window._paySelected&&window._paySelected[thisFcId]||[];return `
-        ${sel.length?`<button class="btn s g" onclick="clearPaySelection('${thisFcId}')" style="font-size:10px;padding:3px 6px">선택 해제 (${sel.length})</button>`:''}
-        ${(function(){var r=buildPayReceiptHTML(thisFcId,fn,'fc');if(!r.hasRows)return '';var rid='payrcpt-fc-'+(''+thisFcId).replace(/\W/g,'');var nm=(r.name||'').replace(/['"\\]/g,'');return '<div style="width:100%"><div id="'+rid+'" style="background:#fff;padding:14px;color:#000;border:1px solid var(--bd);border-radius:8px;overflow-x:auto">'+r.innerHtml+'</div><div class="fr" style="margin-top:8px;justify-content:flex-end"><button class="btn s ok" onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')">📷 이미지 저장'+(sel.length?' (선택분)':'')+'</button></div></div>';})()}`;})()}
+        ${(window._paySelected&&window._paySelected[thisFcId]&&window._paySelected[thisFcId].length)?`<button class="btn s g" onclick="clearPaySelection('${thisFcId}')" style="font-size:10px;padding:3px 6px">선택 해제 (${window._paySelected[thisFcId].length})</button>`:''}
       </div>
     </div>
     ${visibleMain.map(r=>{
@@ -10584,6 +10610,7 @@ function renderFcPay(){
         <input type="checkbox" title="결제완료" ${r.paid?'checked':''} onchange="setPaySt('${r.oid}','${r.key}',this.checked,document.getElementById('pd${r.did}')?.value||'')" style="accent-color:var(--green)">결제완료
       </label>
     </div>`;}).join('')}
+    ${(function(){var sel=window._paySelected&&window._paySelected[thisFcId]||[];var r=buildPayReceiptHTML(thisFcId,fn,'fc');if(!r.hasRows)return '';var rid='payrcpt-fc-'+(''+thisFcId).replace(/\W/g,'');var nm=(r.name||'').replace(/['"\\]/g,'');return '<div style="width:100%;margin-top:10px;border-top:1px dashed var(--bd);padding-top:10px"><div style="font-size:11px;color:var(--t2);margin-bottom:6px;font-weight:600">📄 거래명세서'+(sel.length?' (선택 '+sel.length+'건)':' (전체)')+'</div><div id="'+rid+'" style="background:#fff;padding:14px;color:#000;border:1px solid var(--bd);border-radius:8px;overflow-x:auto">'+r.innerHtml+'</div><div class="fr" style="margin-top:8px;justify-content:flex-end"><button class="btn s ok" onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')">📷 이미지 저장'+(sel.length?' (선택분)':'')+'</button></div></div>';})()}
     ${pendingDeducts.length?`<div style="margin-top:4px;border:1px dashed var(--red);border-radius:6px;padding:6px 8px">
       <div style="font-size:11px;font-weight:600;color:var(--red);margin-bottom:4px">✂ 공제 내역</div>
       ${pendingDeducts.map(d=>`<div class="pay-row" style="background:#fff8f8;border-color:var(--red);padding:5px 8px">
