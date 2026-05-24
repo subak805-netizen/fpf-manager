@@ -8159,12 +8159,17 @@ function renderPayShtTab(o){
         const targetFcId=it[fk]||it.sewingFcId;
         if(!targetFcId)continue;
         if(targetFcId!==fcId)continue;
-        // 수량: grandTotal 우선, 없으면 qtyGrid 합산
-        let qty=oi.grandTotal||0;
+        // 수량: 실제 출고량 우선(공장이 만든 만큼 결제), 없으면 오더수량
+        let qty=0;
+        const _sg=sch.shippingGrid&&sch.shippingGrid[oi.itemId];
+        if(_sg){const _cs=it.colors?.length?it.colors:[''];const _ss=it.sizes?.length?it.sizes:['free'];_cs.forEach(c=>_ss.forEach(sz=>{qty+=+(_sg[c]&&_sg[c][sz])||0;}));}
         if(!qty){
-          const colors=it.colors?.length?it.colors:[''];
-          const sizes=it.sizes?.length?it.sizes:['free'];
-          qty=colors.reduce((s,c)=>s+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);
+          qty=oi.grandTotal||0;
+          if(!qty){
+            const colors=it.colors?.length?it.colors:[''];
+            const sizes=it.sizes?.length?it.sizes:['free'];
+            qty=colors.reduce((s,c)=>s+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);
+          }
         }
         const rate=it[ck]||0;
         if(rate>0){base+=rate*qty;qtySum+=qty;}
@@ -8182,8 +8187,12 @@ function renderPayShtTab(o){
     const vatRate=sch.vatRate||10;
     const tV=Math.round(tBf*vatRate/100);
     const bankAcc=fc.bank||'';  // 공장 입금계좌
-    // 출고 수량 계산
-    let shpQty=sch.shippingQty||0;
+    // 출고 수량 + 회차별 내역 (날짜·수량)
+    var _shipR={};var _shipD=[];var _shipSum=0;
+    (sch.shipments||[]).forEach(function(s){if(!s||!(+s.qty))return;var d=s.date||'';if(!(d in _shipR)){_shipR[d]=0;_shipD.push(d);}_shipR[d]+=(+s.qty||0);_shipSum+=(+s.qty||0);});
+    _shipD.sort();
+    var _shipInfo=_shipD.map(function(d){var p=(''+d).split('-');var dd=p.length===3?((+p[1])+'/'+(+p[2])):d;return dd+' '+num(_shipR[d])+'장';}).join(', ');
+    let shpQty=_shipSum||sch.shippingQty||0;
     if(!shpQty){
       for(const oi of(o.orderItems||[])){shpQty+=(oi.grandTotal||0);}
     }
@@ -8192,7 +8201,8 @@ function renderPayShtTab(o){
       `발행일: ${today()}`,
       `공급자: ${fc.name||''}`,
       `출고처: ${orderBrandNm}${orderBrandBizNum?' ('+orderBrandBizNum+')':''}`,``,
-      `■ 오더: ${o.name}  ■ 출고: ${num(shpQty)}pcs`,``,
+      `■ 오더: ${o.name}  ■ 출고: ${num(shpQty)}pcs`,
+      ...(_shipInfo?[`■ 출고 내역: ${_shipInfo}`]:[]),``,
       `──────────────────`,
       ...cItems.map(c=>`${c.lbl}  ${c.qty?num(c.qty)+'pcs × '+num(c.up)+'원 = ':''}${num(c.base)}원`),
       ..._feeF.txt,
@@ -8229,7 +8239,7 @@ function renderPayShtTab(o){
             </tr>
           </table>
           <div style="background:var(--bg2);border-radius:5px;padding:8px;font-size:12px;margin-bottom:12px">
-            오더: <b>${esc(o.name)}</b>　출고: <b>${num(shpQty)}pcs</b>
+            오더: <b>${esc(o.name)}</b>　출고: <b>${num(shpQty)}pcs</b>${_shipInfo?`<div style="margin-top:5px;color:var(--t2);font-size:11px">📦 출고 내역: ${esc(_shipInfo)}</div>`:''}
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:4px">
             <thead><tr style="border-bottom:1px solid var(--bd)">
