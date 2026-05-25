@@ -2571,7 +2571,15 @@ function saveToPB(item){
     // 단가 보호: 새 단가가 0이면 기존 단가 유지
     const newTP=+t.unitPrice||0;
     const finalTP=newTP>0?newTP:(existing.unitPrice||0);
-    var pbEntry={...existing,type:'trim',name:t.name,color:t.color||'',orderType:t.orderType||'count',unitPrice:finalTP,unit:t.unit||existing.unit||'yard',size:t.size||existing.size||'',yardsPerRoll:t.yardsPerRoll||existing.yardsPerRoll||null,lastUpdated:today()};
+    var pbEntry={...existing,type:'trim',name:t.name,color:t.color||'',orderType:t.orderType||'count',unitPrice:finalTP,unit:t.unit||existing.unit||'yard',size:t.size||existing.size||'',yardsPerRoll:t.yardsPerRoll||existing.yardsPerRoll||null,
+      consumptionPerPiece:(t.consumptionPerPiece!=null&&t.consumptionPerPiece!==''?+t.consumptionPerPiece:(existing.consumptionPerPiece!=null?existing.consumptionPerPiece:null)),
+      qtyPerPiece:(t.qtyPerPiece!=null&&t.qtyPerPiece!==''?+t.qtyPerPiece:(existing.qtyPerPiece!=null?existing.qtyPerPiece:null)),
+      useMinSplit:(t.useMinSplit!=null?!!t.useMinSplit:existing.useMinSplit),
+      minSplitQty:(t.minSplitQty!=null&&t.minSplitQty!==''?+t.minSplitQty:(existing.minSplitQty!=null?existing.minSplitQty:null)),
+      rollUnit:t.rollUnit||existing.rollUnit||'',
+      width:t.width||existing.width||'',
+      composition:t.composition||existing.composition||'',
+      lastUpdated:today()};
     if(t.isCommonUse)pbEntry.isCommonUse=true;
     if(t.orderType==='zipper'){
       pbEntry.zipperSize=t.zipperSize||'';
@@ -2655,6 +2663,8 @@ function autofillTrim(r){
   if(!mats)return;
   var e=mats[pbKey(nm,cl)];
   if(!e&&cl)e=mats[nm];
+  // 색상이 정확히 안 맞아도(또는 색상 비어도) 같은 이름의 부자재가 있으면 그걸로 단가·규격 불러오기
+  if(!e){for(var _k in mats){var _de=mats[_k];if(_de&&_de.type==='trim'&&_de.name===nm){e=_de;break;}}}
   if(!e||e.type!=='trim')return;
   const p=r.querySelector('[data-f=unitPrice]');
   if(p&&!+p.value&&e.unitPrice){
@@ -2666,6 +2676,23 @@ function autofillTrim(r){
   // 크기/규격 자동입력
   const szF=r.querySelector('[data-f=size]');
   if(szF&&!szF.value&&e.size){szF.value=e.size;szF.classList.add('autofill');setTimeout(()=>szF.classList.remove('autofill'),1200);}
+  // 안 바뀌는 고정값 함께 불러오기 (폭·요척·벌당개수·요척개수·혼용률 등) — 빈 칸만 채움
+  var _flash=function(el){if(el){el.classList.add('autofill');setTimeout(function(){el.classList.remove('autofill');},1200);}};
+  [['width',e.width],['composition',e.composition],['yardsPerRoll',e.yardsPerRoll],['consumptionPerPiece',e.consumptionPerPiece],['qtyPerPiece',e.qtyPerPiece]].forEach(function(pair){
+    var inp=r.querySelector('[data-f='+pair[0]+']');
+    if(inp&&!inp.value&&pair[1]!=null&&pair[1]!==''){inp.value=pair[1];_flash(inp);}
+  });
+  // 미니멈 분배(useMinSplit/minSplitQty)·롤단위는 폼 입력이 없을 수 있어 메모리(formTrims)에 반영 후 재렌더
+  var _tiC=(r.id||'').replace('tr-','');
+  if(formTrims[_tiC]){
+    var _ch=false;
+    if(e.useMinSplit!=null&&formTrims[_tiC].useMinSplit==null){formTrims[_tiC].useMinSplit=!!e.useMinSplit;_ch=true;}
+    if(e.minSplitQty!=null&&e.minSplitQty!==''&&!formTrims[_tiC].minSplitQty){formTrims[_tiC].minSplitQty=+e.minSplitQty;_ch=true;}
+    if(e.rollUnit&&!formTrims[_tiC].rollUnit){formTrims[_tiC].rollUnit=e.rollUnit;_ch=true;}
+    if(e.composition&&!formTrims[_tiC].composition){formTrims[_tiC].composition=e.composition;}
+    if(e.width&&!formTrims[_tiC].width){formTrims[_tiC].width=e.width;}
+    if(_ch)setTimeout(function(){renderTrimRows();},120);
+  }
   // 지퍼 정보 자동입력
   if(e.orderType==='zipper'){
     var fields=[['zipperSize',e.zipperSize],['zipperLength',e.zipperLength],['zipperDirection',e.zipperDirection],['toothColor',e.toothColor],['sliderModel',e.sliderModel],['sliderColor',e.sliderColor],['sliderLogoText',e.sliderLogoText]];
@@ -3980,7 +4007,7 @@ function trimRowHTML(t,i){
       +'</div>'
       // 가공처(부자재집) / 원단출처 / 규격
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
-      +'<div style="flex:1.1;min-width:90px"><label>가공처 <span class="muted" style="font-size:9px">(발주받는 부자재집)</span></label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
+      +'<div style="flex:1.1;min-width:90px"><label>가공처 <span class="muted" style="font-size:9px">(발주받는 부자재집)</span></label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
       +'<div style="flex:1.1;min-width:90px"><label>원단출처 <span class="muted" style="font-size:9px">(예: 성원/에렌, 안감은 비움)</span></label><input data-f="fabricSource" value="'+esc(t.fabricSource||'')+'" placeholder="성원/에렌"></div>'
       +'<div style="flex:.6;min-width:55px"><label>규격</label><input data-f="biasSpec" value="'+esc(t.biasSpec||'')+'" placeholder="32mm"></div>'
       +'</div>'
@@ -4027,7 +4054,7 @@ function trimRowHTML(t,i){
       +'</div>'
       // 부자재처, 라벨이름
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
-      +'<div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
+      +'<div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
       +'<div style="flex:1.5;min-width:120px"><label>라벨 이름</label><input list="dl-carelabel" data-f="labelName" value="'+esc(t.labelName||'')+'" placeholder="예: 가로30 무광공단" onchange="onCareLabelNameChange('+i+',this.value)"></div>'
       +'<div style="flex:.6;min-width:55px"><label>부위 <span class="muted" style="font-size:9px">선택</span></label><input list="dl-labelpart" data-f="labelPart" value="'+esc(t.labelPart||'')+'" placeholder="상의/하의"></div>'
       +'<div style="flex:.6;min-width:55px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
@@ -4119,7 +4146,7 @@ function trimRowHTML(t,i){
       +'</div>'
       // 거래처/이름
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
-      +'<div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
+      +'<div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
       +'<div style="flex:.5;min-width:55px"><label>호수</label><input data-f="zipperSize" value="'+esc(t.zipperSize||'')+'" placeholder="예: 3호"></div>'
       +'<div style="flex:.9;min-width:75px"><label>지퍼 이름</label><input data-f="name" value="'+esc(t.name||'')+'" placeholder="예: 바지지퍼"></div>'
       +'<div style="flex:.5;min-width:55px"><label>기장</label><input data-f="zipperLength" value="'+esc(t.zipperLength||'')+'" placeholder="예: 12&quot;" onchange="onZipperLengthChange('+i+',this.value)"></div>'
@@ -4157,8 +4184,8 @@ function trimRowHTML(t,i){
       +'</div>'
       // 거래처/이름/사이즈/스타일
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">'
-      +'<div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
-      +'<div style="flex:1.1;min-width:80px"><label>부자재명</label><input list="dl-tnm" data-f="name" value="'+esc(t.name||'단추')+'" placeholder="예: 단추/스냅" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
+      +'<div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+esc(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
+      +'<div style="flex:1.1;min-width:80px"><label>부자재명</label><input list="dl-tnm" data-f="name" value="'+esc(t.name||'단추')+'" placeholder="예: 단추/스냅" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'
       +'<div style="flex:.6;min-width:55px"><label>크기</label><input data-f="buttonSize" value="'+esc(t.buttonSize||'')+'" placeholder="예: 15mm" onchange="onButtonSizeChange('+i+',this.value)"></div>'
       +'<div style="flex:1;min-width:90px"><label>스타일</label><input data-f="buttonStyle" value="'+esc(t.buttonStyle||'')+'" placeholder="예: 4구 흰색 / 스냅"></div>'
       +'<div style="flex:.6;min-width:55px"><label>색상</label><input data-f="color" value="'+esc(t.color||'')+'" placeholder="색상" list="dl-clr"></div>'
@@ -4189,8 +4216,8 @@ function trimRowHTML(t,i){
     <div style="flex:1;min-width:140px;display:flex;align-items:center;gap:5px"><label style="font-size:11px;font-weight:600;color:#475569;white-space:nowrap">용도</label><input list="dl-trimpart" data-f="part" value="${esc(t.part||'')}" placeholder="예: 몸판 / 허리 / 소매 / 스트링감" style="flex:1;font-size:12px;padding:5px 8px"></div>
   </div>
   <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end">
-    <div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="${esc(t.supplier||'')}" onchange="autofillTrim(document.getElementById('tr-${i}'))"></div>
-    <div style="flex:1.1;min-width:80px"><label>부자재명</label><input list="${isLoop?'dl-loop':'dl-tnm'}" data-f="name" value="${esc(t.name||'')}" onchange="autofillTrim(document.getElementById('tr-${i}'))"></div>
+    <div style="flex:1.1;min-width:80px"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="${esc(t.supplier||'')}" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById('tr-${i}'))"></div>
+    <div style="flex:1.1;min-width:80px"><label>부자재명</label><input list="${isLoop?'dl-loop':'dl-tnm'}" data-f="name" value="${esc(t.name||'')}" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById('tr-${i}'))"></div>
     <div style="flex:.6;min-width:50px"><label>크기/규격</label><input data-f="size" value="${esc(t.size||'')}" placeholder="예: 15mm" onchange="onTrimSizeChange(${i},this.value)"></div><div style="flex:.6;min-width:55px"><label>색상</label><input data-f="color" value="${esc(t.color||'')}" placeholder="흰색/검정 등" list="dl-clr"></div></div>
     <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-top:6px">${isR?`${t.isLace?'':`<div style="flex:.45;min-width:46px"><label>단위</label><select data-f="rollUnit" style="font-size:12px;padding:4px 2px"><option value="롤"${(t.rollUnit||'롤')==='롤'?' selected':''}>롤</option><option value="절"${t.rollUnit==='절'?' selected':''}>절</option><option value="박스"${t.rollUnit==='박스'?' selected':''}>박스</option><option value="봉"${t.rollUnit==='봉'?' selected':''}>봉</option></select></div>`}<div style="flex:.7;min-width:58px"><label>요척(yard)</label><input data-f="consumptionPerPiece" type="number" value="${t.consumptionPerPiece||0}" step="0.01"></div><div style="flex:.7;min-width:58px"><label>${t.isLace?'컷당yard':((t.rollUnit||'롤')+'당yard')}</label><input data-f="yardsPerRoll" type="number" value="${t.yardsPerRoll||100}"></div><div style="flex:.8;min-width:68px"><label>${t.isLace?'단가(원/컷)':('단가(원/'+(t.rollUnit||'롤')+')')}</label><input data-f="unitPrice" type="number" value="${t.unitPrice||0}"></div><div style="flex:.45;min-width:44px"><label>로스%</label><input data-f="buffer" type="number" value="${t.buffer??2}" min="0" max="50" step="0.5" title="부자재 기본 2% (필요 시 수정 가능)"></div>`:isLoop?`<div style="flex:.7;min-width:60px"><label>요척 <span class="muted" style="font-size:9px">벌당 개수</span></label><input data-f="loopPerPiece" type="number" value="${t.loopPerPiece||0}" min="0" step="0.1" placeholder="벌당 몇개"></div><div style="flex:.7;min-width:65px"><label>${t.packUnit||'야드'}당 개수</label><input data-f="loopPerYard" type="number" value="${t.loopPerYard||''}" min="1" placeholder="${t.packUnit?'예: 100':'예: 65'}" title="1${t.packUnit||'야드'}에 몇 개 들었는지 — 한번 입력하면 이름으로 자동 저장됩니다"></div><div style="flex:.8;min-width:68px"><label>${t.packUnit||'야드'}당 단가</label><input data-f="unitPrice" type="number" value="${t.unitPrice||0}" placeholder="원/${t.packUnit||'yard'}"></div><div style="flex:.45;min-width:44px"><label>로스%</label><input data-f="buffer" type="number" value="${t.buffer??0}" min="0" max="50" step="0.5" title="기본 0% — 봉지/야드 올림에 로스 일부 포함됨"></div><div style="flex:1.7;min-width:135px;font-size:9px;color:var(--t2);align-self:center;padding:4px 7px;background:#e0f2fe;border-radius:5px;line-height:1.35">${t.packUnit?'🛍':'🪢'} <b>${t.packUnit||'야드'} 발주</b> · 1${t.packUnit||'y'}=${t.loopPerYard||'?'}개 · ${num(t.unitPrice||0)}원<br>요척 ${t.loopPerPiece||0}개 × 의뢰수량 → <b style="color:#0284c7">${t.packUnit||'야드'} 올림 발주</b><br><span style="color:#0369a1">※ 50개만 필요해도 1${t.packUnit||'야드'} 발주</span></div>`:isYard?`<div style="flex:.7;min-width:58px"><label>요척(yard)</label><input data-f="consumptionPerPiece" type="number" value="${t.consumptionPerPiece||0.5}" step="0.01" placeholder="0.5"></div><div style="flex:.8;min-width:68px"><label>단가(원/yard)</label><input data-f="unitPrice" type="number" value="${t.unitPrice||0}"></div>${t.plainYard?'':`<div style="flex:.7;min-width:58px"><label>1절당yard <span class="muted" style="font-size:9px">선택</span></label><input data-f="yardsPerJeol" type="number" value="${t.yardsPerJeol||''}" placeholder="없으면 야드발주" title="입력 시: 필요량을 1절 단위로 올림 발주 (예: 100y/절이면 80y 필요해도 1절=100y 발주)"></div>`}<div style="flex:.45;min-width:44px"><label>로스%</label><input data-f="buffer" type="number" value="${t.buffer??2}" min="0" max="50" step="0.5" title="부자재 기본 2% (필요 시 수정 가능)"></div><div style="flex:1.2;min-width:90px;font-size:9px;color:var(--t2);align-self:center;padding:4px 6px;background:#e0f2fe;border-radius:5px;line-height:1.3">${t.yardsPerJeol>0?`📦 절 단위<br>1절 ${t.yardsPerJeol}y × 단가 ${num(t.unitPrice||0)}<br>=<b style="color:#0284c7">${num(Math.round((t.yardsPerJeol)*(t.unitPrice||0)))}원/절</b>`:`📐 야드 발주<br>벌당 ${t.consumptionPerPiece||0.5}y × 단가 ${num(t.unitPrice||0)}<br>=<b style="color:#0284c7">${num(Math.round((t.consumptionPerPiece||0.5)*(t.unitPrice||0)))}원/pcs</b>${(t.unitPrice||0)>=10000?'<br><span style="color:#dc2626;font-weight:600">⚠ 단가 큼 — 롤/절 아닌가요?</span>':''}`}</div>`:isThread?`<div style="flex:.6;min-width:50px"><label>컬러당 개수</label><input data-f="threadQty" type="number" value="${t.threadQty||10}" placeholder="10"></div><div style="flex:.6;min-width:50px"><label>미니멈(장)</label><input data-f="threadMin" type="number" value="${t.threadMin||30}" placeholder="30"></div><div style="flex:.8;min-width:68px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="${t.unitPrice||0}"></div><div style="flex:1.3;min-width:100px;font-size:9px;color:var(--t2);align-self:center;padding:4px 6px;background:var(--bg2);border-radius:5px;line-height:1.3">기본 ${t.threadQty||10}개×${num(t.unitPrice||0)}원<br>÷${(t.threadMin||30)}장=<b style="color:var(--blue)">${Math.round(((t.threadQty||10)*(t.unitPrice||0))/(t.threadMin||30))}원/pcs</b><div style="font-size:8px;color:var(--t2);margin-top:2px">※ 실제발주는 오더/원가에서 입력</div></div>`:`<div style="flex:.5;min-width:44px"><label>단위</label><input data-f="unit" value="${esc(t.unit||'ea')}"></div><div style="flex:.6;min-width:50px"><label>벌당수량</label><input data-f="qtyPerPiece" type="number" value="${t.qtyPerPiece||1}" step="0.01"></div><div style="flex:.8;min-width:68px"><label>단가(원)</label><input data-f="unitPrice" type="number" value="${t.unitPrice||0}"></div><div style="flex:.45;min-width:44px"><label>로스%</label><input data-f="buffer" type="number" value="${t.buffer??2}" min="0" max="50" step="0.5" title="부자재 기본 2% (필요 시 수정 가능)"></div>`}
   </div>
@@ -4292,6 +4319,17 @@ function onTrimMinQty(i,val){
 }
 
 function updFnmDL(inp){const sup=inp.value.trim();const dl=document.getElementById('dl-fnm');if(!dl)return;const m=S.priceBook[sup]?.materials||{};dl.innerHTML=Object.keys(m).filter(k=>m[k].type==='fabric').map(k=>`<option value="${esc(k)}">`).join('');}
+// 부자재명: 선택한 부자재처의 자재 이름을 목록으로 (거래처 없으면 전체) — 원단의 updFnmDL과 동일 컨셉
+function updTnmDL(el){
+  var row=(el&&el.closest)?el.closest('[id^=tr-]'):null;
+  var sup=row?((row.querySelector('[data-f=supplier]')||{}).value||'').trim():((el&&el.value)||'').trim();
+  var dl=document.getElementById('dl-tnm');if(!dl)return;
+  var seen={},opts=[];
+  function add(nm,price){if(!nm||seen[nm])return;seen[nm]=1;opts.push('<option value="'+esc(nm)+'">'+esc(nm)+(price?' ('+num(price)+'원)':'')+'</option>');}
+  if(sup&&S.priceBook[sup]&&S.priceBook[sup].materials){var m=S.priceBook[sup].materials;for(var k in m){if(m[k]&&m[k].type==='trim'&&m[k].name)add(m[k].name,m[k].unitPrice);}}
+  if(!opts.length){Object.values(S.priceBook||{}).forEach(function(pb){var mm=pb.materials||{};for(var k in mm){if(mm[k]&&mm[k].type==='trim'&&mm[k].name)add(mm[k].name,mm[k].unitPrice);}});}
+  dl.innerHTML=opts.join('');
+}
 function renderFabRows(){const el=document.getElementById('fab-rows');if(!el)return;el.innerHTML=formFabs.length?formFabs.map((f,i)=>fabRowHTML(f,i)).join(''):'<div class="muted" style="text-align:center;padding:.5rem">원단 없음</div>';var dl=document.getElementById('dl-fnm');if(dl){var fdb=buildFabDB();dl.innerHTML=Object.keys(fdb).map(function(k){return '<option value="'+esc(k)+'">';}).join('');}}
 function inlineTrimCostsHTML(t){
   if(!t||!t.id)return'';
@@ -4305,6 +4343,7 @@ function inlineTrimCostsHTML(t){
 function renderTrimAndCosts(){renderTrimRows();renderTrimCostRows();}
 function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)return;
   if(typeof buildCareLabelDB==='function')buildCareLabelDB();
+  if(typeof updTnmDL==='function')updTnmDL();
   if(typeof buildLoopDB==='function')buildLoopDB();
   // 라벨류(케어/메인)는 하단 별도 섹션(#label-trim-rows)으로 분리
   const labelTypes=['careLabel','mainLabel'];
