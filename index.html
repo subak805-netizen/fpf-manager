@@ -2682,6 +2682,61 @@ function autofillTrim(r){
     }
   }
 }
+function openPBImport(){
+  var ov=document.getElementById('pbimp-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='pbimp-ov';
+    ov.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:flex-start;justify-content:center;overflow:auto;padding:20px';
+    ov.innerHTML='<div style="background:var(--bg);border-radius:14px;max-width:560px;width:100%;margin-top:24px;padding:18px;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-size:16px;font-weight:700">📋 단가표 일괄 가져오기</div><button onclick="closePBImport()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--t2)">×</button></div>'
+      +'<div style="font-size:12px;color:var(--t2);line-height:1.7;margin-bottom:10px">단가표 <b>사진을 Claude에게 올리면</b> 붙여넣을 데이터(JSON)를 만들어드려요.<br>그걸 붙여넣고 <b>가져오기</b>를 누르면 <b>거래처 단가장에 일괄 등록</b>돼요.<br>※ 롤 단위(롤당 야드·롤당 단가)로 등록돼요. 기존 품목은 단가만 갱신해요.</div>'
+      +'<div style="margin-bottom:8px"><label style="font-size:11px;color:var(--t2);display:block;margin-bottom:3px;font-weight:600">거래처 (비우면 JSON의 supplier 사용)</label><input id="pbimp-sup" placeholder="예: 메이드" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--bd,#ccc);border-radius:8px;box-sizing:border-box"></div>'
+      +'<textarea id="pbimp-ta" placeholder="여기에 JSON 붙여넣기..." style="width:100%;height:200px;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--bd,#ccc);border-radius:8px;box-sizing:border-box"></textarea>'
+      +'<div style="display:flex;gap:8px;margin-top:10px"><button id="pbimp-go" class="btn p" style="flex:1">가져오기</button><button onclick="closePBImport()" class="btn">취소</button></div>'
+      +'</div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closePBImport();});
+    document.getElementById('pbimp-go').onclick=function(){importPriceBook(document.getElementById('pbimp-sup').value,document.getElementById('pbimp-ta').value);};
+  }
+  ov.style.display='flex';
+  document.getElementById('pbimp-ta').value='';
+  document.getElementById('pbimp-sup').value='';
+}
+function closePBImport(){var ov=document.getElementById('pbimp-ov');if(ov)ov.style.display='none';}
+function importPriceBook(supplier,jsonStr){
+  supplier=(supplier||'').trim();
+  var data;
+  try{data=JSON.parse(jsonStr);}catch(e){alert('JSON 형식이 올바르지 않아요. 다시 확인해주세요.');return;}
+  if(!supplier)supplier=(data.supplier||data.거래처||'').trim();
+  if(!supplier){alert('거래처명을 입력하세요 (또는 JSON에 supplier 포함).');return;}
+  var items=data.items||data.materials||(Array.isArray(data)?data:[]);
+  if(!items.length){alert('가져올 품목이 없어요 (items 배열을 확인하세요).');return;}
+  var pb=getPB(supplier);
+  var added=0,updated=0;
+  items.forEach(function(d){
+    if(!d||!d.name)return;
+    var nm=(''+d.name).trim();if(!nm)return;
+    var color=(d.color||'').trim();
+    var key=pbKey(nm,color);
+    var ex=pb.materials[key]||{};
+    var price=+d.unitPrice||+d.price||+d.단가||0;
+    var ot=d.orderType||'roll';
+    var ypr=(d.yardsPerRoll!=null?d.yardsPerRoll:(d.roll!=null?d.roll:(d.롤!=null?d.롤:null)));
+    var entry=Object.assign({},ex,{
+      type:'trim',name:nm,color:color,orderType:ot,
+      unitPrice:price>0?price:(ex.unitPrice||0),
+      unit:d.unit||ex.unit||'yard',
+      yardsPerRoll:(ypr!=null&&ypr!==''?+ypr:(ex.yardsPerRoll||null)),
+      lastUpdated:today()
+    });
+    if(pb.materials[key])updated++;else added++;
+    pb.materials[key]=entry;
+  });
+  saveData();closePBImport();
+  if(typeof renderBook==='function')renderBook();
+  if(typeof showToast==='function')showToast('✅ '+supplier+' 단가장: '+added+'건 추가, '+updated+'건 갱신');
+  else alert('✅ '+supplier+' 단가장: '+added+'건 추가, '+updated+'건 갱신');
+}
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;
   const allSups=Object.keys(S.priceBook).sort();
@@ -2705,7 +2760,8 @@ function renderBook(){
       <button class="btn p s" style="align-self:flex-end" onclick="addPriceBookEntry()">+ 추가</button>
     </div>
   </div>`;
-  el.innerHTML=searchBox+addForm+'<div id="book-list"></div>';
+  const importBtn=`<button class="btn p" style="width:100%;margin-bottom:10px;background:#16a34a;border-color:#16a34a" onclick="openPBImport()">📋 단가표 사진 → 일괄 가져오기</button>`;
+  el.innerHTML=searchBox+importBtn+addForm+'<div id="book-list"></div>';
   renderBookList();
 }
 function renderBookList(){
@@ -5967,7 +6023,30 @@ function getItemReorderNum(orderId,itemId){
     .sort(function(a,b){return (a.createdAt||'').localeCompare(b.createdAt||'');});
   var idx=orders.findIndex(function(o){return o.id===orderId;});
   if(idx<0)return null;
-  return {num:idx+1,total:orders.length};
+  var o=S.orders[orderId];
+  var num=(o&&o.reorderOverride&&+o.reorderOverride>0)?+o.reorderOverride:(idx+1);
+  return {num:num,total:Math.max(orders.length,num),auto:idx+1,manual:!!(o&&o.reorderOverride&&+o.reorderOverride>0)};
+}
+function setReorderOverride(oid,num){
+  var o=S.orders[oid];if(!o)return;
+  num=+num||0;
+  if(num<=0)delete o.reorderOverride;else o.reorderOverride=num;
+  saveData();
+  if(typeof renderOrderDetail==='function')renderOrderDetail();
+  if(typeof renderOrderPane==='function')renderOrderPane();
+  if(typeof renderDash==='function'){try{renderDash();}catch(e){}}
+}
+function reorderSelect(oid,rn){
+  if(!rn)return '';
+  var maxN=Math.max(rn.total,rn.num,3)+1;
+  var opts='';
+  for(var i=1;i<=maxN;i++){
+    var lbl=i===1?'🆕 메인발주':('🔄 '+(i-1)+'차 리오더');
+    opts+='<option value="'+i+'"'+(i===rn.num?' selected':'')+'>'+lbl+'</option>';
+  }
+  var col=rn.num===1?'#0284c7':'#d97706';var bg=rn.num===1?'#e0f2fe':'#fef3c7';
+  return '<select onchange="setReorderOverride(\''+oid+'\',this.value)" title="발주 차수 — 직접 바꿀 수 있어요"'
+    +' style="font-size:10px;font-weight:600;color:'+col+';background:'+bg+';padding:2px 6px;border-radius:8px;border:1px solid '+col+'55;cursor:pointer">'+opts+'</select>';
 }
 
 function reorderLabel(rn){
@@ -6080,7 +6159,7 @@ function renderOrderDetail(){
   // 오더 이름에 이미 아이템 이름이 포함되어 있으면 중복 방지
   if(itNm && oNm.indexOf(itNm)>=0)return esc(oNm);
   return (itNm?esc(itNm)+' ':'')+esc(oNm);})()}</div>
-      <div class="fr" style="margin-top:3px;gap:5px;flex-wrap:wrap"><span class="badge ${cls}">${lb}</span>${di.cls?`<span class="dday-badge ${di.cls}">${di.text}</span>`:''}${(function(){var firstOI=o.orderItems?.[0];var rn=firstOI?getItemReorderNum(o.id,firstOI.itemId):null;if(!rn)return'';var lbl=reorderLabel(rn);var col=rn.num===1?'#0284c7':'#d97706';var bg=rn.num===1?'#e0f2fe':'#fef3c7';return '<span style="font-size:10px;font-weight:600;color:'+col+';background:'+bg+';padding:2px 8px;border-radius:8px">'+lbl+(rn.total>1?' (전체 '+rn.total+'차)':'')+'</span>';})()}<span class="muted" style="display:inline-flex;align-items:center;gap:3px">📅 <input type="date" value="${createdToISO(o.createdAt)}" onchange="setOrderDate('${o.id}',this.value)" title="오더 날짜 (과거 오더는 직접 설정하세요)" style="font-size:11px;padding:1px 5px;border:1px solid var(--bd);border-radius:5px;color:var(--t2);background:var(--bg)"></span>${o.clientName?`<span class="muted">거래처: ${esc(o.clientName)}</span>`:''}</div>
+      <div class="fr" style="margin-top:3px;gap:5px;flex-wrap:wrap"><span class="badge ${cls}">${lb}</span>${di.cls?`<span class="dday-badge ${di.cls}">${di.text}</span>`:''}${(function(){var firstOI=o.orderItems?.[0];var rn=firstOI?getItemReorderNum(o.id,firstOI.itemId):null;if(!rn)return'';return reorderSelect(o.id,rn);})()}<span class="muted" style="display:inline-flex;align-items:center;gap:3px">📅 <input type="date" value="${createdToISO(o.createdAt)}" onchange="setOrderDate('${o.id}',this.value)" title="오더 날짜 (과거 오더는 직접 설정하세요)" style="font-size:11px;padding:1px 5px;border:1px solid var(--bd);border-radius:5px;color:var(--t2);background:var(--bg)"></span>${o.clientName?`<span class="muted">거래처: ${esc(o.clientName)}</span>`:''}</div>
       <div class="muted">${o.orderItems?.map(oi=>{const effPcs=getEffectivePcsForOrderItem(o,oi);const ot=oi.grandTotal||0;if(effPcs===null||effPcs===ot)return `${esc(oi.itemName)} ${num(ot)}pcs`;const short=effPcs<ot;return `${esc(oi.itemName)} ${num(ot)}pcs <span style="color:${short?'var(--red)':'var(--blue)'};font-weight:600">(실제 ${effPcs}pcs ${short?'· 원단부족':'· 원단여유'})</span>`;}).join(', ')}</div></div>
       <div class="fr" style="gap:4px"><button class="btn s" onclick="openQtyEdit('${o.id}')" title="처음 적은 오더수량 수정" style="background:#fef9c3;color:#854d0e;border-color:#fde047">✏️ 수량</button><button class="btn s" onclick="syncOrderFromUI('${o.id}')" title="아이템에서 자재 변경 사항 가져오기" style="background:#eff6ff;color:#1e40af;border-color:#bfdbfe">🔄 자재 동기화</button><button class="btn s" onclick="cloneOrder('${o.id}')" title="리오더 / 복사"> 복사</button><button class="btn s d" onclick="deleteOrder('${o.id}')">🗑</button></div>
     </div>
