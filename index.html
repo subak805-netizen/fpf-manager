@@ -6152,9 +6152,14 @@ function fcShipped(sch){return !!(sch&&(sch.shipDone||fcShippedQty(sch)>0));}
 function fcLastShipDate(sch){
   if(!sch)return '';
   if(sch.shipDoneDate)return sch.shipDoneDate;
-  var ds=(sch.shipments||[]).map(function(x){return x&&x.date;}).filter(Boolean).sort();
+  var ds=(sch.shipments||[]).map(function(x){return x&&x.date;}).filter(Boolean).sort(_cmpDateFn);
   return ds.length?ds[ds.length-1]:(sch.shippingDate||'');
 }
+// 어떤 날짜 형식(ISO "2026-05-13" / 한글 "2026. 05. 24." 등)이든 정렬·비교용 YYYYMMDD로 변환
+function cmpDate(s){if(!s)return '99999999';var m=(''+s).match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);if(!m){var only=(''+s).replace(/\D/g,'');return only.length>=8?only.slice(0,8):'99999999';}return m[1]+String(m[2]).padStart(2,'0')+String(m[3]).padStart(2,'0');}
+function _cmpDateFn(a,b){var da=cmpDate(a),db=cmpDate(b);return da<db?-1:da>db?1:0;}
+// 어떤 날짜 형식이든 ISO(YYYY-MM-DD)로 통일 — 정렬·표시 일관성용
+function toISO(s){if(!s)return '';var m=(''+s).match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);return m?m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0'):'';}
 function orderShipETAAuto(o){
   var dates=[];
   Object.values(o.factorySchedules||{}).forEach(function(f){if(fcShipped(f))return;var e=fcShipETA(f);if(e)dates.push(e);});
@@ -6262,9 +6267,9 @@ function renderOrderPane(){
         if(fs.shippingDate)done.push(fs.shippingDate);
         if(fs.shipExpectedDate)exp.push(fs.shipExpectedDate);
       });
-      if(done.length){done.sort();return '<div style="font-size:10px;color:#047857;margin-top:4px">✅ 출고 <b>'+esc(done[done.length-1])+'</b></div>';}
+      if(done.length){done.sort(_cmpDateFn);return '<div style="font-size:10px;color:#047857;margin-top:4px">✅ 출고 <b>'+esc(done[done.length-1])+'</b></div>';}
       if(o.shippingDate)return '<div style="font-size:10px;color:var(--t2);margin-top:4px">🚚 출고예정 <b>'+esc(o.shippingDate)+'</b>'+(di.text?' <span class="dday-badge '+di.cls+'" style="padding:0 5px;font-size:9px">'+di.text+'</span>':'')+'</div>';
-      if(exp.length){exp.sort();return '<div style="font-size:10px;color:var(--t2);margin-top:4px">🚚 출고예정 <b>'+esc(exp[0])+'</b></div>';}
+      if(exp.length){exp.sort(_cmpDateFn);return '<div style="font-size:10px;color:var(--t2);margin-top:4px">🚚 출고예정 <b>'+esc(exp[0])+'</b></div>';}
       return '';
     })();
     const subInfo=[itemNm,shortDate(o.shippingDate||o.createdAt)].filter(Boolean).join(' · ');
@@ -8752,7 +8757,8 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
           var _useShip=_sgTot>0;
           // 맨 왼쪽 날짜 = 출고일 (스케줄 출고일 → 마지막 출고기록 → 없으면 발주일)
           var _shipISO=(_sch&&_sch.shippingDate)||'';
-          if(!_shipISO&&_sch&&_sch.shipments&&_sch.shipments.length){var _ds=_sch.shipments.map(function(s){return s&&s.date;}).filter(Boolean).sort();_shipISO=_ds[_ds.length-1]||'';}
+          if(!_shipISO&&_sch&&_sch.shipments&&_sch.shipments.length){var _ds=_sch.shipments.map(function(s){return s&&s.date;}).filter(Boolean).sort(_cmpDateFn);_shipISO=_ds[_ds.length-1]||'';}
+          _shipISO=toISO(_shipISO);
           var _rowDate=_shipISO?(typeof fmtKoDate==='function'?fmtKoDate(_shipISO):_shipISO):(o.createdAt||today());
           // 출고기록(회차별) 우선 — 출고가 여러 번이면 각 회차를 따로 표시
           var _shipRecs=(_sch&&_sch.shipments)?_sch.shipments.filter(function(s){
@@ -8776,7 +8782,8 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
             for(var ci=0;ci<colors.length;ci++){
               for(var si=0;si<sizes.length;si++){
                 var c=colors[ci],sz=sizes[si];
-                var q=(+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0));
+                // 출고그리드에 출고수량 있으면 출고수량, 없으면 오더수량
+                var q=_useShip?(+((_sg&&_sg[c]&&_sg[c][sz])||0)):(+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0));
                 if(!q)continue;
                 rows.push({date:_rowDate,_iso:_shipISO||'',itemName:it.name,color:c||'',size:sz==='free'?'':sz,qty:q,unitPrice:rate,amount:rate*q,costType:lbl,oid:o.id,payKey:payKey,orderName:o.name});
               }
@@ -8827,10 +8834,10 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
   rows.forEach(function(r){var k=(r.oid||'')+'|'+(r.itemName||'');var iso=r._iso||'9999';if(!(k in _grpMin)||iso<_grpMin[k])_grpMin[k]=iso;});
   rows.sort(function(a,b){
     var ka=(a.oid||'')+'|'+(a.itemName||''),kb=(b.oid||'')+'|'+(b.itemName||'');
-    var ma=_grpMin[ka]||'9999',mb=_grpMin[kb]||'9999';
+    var ma=cmpDate(_grpMin[ka]),mb=cmpDate(_grpMin[kb]);
     if(ma!==mb)return ma<mb?-1:1;
     if(ka!==kb)return ka<kb?-1:1;
-    var ia=a._iso||'9999',ib=b._iso||'9999';if(ia!==ib)return ia<ib?-1:1;
+    var ia=cmpDate(a._iso),ib=cmpDate(b._iso);if(ia!==ib)return ia<ib?-1:1;
     if((a.color||'')!==(b.color||''))return (a.color||'')<(b.color||'')?-1:1;
     return (a.size||'')<(b.size||'')?-1:((a.size||'')>(b.size||'')?1:0);
   });
@@ -10845,13 +10852,13 @@ function renderFcPay(){
   if(!Object.keys(byFc).length&&!Object.keys(fcDeductMap).length){el.innerHTML='<div class="empty">결제 데이터가 없습니다<br><div class="muted" style="margin-top:6px">아이템에 가공비와 담당 공장을 연결한 후, 오더의 "공장 진행" 탭에서 공장을 추가하세요</div></div>';return;}
   const showDone=document.getElementById('pay-show-done')?.checked;
   el.innerHTML=Object.entries(byFc).sort(function(a,b){
-    var da=a[1].map(function(r){return r.shipDate;}).filter(Boolean).sort()[0]||'9999-99-99';
-    var db=b[1].map(function(r){return r.shipDate;}).filter(Boolean).sort()[0]||'9999-99-99';
+    var da=a[1].map(function(r){return r.shipDate;}).filter(Boolean).map(cmpDate).sort()[0]||'99999999';
+    var db=b[1].map(function(r){return r.shipDate;}).filter(Boolean).map(cmpDate).sort()[0]||'99999999';
     return da<db?-1:da>db?1:0;
   }).map(([fn,rows])=>{
     if(!rows.length)return'';
     const thisFcId=rows[0]?.fcId||'';
-    const mainRows=rows.slice().sort(function(a,b){var da=a.shipDate||'9999-99-99';var db=b.shipDate||'9999-99-99';return da<db?-1:da>db?1:0;});
+    const mainRows=rows.slice().sort(function(a,b){var da=cmpDate(a.shipDate),db=cmpDate(b.shipDate);return da<db?-1:da>db?1:0;});
     const tot=mainRows.reduce((s,r)=>s+r.total,0);const upaid=mainRows.filter(r=>!r.paid).reduce((s,r)=>s+r.total,0);
     const paidMain=mainRows.filter(r=>r.paid);const unpaidMain=mainRows.filter(r=>!r.paid);
     const deductions=(fcDeductMap[thisFcId]||[]);
@@ -10863,7 +10870,7 @@ function renderFcPay(){
     const paidPct=mainRows.length?Math.round((paidMain.length/mainRows.length)*100):0;
     const paidAmount=mainRows.filter(r=>r.paid).reduce((s,r)=>s+r.total,0);
     // 출고일 범위 추출 (이 공장의 가장 빠른~늦은 출고일)
-    const shipDates=mainRows.map(r=>r.shipDate).filter(Boolean).sort();
+    const shipDates=mainRows.map(r=>r.shipDate).filter(Boolean).sort(_cmpDateFn);
     const dateRangeTxt=shipDates.length?(shipDates.length===1?shipDates[0]:`${shipDates[0]} ~ ${shipDates[shipDates.length-1]}`):'';
     return`<div class="pay-group" id="paygrp-${thisFcId}">
     <div class="pay-group-hdr" style="flex-wrap:wrap;gap:8px;align-items:flex-start">
@@ -10933,7 +10940,7 @@ function renderSpPay(){
   // 오더에서 대표 출고일 추출 (가장 빠른 봉제공장 출하일 또는 shippingDate)
   function getOrderShipDate(o){
     if(o.shippingDate)return o.shippingDate;
-    const dates=Object.values(o.factorySchedules||{}).map(s=>s.shippingDate).filter(Boolean).sort();
+    const dates=Object.values(o.factorySchedules||{}).map(s=>s.shippingDate).filter(Boolean).sort(_cmpDateFn);
     return dates.length?dates[0]:'';
   }
   const bySup={};
@@ -11036,7 +11043,7 @@ function renderSpPay(){
     // 정산 요약: 건수 진행률 + 기간 정보 (거래처 결제도 동일 패턴)
     const paidPctSp=rows.length?Math.round((paidRows.length/rows.length)*100):0;
     const paidAmountSp=paidRows.reduce((s,r)=>s+r.total,0);
-    const shipDatesSp=rows.map(r=>r.shipDate).filter(Boolean).sort();
+    const shipDatesSp=rows.map(r=>r.shipDate).filter(Boolean).sort(_cmpDateFn);
     const dateRangeTxtSp=shipDatesSp.length?(shipDatesSp.length===1?shipDatesSp[0]:`${shipDatesSp[0]} ~ ${shipDatesSp[shipDatesSp.length-1]}`):'';
     return`<div class="pay-group">
     <div class="pay-group-hdr" style="flex-wrap:wrap;gap:8px;align-items:flex-start">
