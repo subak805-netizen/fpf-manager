@@ -10750,7 +10750,11 @@ function renderFcPay(){
       const hasBrand=(o.orderItems||[]).some(oi=>S.items[oi.itemId]?.brandId===fltBrand);
       if(!hasBrand)continue;
     }
-    for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){
+    // 결제 대상 공장 = 스케줄 공장 ∪ 아이템이 원가를 보내는 공장(비용>0) — 스케줄 없어도 누락 안 되게
+    const _fcIds=new Set(Object.keys(o.factorySchedules||{}));
+    for(const _oi of(o.orderItems||[])){const _it=S.items[_oi.itemId];if(!_it)continue;for(const[_ck,,_fk]of COST_DEFS){if(_it[_fk]&&(+_it[_ck]||0)>0)_fcIds.add(_it[_fk]);}}
+    for(const fcId of _fcIds){
+      const sch=o.factorySchedules?.[fcId]||{};
       if(fltFcId&&fcId!==fltFcId)continue;
       if(fcMulti.length&&fcMulti.indexOf(fcId)<0)continue;
       const fc=S.factories[fcId]||{name:'(삭제됨)',type:''};
@@ -10795,7 +10799,13 @@ function renderFcPay(){
         }
         if(!base)continue;
         // 기간 필터: 출고일이 범위 밖이면 제외 (월별 정산 관점에서 보기 위함)
-        const shipDate=fcLastShipDate(sch)||'';
+        var shipDate=fcLastShipDate(sch)||'';
+        if(!shipDate){
+          for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
+            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd=fcLastShipDate(ss);if(_sd){shipDate=_sd;break;}}
+          }
+          if(!shipDate)shipDate=o.shippingDate||((o.createdAt&&typeof createdToISO==='function')?createdToISO(o.createdAt):'');
+        }
         if(!isInPayPeriod(shipDate,periodRange))continue;
         const vat=Math.round(base*((sch.vatRate||10)/100));
         const k='fc_'+fcId+'_'+ck;const st=getPaySt(o.id,k);
