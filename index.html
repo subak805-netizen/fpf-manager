@@ -10810,10 +10810,10 @@ function renderBatchPay(){
           if(!it[fk]&&Object.keys(o.factorySchedules).length>1)continue;
           const r=it[ck]||0;if(!r)continue;
           const sizes=it.sizes?.length?it.sizes:['free'];const colors=it.colors?.length?it.colors:[''];
-          const orderQty=colors.reduce((s,c)=>s+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);
           let sewingShipped=0;
-          if(!isSewing){for(const[sid,ss]of Object.entries(o.factorySchedules||{})){if(o.orderItems?.some(oi2=>S.items[oi2.itemId]?.sewingFcId===sid))sewingShipped+=(ss.shippingQty||0)+(ss.extraShipments||[]).reduce((s2,e)=>s2+(+e.qty||0),0);}}
-          const qtyBasis=isSewing?(totalShipped||orderQty):(sewingShipped||orderQty);
+          if(!isSewing){for(const[sid,ss]of Object.entries(o.factorySchedules||{})){if(o.orderItems?.some(oi2=>S.items[oi2.itemId]?.sewingFcId===sid)){sewingShipped+=(typeof fcShippedQty==='function'?fcShippedQty(ss):((ss.shippingQty||0)));sewingShipped+=(ss.extraShipments||[]).reduce((s2,e)=>s2+(+e.qty||0),0);}}}
+          // 결제는 실제 출고 수량 기준만 (오더 수량 폴백 X)
+          const qtyBasis=isSewing?totalShipped:sewingShipped;
           if(!qtyBasis)continue;
           base+=r*qtyBasis;dets.push(`${esc(it.name)} ${qtyBasis}pcs×${num(r)}원`);
         }
@@ -10977,16 +10977,18 @@ function renderFcPay(){
           const r=it[ck]||0;if(!r)continue;
           const sizes=it.sizes?.length?it.sizes:['free'];
           const colors=it.colors?.length?it.colors:[''];
-          const orderTotalQty=colors.reduce((s,c)=>s+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);
+          // 결제는 실제 출고 수량 기준만 사용 (오더 수량 폴백 X).
+          // 봉제: 이 공장 실제 출고. 후공정(자수·완성·검품 등): 봉제공장 실제 출고.
+          // 봉제 출고가 0이면 청구 없음 → 출고 후에만 결제 잡힘.
           let qtyBasis;
           if(isSewingFc){
-            qtyBasis=totalShipped||orderTotalQty;
+            qtyBasis=totalShipped;
           }else{
-            qtyBasis=sewingShippedQty||orderTotalQty;
+            qtyBasis=sewingShippedQty;
           }
           if(!qtyBasis)continue;
           base+=r*qtyBasis;
-          const qtyLabel=(!isSewingFc&&sewingShippedQty)?`봉제출고 ${qtyBasis}pcs`:`${qtyBasis}pcs`;
+          const qtyLabel=(!isSewingFc)?`봉제출고 ${qtyBasis}pcs`:`출고 ${qtyBasis}pcs`;
           dets.push(`${esc(it.name)} ${qtyLabel}×${num(r)}원`);
         }
         // payFees 합산 (박스비·택배비·운임)
