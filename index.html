@@ -10879,24 +10879,25 @@ function renderFcPay(){
           Object.values(ssch.shippingGrid||{}).forEach(ig=>Object.values(ig).forEach(cg=>Object.values(cg).forEach(v=>sewingShippedQty+=0))); // shippingQty already accounts for grid
         }
       }
+      let _pushedAnyForFc=false;     // 이 공장에 정상 결제 행이 1개라도 만들어졌는지
+      let _fkMatchedAnyCk=false;      // 이 공장이 어느 공정에든 아이템에 선택됐는지
+      let _fcHasFees=false;           // 이 공장에 어떤 ck로든 payFees가 있는지
       for(const[ck,lbl,fk]of COST_DEFS){
-        let base=0,dets=[],_fkMatched=false;
+        let base=0,dets=[];
         const totalShipped=(sch.shippingQty||0)+(sch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
         for(const oi of(o.orderItems||[])){
           const it=S.items[oi.itemId];if(!it)continue;
           if(it[fk]&&it[fk]!==fcId)continue;
           if(!it[fk]&&Object.keys(o.factorySchedules).length>1)continue;
-          if(it[fk]===fcId)_fkMatched=true;
+          if(it[fk]===fcId)_fkMatchedAnyCk=true;
           const r=it[ck]||0;if(!r)continue;
           const sizes=it.sizes?.length?it.sizes:['free'];
           const colors=it.colors?.length?it.colors:[''];
           const orderTotalQty=colors.reduce((s,c)=>s+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);
           let qtyBasis;
           if(isSewingFc){
-            // 봉제공장: 출고수량 기준
             qtyBasis=totalShipped||orderTotalQty;
           }else{
-            // 자수/워싱 등: 봉제공장 최종 출고수량 기준 (없으면 오더수량)
             qtyBasis=sewingShippedQty||orderTotalQty;
           }
           if(!qtyBasis)continue;
@@ -10904,35 +10905,48 @@ function renderFcPay(){
           const qtyLabel=(!isSewingFc&&sewingShippedQty)?`봉제출고 ${qtyBasis}pcs`:`${qtyBasis}pcs`;
           dets.push(`${esc(it.name)} ${qtyLabel}×${num(r)}원`);
         }
-        // payFees 합산: 비용=0이어도 운임·박스비·택배비가 있으면 결제 대상 (블루패킹 케이스)
+        // payFees 합산 (박스비·택배비·운임)
         const _feeKey='fc_'+fcId+'_'+ck;
         const _fees=(o.payFees||{})[_feeKey]||[];
         const _feeTot=_fees.reduce((s,f)=>s+payFeeAmt(f),0);
         if(_feeTot>0){
+          _fcHasFees=true;
           _fees.forEach(function(f){var amt=payFeeAmt(f);if(amt>0)dets.push('🚚 '+(f.name||'운임')+' '+num(amt)+'원');});
           base+=_feeTot;
         }
-        // base=0이지만 이 공장이 이 공정으로 아이템에 선택돼있으면 안내 행 생성
-        // (사용자가 거기서 단가 입력하거나 + 박스비/택배비 추가)
-        if(!base){
-          if(!_fkMatched)continue;
-          dets.push('⚠️ 비용 미입력 — 아이템 단가를 넣거나 + 박스비/택배비를 추가하면 청구액이 잡혀요');
-        }
-        // 기간 필터: 출고일이 범위 밖이면 제외 (월별 정산 관점에서 보기 위함)
+        if(!base)continue;
+        // 기간 필터: 출고일 결정 (이 공장 → 봉제공장 → 빈)
         var shipDate=fcLastShipDate(sch)||'';
         if(!shipDate){
           for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
             if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd=fcLastShipDate(ss);if(_sd){shipDate=_sd;break;}}
           }
         }
-        // 옵션 B: 이 공장 또는 봉제공장에 출고일정이 없으면 결제 리스트에서 제외 (발주일/createdAt 폴백 차단)
-        // 단, base=0 안내 행(공장 선택만 됐고 비용 0)은 출고일 없어도 표시
-        if(base>0&&!shipDate)continue;
+        if(!shipDate)continue; // 옵션 B
         if(!isInPayPeriod(shipDate,periodRange))continue;
         const vat=Math.round(base*((sch.vatRate||10)/100));
         const k='fc_'+fcId+'_'+ck;const st=getPaySt(o.id,k);
         const did=('fd'+fcId+ck+o.id).replace(/\W/g,'').slice(0,12);
         byFc[fnm].push({fcId,oid:o.id,key:k,did,orderName:o.name,lbl,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,shipDate,isMain:true});
+        _pushedAnyForFc=true;
+      }
+      // ck 루프 후: 이 공장에 결제 행이 하나도 안 만들어졌는데
+      // 아이템에서 어디라도 선택돼있으면 → 안내 행 1개 무조건 생성
+      // (블루패킹: 비용 0이고 운임도 입력 안 한 상태에서도 결제관리에 보이게)
+      if(!_pushedAnyForFc&&_fkMatchedAnyCk){
+        var _noticeShip=fcLastShipDate(sch)||'';
+        if(!_noticeShip){
+          for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
+            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd2=fcLastShipDate(ss);if(_sd2){_noticeShip=_sd2;break;}}
+          }
+        }
+        var _noticeKey='fc_'+fcId+'_notice';
+        var _noticeSt=getPaySt(o.id,_noticeKey);
+        var _noticeDid=('fdN'+fcId+o.id).replace(/\W/g,'').slice(0,12);
+        var _noticeMsg=_fcHasFees
+          ? '⚠️ 입력한 운임·기타가 0원 — 박스수×단가를 확인해주세요'
+          : '⚠️ 비용 미입력 — 아이템 단가 또는 거래명세서에서 + 박스비/택배비를 추가해주세요';
+        byFc[fnm].push({fcId,oid:o.id,key:_noticeKey,did:_noticeDid,orderName:o.name,lbl:'안내',dets:[_noticeMsg],base:0,vat:0,total:0,paid:_noticeSt.paid,paidAt:_noticeSt.paidAt,shipDate:_noticeShip,isMain:true,isNotice:true});
       }
     }
   }
