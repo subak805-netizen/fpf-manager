@@ -5448,6 +5448,27 @@ function schedOrderBrand(o){
   var fi=o.orderItems&&o.orderItems[0]&&S.items[o.orderItems[0].itemId];
   return fi&&fi.brandId?getBrandName(fi.brandId):'';
 }
+// 자동 폴백: 원단 거래처의 입고완료(arrivalDate) > 입고예정(expectedArrivalDate) 중 가장 늦은 날
+function schedAutoFabDate(o){
+  if(!o||!o.suppliers)return '';
+  var dates=[];
+  Object.values(o.suppliers).forEach(function(sup){
+    if(!sup||!sup.materials)return;
+    var hasFabric=sup.materials.some(function(m){return m&&m.type==='fabric';});
+    if(!hasFabric)return;
+    var d=sup.arrivalDate||sup.expectedArrivalDate||'';
+    if(d)dates.push(d);
+  });
+  if(!dates.length)return '';
+  dates.sort(_cmpDateFn);
+  return dates[dates.length-1]; // 가장 늦은 날 (모든 원단이 들어와야 봉제 시작)
+}
+// 자동 폴백: 생산대시보드의 출고예정일과 동일 (orderShipETA)
+function schedAutoShipDate(o){
+  return (typeof orderShipETA==='function'?orderShipETA(o):'')||(o&&o.shippingDate)||'';
+}
+function schedEffFabDate(o){return (o&&o.schedFabDate)||schedAutoFabDate(o)||'';}
+function schedEffShipDate(o){return (o&&o.schedShipDate)||schedAutoShipDate(o)||'';}
 function genScheduleText(oids){
   var byDate={};
   oids.forEach(function(oid){var o=S.orders[oid];if(!o||!o.orderItems||!o.orderItems.length)return;var d=(o.createdAt||today()).slice(0,10);(byDate[d]=byDate[d]||[]).push(o);});
@@ -5461,8 +5482,9 @@ function genScheduleText(oids){
         out.push('*'+nm);
         schedFabAddNames(it).forEach(function(w){out.push('*원단 '+w);});
         var cs=schedColorSummary(oi);if(cs)out.push(cs);
-        out.push('원단 '+(o.schedFabDate?schedMD(o.schedFabDate)+'예정':'예정일 미정'));
-        out.push('출고 '+(o.schedShipDate?schedMD(o.schedShipDate)+'예정':'예정일 미정'));
+        var fab=schedEffFabDate(o);var ship=schedEffShipDate(o);
+        out.push('원단 '+(fab?schedMD(fab)+'예정':'예정일 미정'));
+        out.push('출고 '+(ship?schedMD(ship)+'예정':'예정일 미정'));
         out.push('');
       });
     });
@@ -5495,9 +5517,13 @@ function renderScheduleModalBody(){
       h+='<div style="font-size:10px;color:var(--t2);margin-top:2px">'+esc(o.name||'')+'</div></div>';
       h+=(o.schedSent?'<span class="badge b3" style="font-size:10px;flex-shrink:0">✓ 보냄</span>':'<span class="badge b0" style="font-size:10px;flex-shrink:0">미발송</span>');
       h+='</div>';
+      var autoFab=schedAutoFabDate(o);var autoShip=schedAutoShipDate(o);
+      var fabVal=o.schedFabDate||autoFab||'';var shipVal=o.schedShipDate||autoShip||'';
+      var fabAutoTag=(!o.schedFabDate&&autoFab)?' <span style="color:#10b981;font-weight:600" title="원단 발주의 입고완료/입고예정에서 자동">↩️ 자동</span>':'';
+      var shipAutoTag=(!o.schedShipDate&&autoShip)?' <span style="color:#10b981;font-weight:600" title="생산대시보드 출고예정에서 자동">↩️ 자동</span>':'';
       h+='<div style="display:flex;gap:8px;margin-top:8px">';
-      h+='<label style="flex:1;font-size:10px;color:var(--t2)">원단 예정일<input type="date" value="'+(o.schedFabDate||'')+'" onchange="setSchedDate(\''+o.id+'\',\'fab\',this.value)" style="width:100%;font-size:12px;padding:4px"></label>';
-      h+='<label style="flex:1;font-size:10px;color:var(--t2)">출고 예정일<input type="date" value="'+(o.schedShipDate||'')+'" onchange="setSchedDate(\''+o.id+'\',\'ship\',this.value)" style="width:100%;font-size:12px;padding:4px"></label>';
+      h+='<label style="flex:1;font-size:10px;color:var(--t2)">원단 예정일'+fabAutoTag+'<input type="date" value="'+fabVal+'" onchange="setSchedDate(\''+o.id+'\',\'fab\',this.value)" style="width:100%;font-size:12px;padding:4px"></label>';
+      h+='<label style="flex:1;font-size:10px;color:var(--t2)">출고 예정일'+shipAutoTag+'<input type="date" value="'+shipVal+'" onchange="setSchedDate(\''+o.id+'\',\'ship\',this.value)" style="width:100%;font-size:12px;padding:4px"></label>';
       h+='</div></div>';
     });
   });
