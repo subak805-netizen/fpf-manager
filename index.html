@@ -6242,6 +6242,15 @@ function fcLastShipDate(sch){
   if(sch.shipDoneDate)return sch.shipDoneDate;
   return sch.shippingDate||'';
 }
+// 결제관리·거래명세서용: 실제 출고가 일어난 날짜만 (출고예정일은 제외)
+// 회차 기록(shipments) → 출고완료 마킹(shipDoneDate). 둘 다 없으면 빈칸.
+function fcActualShipDate(sch){
+  if(!sch)return '';
+  var ds=(sch.shipments||[]).map(function(x){return x&&x.date;}).filter(Boolean).sort(_cmpDateFn);
+  if(ds.length)return ds[ds.length-1];
+  if(sch.shipDoneDate)return sch.shipDoneDate;
+  return ''; // shippingDate(예정)은 제외 — 실제 출고된 것만 결제 대상
+}
 // 어떤 날짜 형식(ISO "2026-05-13" / 한글 "2026. 05. 24." 등)이든 정렬·비교용 YYYYMMDD로 변환
 function cmpDate(s){if(!s)return '99999999';var m=(''+s).match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);if(!m){var only=(''+s).replace(/\D/g,'');return only.length>=8?only.slice(0,8):'99999999';}return m[1]+String(m[2]).padStart(2,'0')+String(m[3]).padStart(2,'0');}
 function _cmpDateFn(a,b){var da=cmpDate(a),db=cmpDate(b);return da<db?-1:da>db?1:0;}
@@ -8840,10 +8849,10 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
           var _sch=o.factorySchedules&&o.factorySchedules[entityId];
           var _isSew=(entityId===it.sewingFcId);
           var _sewSch=(!_isSew&&it.sewingFcId&&o.factorySchedules)?o.factorySchedules[it.sewingFcId]:null;
-          // --- 출고일: 이 공장 → (없으면) 봉제공장 → (없으면) 빈칸. 발주일로 대체하지 않음 ---
-          var _shipISO=toISO((_sch&&_sch.shippingDate)||'');
-          if(!_shipISO&&_sch&&_sch.shipments&&_sch.shipments.length){var _d1=_sch.shipments.map(function(s){return s&&s.date;}).filter(Boolean).sort(_cmpDateFn);_shipISO=toISO(_d1[_d1.length-1]||'');}
-          if(!_shipISO&&_sewSch){_shipISO=toISO(_sewSch.shippingDate||'');if(!_shipISO&&_sewSch.shipments&&_sewSch.shipments.length){var _d2=_sewSch.shipments.map(function(s){return s&&s.date;}).filter(Boolean).sort(_cmpDateFn);_shipISO=toISO(_d2[_d2.length-1]||'');}}
+          // --- 출고일: 실제 출고된 날짜만 (shipments 회차 또는 shipDoneDate). shippingDate(예정)은 제외 ---
+          // 우선: 이 공장 실제 출고 → 봉제공장 실제 출고 → 빈칸
+          var _shipISO=toISO(fcActualShipDate(_sch));
+          if(!_shipISO&&_sewSch)_shipISO=toISO(fcActualShipDate(_sewSch));
           var _rowDate=_shipISO?(typeof fmtKoDate==='function'?fmtKoDate(_shipISO):_shipISO):'';
           // --- 출고수량 소스: 이 공장 회차/그리드 → (없으면) 봉제공장 실제 출고(생산수량) → (없으면) 오더수량 ---
           var _gt=function(g){var t=0;if(g){for(var a in g){for(var b in g[a])t+=+g[a][b]||0;}}return t;};
@@ -8877,6 +8886,41 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
               }
             }
           }
+        }
+      }
+      // 'fc:'+entityId 형식의 payFees(오더 결제서 화면 입력 박스비·택배비) 행 추가
+      var _ofK_R='fc:'+entityId;
+      var _ofSkipR=false;
+      if(useSelection&&selectedKeys.indexOf(o.id+':'+_ofK_R)<0)_ofSkipR=true;
+      else if(!useSelection){var _ofStR=getPaySt(o.id,_ofK_R);if(_ofStR.paid)_ofSkipR=true;}
+      if(!_ofSkipR){
+        var _ofFeesR=(o.payFees||{})[_ofK_R]||[];
+        if(_ofFeesR.length){
+          // 이 공장이 어느 ck로든 아이템에 매칭되는지 + 봉제공장 출고일 폴백용 아이템 찾기
+          var _itMR=null;
+          for(var _mi=0;_mi<(o.orderItems||[]).length;_mi++){
+            var _moi=o.orderItems[_mi];var _mit=S.items[_moi.itemId];if(!_mit)continue;
+            var _ok=false;for(var _mc=0;_mc<COST_DEFS.length;_mc++){if(_mit[COST_DEFS[_mc][2]]===entityId){_ok=true;break;}}
+            if(_ok){_itMR=_mit;if(!brandNm&&_mit.brandId){brandNm=getBrandName(_mit.brandId);bizNum=getBrandBizNum(_mit.brandId);}break;}
+          }
+          var _schR=(o.factorySchedules||{})[entityId];
+          var _sewSchR=_itMR&&_itMR.sewingFcId?(o.factorySchedules||{})[_itMR.sewingFcId]:null;
+          var _shipISOR=toISO(fcActualShipDate(_schR));
+          if(!_shipISOR&&_sewSchR)_shipISOR=toISO(fcActualShipDate(_sewSchR));
+          var _rowDateR=_shipISOR?(typeof fmtKoDate==='function'?fmtKoDate(_shipISOR):_shipISOR):'';
+          _ofFeesR.forEach(function(f){
+            var amt=payFeeAmt(f);if(!amt)return;
+            var hasQty=(f.qty!=null&&f.qty!=='');
+            rows.push({
+              date:_rowDateR, _iso:_shipISOR||'',
+              itemName:f.name||'운임', color:'',
+              size:hasQty?(num(+f.qty||0)+'개'):'',
+              qty:hasQty?(+f.qty||0):1,
+              unitPrice:hasQty?(+f.unitPrice||0):amt,
+              amount:amt, costType:'운임·기타',
+              oid:o.id, payKey:_ofK_R, orderName:o.name
+            });
+          });
         }
       }
     }
@@ -10917,10 +10961,11 @@ function renderFcPay(){
         }
         if(!base)continue;
         // 기간 필터: 출고일 결정 (이 공장 → 봉제공장 → 빈)
-        var shipDate=fcLastShipDate(sch)||'';
+        // 결제관리는 실제 출고된 날짜만 사용 (출고예정일은 제외)
+        var shipDate=fcActualShipDate(sch)||'';
         if(!shipDate){
           for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
-            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd=fcLastShipDate(ss);if(_sd){shipDate=_sd;break;}}
+            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd=fcActualShipDate(ss);if(_sd){shipDate=_sd;break;}}
           }
         }
         // 옵션 B: 출고일 없으면 제외. 단, payFees가 있으면 사용자가 명시적 결제 의사 표시이므로 우회.
@@ -10942,10 +10987,10 @@ function renderFcPay(){
         _fcHasFees=true;
         var _ofDets=[];
         _ofFees.forEach(function(f){var amt=payFeeAmt(f);if(amt>0)_ofDets.push('🚚 '+(f.name||'운임')+' '+num(amt)+'원');});
-        var _ofShip=fcLastShipDate(sch)||'';
+        var _ofShip=fcActualShipDate(sch)||'';
         if(!_ofShip){
           for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
-            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd3=fcLastShipDate(ss);if(_sd3){_ofShip=_sd3;break;}}
+            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd3=fcActualShipDate(ss);if(_sd3){_ofShip=_sd3;break;}}
           }
         }
         // fees는 옵션 B 우회 (사용자의 명시적 결제 의사)
@@ -10960,10 +11005,10 @@ function renderFcPay(){
       }
       // 안내 행: 정상 행도 운임 행도 없는데 공장이 선택은 됐을 때만
       if(!_pushedAnyForFc&&_fkMatchedAnyCk){
-        var _noticeShip=fcLastShipDate(sch)||'';
+        var _noticeShip=fcActualShipDate(sch)||'';
         if(!_noticeShip){
           for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
-            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd2=fcLastShipDate(ss);if(_sd2){_noticeShip=_sd2;break;}}
+            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd2=fcActualShipDate(ss);if(_sd2){_noticeShip=_sd2;break;}}
           }
         }
         var _noticeKey='fc_'+fcId+'_notice';
