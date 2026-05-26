@@ -10932,9 +10932,33 @@ function renderFcPay(){
         byFc[fnm].push({fcId,oid:o.id,key:k,did,orderName:o.name,lbl,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,shipDate,isMain:true});
         _pushedAnyForFc=true;
       }
-      // ck 루프 후: 이 공장에 결제 행이 하나도 안 만들어졌는데
-      // 아이템에서 어디라도 선택돼있으면 → 안내 행 1개 무조건 생성
-      // (블루패킹: 비용 0이고 운임도 입력 안 한 상태에서도 결제관리에 보이게)
+      // ck 루프 후: 'fc:fcId' 형식 payFees(오더 결제서 화면에서 입력한 박스비·택배비) 처리
+      // 오더 결제서(payFeeBlock)는 'fc:'+fcId key로 저장하는데 ck 루프는 'fc_fcId_ck' key만 읽었어서
+      // 사용자가 입력한 fees가 결제관리 탭에 안 잡혔던 버그를 별도 행으로 노출
+      const _ofKey='fc:'+fcId;
+      const _ofFees=(o.payFees||{})[_ofKey]||[];
+      const _ofTot=_ofFees.reduce(function(s,f){return s+payFeeAmt(f);},0);
+      if(_ofTot>0){
+        _fcHasFees=true;
+        var _ofDets=[];
+        _ofFees.forEach(function(f){var amt=payFeeAmt(f);if(amt>0)_ofDets.push('🚚 '+(f.name||'운임')+' '+num(amt)+'원');});
+        var _ofShip=fcLastShipDate(sch)||'';
+        if(!_ofShip){
+          for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
+            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd3=fcLastShipDate(ss);if(_sd3){_ofShip=_sd3;break;}}
+          }
+        }
+        // fees는 옵션 B 우회 (사용자의 명시적 결제 의사)
+        if(isInPayPeriod(_ofShip,periodRange)){
+          const _ofVat=Math.round(_ofTot*((sch.vatRate||10)/100));
+          const _ofK='fc:'+fcId; // 오더 결제서와 같은 key로 paySt 공유
+          const _ofSt=getPaySt(o.id,_ofK);
+          const _ofDid=('fdF'+fcId+o.id).replace(/\W/g,'').slice(0,12);
+          byFc[fnm].push({fcId,oid:o.id,key:_ofK,did:_ofDid,orderName:o.name,lbl:'운임·기타',dets:_ofDets,base:_ofTot,vat:_ofVat,total:_ofTot+_ofVat,paid:_ofSt.paid,paidAt:_ofSt.paidAt,shipDate:_ofShip,isMain:true});
+          _pushedAnyForFc=true;
+        }
+      }
+      // 안내 행: 정상 행도 운임 행도 없는데 공장이 선택은 됐을 때만
       if(!_pushedAnyForFc&&_fkMatchedAnyCk){
         var _noticeShip=fcLastShipDate(sch)||'';
         if(!_noticeShip){
