@@ -521,8 +521,9 @@ tryInitFirebase();
   <!-- Orders - split -->
   <div id="pane-orders" class="split" style="display:none">
     <div class="sl">
-      <div class="fb" style="margin-bottom:6px"><b style="font-size:13px">오더 목록</b><div class="fr" style="gap:4px"><button class="btn s" onclick="openScheduleModal()" title="브랜드에 보낼 예상 일정 안내">📅 일정</button><button class="btn p s" onclick="showModal('o-new-modal')">＋</button></div></div>
-      <input id="o-search" placeholder="🔍 검색 (오더명·거래처)..." oninput="renderOrderPane()" style="margin-bottom:8px;font-size:12px;padding:5px 8px">
+      <div class="fb" style="margin-bottom:6px"><b style="font-size:13px">오더 목록</b><div class="fr" style="gap:4px"><button id="orderdash-btn" class="btn s" onclick="toggleOrderDash()" title="진행 현황 한눈에 보기 (블루패킹 같은 결제 누락도 자동 진단)">📊 진행</button><button class="btn s" onclick="openScheduleModal()" title="브랜드에 보낼 예상 일정 안내">📅 일정</button><button class="btn p s" onclick="showModal('o-new-modal')">＋</button></div></div>
+      <div id="orderdash-wrap" style="display:none;margin-bottom:8px;padding:8px;background:var(--bg2);border-radius:8px"><div style="font-size:10px;color:var(--t2);margin-bottom:6px">🟢완료 · 🟡진행 · ⚪미정/해당없음 · 🔴문제 (칸을 탭하면 사유 표시)</div><div id="orderdash-grid"></div></div>
+      <input id="o-search" placeholder="🔍 검색 (오더명·거래처)..." oninput="renderOrderPane();if(document.getElementById('orderdash-wrap')&&document.getElementById('orderdash-wrap').style.display!=='none')renderOrderDash();" style="margin-bottom:8px;font-size:12px;padding:5px 8px">
       <div id="o-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px"></div>
       <div class="fr" style="gap:5px;margin-bottom:8px">
         <select id="o-status-filter" style="font-size:12px;padding:5px 8px;flex:1" onchange="renderOrderPane()">
@@ -5432,6 +5433,140 @@ function savePoOptsDefault(sn,key,val){if(!S.priceBook[sn])S.priceBook[sn]={emai
 function mkFcSch(){return{expectedArrivalDate:'',cuttingDate:'',cuttingQty:0,cuttingGrid:{},sewingCompleteDate:'',inspectionDate:'',shipExpectedDate:'',shipDone:false,shipDoneDate:'',shippingDate:'',shippingQty:0,shippingGrid:{},vatRate:10,paymentSent:false,paymentSentAt:'',notified:false,extraShipments:[],shipments:[],processDone:false,processDate:''};}
 
 /* ===== PO TEXT (새 형식 — 간단명료) ===== */
+// ===== 📊 오더 진행 현황 대시보드 (오더 탭 상단 토글) =====
+// 색 매핑: green=완료, yellow=진행/대기, white=미정/해당없음, red=문제(블루패킹같은 누락 케이스)
+function _odBg(st){return st==='green'?'#dcfce7':st==='yellow'?'#fef3c7':st==='red'?'#fee2e2':'#f1f5f9';}
+function _odBorder(st){return st==='green'?'#86efac':st==='yellow'?'#fde68a':st==='red'?'#fca5a5':'#e2e8f0';}
+function _odIcon(st){return st==='green'?'🟢':st==='yellow'?'🟡':st==='red'?'🔴':'⚪';}
+// 원단 상태: 모든 원단 거래처가 arrivalDate(입고완료) 있나
+function odFabricState(o){
+  if(!o.suppliers)return{st:'white',label:'원단',note:'거래처 없음'};
+  var fab=Object.entries(o.suppliers).filter(function(e){return e[1]&&e[1].materials&&e[1].materials.some(function(m){return m&&m.type==='fabric';});});
+  if(!fab.length)return{st:'white',label:'원단',note:'원단 거래처 없음'};
+  var arr=fab.filter(function(e){return e[1].arrivalDate;}).length;
+  if(arr===fab.length)return{st:'green',label:'원단',note:'모두 입고완료 ('+arr+'곳)'};
+  if(arr>0)return{st:'yellow',label:'원단',note:'입고 '+arr+'/'+fab.length+'곳'};
+  return{st:'white',label:'원단',note:'입고 대기 ('+fab.length+'곳)'};
+}
+// 공장 종류별 상태 (laborCost·washingCost·... 별로 호출)
+function odFactoryTypeState(o,ck,label,fk){
+  var items=(o.orderItems||[]).map(function(oi){return S.items[oi.itemId];}).filter(Boolean);
+  var fcIds=new Set();items.forEach(function(it){if(it[fk])fcIds.add(it[fk]);});
+  if(!fcIds.size)return{st:'white',label:label,note:'해당 없음 (공장 미선택)'};
+  var notes=[],reds=0,greens=0;
+  fcIds.forEach(function(fcId){
+    var fc=S.factories[fcId];var fnm=fc?fc.name:'(삭제됨)';
+    var hasCost=items.some(function(it){return it[fk]===fcId&&(+it[ck]||0)>0;});
+    var sch=(o.factorySchedules||{})[fcId];
+    if(!hasCost){reds++;notes.push('🔴 '+fnm+': 비용 미입력 (결제 리스트에서 누락됨)');return;}
+    if(!sch){notes.push('🟡 '+fnm+': 스케줄 없음');return;}
+    if(typeof fcShipped==='function'&&fcShipped(sch)){greens++;notes.push('🟢 '+fnm+': 출고완료');return;}
+    if(sch.shipExpectedDate||sch.inspectionDate||sch.sewingCompleteDate||sch.cuttingDate){notes.push('🟡 '+fnm+': 진행 중');return;}
+    notes.push('🟡 '+fnm+': 대기');
+  });
+  var note=notes.join('\n');
+  if(reds)return{st:'red',label:label,note:note};
+  if(greens===fcIds.size)return{st:'green',label:label,note:note};
+  return{st:'yellow',label:label,note:note};
+}
+// 결제 상태 — 공장+거래처 종합. 누락 케이스(비용 0인데 공장 선택)는 red.
+function odPaymentState(o){
+  var issues=[],total=0,paid=0;
+  COST_DEFS.forEach(function(d){
+    var ck=d[0],lbl=d[1],fk=d[2];
+    (o.orderItems||[]).forEach(function(oi){
+      var it=S.items[oi.itemId];if(!it||!it[fk])return;
+      var fc=S.factories[it[fk]];var fnm=fc?fc.name:'(삭제됨)';
+      var hasCost=(+it[ck]||0)>0;
+      var sch=(o.factorySchedules||{})[it[fk]];
+      if(!hasCost){issues.push(fnm+'('+lbl+'): 비용 0 → 결제 리스트 누락');return;}
+      total++;
+      if(sch&&sch.paymentSent){paid++;return;}
+      if(!sch||!fcLastShipDate(sch)){
+        // 봉제공장 출고일이라도 있는지
+        var sewSch=null;
+        for(var sid in(o.factorySchedules||{})){
+          if((o.orderItems||[]).some(function(_oi){return S.items[_oi.itemId]&&S.items[_oi.itemId].sewingFcId===sid;})){sewSch=o.factorySchedules[sid];break;}
+        }
+        if(!sewSch||!fcLastShipDate(sewSch)){issues.push(fnm+'('+lbl+'): 출고일 미정 → 결제 리스트 제외');}
+      }
+    });
+  });
+  Object.entries(o.suppliers||{}).forEach(function(e){
+    var sn=e[0];total++;
+    var k='sp_'+encodeURIComponent(sn);var st=(o.payments||{})[k];
+    if(st&&st.paid)paid++;
+  });
+  var note=(issues.length?issues.join('\n')+'\n\n':'')+'결제 '+paid+'/'+total+'건';
+  if(issues.length)return{st:'red',label:'결제',note:note};
+  if(!total)return{st:'white',label:'결제',note:'결제 대상 없음'};
+  if(paid===total)return{st:'green',label:'결제',note:note};
+  if(paid>0)return{st:'yellow',label:'결제',note:note};
+  return{st:'white',label:'결제',note:note};
+}
+// 출고 상태
+function odShipState(o){
+  var fcs=Object.values(o.factorySchedules||{});
+  if(!fcs.length)return{st:'white',label:'출고',note:'공장 스케줄 없음'};
+  var shipped=fcs.filter(function(s){return typeof fcShipped==='function'&&fcShipped(s);}).length;
+  if(shipped===fcs.length)return{st:'green',label:'출고',note:'모든 공장 출고완료 ('+shipped+'곳)'};
+  if(shipped>0)return{st:'yellow',label:'출고',note:'출고 '+shipped+'/'+fcs.length};
+  return{st:'white',label:'출고',note:'미출고 ('+fcs.length+'곳)'};
+}
+function calcOrderState(o){
+  var cols=[odFabricState(o)];
+  COST_DEFS.forEach(function(d){cols.push(odFactoryTypeState(o,d[0],d[1],d[2]));});
+  cols.push(odPaymentState(o));
+  cols.push(odShipState(o));
+  return{oid:o.id,name:o.name||'',shipDate:(typeof orderShipETA==='function')?orderShipETA(o):'',cols:cols};
+}
+function _odShowNote(label,note){alert(label+'\n\n'+note);}
+function renderOrderDash(){
+  var el=document.getElementById('orderdash-grid');if(!el)return;
+  var search=(document.getElementById('o-search')&&document.getElementById('o-search').value||'').toLowerCase();
+  var orders=Object.values(S.orders||{}).filter(function(o){
+    if(!o.orderItems||!o.orderItems.length)return false;
+    if(search){
+      var hit=(o.name||'').toLowerCase().indexOf(search)>=0
+        ||(o.orderItems||[]).some(function(oi){var it=S.items[oi.itemId];return it&&(it.name||'').toLowerCase().indexOf(search)>=0;});
+      if(!hit)return false;
+    }
+    return true;
+  });
+  orders.sort(function(a,b){
+    var da=(typeof orderShipETA==='function'?orderShipETA(a):'')||'';
+    var db=(typeof orderShipETA==='function'?orderShipETA(b):'')||'';
+    return _cmpDateFn(da||'99999999',db||'99999999');
+  });
+  if(!orders.length){el.innerHTML='<div class="empty" style="padding:20px;text-align:center;color:var(--t2)">표시할 오더가 없어요</div>';return;}
+  var heads=['원단'].concat(COST_DEFS.map(function(d){return d[1];})).concat(['결제','출고']);
+  var h='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:760px"><thead><tr style="background:var(--bg2);border-bottom:2px solid var(--bd)"><th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:var(--bg2);min-width:130px;z-index:1">오더 / 출고일</th>';
+  heads.forEach(function(c){h+='<th style="padding:6px 4px;text-align:center;min-width:48px;font-weight:600">'+esc(c)+'</th>';});
+  h+='</tr></thead><tbody>';
+  orders.forEach(function(o){
+    var s=calcOrderState(o);
+    var shipTxt=s.shipDate?(typeof fmtKoDate==='function'?fmtKoDate(toISO(s.shipDate)):s.shipDate):'미정';
+    h+='<tr style="border-bottom:1px solid var(--bd)">';
+    h+='<td style="padding:6px 8px;position:sticky;left:0;background:var(--bg);z-index:1;cursor:pointer" onclick="goToOrder(\''+o.id+'\')"><div style="font-weight:600;font-size:12px;color:var(--blue)">'+esc(s.name)+'</div><div style="font-size:10px;color:var(--t2);margin-top:1px">🚚 '+esc(shipTxt)+'</div></td>';
+    s.cols.forEach(function(col){
+      var bg=_odBg(col.st),bd=_odBorder(col.st);
+      var safeNote=String(col.note||'').replace(/'/g,"\\'").replace(/\n/g,'\\n');
+      h+='<td style="padding:4px;text-align:center;background:'+bg+';border:1px solid '+bd+';cursor:pointer;font-size:14px;line-height:1" onclick="_odShowNote(\''+esc(col.label)+'\',\''+safeNote+'\')" title="'+esc(col.note||'')+'">'+_odIcon(col.st)+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>';
+  el.innerHTML=h;
+}
+function toggleOrderDash(){
+  var w=document.getElementById('orderdash-wrap');if(!w)return;
+  var open=w.style.display!=='none';
+  w.style.display=open?'none':'block';
+  var btn=document.getElementById('orderdash-btn');
+  if(btn)btn.textContent=open?'📊 진행':'📊 닫기';
+  if(!open)renderOrderDash();
+}
+
 // ===== 브랜드 예상 일정 안내 (날짜별 묶음 + 선택) =====
 function schedMD(d){if(!d)return'';var p=String(d).slice(0,10).split('-');return p.length===3?(+p[1])+'/'+(+p[2]):d;}
 function schedColorSummary(oi){
