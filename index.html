@@ -10874,9 +10874,9 @@ function renderFcPay(){
         for(const[sid,ssch]of Object.entries(o.factorySchedules||{})){
           const isThisSewing=o.orderItems?.some(oi=>S.items[oi.itemId]?.sewingFcId===sid);
           if(!isThisSewing)continue;
-          sewingShippedQty+=(ssch.shippingQty||0)+(ssch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
-          // shippingGrid 합산
-          Object.values(ssch.shippingGrid||{}).forEach(ig=>Object.values(ig).forEach(cg=>Object.values(cg).forEach(v=>sewingShippedQty+=0))); // shippingQty already accounts for grid
+          // 회차 기록(shipments) 우선, 없으면 shippingQty (fcShippedQty 로직과 동일)
+          sewingShippedQty+=(typeof fcShippedQty==='function'?fcShippedQty(ssch):((ssch.shippingQty||0)));
+          sewingShippedQty+=(ssch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
         }
       }
       let _pushedAnyForFc=false;     // 이 공장에 정상 결제 행이 1개라도 만들어졌는지
@@ -10884,7 +10884,8 @@ function renderFcPay(){
       let _fcHasFees=false;           // 이 공장에 어떤 ck로든 payFees가 있는지
       for(const[ck,lbl,fk]of COST_DEFS){
         let base=0,dets=[];
-        const totalShipped=(sch.shippingQty||0)+(sch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
+        // 이 공장의 총 출고수량: 회차기록(shipments) 우선, 없으면 shippingQty + extraShipments
+        const totalShipped=(typeof fcShippedQty==='function'?fcShippedQty(sch):((sch.shippingQty||0)))+(sch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
         for(const oi of(o.orderItems||[])){
           const it=S.items[oi.itemId];if(!it)continue;
           if(it[fk]&&it[fk]!==fcId)continue;
@@ -10944,10 +10945,38 @@ function renderFcPay(){
         var _noticeKey='fc_'+fcId+'_notice';
         var _noticeSt=getPaySt(o.id,_noticeKey);
         var _noticeDid=('fdN'+fcId+o.id).replace(/\W/g,'').slice(0,12);
+        // 진단: 어떤 공정에 어떤 비용·박스비가 들어가 있는지 + 수량 정보를 행에 표시
+        // (사용자가 보고 어디가 0인지 즉시 알 수 있게)
+        var _diag=[];
+        COST_DEFS.forEach(function(d){
+          var _dck=d[0],_dlbl=d[1],_dfk=d[2];
+          var _itMatched=(o.orderItems||[]).find(function(oi){var it=S.items[oi.itemId];return it&&it[_dfk]===fcId;});
+          if(!_itMatched)return;
+          var _it=S.items[_itMatched.itemId];
+          var _costAmt=+_it[_dck]||0;
+          var _fKey='fc_'+fcId+'_'+_dck;
+          var _fArr=(o.payFees||{})[_fKey]||[];
+          var _fAmt=_fArr.reduce(function(s,f){return s+payFeeAmt(f);},0);
+          _diag.push(_dlbl+' 단가 '+num(_costAmt)+'원·박스비 '+num(_fAmt)+'원');
+        });
+        var _totalOrderQty=0;
+        (o.orderItems||[]).forEach(function(_oi){
+          Object.values(_oi.qtyGrid||{}).forEach(function(_cg){Object.values(_cg||{}).forEach(function(_v){_totalOrderQty+=+_v||0;});});
+        });
+        var _sewQty=0;
+        for(const[_sid,_ss]of Object.entries(o.factorySchedules||{})){
+          if((o.orderItems||[]).some(function(_oi){return S.items[_oi.itemId]&&S.items[_oi.itemId].sewingFcId===_sid;})){
+            _sewQty+=(_ss.shippingQty||0)+(_ss.extraShipments||[]).reduce(function(s,e){return s+(+e.qty||0);},0);
+            _sewQty+=(_ss.shipments||[]).reduce(function(s,e){return s+(+e.qty||0);},0);
+          }
+        }
         var _noticeMsg=_fcHasFees
           ? '⚠️ 입력한 운임·기타가 0원 — 박스수×단가를 확인해주세요'
           : '⚠️ 비용 미입력 — 아이템 단가 또는 거래명세서에서 + 박스비/택배비를 추가해주세요';
-        byFc[fnm].push({fcId,oid:o.id,key:_noticeKey,did:_noticeDid,orderName:o.name,lbl:'안내',dets:[_noticeMsg],base:0,vat:0,total:0,paid:_noticeSt.paid,paidAt:_noticeSt.paidAt,shipDate:_noticeShip,isMain:true,isNotice:true});
+        var _noticeDets=[_noticeMsg];
+        if(_diag.length)_noticeDets.push('🔍 진단: '+_diag.join(' / '));
+        _noticeDets.push('📦 오더수량 '+_totalOrderQty+'pcs · 봉제출고 '+_sewQty+'pcs · 출고일 '+(_noticeShip||'없음'));
+        byFc[fnm].push({fcId,oid:o.id,key:_noticeKey,did:_noticeDid,orderName:o.name,lbl:'안내',dets:_noticeDets,base:0,vat:0,total:0,paid:_noticeSt.paid,paidAt:_noticeSt.paidAt,shipDate:_noticeShip,isMain:true,isNotice:true});
       }
     }
   }
