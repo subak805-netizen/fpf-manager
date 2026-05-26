@@ -11154,14 +11154,165 @@ function togglePaySt(oid,key){
   else{o.payments[key]={paid:true,paidAt:todayISO()};}
   saveData();
 }
-// 명세서 모달 (임시 - 추후 mockup 디자인 적용)
-function openItemReceiptModal(oid,fcId,itemId){
+// 아이템 × 공장 거래명세서 HTML 생성 (mockup-receipt v6 디자인)
+function buildItemReceiptHTML(oid,fcId,itemId){
   const o=S.orders[oid];const fc=S.factories[fcId];const it=S.items[itemId];
-  if(!o||!fc||!it){showToast('데이터 없음');return;}
-  // 임시: 기존 buildPayReceiptHTML 활용
-  if(typeof downloadPayGroupReceipt==='function'){
-    downloadPayGroupReceipt(fcId,fc.name,'fc');
+  if(!o||!fc||!it)return {hasRows:false};
+  const oi=(o.orderItems||[]).find(x=>x.itemId===itemId);
+  if(!oi)return {hasRows:false};
+  // 봉제공장 출고 기록
+  const sewingFcId=it.sewingFcId||'';
+  const sewSch=sewingFcId?(o.factorySchedules||{})[sewingFcId]:null;
+  const shipments=[];
+  if(sewSch){
+    (sewSch.shipments||[]).forEach(function(s){
+      if(!s||!+s.qty)return;
+      if(s.itemId&&s.itemId!==itemId)return;
+      if(!s.itemId&&o.orderItems.length>1)return;
+      shipments.push({date:s.date||'',color:s.color||'',size:s.size||'',qty:+s.qty||0});
+    });
   }
+  // 이 공장 비용 종류
+  let ck='',lbl='',rate=0;
+  for(const cd of COST_DEFS){if(it[cd[2]]===fcId){ck=cd[0];lbl=cd[1];rate=+it[cd[0]]||0;break;}}
+  // 행 정리 (출고일별 색상별)
+  const rows=[];
+  if(shipments.length&&rate>0){
+    // 출고일 오름차순 정렬
+    shipments.sort((a,b)=>cmpDate(a.date).localeCompare(cmpDate(b.date)));
+    // 출고일 + 색상별 그룹
+    const grp={};const grpOrder=[];
+    shipments.forEach(function(s){
+      const k=s.date+'|'+s.color;
+      if(!grp[k]){grp[k]={date:s.date,color:s.color,qty:0};grpOrder.push(k);}
+      grp[k].qty+=s.qty;
+    });
+    grpOrder.forEach(function(k){
+      const g=grp[k];
+      rows.push({date:g.date,item:it.name,color:g.color,qty:g.qty,unit:rate,amount:rate*g.qty,kind:'cost'});
+    });
+  }
+  // fees (박스비·택배비)
+  const fees=(o.payFees||{})['fc:'+fcId]||[];
+  fees.forEach(function(f){
+    const amt=payFeeAmt(f);if(!amt)return;
+    const hasQty=(f.qty!=null&&f.qty!=='');
+    rows.push({
+      date:shipments[0]?.date||'',
+      item:f.name||'운임',
+      color:'',
+      qty:hasQty?(+f.qty||0):1,
+      unit:hasQty?(+f.unitPrice||0):amt,
+      amount:amt,
+      kind:'fee'
+    });
+  });
+  if(!rows.length)return {hasRows:false};
+  // 소계 계산 (출고일 + 아이템별 그룹 합계)
+  const baseTotal=rows.reduce((s,r)=>s+r.amount,0);
+  const vatRate=sewSch?.vatRate||10;
+  const vat=Math.round(baseTotal*vatRate/100);
+  const total=baseTotal+vat;
+  // 브랜드명
+  const brandNm=it.brandId?(getBrandName(it.brandId)||''):'';
+  // HTML 생성
+  const fmtDate=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
+  // 출고일별 소계 행을 표에 삽입
+  let bodyRows='';let curDate='';let subTotal=0;let subQty=0;
+  rows.forEach(function(r,i){
+    if(r.date!==curDate&&curDate!==''&&subQty>0){
+      bodyRows+=`<tr style="background:#d1d5db"><td colspan="3" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">소계</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQty}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subTotal)}</td></tr>`;
+      subTotal=0;subQty=0;
+    }
+    const showDate=r.date!==curDate;
+    curDate=r.date;
+    bodyRows+=`<tr>
+      <td style="padding:11px 12px;font-weight:700;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db">${showDate?esc(fmtDate(r.date)):''}</td>
+      <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.item)}</td>
+      <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.color)}</td>
+      <td style="padding:11px 12px;text-align:center;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827">${r.qty}</td>
+      <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.unit)}</td>
+      <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}</td>
+    </tr>`;
+    subTotal+=r.amount;subQty+=r.qty;
+  });
+  // 마지막 소계
+  if(subQty>0){
+    bodyRows+=`<tr style="background:#d1d5db"><td colspan="3" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">소계</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQty}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subTotal)}</td></tr>`;
+  }
+  const todayStr=(typeof fmtKoDate==='function'?fmtKoDate(todayISO()):todayISO());
+  const inner=`<div style="background:#fff;padding:32px 28px;color:#111827;border-radius:10px;box-shadow:0 0 0 1px #d1d5db;font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',sans-serif;font-variant-numeric:tabular-nums">
+    <!-- 헤더 -->
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:18px;margin-bottom:22px;border-bottom:2px solid #374151">
+      <div style="font-size:24px;font-weight:700;letter-spacing:6px;color:#111827">거래명세서</div>
+      <div style="text-align:right">
+        <div style="font-size:10px;color:#9ca3af;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">Issued</div>
+        <div style="font-size:14px;font-weight:600;color:#374151">${esc(todayStr)}</div>
+      </div>
+    </div>
+    <!-- 공급/출고처 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px">
+      <div style="padding:14px 16px;background:#f9fafb;border-radius:8px;border:1px solid #d1d5db">
+        <div style="font-size:10px;color:#6b7280;font-weight:700;margin-bottom:8px;letter-spacing:0.5px;text-transform:uppercase">공급</div>
+        <div style="font-size:17px;font-weight:800;color:#1f2937;margin-bottom:6px;line-height:1.3;letter-spacing:-0.3px">${esc(fc.name)}</div>
+        <div style="font-size:12px;color:#4b5563;line-height:1.7">${esc(fc.phone||'')}${fc.type?'<br>'+esc(fc.type):''}</div>
+      </div>
+      <div style="padding:14px 16px;background:#f9fafb;border-radius:8px;border:1px solid #d1d5db">
+        <div style="font-size:10px;color:#6b7280;font-weight:700;margin-bottom:8px;letter-spacing:0.5px;text-transform:uppercase">출고처</div>
+        <div style="font-size:17px;font-weight:800;color:#1f2937;margin-bottom:6px;line-height:1.3;letter-spacing:-0.3px">${esc(brandNm||companies[curCoId]?.name||'')}</div>
+        <div style="font-size:12px;color:#4b5563;line-height:1.7">${esc(it.name)}</div>
+      </div>
+    </div>
+    <!-- 표 -->
+    <div style="font-size:11px;color:#9ca3af;margin-bottom:8px;padding:0 2px">출고 ${rows.filter(r=>r.kind==='cost').length}건${fees.length?' · 운임·기타 '+fees.length+'건':''}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+      <thead><tr style="background:#e5e7eb">
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:80px">출고일</th>
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151">품목</th>
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">컬러</th>
+        <th style="padding:11px 12px;text-align:center;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:55px">수량</th>
+        <th style="padding:11px 12px;text-align:right;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">단가</th>
+        <th style="padding:11px 12px;text-align:right;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:110px">금액</th>
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <!-- 합계 -->
+    <div style="padding:0 12px;margin-top:18px">
+      <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px">
+        <span style="color:#374151;font-weight:600">공급가액</span>
+        <span style="color:#1f2937;font-weight:700;font-size:14px">${num(baseTotal)}원</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px">
+        <span style="color:#374151;font-weight:600">부가세 (${vatRate}%)</span>
+        <span style="color:#1f2937;font-weight:700;font-size:14px">${num(vat)}원</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:16px 14px;border-top:3px solid #1f2937;background:#f3f4f6;border-radius:0 0 6px 6px;margin-left:-12px;margin-right:-12px">
+        <span style="font-size:15px;color:#111827;font-weight:800">합계 <span style="display:inline-block;padding:3px 9px;background:#1f2937;color:#fff;border-radius:100px;font-size:10px;font-weight:700;margin-left:8px">VAT 포함</span></span>
+        <span style="font-size:24px;font-weight:800;color:#111827;letter-spacing:-0.5px">${num(total)}원</span>
+      </div>
+    </div>
+    ${fc.bank?`<div style="margin-top:22px;padding:14px 16px;background:#f3f4f6;border-radius:8px;border:1px solid #d1d5db;text-align:center;font-size:12px;color:#374151">
+      <div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">입금 계좌</div>
+      <div style="font-size:14px;font-weight:700;color:#111827">${esc(fc.bank)}</div>
+    </div>`:''}
+  </div>`;
+  return {hasRows:true,innerHtml:inner,name:fc.name+' '+(brandNm?'· '+brandNm:''),total:total};
+}
+
+// 명세서 모달 열기 (mockup-receipt 디자인)
+function openItemReceiptModal(oid,fcId,itemId){
+  const r=buildItemReceiptHTML(oid,fcId,itemId);
+  if(!r.hasRows){showToast('표시할 항목이 없어요');return;}
+  const rid='itm-rcpt-'+Date.now();
+  const nm=(r.name||'').replace(/['"\\]/g,'');
+  const txt=(typeof buildReceiptText==='function')?buildReceiptText(oid,fcId,itemId):'';
+  const modalHtml='<div id="'+rid+'" style="max-width:680px;margin:0 auto">'+r.innerHtml+'</div>';
+  const actions='<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">'
+    +'<button onclick="closeGenericModal()" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700">닫기</button>'
+    +'<button onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById(\''+rid+'\').innerText).then(()=>showToast(\'📋 복사됨\'));" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700">복사</button>'
+    +'<button onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#1f2937;color:#fff;font-weight:700">이미지 저장</button>'
+    +'</div>';
+  showGenericModal('📄 거래명세서',modalHtml+actions);
 }
 function renderFcPay(){
   const el=document.getElementById('pay-content');if(!el)return;
