@@ -5457,12 +5457,17 @@ function odFactoryTypeState(o,ck,label,fk){
   fcIds.forEach(function(fcId){
     var fc=S.factories[fcId];var fnm=fc?fc.name:'(삭제됨)';
     var hasCost=items.some(function(it){return it[fk]===fcId&&(+it[ck]||0)>0;});
+    var _feeKey='fc_'+fcId+'_'+ck;
+    var _fees=(o.payFees||{})[_feeKey]||[];
+    var _feeTot=_fees.reduce(function(s,f){return s+payFeeAmt(f);},0);
     var sch=(o.factorySchedules||{})[fcId];
-    if(!hasCost){reds++;notes.push('🔴 '+fnm+': 비용 미입력 (결제 리스트에서 누락됨)');return;}
-    if(!sch){notes.push('🟡 '+fnm+': 스케줄 없음');return;}
-    if(typeof fcShipped==='function'&&fcShipped(sch)){greens++;notes.push('🟢 '+fnm+': 출고완료');return;}
-    if(sch.shipExpectedDate||sch.inspectionDate||sch.sewingCompleteDate||sch.cuttingDate){notes.push('🟡 '+fnm+': 진행 중');return;}
-    notes.push('🟡 '+fnm+': 대기');
+    // 비용 0 + fees 0 → 진짜 누락
+    if(!hasCost&&!_feeTot){reds++;notes.push('🔴 '+fnm+': 비용 미입력 (결제 리스트에서 누락됨)');return;}
+    var _feeNote=(!hasCost&&_feeTot>0)?' (운임·기타 '+num(_feeTot)+'원만)':'';
+    if(!sch){notes.push('🟡 '+fnm+': 스케줄 없음'+_feeNote);return;}
+    if(typeof fcShipped==='function'&&fcShipped(sch)){greens++;notes.push('🟢 '+fnm+': 출고완료'+_feeNote);return;}
+    if(sch.shipExpectedDate||sch.inspectionDate||sch.sewingCompleteDate||sch.cuttingDate){notes.push('🟡 '+fnm+': 진행 중'+_feeNote);return;}
+    notes.push('🟡 '+fnm+': 대기'+_feeNote);
   });
   var note=notes.join('\n');
   if(reds)return{st:'red',label:label,note:note};
@@ -5478,8 +5483,12 @@ function odPaymentState(o){
       var it=S.items[oi.itemId];if(!it||!it[fk])return;
       var fc=S.factories[it[fk]];var fnm=fc?fc.name:'(삭제됨)';
       var hasCost=(+it[ck]||0)>0;
+      var feeKey='fc_'+it[fk]+'_'+ck;
+      var fees=(o.payFees||{})[feeKey]||[];
+      var feeTot=fees.reduce(function(s,f){return s+payFeeAmt(f);},0);
       var sch=(o.factorySchedules||{})[it[fk]];
-      if(!hasCost){issues.push(fnm+'('+lbl+'): 비용 0 → 결제 리스트 누락');return;}
+      // 비용 0 + fees 0 → 진짜 누락. fees가 있으면 결제 대상으로 포함.
+      if(!hasCost&&!feeTot){issues.push(fnm+'('+lbl+'): 비용 0 → 결제 리스트 누락');return;}
       total++;
       if(sch&&sch.paymentSent){paid++;return;}
       if(!sch||!fcLastShipDate(sch)){
@@ -10980,9 +10989,19 @@ function renderFcPay(){
       const hasBrand=(o.orderItems||[]).some(oi=>S.items[oi.itemId]?.brandId===fltBrand);
       if(!hasBrand)continue;
     }
-    // 결제 대상 공장 = 스케줄 공장 ∪ 아이템이 원가를 보내는 공장(비용>0) — 스케줄 없어도 누락 안 되게
+    // 결제 대상 공장 = 스케줄 공장 ∪ 아이템이 원가를 보내는 공장(비용>0) ∪ payFees 있는 공장 — 스케줄·비용 없어도 누락 안 되게
     const _fcIds=new Set(Object.keys(o.factorySchedules||{}));
     for(const _oi of(o.orderItems||[])){const _it=S.items[_oi.itemId];if(!_it)continue;for(const[_ck,,_fk]of COST_DEFS){if(_it[_fk]&&(+_it[_ck]||0)>0)_fcIds.add(_it[_fk]);}}
+    // payFees가 있는 공장도 추가 (블루패킹 케이스: 공임 0이지만 택배비·박스비 있음)
+    Object.keys(o.payFees||{}).forEach(function(_pk){
+      if(!_pk.startsWith('fc_'))return;
+      var _ckList=COST_DEFS.map(function(d){return d[0];});
+      var _mck=_ckList.find(function(c){return _pk.endsWith('_'+c);});
+      if(!_mck)return;
+      var _fid=_pk.substring(3,_pk.length-1-_mck.length);
+      var _arr=o.payFees[_pk]||[];
+      if(_arr.some(function(f){return +payFeeAmt(f)>0;}))_fcIds.add(_fid);
+    });
     for(const fcId of _fcIds){
       const sch=o.factorySchedules?.[fcId]||{};
       if(fltFcId&&fcId!==fltFcId)continue;
@@ -11026,6 +11045,14 @@ function renderFcPay(){
           base+=r*qtyBasis;
           const qtyLabel=(!isSewingFc&&sewingShippedQty)?`봉제출고 ${qtyBasis}pcs`:`${qtyBasis}pcs`;
           dets.push(`${esc(it.name)} ${qtyLabel}×${num(r)}원`);
+        }
+        // payFees 합산: 비용=0이어도 운임·박스비·택배비가 있으면 결제 대상 (블루패킹 케이스)
+        const _feeKey='fc_'+fcId+'_'+ck;
+        const _fees=(o.payFees||{})[_feeKey]||[];
+        const _feeTot=_fees.reduce((s,f)=>s+payFeeAmt(f),0);
+        if(_feeTot>0){
+          _fees.forEach(function(f){var amt=payFeeAmt(f);if(amt>0)dets.push('🚚 '+(f.name||'운임')+' '+num(amt)+'원');});
+          base+=_feeTot;
         }
         if(!base)continue;
         // 기간 필터: 출고일이 범위 밖이면 제외 (월별 정산 관점에서 보기 위함)
