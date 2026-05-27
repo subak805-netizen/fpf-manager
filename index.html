@@ -702,6 +702,8 @@ tryInitFirebase();
   <!-- Costs -->
   <div id="pane-leftover" class="panel" style="display:none"><div id="leftover-tab-body"></div></div>
   <div id="pane-costs" class="panel" style="display:none">
+    <!-- 아이템 탭에서 진입 시 표시되는 돌아가기 버튼 -->
+    <div id="cs-back-bar" style="display:none;margin-bottom:10px"><button class="btn s" onclick="backToItemsFromCost()" style="background:#f0f9ff;color:#0284c7;border-color:#bae6fd;font-weight:700;padding:6px 14px">← 아이템 리스트로</button></div>
     <!-- 상단: 보기 전환 -->
     <div class="fr" style="margin-bottom:12px;gap:6px;flex-wrap:wrap;align-items:center">
       <div class="dtabs" style="margin-bottom:0">
@@ -2551,6 +2553,9 @@ function loadXLSX(){
 
 function switchTab(t){
   activeTab=t;
+  // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
+  if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
+  if(t!=='costs')window._csFromItems=false;
   ['dash','items','factories','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
@@ -3508,7 +3513,7 @@ function renderItemsList(){
     const brandNm=it.brandId?getBrandName(it.brandId):'';
     const brandCol=it.brandId?getBrandColor(it.brandId):'';
     const brandBadge=brandNm?`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:${brandCol}22;color:${brandCol}"><span style="width:6px;height:6px;border-radius:50%;background:${brandCol}"></span>${esc(brandNm)}</span>`:'';
-    return`<div class="card" style="padding:9px 12px;margin-bottom:7px"><div class="fb"><div style="flex:1;min-width:0"><div style="font-weight:600">${it.code?`<span class="tag" style="font-weight:700;background:var(--bg3);color:var(--text)">${esc(it.code)}</span> `:''}${esc(it.name)} ${brandBadge}</div><div class="fr" style="margin-top:4px;gap:3px;flex-wrap:wrap">${(it.colors||[]).map(c=>`<span class="chip" style="padding:1px 6px 1px 5px;font-size:10px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colorToHex(c)};border:1px solid rgba(0,0,0,.18);margin-right:4px;vertical-align:0"></span>${esc(c)}</span>`).join('')}${(it.sizes||[]).map(s=>`<span class="tag" style="font-size:10px">${esc(s)}</span>`).join('')}${fabInfo}${widthInfo}${[it.client,it.season,fcName?`✂${fcName}`:''].filter(Boolean).map(x=>`<span class="tag" style="font-size:10px">${esc(x)}</span>`).join('')}${itemLaborTag(it)}${it.careInstructions?`<span class="tag" style="font-size:10px">🧺 ${esc(it.careInstructions.substring(0,20))}</span>`:''}</div></div><div class="fr" style="flex-shrink:0"><span class="tag">${(it.fabrics||[]).length}원단</span><span class="tag">${(it.trims||[]).length}부자재</span><button class="btn s" onclick="showItemForm('${it.id}')">✎</button><button class="btn s" onclick="dupItem('${it.id}')" title="복사"></button><button class="btn s d" onclick="delItem('${it.id}')">🗑</button></div></div></div>`;
+    return`<div class="card" style="padding:9px 12px;margin-bottom:7px"><div class="fb"><div style="flex:1;min-width:0"><div style="font-weight:600">${it.code?`<span class="tag" style="font-weight:700;background:var(--bg3);color:var(--text)">${esc(it.code)}</span> `:''}${esc(it.name)} ${brandBadge}</div><div class="fr" style="margin-top:4px;gap:3px;flex-wrap:wrap">${(it.colors||[]).map(c=>`<span class="chip" style="padding:1px 6px 1px 5px;font-size:10px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colorToHex(c)};border:1px solid rgba(0,0,0,.18);margin-right:4px;vertical-align:0"></span>${esc(c)}</span>`).join('')}${(it.sizes||[]).map(s=>`<span class="tag" style="font-size:10px">${esc(s)}</span>`).join('')}${fabInfo}${widthInfo}${[it.client,it.season,fcName?`✂${fcName}`:''].filter(Boolean).map(x=>`<span class="tag" style="font-size:10px">${esc(x)}</span>`).join('')}${itemLaborTag(it)}${it.careInstructions?`<span class="tag" style="font-size:10px">🧺 ${esc(it.careInstructions.substring(0,20))}</span>`:''}</div></div><div class="fr" style="flex-shrink:0"><span class="tag">${(it.fabrics||[]).length}원단</span><span class="tag">${(it.trims||[]).length}부자재</span><button class="btn s" onclick="showItemCost('${it.id}')" title="원가계산서" style="background:#f0f9ff;color:#0284c7;border-color:#bae6fd;font-weight:700">💰 원가</button><button class="btn s" onclick="showItemForm('${it.id}')">✎</button><button class="btn s" onclick="dupItem('${it.id}')" title="복사"></button><button class="btn s d" onclick="delItem('${it.id}')">🗑</button></div></div></div>`;
   }).join('');
 }
 function itemLaborTag(it){
@@ -4702,6 +4707,27 @@ function switchCSTab(t){
   });
   if(t==='summary')renderCSSummary();
   else{renderCSDropdown();renderCS();}
+}
+// 아이템 카드의 💰 원가 버튼 → 원가계산서로 점프 + 그 아이템 자동 선택
+function showItemCost(itemId){
+  if(!itemId||!S.items||!S.items[itemId]){if(typeof showToast==='function')showToast('아이템을 찾을 수 없어요');return;}
+  window._csFromItems=true;
+  try{switchTab('costs');}catch(e){}
+  setTimeout(function(){
+    const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='block';
+    try{switchCSTab('detail');}catch(e){}
+    setTimeout(function(){
+      // 브랜드 필터 초기화 (아이템이 안 보일 수 있으니)
+      const bf=document.getElementById('cs-brand-flt');if(bf){bf.value='';if(typeof renderCSDropdown==='function')renderCSDropdown();}
+      const sel=document.getElementById('cs-sel');
+      if(sel){sel.value=itemId;if(typeof renderCS==='function')renderCS();sel.scrollIntoView({behavior:'smooth',block:'start'});}
+    },60);
+  },60);
+}
+function backToItemsFromCost(){
+  window._csFromItems=false;
+  const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';
+  try{switchTab('items');}catch(e){}
 }
 
 function renderCSSummary(){
