@@ -9404,7 +9404,7 @@ function renderProdDash(){
       const brandNm=bid&&bid!=='__none'&&typeof getBrandName==='function'?(getBrandName(bid)||''):'(브랜드 없음)';
       const brandColor=bid&&bid!=='__none'&&typeof getBrandColor==='function'?getBrandColor(bid):'#94a3b8';
       const cnt=byBrand[bid].length;
-      html+='<button class="pd-btn" style="padding:6px 14px;font-size:12px;font-weight:600;background:'+brandColor+'22;color:'+brandColor+';border-color:'+brandColor+'33" onclick="pdScrollToBrand(\''+esc(bid)+'\')">'+esc(brandNm)+' <span style="opacity:.7;margin-left:2px">'+cnt+'</span></button>';
+      html+='<button class="pd-btn" data-bid="'+esc(bid)+'" style="padding:6px 14px;font-size:12px;font-weight:600;background:'+brandColor+'22;color:'+brandColor+';border-color:'+brandColor+'33" onclick="pdScrollToBrand(this)">'+esc(brandNm)+' <span style="opacity:.7;margin-left:2px">'+cnt+'</span></button>';
     });
     html+='</div>';
   }
@@ -9413,7 +9413,7 @@ function renderProdDash(){
     const brandRows=byBrand[bid];
     const brandNm=bid&&bid!=='__none'&&typeof getBrandName==='function'?(getBrandName(bid)||''):'(브랜드 없음)';
     const brandColor=bid&&bid!=='__none'&&typeof getBrandColor==='function'?getBrandColor(bid):'#94a3b8';
-    html+=`<div class="pd-brand-group" id="pd-brand-${esc(bid)}">
+    html+=`<div class="pd-brand-group" data-bid="${esc(bid)}">
       <div class="pd-brand-hdr">
         <span class="pill" style="background:${brandColor}22;color:${brandColor}">${esc(brandNm)}</span>
         <span class="count">진행 ${brandRows.length}개</span>
@@ -9472,15 +9472,16 @@ function renderProdDashRow(r){
   }
   // 각 공정 셀
   const _roleMap={'공임':'봉제','워싱':'워싱','자수':'자수','나염비':'나염','완성비':'완성','검품비':'검품'};
-  const cell=(role,fcId,sch,qty,doneField)=>{
+  // 공정별 다른 날짜·완료 필드 사용 (한 공장 sch 안에 단계별 다른 필드)
+  const cell=(role,fcId,sch,qty,dateField,doneField)=>{
     const fc=fcId?S.factories[fcId]:null;
     const fcName=fc?fc.name:'';
-    const dateVal=sch?(sch.shippingDate||sch.shipExpectedDate||''):'';
+    const dateVal=sch?(sch[dateField]||''):'';
     const isDone=sch&&sch[doneField];
     const qtyDisp=qty>0?qty+'장':'';
     return `<td class="pd-proc">
       <div class="pd-proc-name">${esc(fcName||'—')}</div>
-      <input class="pd-proc-input" type="date" value="${esc(dateVal||'')}" data-oid="${esc(r.o.id)}" data-fcid="${esc(fcId||'')}" data-field="shippingDate" onchange="pdSaveField(this)">
+      <input class="pd-proc-input" type="date" value="${esc(dateVal||'')}" data-oid="${esc(r.o.id)}" data-fcid="${esc(fcId||'')}" data-field="${esc(dateField)}" onchange="pdSaveField(this)">
       <button class="pd-qty-btn${qty>0?'':' empty'}" onclick="pdOpenQtyModal('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}','${esc(fcId||'')}')">${qtyDisp||'+ 입력'}<span class="icon">✎</span></button>
       <label class="pd-chk ${isDone?'done':''}"><input type="checkbox" ${isDone?'checked':''} data-oid="${esc(r.o.id)}" data-fcid="${esc(fcId||'')}" data-field="${esc(doneField)}" onchange="pdToggleDone(this)"> 완료</label>
       <div class="pd-actions">
@@ -9528,12 +9529,12 @@ function renderProdDashRow(r){
     ${prepCell('원자재',fabSup,'',false,'입고완료')}
     ${prepCell('부자재',trimSup,'',false,'입고완료')}
     ${prepCell('지시서',sewFcNm,'',false,'전달완료')}
-    ${cell('재단',fcSew,schSew,(schSew?(schSew.cuttingQty||0):0),'cuttingDone')}
-    ${cell('외주',fcExt,schExt,0,'shipDone')}
-    ${cell('봉제',fcSew,schSew,r.shipTotal,'shipDone')}
-    ${cell('완성',fcFin,schFin,0,'shipDone')}
-    ${cell('검품',fcInsp,schInsp,0,'shipDone')}
-    ${cell('출고',fcSew,schSew,r.shipTotal,'shipDone')}
+    ${cell('재단',fcSew,schSew,(schSew?(schSew.cuttingQty||0):0),'cuttingDate','cuttingDone')}
+    ${cell('외주',fcExt,schExt,0,'shippingDate','shipDone')}
+    ${cell('봉제',fcSew,schSew,r.shipTotal,'sewingCompleteDate','sewingDone')}
+    ${cell('완성',fcFin,schFin,0,'shippingDate','finishingDone')}
+    ${cell('검품',fcInsp,schInsp,0,'inspectionDate','inspectionDone')}
+    ${cell('출고',fcSew,schSew,r.shipTotal,'shipExpectedDate','shipDone')}
     <td class="pd-pay">
       ${payStateHtml}
       <button class="pd-btn" style="margin-top:6px;padding:4px 10px;background:#1f2937;color:#fff;border:none;font-weight:600" onclick="switchTab('pay')">결제 보기</button>
@@ -9565,12 +9566,16 @@ function pdOpenQtyModal(oid,itemId,role,fcId){
   // 임시: 추후 출고 모달과 통합
   if(typeof showToast==='function')showToast(role+' 수량 입력 모달 (구현 예정)');
 }
-function pdScrollToBrand(bid){
-  const el=document.getElementById('pd-brand-'+bid);
-  if(!el)return;
-  // sticky topbar 높이 고려
-  const y=el.getBoundingClientRect().top+window.pageYOffset-130;
-  window.scrollTo({top:y,behavior:'smooth'});
+function pdScrollToBrand(btnOrBid){
+  const bid=(btnOrBid&&btnOrBid.dataset)?btnOrBid.dataset.bid:btnOrBid;
+  const groups=document.querySelectorAll('.pd-brand-group');
+  for(const g of groups){
+    if(g.dataset.bid===bid){
+      const y=g.getBoundingClientRect().top+window.pageYOffset-140;
+      window.scrollTo({top:y,behavior:'smooth'});
+      return;
+    }
+  }
 }
 
 function renderDash(){
