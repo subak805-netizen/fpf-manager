@@ -9375,17 +9375,24 @@ function renderProdDash(){
     if(b.dday===null)return -1;
     return a.dday-b.dday;
   });
-  // 브랜드별 그룹화
+  // 브랜드 필터 (선택된 것만 표시)
+  const fltBrand=window._pdBrandFilter||'';
+  const allRows=rows.slice();  // 통계용 (필터 전)
+  const filteredRows=fltBrand?rows.filter(r=>r.brandId===fltBrand):rows;
+  // 브랜드별 그룹화 (필터링된 행 기준)
   const byBrand={};
-  rows.forEach(r=>{
+  filteredRows.forEach(r=>{
     const bid=r.brandId||'__none';
     if(!byBrand[bid])byBrand[bid]=[];
     byBrand[bid].push(r);
   });
-  // 통계
-  const totalItems=rows.length;
-  const urgentCount=rows.filter(r=>r.dday!==null&&r.dday<=3).length;
-  const shippedCount=rows.filter(r=>r.shipTotal>=r.orderTotal).length;
+  // 전체 브랜드 목록 (필터 탭용)
+  const allBrandsSet={};
+  allRows.forEach(r=>{const bid=r.brandId||'__none';allBrandsSet[bid]=(allBrandsSet[bid]||0)+1;});
+  // 통계 (필터 전 전체)
+  const totalItems=allRows.length;
+  const urgentCount=allRows.filter(r=>r.dday!==null&&r.dday<=3).length;
+  const shippedCount=allRows.filter(r=>r.shipTotal>=r.orderTotal).length;
   let html=`<div class="pd-topbar" style="position:sticky;top:0;z-index:20">
     <div class="pd-stat"><span class="n">${totalItems}</span><span>진행 아이템</span></div>
     <div class="pd-stat"><span class="n">${urgentCount}</span><span>긴급 (D-3 이내)</span></div>
@@ -9395,16 +9402,22 @@ function renderProdDash(){
       <button class="pd-btn kakao" style="padding:8px 16px;font-size:12px;font-weight:700;background:#fee500;color:#3c1e1e;border-color:#fee500" onclick="if(typeof openScheduleModal==='function')openScheduleModal()">💬 브랜드 일정 안내</button>
     </div>
   </div>`;
-  // 브랜드 점프 탭
-  const brandList=Object.keys(byBrand);
+  // 브랜드 필터 탭 (sticky)
+  const brandList=Object.keys(allBrandsSet);
   if(brandList.length>1){
     html+='<div style="background:#fff;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;gap:6px;flex-wrap:wrap;box-shadow:0 1px 2px rgba(0,0,0,.03);position:sticky;top:70px;z-index:19">';
-    html+='<button class="pd-btn" style="padding:6px 14px;font-size:12px;font-weight:700;background:#1f2937;color:#fff;border-color:#1f2937" onclick="window.scrollTo({top:0,behavior:\'smooth\'})">↑ 맨 위</button>';
+    // 전체 버튼
+    const allOn=!fltBrand;
+    html+='<button class="pd-btn" style="padding:6px 14px;font-size:12px;font-weight:700;'+(allOn?'background:#1f2937;color:#fff;border-color:#1f2937':'')+'" onclick="pdFilterBrand(\'\')">전체 <span style="opacity:.7;margin-left:2px">'+allRows.length+'</span></button>';
     brandList.forEach(function(bid){
       const brandNm=bid&&bid!=='__none'&&typeof getBrandName==='function'?(getBrandName(bid)||''):'(브랜드 없음)';
       const brandColor=bid&&bid!=='__none'&&typeof getBrandColor==='function'?getBrandColor(bid):'#94a3b8';
-      const cnt=byBrand[bid].length;
-      html+='<button class="pd-btn" data-bid="'+esc(bid)+'" style="padding:6px 14px;font-size:12px;font-weight:600;background:'+brandColor+'22;color:'+brandColor+';border-color:'+brandColor+'33" onclick="pdScrollToBrand(this)">'+esc(brandNm)+' <span style="opacity:.7;margin-left:2px">'+cnt+'</span></button>';
+      const cnt=allBrandsSet[bid];
+      const isOn=fltBrand===bid;
+      const bg=isOn?brandColor:(brandColor+'22');
+      const co=isOn?'#fff':brandColor;
+      const bd=isOn?brandColor:(brandColor+'33');
+      html+='<button class="pd-btn" data-bid="'+esc(bid)+'" style="padding:6px 14px;font-size:12px;font-weight:'+(isOn?'700':'600')+';background:'+bg+';color:'+co+';border-color:'+bd+'" onclick="pdFilterBrand(this.dataset.bid)">'+esc(brandNm)+' <span style="opacity:.7;margin-left:2px">'+cnt+'</span></button>';
     });
     html+='</div>';
   }
@@ -9567,15 +9580,14 @@ function pdOpenQtyModal(oid,itemId,role,fcId){
   if(typeof showToast==='function')showToast(role+' 수량 입력 모달 (구현 예정)');
 }
 function pdScrollToBrand(btnOrBid){
+  // 호환성 위해 유지하되 필터링 동작으로 변경
   const bid=(btnOrBid&&btnOrBid.dataset)?btnOrBid.dataset.bid:btnOrBid;
-  const groups=document.querySelectorAll('.pd-brand-group');
-  for(const g of groups){
-    if(g.dataset.bid===bid){
-      const y=g.getBoundingClientRect().top+window.pageYOffset-140;
-      window.scrollTo({top:y,behavior:'smooth'});
-      return;
-    }
-  }
+  pdFilterBrand(bid);
+}
+// 브랜드 필터 (선택한 브랜드만 표시)
+function pdFilterBrand(bid){
+  window._pdBrandFilter=(window._pdBrandFilter===bid)?'':bid;
+  if(typeof renderProdDash==='function')renderProdDash();
 }
 
 function renderDash(){
