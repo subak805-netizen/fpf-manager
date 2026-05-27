@@ -11113,17 +11113,16 @@ function renderItemPay(){
         });
       }
       if(!costLines)costLines='<div class="ln" style="color:#9ca3af">비용 미입력</div>';
-      const btnRight=f.paid
-        ?`<button class="done" onclick="togglePaySt('${esc(r.oid)}','${esc(f.payKey)}');renderItemPay();if(typeof renderPayStats==='function')renderPayStats()">✓ 완료</button>`
-        :`<button class="primary" onclick="togglePaySt('${esc(r.oid)}','${esc(f.payKey)}');renderItemPay();if(typeof renderPayStats==='function')renderPayStats()">결제 체크</button>`;
+      const btnLbl=f.paid?'✓ 완료':'결제 체크';
+      const btnCls=f.paid?'done':'primary';
       return `<div class="ip-fc${f.paid?' paid':''}">
         <div class="role">${esc(f.role||'기타')}</div>
         <div class="nm">${esc(f.name)}</div>
         ${costLines}
         <div class="am"><span class="l">청구</span><div class="right"><span class="amt">${num(f.base)}원</span><span class="vat">VAT포함 ${num(f.total)}원</span></div></div>
         <div class="acts">
-          <button onclick="openItemReceiptModal('${esc(r.oid)}','${esc(f.fcId)}','${esc(r.itemId)}')">명세서</button>
-          ${btnRight}
+          <button data-oid="${esc(r.oid)}" data-fcid="${esc(f.fcId)}" data-itemid="${esc(r.itemId)}" onclick="ipOpenReceipt(this)">명세서</button>
+          <button class="${btnCls}" data-oid="${esc(r.oid)}" data-key="${esc(f.payKey)}" onclick="ipTogglePay(this)">${btnLbl}</button>
         </div>
       </div>`;
     }).join('');
@@ -11145,14 +11144,26 @@ function renderItemPay(){
   }).join('');
   el.innerHTML=html;
 }
-// paySt 토글 (체크 ↔ 해제) — 결제 체크 버튼용
-function togglePaySt(oid,key){
-  const o=S.orders[oid];if(!o)return;
-  if(!o.payments)o.payments={};
-  const st=o.payments[key]||{};
-  if(st.paid){o.payments[key]={paid:false,paidAt:''};}
-  else{o.payments[key]={paid:true,paidAt:todayISO()};}
-  saveData();
+// 아이템 중심 결제 카드 — 체크 버튼 핸들러
+function ipTogglePay(btn){
+  const oid=btn.dataset.oid;const key=btn.dataset.key;
+  if(!oid||!key)return;
+  const cur=getPaySt(oid,key);
+  setPaySt(oid,key,!cur.paid,cur.paid?'':todayISO());
+  // setPaySt가 saveData + renderPayStats + renderPayContent까지 호출 → 자동 새로고침
+}
+// 아이템 중심 결제 카드 — 명세서 버튼 핸들러
+function ipOpenReceipt(btn){
+  openItemReceiptModal(btn.dataset.oid,btn.dataset.fcid,btn.dataset.itemid);
+}
+// 명세서 모달 — 복사·이미지 저장 핸들러
+function ipCopyReceipt(btn){
+  const el=document.getElementById(btn.dataset.target);
+  if(!el||!navigator.clipboard)return;
+  navigator.clipboard.writeText(el.innerText).then(()=>showToast('📋 복사됨')).catch(()=>showToast('복사 실패'));
+}
+function ipSaveReceipt(btn){
+  if(typeof savePayReceiptImage==='function')savePayReceiptImage(btn.dataset.target,btn.dataset.name);
 }
 // 아이템 × 공장 거래명세서 HTML 생성 (mockup-receipt v6 디자인)
 function buildItemReceiptHTML(oid,fcId,itemId){
@@ -11307,10 +11318,12 @@ function openItemReceiptModal(oid,fcId,itemId){
   const nm=(r.name||'').replace(/['"\\]/g,'');
   const txt=(typeof buildReceiptText==='function')?buildReceiptText(oid,fcId,itemId):'';
   const modalHtml='<div id="'+rid+'" style="max-width:680px;margin:0 auto">'+r.innerHtml+'</div>';
+  const btnStyle='padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700';
+  const btnPriStyle='padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#1f2937;color:#fff;font-weight:700';
   const actions='<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">'
-    +'<button onclick="closeGenericModal()" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700">닫기</button>'
-    +'<button onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById(\''+rid+'\').innerText).then(()=>showToast(\'📋 복사됨\'));" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700">복사</button>'
-    +'<button onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#1f2937;color:#fff;font-weight:700">이미지 저장</button>'
+    +'<button onclick="closeGenericModal()" style="'+btnStyle+'">닫기</button>'
+    +'<button data-target="'+rid+'" onclick="ipCopyReceipt(this)" style="'+btnStyle+'">복사</button>'
+    +'<button data-target="'+rid+'" data-name="'+esc(nm)+'" onclick="ipSaveReceipt(this)" style="'+btnPriStyle+'">이미지 저장</button>'
     +'</div>';
   showGenericModal('📄 거래명세서',modalHtml+actions);
 }
