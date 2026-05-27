@@ -9781,127 +9781,124 @@ function pdSavePrepDone(el){
   const lbl=el.closest('.pd-chk');
   if(lbl){if(el.checked)lbl.classList.add('done');else lbl.classList.remove('done');}
 }
-// ===== 카톡 메시지 템플릿 =====
-// 컬러×사이즈 수량 + 총수량 분해 (모든 메시지 공통 사용)
-function pdQtyBreakdown(it,o){
-  if(!o||!o.orderItems)return {text:'',total:0,colorQtys:{},colorSizeQtys:{}};
-  const oi=o.orderItems.find(x=>x.itemId===it.id);
-  if(!oi)return {text:'',total:0,colorQtys:{},colorSizeQtys:{}};
-  const colors=(it.colors&&it.colors.length)?it.colors:[''];
-  const sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
-  const lines=[];let total=0;const colorQtys={},colorSizeQtys={};
-  colors.forEach(c=>{
-    const parts=[];let sub=0;colorSizeQtys[c]={};
-    sizes.forEach(sz=>{
-      const q=+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0;
-      colorSizeQtys[c][sz]=q;
-      if(q>0){parts.push(`${sz} ${q}`);sub+=q;}
-    });
-    colorQtys[c]=sub;
-    if(sub>0){
-      const cLbl=c||'-';
-      lines.push(`· ${cLbl} — ${parts.join(' · ')} (${sub}장)`);
-      total+=sub;
-    }
-  });
-  return {text:lines.join('\n'),total:total,colorQtys:colorQtys,colorSizeQtys:colorSizeQtys};
-}
-// 원단별 · 컬러별 야드수 (원단 입고 메시지용)
-function pdFabBreakdown(it,o){
-  if(!it||!it.fabrics||!it.fabrics.length)return [];
-  const bd=pdQtyBreakdown(it,o);
-  if(!bd.total)return [];
-  const colors=(it.colors&&it.colors.length)?it.colors:[''];
-  const out=[];
-  (it.fabrics||[]).forEach(f=>{
-    const lines=[];let totY=0,totK=0;let isKg=false;
-    colors.forEach(c=>{
-      const cq=bd.colorQtys[c]||0;if(!cq)return;
-      try{
-        const r=(typeof calcFabYards==='function')?calcFabYards(f,cq,bd.colorSizeQtys[c],c):null;
-        if(r){
-          const y=+r.ty||0;
-          if(y>0){
-            if(r.isKg){isKg=true;const k=+r.tk||0;lines.push(`  · ${c||'-'} — ${y}yd (${k}kg)`);totY+=y;totK+=k;}
-            else{lines.push(`  · ${c||'-'} — ${y}yd`);totY+=y;}
-          }
-        }
-      }catch(e){}
-    });
-    if(lines.length){
-      const head=[f.supplier||'-',f.name||'-'].filter(Boolean).join(' / ')
-        + (f.fabricColor?` (${f.fabricColor})`:'')
-        + (f.composition?` · ${f.composition}`:'')
-        + (f.width?` · 폭${f.width}cm`:'');
-      const totLine=isKg?`  합계 ${totY}yd (${totK.toFixed(2)}kg)`:`  합계 ${totY}yd`;
-      out.push(`▪ ${head}\n${lines.join('\n')}\n${totLine}`);
-    }
-  });
-  return out;
-}
-// 부자재 공급처 목록 (부자재 입고 메시지용)
-function pdTrimSupList(it){
-  if(!it||!it.trims)return [];
-  const sups=new Set();
-  (it.trims||[]).forEach(t=>{if(t.supplier&&t.name)sups.add(t.supplier+' / '+t.name);});
-  return Array.from(sups);
-}
-// 오더일 포맷
-function pdOrderDate(o){
+// ===== 카톡 메시지 템플릿 (사용자 양식: 컬러합계 + 단계라벨) =====
+// 짧은 날짜 (M/D)
+function pdShortDate(o){
   if(!o||!o.createdAt)return '';
   const iso=(typeof createdToISO==='function')?createdToISO(o.createdAt):String(o.createdAt).slice(0,10);
-  return (typeof fmtKoDate==='function')?fmtKoDate(iso):iso;
+  const p=(''+iso).split('-');
+  if(p.length!==3)return iso;
+  return parseInt(p[1],10)+'/'+parseInt(p[2],10);
+}
+// 컬러별 오더 합계 (사이즈 합)
+function pdOrderColorQtys(it,o){
+  const res={};
+  if(!o||!o.orderItems)return res;
+  const oi=o.orderItems.find(x=>x.itemId===it.id);if(!oi)return res;
+  const colors=(it.colors&&it.colors.length)?it.colors:[''];
+  const sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+  colors.forEach(c=>{
+    let t=0;sizes.forEach(sz=>{t+=+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0;});
+    if(t>0)res[c]=t;
+  });
+  return res;
+}
+// 봉제공장 sch에서 컬러별 재단 합계
+function pdCutColorQtys(it,o){
+  const res={};
+  const sewFcId=it.sewingFcId||'';
+  const sch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;
+  if(!sch)return res;
+  const single=o.orderItems&&o.orderItems.length===1;
+  if(Array.isArray(sch.cuttingShipments)){
+    sch.cuttingShipments.forEach(r=>{
+      if(!r)return;
+      const match=r.itemId?(r.itemId===it.id):single;
+      if(!match)return;
+      const c=r.color||'';const q=+r.qty||0;
+      if(q>0)res[c]=(res[c]||0)+q;
+    });
+  }
+  if(!Object.keys(res).length&&sch.cuttingGrid&&sch.cuttingGrid[it.id]){
+    Object.entries(sch.cuttingGrid[it.id]).forEach(([c,sg])=>{
+      let t=0;Object.values(sg||{}).forEach(v=>{t+=+v||0;});
+      if(t>0)res[c]=t;
+    });
+  }
+  return res;
+}
+// 봉제공장 sch에서 컬러별 출고 합계
+function pdShipColorQtys(it,o){
+  const res={};
+  const sewFcId=it.sewingFcId||'';
+  const sch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;
+  if(!sch||!Array.isArray(sch.shipments))return res;
+  const single=o.orderItems&&o.orderItems.length===1;
+  sch.shipments.forEach(r=>{
+    if(!r)return;
+    const match=r.itemId?(r.itemId===it.id):single;
+    if(!match)return;
+    const c=r.color||'';const q=+r.qty||0;
+    if(q>0)res[c]=(res[c]||0)+q;
+  });
+  return res;
+}
+// "아이30 블랙40 총70장 (라벨)" 형식 한 줄
+function pdQtyLine(colorQtys,label){
+  const entries=Object.entries(colorQtys).filter(([c,v])=>+v>0);
+  if(!entries.length)return `0장 (${label})`;
+  const parts=entries.map(([c,v])=>`${c||'-'}${v}`);
+  const total=entries.reduce((s,[,v])=>s+(+v||0),0);
+  return `${parts.join(' ')} 총${total}장 (${label})`;
 }
 function pdBuildFactoryMsg(role,it,o,sch,fcName){
   const itName=it.name||'';
-  const bd=pdQtyBreakdown(it,o);
+  const sd=pdShortDate(o);
+  const head=`${itName}${sd?' ('+sd+')':''}`;
+  const orderLine=pdQtyLine(pdOrderColorQtys(it,o),'오더장수');
+  const cutLine=pdQtyLine(pdCutColorQtys(it,o),'재단장수');
   const fmt=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
-  const block=bd.text?`${bd.text}\n총 ${bd.total}장`:`총 ${bd.total}장`;
-  const od=pdOrderDate(o);
-  const odLine=od?`오더일 ${od}\n`:'';
   switch(role){
-    case 'fab':{
-      const fabs=pdFabBreakdown(it,o);
-      const fabBlock=fabs.length?`\n${fabs.join('\n\n')}\n`:'';
-      return `📦 원단 입고 안내드립니다.\n${itName}\n${odLine}${block}\n${fabBlock}입고 예정 ${fmt(o._prep?.fabDate)||'미정'}\n수령 후 확인 부탁드립니다.`;
-    }
-    case 'trim':{
-      const sups=pdTrimSupList(it);
-      const supBlock=sups.length?`\n부자재:\n${sups.map(s=>'· '+s).join('\n')}\n`:'';
-      return `📦 부자재 입고 안내드립니다.\n${itName}\n${odLine}${block}\n${supBlock}입고 예정 ${fmt(o._prep?.trimDate)||'미정'}\n수령 후 확인 부탁드립니다.`;
-    }
-    case 'jisi':return `📋 작업지시서 전달드립니다.\n${itName}\n${odLine}${block}\n전달 ${fmt(o._prep?.jisiDate)||'미정'} · 확인 부탁드립니다.`;
-    case '재단':return `✂ 재단 의뢰드립니다.\n${itName}\n${odLine}${block}\n재단 ${fmt(sch?.cuttingDate)||'미정'}까지 부탁드립니다.`;
-    case '외주':return `🔧 외주 의뢰드립니다.\n${itName}\n${odLine}${block}\n완료 ${fmt(sch?.shippingDate)||'미정'}까지 부탁드립니다.`;
-    case '봉제':return `🪡 봉제 의뢰드립니다.\n${itName}\n${odLine}${block}\n완료 ${fmt(sch?.sewingCompleteDate)||'미정'}까지 부탁드립니다.`;
-    case '완성':return `🎯 완성 의뢰드립니다.\n${itName}\n${odLine}${block}\n완료 ${fmt(sch?.shippingDate)||'미정'}까지 부탁드립니다.`;
-    case '검품':return `🔍 검품 의뢰드립니다.\n${itName}\n${odLine}${block}\n완료 ${fmt(sch?.inspectionDate)||'미정'}까지 부탁드립니다.`;
-    case '출고':return `🚚 ${fmt(sch?.shipExpectedDate)||'예정일'} 출고 안내.\n${itName}\n${odLine}${block}\n출고 후 거래명세서 전송드릴게요.`;
-    default:return `${fcName} 안내드립니다.\n${itName}\n${odLine}${block}`;
+    case 'fab':return `${head}\n${orderLine}\n\n원단 입고 예정 ${fmt(o._prep?.fabDate)||'미정'}\n수령 확인 부탁드립니다.`;
+    case 'trim':return `${head}\n${orderLine}\n\n부자재 입고 예정 ${fmt(o._prep?.trimDate)||'미정'}\n수령 확인 부탁드립니다.`;
+    case 'jisi':return `${head}\n${orderLine}\n\n작업지시서 전달드립니다.\n확인 부탁드립니다.`;
+    case '재단':return `${head}\n${orderLine}\n\n재단 완료 후 장수 부탁드립니다.`;
+    case '외주':return `${head}\n${orderLine}\n\n작업 완료 후 공장전달 부탁드립니다.`;
+    case '봉제':return `${head}\n${cutLine}\n\n봉제작업 완료일정 부탁드립니다.`;
+    case '검품':return `${head}\n${cutLine}\n\n검품작업 완료일정 부탁드립니다.`;
+    case '완성':return `${head}\n${cutLine}\n\n완성작업 완료일정 부탁드립니다.`;
+    case '출고':return `${head}\n${cutLine}\n\n출고 예정 ${fmt(sch?.shipExpectedDate)||'미정'}\n출고 후 거래명세서 전송드릴게요.`;
+    default:return `${head}\n${orderLine}`;
   }
 }
 function pdBuildBrandMsg(role,it,o,sch){
-  const brandNm=it.brandId&&typeof getBrandName==='function'?(getBrandName(it.brandId)||''):'';
   const itName=it.name||'';
-  const bd=pdQtyBreakdown(it,o);
+  const sd=pdShortDate(o);
+  const head=`${itName}${sd?' ('+sd+')':''}`;
+  const orderLine=pdQtyLine(pdOrderColorQtys(it,o),'오더장수');
+  const cutLine=pdQtyLine(pdCutColorQtys(it,o),'재단장수');
+  const shipLine=pdQtyLine(pdShipColorQtys(it,o),'출고장수');
   const fmt=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
-  const greeting=brandNm?`안녕하세요 ${brandNm}님.`:'안녕하세요.';
-  const block=bd.text?`${bd.text}\n총 ${bd.total}장`:`총 ${bd.total}장`;
-  const od=pdOrderDate(o);
-  const odLine=od?`오더일 ${od}\n`:'';
+  const sewFcId=it.sewingFcId||'';
+  const sewSch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;
+  const shipETA=sewSch?(sewSch.shipExpectedDate||sewSch.shippingDate):'';
   switch(role){
-    case 'fab':case 'trim':case 'jisi':{
-      const fabs=pdFabBreakdown(it,o);
-      const fabBlock=(role==='fab'&&fabs.length)?`\n${fabs.join('\n\n')}\n`:'';
-      return `${greeting}\n${itName} 진행 상황 안내드려요.\n${odLine}${block}\n${fabBlock}· 원단 입고 ${fmt(o._prep?.fabDate)||'-'}\n· 부자재 입고 ${fmt(o._prep?.trimDate)||'-'}\n· 작지 전달 ${fmt(o._prep?.jisiDate)||'-'}`;
-    }
-    case '재단':return `${greeting}\n${itName} 재단 ${fmt(sch?.cuttingDate)||'예정'}\n${odLine}${block}\n진행 상황 공유드려요.`;
-    case '외주':return `${greeting}\n${itName} 외주 ${fmt(sch?.shippingDate)||'예정'}\n${odLine}${block}\n진행 상황 공유드려요.`;
-    case '봉제':return `${greeting}\n${itName} 봉제 ${fmt(sch?.sewingCompleteDate)||'예정'}\n${odLine}${block}\n진행 상황 공유드려요.`;
-    case '완성':return `${greeting}\n${itName} 완성 ${fmt(sch?.shippingDate)||'예정'}\n${odLine}${block}\n진행 상황 공유드려요.`;
-    case '검품':return `${greeting}\n${itName} 검품 ${fmt(sch?.inspectionDate)||'예정'}\n${odLine}${block}\n진행 상황 공유드려요.`;
-    case '출고':return `${greeting}\n🚚 ${itName} ${fmt(sch?.shipExpectedDate)||'예정일'} 출고 예정 안내드려요.\n${odLine}${block}`;
-    default:return `${greeting}\n${itName} 진행 안내드려요.\n${odLine}${block}`;
+    case 'fab':case 'trim':case 'jisi':
+      return `${head}\n${orderLine}\n\n· 원단 입고 ${fmt(o._prep?.fabDate)||'-'}\n· 부자재 입고 ${fmt(o._prep?.trimDate)||'-'}\n· 작지 전달 ${fmt(o._prep?.jisiDate)||'-'}`;
+    case '재단':
+      return `${head}\n${orderLine}\n${cutLine}\n출고 예정 ${fmt(shipETA)||'미정'}\n${itName} 재단장수, 출고예정일 전달드려요.`;
+    case '외주':
+      return `${head}\n${orderLine}\n\n외주 완료 예정 ${fmt(sch?.shippingDate)||'미정'}`;
+    case '봉제':
+      return `${head}\n${orderLine}\n${cutLine}\n봉제 완료 예정 ${fmt(sch?.sewingCompleteDate)||'미정'}`;
+    case '완성':
+      return `${head}\n${orderLine}\n${cutLine}\n완성 완료 예정 ${fmt(sch?.shippingDate)||'미정'}`;
+    case '검품':
+      return `${head}\n${orderLine}\n${cutLine}\n검품 완료 예정 ${fmt(sch?.inspectionDate)||'미정'}`;
+    case '출고':
+      return `${head}\n${orderLine}\n${cutLine}\n${shipLine}\n 출고 예정 ${fmt(shipETA)||'미정'}\n🚚 ${itName} 출고일정 전달드려요.`;
+    default:
+      return `${head}\n${orderLine}`;
   }
 }
 function pdShowMsgPreview(msg,kind){
