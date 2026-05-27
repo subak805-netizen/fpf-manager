@@ -273,6 +273,10 @@ input[type=number]{-moz-appearance:textfield;}
 .pd-qty-btn:hover{background:#f3f4f6;border-color:#1f2937;}
 .pd-qty-btn.empty{color:#9ca3af;border-style:dashed;font-weight:500;}
 .pd-qty-btn .icon{font-size:11px;opacity:.5;}
+.pd-proc .pd-cs-mini{font-size:10px;color:#6b7280;line-height:1.5;margin:-1px 0 4px;padding:3px 6px;background:#f9fafb;border-radius:4px;letter-spacing:-.1px;}
+.pd-proc .pd-cs-mini .row{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pd-proc .pd-cs-mini .c{color:#374151;font-weight:600;margin-right:3px;}
+.pd-proc .pd-cs-mini .sz{color:#6b7280;}
 .pd-spacer{height:30px;margin-bottom:4px;}
 .pd-chk{display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:#6b7280;}
 .pd-chk input{width:14px;height:14px;accent-color:#047857;cursor:pointer;}
@@ -9508,6 +9512,56 @@ function pdCutQty(sch,itemId,isSingleOrder){
   if(t===0&&isSingleOrder&&sch.cuttingQty)t=+sch.cuttingQty||0;
   return t;
 }
+// 재단/출고 회차 → 컬러×사이즈 그리드 ({color:{size:qty}})
+function pdCutSizeGrid(sch,itemId,isSingleOrder){
+  const grid={};
+  if(!sch)return grid;
+  if(Array.isArray(sch.cuttingShipments)){
+    sch.cuttingShipments.forEach(rec=>{
+      if(!rec)return;
+      const match=rec.itemId?(rec.itemId===itemId):isSingleOrder;
+      if(!match)return;
+      const c=rec.color||'',sz=rec.size||'',q=+rec.qty||0;
+      if(q<=0)return;
+      if(!grid[c])grid[c]={};
+      grid[c][sz]=(grid[c][sz]||0)+q;
+    });
+  }
+  // 폴백: cuttingGrid (사이즈별 데이터)
+  if(!Object.keys(grid).length&&sch.cuttingGrid&&sch.cuttingGrid[itemId]){
+    Object.entries(sch.cuttingGrid[itemId]).forEach(([c,sg])=>{
+      Object.entries(sg||{}).forEach(([sz,v])=>{
+        const q=+v||0;if(q<=0)return;
+        if(!grid[c])grid[c]={};
+        grid[c][sz]=(grid[c][sz]||0)+q;
+      });
+    });
+  }
+  return grid;
+}
+function pdShipSizeGrid(sch,itemId,isSingleOrder){
+  const grid={};
+  if(!sch||!Array.isArray(sch.shipments))return grid;
+  sch.shipments.forEach(rec=>{
+    if(!rec)return;
+    const match=rec.itemId?(rec.itemId===itemId):isSingleOrder;
+    if(!match)return;
+    const c=rec.color||'',sz=rec.size||'',q=+rec.qty||0;
+    if(q<=0)return;
+    if(!grid[c])grid[c]={};
+    grid[c][sz]=(grid[c][sz]||0)+q;
+  });
+  return grid;
+}
+// 셀 안에 컬러×사이즈 미니 표시 HTML
+function pdMiniGridHTML(grid){
+  const rows=[];
+  Object.entries(grid||{}).forEach(([c,szs])=>{
+    const parts=Object.entries(szs||{}).filter(([sz,v])=>+v>0).map(([sz,v])=>`<span class="sz">${esc(sz)}${v}</span>`);
+    if(parts.length)rows.push(`<div class="row"><span class="c">${esc(c||'-')}</span>${parts.join('·')}</div>`);
+  });
+  return rows.length?`<div class="pd-cs-mini">${rows.join('')}</div>`:'';
+}
 function pdShipQty(sch,itemId,isSingleOrder){
   if(!sch)return 0;let t=0;
   if(Array.isArray(sch.shipments)){
@@ -9568,10 +9622,17 @@ function renderProdDashRow(r){
     const isDone=sch&&sch[doneField];
     const qtyDisp=qty>0?qty+'장':'';
     const isShip=role==='출고';
+    const isSingle=r.o.orderItems.length===1;
+    // 컬러×사이즈 미니 표시: 재단은 cuttingShipments, 그 외는 shipments
+    let miniHtml='';
+    if(role==='재단')miniHtml=pdMiniGridHTML(pdCutSizeGrid(sch,r.it.id,isSingle));
+    else if(role==='봉제'||role==='출고')miniHtml=pdMiniGridHTML(pdShipSizeGrid(sch,r.it.id,isSingle));
+    else if(role==='외주'||role==='완성'||role==='검품')miniHtml=pdMiniGridHTML(pdShipSizeGrid(sch,r.it.id,isSingle));
     return `<td class="pd-proc">
       <div class="pd-proc-name">${isShip?'&nbsp;':esc(fcName||'—')}</div>
       <input class="pd-proc-input" type="date" value="${esc(dateVal||'')}" data-oid="${esc(r.o.id)}" data-fcid="${esc(fcId||'')}" data-field="${esc(dateField)}" onchange="pdSaveField(this)">
       <button class="pd-qty-btn${qty>0?'':' empty'}" onclick="pdOpenQtyModal('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}','${esc(fcId||'')}')">${qtyDisp||'+ 입력'}<span class="icon">✎</span></button>
+      ${miniHtml}
       <label class="pd-chk ${isDone?'done':''}"><input type="checkbox" ${isDone?'checked':''} data-oid="${esc(r.o.id)}" data-fcid="${esc(fcId||'')}" data-field="${esc(doneField)}" onchange="pdToggleDone(this)"> 완료</label>
       <div class="pd-actions">
         ${isShip?'':`<button class="pd-btn kakao" onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}','${esc(fcId||'')}')">📞 공장</button>`}
