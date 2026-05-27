@@ -9575,9 +9575,117 @@ function pdToggleDone(el){
   saveData();
   if(typeof renderProdDash==='function')renderProdDash();
 }
+// ===== 장수 입력 모달 =====
+window._pdQtyCtx=null;
 function pdOpenQtyModal(oid,itemId,role,fcId){
-  // 임시: 추후 출고 모달과 통합
-  if(typeof showToast==='function')showToast(role+' 수량 입력 모달 (구현 예정)');
+  const o=S.orders[oid];const it=S.items[itemId];
+  if(!o||!it){showToast('데이터 없음');return;}
+  if(!fcId){showToast('공장이 지정되지 않았어요');return;}
+  if(!o.factorySchedules)o.factorySchedules={};
+  if(!o.factorySchedules[fcId])o.factorySchedules[fcId]=(typeof mkFcSch==='function'?mkFcSch():{});
+  const sch=o.factorySchedules[fcId];
+  const fc=S.factories[fcId]||{};
+  // 회차 기록 위치
+  // - 재단은 cuttingShipments (신규), 그 외(출고·봉제·완성·검품·외주)는 shipments
+  const isCut=role==='재단';
+  const recsKey=isCut?'cuttingShipments':'shipments';
+  if(!Array.isArray(sch[recsKey]))sch[recsKey]=[];
+  // 이 아이템 관련 회차만 필터
+  const allRecs=sch[recsKey];
+  const itRecs=allRecs.filter(r=>!r||!r.itemId?(o.orderItems.length===1):(r.itemId===itemId));
+  // context 저장
+  window._pdQtyCtx={oid,itemId,fcId,role,recsKey,sch};
+  // 오더수량
+  const oi=(o.orderItems||[]).find(x=>x.itemId===itemId);
+  const colors=it.colors&&it.colors.length?it.colors:[''];
+  const sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
+  let orderTotal=0;
+  if(oi)colors.forEach(c=>sizes.forEach(sz=>{orderTotal+=+oi.qtyGrid?.[c]?.[sz]||0;}));
+  const colorOpts=colors.map(c=>`<option value="${esc(c)}">${esc(c||'(단색)')}</option>`).join('');
+  const sizeOpts=sizes.map(sz=>`<option value="${esc(sz)}">${esc(sz)}</option>`).join('');
+  // 행 HTML
+  const rowsHtml=itRecs.length
+    ?itRecs.map((r,i)=>pdQtyRowHtml(r,i,colors,sizes,colorOpts,sizeOpts)).join('')
+    :pdQtyRowHtml({date:todayISO(),color:colors[0]||'',size:sizes[0]||'',qty:'',memo:''},0,colors,sizes,colorOpts,sizeOpts);
+  const html=`<div style="font-family:'Pretendard',-apple-system,sans-serif">
+    <div style="padding:0 4px;margin-bottom:14px">
+      <div style="font-size:11px;color:#6b7280;margin-bottom:4px">${esc(fc.name||'공장')} · 오더 ${orderTotal}장${isCut?' · 재단 회차':' · 출고 회차'}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:130px 90px 80px 80px 1fr 32px;gap:8px;align-items:center;font-size:10px;color:#6b7280;font-weight:700;letter-spacing:.3px;margin-bottom:6px;padding:0 4px">
+      <div>${isCut?'재단일':'출고일'}</div>
+      <div>컬러</div>
+      <div>사이즈</div>
+      <div style="text-align:center">수량</div>
+      <div>메모</div>
+      <div></div>
+    </div>
+    <div id="pd-qty-rows" data-colors='${esc(JSON.stringify(colors))}' data-sizes='${esc(JSON.stringify(sizes))}'>${rowsHtml}</div>
+    <button onclick="pdQtyAddRow()" style="margin-top:10px;padding:8px 14px;background:#f3f4f6;border:1px dashed #d1d5db;border-radius:6px;font-size:12px;font-weight:600;color:#374151;cursor:pointer;width:100%;font-family:inherit">+ 회차 추가</button>
+    <div id="pd-qty-sum" style="margin-top:14px;padding:12px 16px;background:#f9fafb;border-radius:8px;display:flex;justify-content:space-between;align-items:baseline">
+      <span style="font-size:12px;color:#6b7280;font-weight:600">합계 <span id="pd-qty-cnt" style="color:#6b7280;font-weight:500;margin-left:6px"></span></span>
+      <span id="pd-qty-amt" style="font-size:18px;font-weight:800;color:#1f2937"></span>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button onclick="closeGenericModal()" style="padding:9px 18px;background:#f3f4f6;color:#374151;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">취소</button>
+      <button onclick="pdQtySave()" style="padding:9px 18px;background:#1f2937;color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">저장</button>
+    </div>
+  </div>`;
+  showGenericModal((isCut?'✂ 재단 회차':'📦 출고 회차')+' 입력 — '+esc(it.name||''),html);
+  setTimeout(pdQtyRecalc,30);
+}
+function pdQtyRowHtml(r,idx,colors,sizes,colorOpts,sizeOpts){
+  const cVal=esc(r.color||'');const szVal=esc(r.size||'');
+  return `<div class="pd-qty-row" data-idx="${idx}" style="display:grid;grid-template-columns:130px 90px 80px 80px 1fr 32px;gap:8px;align-items:center;margin-bottom:8px">
+    <input class="im-in" type="date" value="${esc(r.date||'')}" data-field="date" oninput="pdQtyRecalc()" style="padding:7px 9px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;color:#333;font-family:inherit">
+    <select class="im-in" data-field="color" style="padding:7px 9px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;color:#333;font-family:inherit">${colors.map(c=>`<option value="${esc(c)}" ${c===r.color?'selected':''}>${esc(c||'(단색)')}</option>`).join('')}</select>
+    <select class="im-in" data-field="size" style="padding:7px 9px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;color:#333;font-family:inherit">${sizes.map(s=>`<option value="${esc(s)}" ${s===r.size?'selected':''}>${esc(s)}</option>`).join('')}</select>
+    <input class="im-in" type="number" value="${esc(r.qty!=null?r.qty:'')}" data-field="qty" oninput="pdQtyRecalc()" placeholder="0" style="padding:7px 9px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;color:#333;font-family:inherit;text-align:center;font-weight:700">
+    <input class="im-in" type="text" value="${esc(r.memo||'')}" data-field="memo" placeholder="메모" style="padding:7px 9px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;color:#333;font-family:inherit">
+    <button onclick="this.closest('.pd-qty-row').remove();pdQtyRecalc();" style="background:transparent;border:none;color:#ef4444;font-size:18px;cursor:pointer;font-family:inherit">×</button>
+  </div>`;
+}
+function pdQtyAddRow(){
+  const c=document.getElementById('pd-qty-rows');if(!c)return;
+  const colors=JSON.parse(c.dataset.colors||'[""]');
+  const sizes=JSON.parse(c.dataset.sizes||'["free"]');
+  const idx=c.querySelectorAll('.pd-qty-row').length;
+  const html=pdQtyRowHtml({date:todayISO(),color:colors[0]||'',size:sizes[0]||'',qty:'',memo:''},idx,colors,sizes);
+  c.insertAdjacentHTML('beforeend',html);
+  pdQtyRecalc();
+}
+function pdQtyRecalc(){
+  const rows=document.querySelectorAll('#pd-qty-rows .pd-qty-row');
+  let cnt=0,sum=0;
+  rows.forEach(row=>{
+    const q=+row.querySelector('[data-field=qty]').value||0;
+    if(q>0){cnt++;sum+=q;}
+  });
+  const cntEl=document.getElementById('pd-qty-cnt');if(cntEl)cntEl.textContent=cnt+'건';
+  const amtEl=document.getElementById('pd-qty-amt');if(amtEl)amtEl.innerHTML=sum+'<span style="font-size:13px;color:#6b7280;font-weight:600;margin-left:2px">장</span>';
+}
+function pdQtySave(){
+  const ctx=window._pdQtyCtx;if(!ctx)return;
+  const rows=document.querySelectorAll('#pd-qty-rows .pd-qty-row');
+  const newRecs=[];
+  rows.forEach(row=>{
+    const date=row.querySelector('[data-field=date]').value;
+    const color=row.querySelector('[data-field=color]').value;
+    const size=row.querySelector('[data-field=size]').value;
+    const qty=+row.querySelector('[data-field=qty]').value||0;
+    const memo=row.querySelector('[data-field=memo]').value;
+    if(qty>0)newRecs.push({date,color,size,qty,memo,itemId:ctx.itemId});
+  });
+  const o=S.orders[ctx.oid];if(!o)return;
+  if(!o.factorySchedules[ctx.fcId])o.factorySchedules[ctx.fcId]=(typeof mkFcSch==='function'?mkFcSch():{});
+  const sch=o.factorySchedules[ctx.fcId];
+  if(!Array.isArray(sch[ctx.recsKey]))sch[ctx.recsKey]=[];
+  // 이 아이템의 기존 회차 제거 + 새 회차 추가
+  const others=sch[ctx.recsKey].filter(r=>r&&r.itemId&&r.itemId!==ctx.itemId);
+  sch[ctx.recsKey]=others.concat(newRecs);
+  saveData();
+  closeGenericModal();
+  showToast('✓ '+ctx.role+' 회차 저장됨');
+  if(typeof renderProdDash==='function')renderProdDash();
 }
 function pdScrollToBrand(btnOrBid){
   // 호환성 위해 유지하되 필터링 동작으로 변경
