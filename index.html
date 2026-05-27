@@ -11075,12 +11075,24 @@ function renderItemPay(){
   const totalItems=rows.length;
   const totalFcs=rows.reduce((s,r)=>s+r.fcs.length,0);
   const paidFcs=rows.reduce((s,r)=>s+r.fcs.filter(f=>f.paid).length,0);
+  // 선택된 아이템 카운트
+  const selKeys=Object.keys(window._ipSelected||{}).filter(k=>window._ipSelected[k]);
+  const selCount=selKeys.length;
   let html=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:#fff;border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.03);align-items:center">
     <div style="display:flex;align-items:baseline;gap:5px;padding:5px 12px;background:#f3f4f6;border-radius:7px;font-size:11px"><span style="font-size:15px;font-weight:700;color:#1f2937">${totalItems}</span> <span style="color:#6b7280">아이템</span></div>
     <div style="display:flex;align-items:baseline;gap:5px;padding:5px 12px;background:#f3f4f6;border-radius:7px;font-size:11px"><span style="font-size:15px;font-weight:700;color:#1f2937">${totalFcs-paidFcs}</span> <span style="color:#6b7280">미결제</span></div>
     <div style="display:flex;align-items:baseline;gap:5px;padding:5px 12px;background:#f3f4f6;border-radius:7px;font-size:11px"><span style="font-size:15px;font-weight:700;color:#1f2937">${paidFcs}</span> <span style="color:#6b7280">완료</span></div>
     <div style="margin-left:auto;font-size:13px;color:#1f2937"><b style="font-size:15px">${num(grandTotal)}원</b> <span style="color:#6b7280;font-size:11px"> VAT 포함</span></div>
   </div>`;
+  // 선택 N개 → 통합 명세서 액션 바 (sticky)
+  if(selCount>0){
+    html+=`<div style="position:sticky;top:8px;z-index:10;display:flex;gap:10px;align-items:center;padding:12px 16px;margin-bottom:12px;background:#1f2937;color:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.15)">
+      <div style="font-size:13px;font-weight:600">📦 ${selCount}개 선택됨</div>
+      <div style="font-size:11px;color:#9ca3af">같은 공장 × 같은 브랜드는 합쳐서 통합 명세서가 생성돼요</div>
+      <button onclick="ipClearSelect()" style="margin-left:auto;padding:7px 14px;border-radius:7px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:12px;font-weight:600;cursor:pointer">선택 해제</button>
+      <button onclick="ipOpenBatchReceipt()" style="padding:7px 16px;border-radius:7px;border:none;background:#fff;color:#111827;font-size:13px;font-weight:700;cursor:pointer">📄 통합 명세서 만들기</button>
+    </div>`;
+  }
   html+=rows.map(function(r){
     const brandNm=r.item.brandId&&typeof getBrandName==='function'?getBrandName(r.item.brandId):'';
     const codeStr=r.item.code||'';
@@ -11127,9 +11139,11 @@ function renderItemPay(){
       </div>`;
     }).join('');
     const titleStr=(brandNm?brandNm+' ':'')+(codeStr?codeStr+' ':'')+(r.item.name||'');
-    return `<div class="ip-card${r.allPaid?' allpaid':' selected'}">
+    const ipSelKey=r.oid+'__'+r.itemId;
+    const isSel=!!(window._ipSelected&&window._ipSelected[ipSelKey]);
+    return `<div class="ip-card${r.allPaid?' allpaid':(isSel?' selected':'')}">
       <div class="ip-head">
-        <div class="ip-chk"><input type="checkbox" ${r.allPaid?'checked':''} onclick="event.preventDefault()"></div>
+        <div class="ip-chk"><input type="checkbox" ${isSel?'checked':''} data-selkey="${esc(ipSelKey)}" onclick="ipToggleSelect(this)"></div>
         <div class="ip-info">
           <div class="ip-title">${esc(titleStr)}</div>
           ${lines||'<div class="ip-line" style="color:#9ca3af">출고 기록 없음</div>'}
@@ -11164,6 +11178,179 @@ function ipCopyReceipt(btn){
 }
 function ipSaveReceipt(btn){
   if(typeof savePayReceiptImage==='function')savePayReceiptImage(btn.dataset.target,btn.dataset.name);
+}
+// 아이템 선택 (체크박스)
+window._ipSelected=window._ipSelected||{};
+function ipToggleSelect(chk){
+  const k=chk.dataset.selkey;if(!k)return;
+  if(chk.checked)window._ipSelected[k]=true;else delete window._ipSelected[k];
+  renderItemPay();
+}
+function ipClearSelect(){window._ipSelected={};renderItemPay();}
+// 통합 명세서 모달 — 선택된 아이템들의 공장×브랜드별 합산
+function ipOpenBatchReceipt(){
+  const selKeys=Object.keys(window._ipSelected||{}).filter(k=>window._ipSelected[k]);
+  if(!selKeys.length){showToast('선택된 아이템이 없어요');return;}
+  // 키: oid__itemId → 파싱
+  const targets=selKeys.map(k=>{var p=k.split('__');return {oid:p[0],itemId:p[1]};});
+  // 공장×브랜드별 그룹: key = fcId + '|' + brandId
+  const groups={};
+  targets.forEach(function(t){
+    const o=S.orders[t.oid];const it=S.items[t.itemId];if(!o||!it)return;
+    const brandId=it.brandId||'';
+    // 각 아이템의 거쳐간 공장 수집 + payFees 공장
+    const fcSet=new Set();
+    for(const cd of COST_DEFS){if(it[cd[2]])fcSet.add(it[cd[2]]);}
+    Object.keys(o.payFees||{}).forEach(function(pk){if(pk.startsWith('fc:'))fcSet.add(pk.substring(3));});
+    fcSet.forEach(function(fcId){
+      const gk=fcId+'|'+brandId;
+      if(!groups[gk])groups[gk]={fcId,brandId,items:[]};
+      groups[gk].items.push({oid:t.oid,itemId:t.itemId});
+    });
+  });
+  if(!Object.keys(groups).length){showToast('명세서 데이터가 없어요');return;}
+  // 각 그룹별 명세서 HTML 생성
+  let body='';let idx=0;
+  Object.values(groups).forEach(function(g){
+    idx++;
+    // 그룹 안 모든 아이템의 행을 합쳐서 HTML 빌드
+    const r=ipBuildGroupReceipt(g.fcId,g.brandId,g.items);
+    if(!r||!r.hasRows)return;
+    const rid='igrp-'+idx+'-'+Date.now();
+    const nm=(r.name||'').replace(/['"\\]/g,'');
+    body+=`<div style="margin-bottom:24px"><div style="font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:600">${idx}/${Object.keys(groups).length} · ${esc(r.name)}</div>`
+      +`<div id="${rid}" style="max-width:680px;margin:0 auto">${r.innerHtml}</div>`
+      +`<div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end">`
+      +`<button data-target="${rid}" onclick="ipCopyReceipt(this)" style="padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:600">복사</button>`
+      +`<button data-target="${rid}" data-name="${esc(nm)}" onclick="ipSaveReceipt(this)" style="padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:none;background:#1f2937;color:#fff;font-weight:700">이미지 저장</button>`
+      +`</div></div>`;
+  });
+  const actions='<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button onclick="closeGenericModal()" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700">닫기</button></div>';
+  showGenericModal('📄 통합 명세서 ('+Object.keys(groups).length+'장)',body+actions);
+}
+// 그룹 명세서 HTML 빌드 (공장 1개 × 브랜드 1개 × 여러 아이템)
+function ipBuildGroupReceipt(fcId,brandId,items){
+  const fc=S.factories[fcId];if(!fc)return {hasRows:false};
+  const brandNm=brandId&&typeof getBrandName==='function'?getBrandName(brandId):'';
+  // 모든 아이템·출고일 행 수집
+  const allRows=[];
+  let costSum=0;
+  items.forEach(function(t){
+    const o=S.orders[t.oid];const it=S.items[t.itemId];if(!o||!it)return;
+    if(it.brandId!==brandId)return;
+    const oi=(o.orderItems||[]).find(x=>x.itemId===t.itemId);if(!oi)return;
+    // 이 공장 비용
+    let rate=0,lbl='';
+    for(const cd of COST_DEFS){if(it[cd[2]]===fcId){rate=+it[cd[0]]||0;lbl=cd[1];break;}}
+    // 봉제 출고 행
+    const sewFcId=it.sewingFcId||'';
+    const sewSch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;
+    const ships=[];
+    if(sewSch){
+      (sewSch.shipments||[]).forEach(function(s){
+        if(!s||!+s.qty)return;
+        if(s.itemId&&s.itemId!==t.itemId)return;
+        if(!s.itemId&&o.orderItems.length>1)return;
+        ships.push({date:s.date||'',color:s.color||'',qty:+s.qty||0});
+      });
+    }
+    if(rate>0&&ships.length){
+      const grp={};const gO=[];
+      ships.forEach(function(s){
+        const k=s.date+'|'+s.color;
+        if(!grp[k]){grp[k]={date:s.date,color:s.color,qty:0};gO.push(k);}
+        grp[k].qty+=s.qty;
+      });
+      gO.forEach(function(k){
+        const g=grp[k];
+        allRows.push({date:g.date,item:it.name,color:g.color,qty:g.qty,unit:rate,amount:rate*g.qty,kind:'cost'});
+        costSum+=rate*g.qty;
+      });
+    }
+    // fees
+    const fees=(o.payFees||{})['fc:'+fcId]||[];
+    fees.forEach(function(f){
+      const amt=payFeeAmt(f);if(!amt)return;
+      const hasQty=(f.qty!=null&&f.qty!=='');
+      allRows.push({
+        date:ships[0]?.date||'',item:f.name||'운임',color:'',
+        qty:hasQty?(+f.qty||0):1,unit:hasQty?(+f.unitPrice||0):amt,amount:amt,kind:'fee'
+      });
+      costSum+=amt;
+    });
+  });
+  if(!allRows.length)return {hasRows:false};
+  // 출고일 오름차순 정렬
+  allRows.sort((a,b)=>cmpDate(a.date).localeCompare(cmpDate(b.date)));
+  const vatRate=10;
+  const vat=Math.round(costSum*vatRate/100);
+  const total=costSum+vat;
+  // 출고일별 소계 HTML
+  let bodyRows='';let curDate='';let subT=0;let subQ=0;
+  allRows.forEach(function(r){
+    if(r.date!==curDate&&curDate!==''&&subQ>0){
+      bodyRows+=`<tr style="background:#d1d5db"><td colspan="3" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">소계</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQ}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subT)}</td></tr>`;
+      subT=0;subQ=0;
+    }
+    const showDate=r.date!==curDate;curDate=r.date;
+    bodyRows+=`<tr>
+      <td style="padding:11px 12px;font-weight:700;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db">${showDate?esc((typeof fmtKoDate==='function'?fmtKoDate(toISO(r.date)):r.date)):''}</td>
+      <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.item)}</td>
+      <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.color)}</td>
+      <td style="padding:11px 12px;text-align:center;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827">${r.qty}</td>
+      <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.unit)}</td>
+      <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}</td>
+    </tr>`;
+    subT+=r.amount;subQ+=r.qty;
+  });
+  if(subQ>0){
+    bodyRows+=`<tr style="background:#d1d5db"><td colspan="3" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">소계</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQ}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subT)}</td></tr>`;
+  }
+  const todayStr=(typeof fmtKoDate==='function'?fmtKoDate(todayISO()):todayISO());
+  const itemNames=Array.from(new Set(items.map(t=>S.items[t.itemId]?.name).filter(Boolean))).join(' · ');
+  const inner=`<div style="background:#fff;padding:32px 28px;color:#111827;border-radius:10px;box-shadow:0 0 0 1px #d1d5db;font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',sans-serif;font-variant-numeric:tabular-nums">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:18px;margin-bottom:22px;border-bottom:2px solid #374151">
+      <div style="font-size:24px;font-weight:700;letter-spacing:6px;color:#111827">거래명세서</div>
+      <div style="text-align:right">
+        <div style="font-size:10px;color:#9ca3af;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">Issued</div>
+        <div style="font-size:14px;font-weight:600;color:#374151">${esc(todayStr)}</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px">
+      <div style="padding:14px 16px;background:#f9fafb;border-radius:8px;border:1px solid #d1d5db">
+        <div style="font-size:10px;color:#6b7280;font-weight:700;margin-bottom:8px;letter-spacing:0.5px;text-transform:uppercase">공급</div>
+        <div style="font-size:17px;font-weight:800;color:#1f2937;margin-bottom:6px;line-height:1.3">${esc(fc.name)}</div>
+        <div style="font-size:12px;color:#4b5563;line-height:1.7">${esc(fc.phone||'')}${fc.type?'<br>'+esc(fc.type):''}</div>
+      </div>
+      <div style="padding:14px 16px;background:#f9fafb;border-radius:8px;border:1px solid #d1d5db">
+        <div style="font-size:10px;color:#6b7280;font-weight:700;margin-bottom:8px;letter-spacing:0.5px;text-transform:uppercase">출고처</div>
+        <div style="font-size:17px;font-weight:800;color:#1f2937;margin-bottom:6px;line-height:1.3">${esc(brandNm||companies[curCoId]?.name||'')}</div>
+        <div style="font-size:12px;color:#4b5563;line-height:1.7">${esc(itemNames)}</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#9ca3af;margin-bottom:8px;padding:0 2px">통합 출고 ${allRows.filter(r=>r.kind==='cost').length}건 · ${items.length}개 아이템</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+      <thead><tr style="background:#e5e7eb">
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:80px">출고일</th>
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151">품목</th>
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">컬러</th>
+        <th style="padding:11px 12px;text-align:center;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:55px">수량</th>
+        <th style="padding:11px 12px;text-align:right;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">단가</th>
+        <th style="padding:11px 12px;text-align:right;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:110px">금액</th>
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <div style="padding:0 12px;margin-top:18px">
+      <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px"><span style="color:#374151;font-weight:600">공급가액</span><span style="color:#1f2937;font-weight:700;font-size:14px">${num(costSum)}원</span></div>
+      <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px"><span style="color:#374151;font-weight:600">부가세 (${vatRate}%)</span><span style="color:#1f2937;font-weight:700;font-size:14px">${num(vat)}원</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:16px 14px;border-top:3px solid #1f2937;background:#f3f4f6;border-radius:0 0 6px 6px;margin-left:-12px;margin-right:-12px">
+        <span style="font-size:15px;color:#111827;font-weight:800">합계 <span style="display:inline-block;padding:3px 9px;background:#1f2937;color:#fff;border-radius:100px;font-size:10px;font-weight:700;margin-left:8px">VAT 포함</span></span>
+        <span style="font-size:24px;font-weight:800;color:#111827;letter-spacing:-0.5px">${num(total)}원</span>
+      </div>
+    </div>
+    ${fc.bank?`<div style="margin-top:22px;padding:14px 16px;background:#f3f4f6;border-radius:8px;border:1px solid #d1d5db;text-align:center;font-size:12px;color:#374151"><div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">입금 계좌</div><div style="font-size:14px;font-weight:700;color:#111827">${esc(fc.bank)}</div></div>`:''}
+  </div>`;
+  return {hasRows:true,innerHtml:inner,name:fc.name+(brandNm?' · '+brandNm:''),total:total};
 }
 // 아이템 × 공장 거래명세서 HTML 생성 (mockup-receipt v6 디자인)
 function buildItemReceiptHTML(oid,fcId,itemId){
