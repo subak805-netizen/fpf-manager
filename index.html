@@ -8473,6 +8473,10 @@ function setFcGrid(oid,fcId,itemId,type,colorEnc,sz,val){
   // 합계 업데이트
   sch.cuttingQty=Object.values(sch.cuttingGrid||{}).reduce((t,ig)=>t+Object.values(ig).reduce((s,cg)=>s+Object.values(cg).reduce((a,v)=>a+(+v||0),0),0),0);
   recomputeShipping(sch);
+  // ★ 양방향 동기화: cuttingGrid → cuttingShipments (대시보드 표시 동기화)
+  if(type==='cut'&&typeof pdSyncCuttingGridToShipments==='function'){
+    pdSyncCuttingGridToShipments(sch,itemId);
+  }
   saveData();
   // DOM 컬러 합계 즉시 업데이트
   const sizes=Object.keys(sch[gridKey]?.[itemId]?.[cn]||{});
@@ -9829,10 +9833,53 @@ function pdQtySave(){
   // 이 아이템의 기존 회차 제거 + 새 회차 추가
   const others=sch[ctx.recsKey].filter(r=>r&&r.itemId&&r.itemId!==ctx.itemId);
   sch[ctx.recsKey]=others.concat(newRecs);
+  // ★ 양방향 동기화: 재단/출고 회차 → 그리드 derive
+  if(ctx.recsKey==='cuttingShipments'){
+    pdSyncCuttingShipmentsToGrid(sch);
+  }else if(ctx.recsKey==='shipments'){
+    if(typeof recomputeShipping==='function')recomputeShipping(sch);
+  }
   saveData();
   closeGenericModal();
   showToast('✓ '+ctx.role+' 회차 저장됨');
   if(typeof renderProdDash==='function')renderProdDash();
+  // 오더관리 탭이 열려 있으면 그리드도 갱신
+  if(activeTab==='orders'&&typeof renderOrderPane==='function'){try{renderOrderPane();}catch(e){}}
+}
+// cuttingShipments(회차 단일 원천) → cuttingGrid 재계산
+function pdSyncCuttingShipmentsToGrid(sch){
+  if(!sch)return;
+  const grid={};let total=0;
+  (sch.cuttingShipments||[]).forEach(r=>{
+    if(!r)return;
+    const q=+r.qty||0;if(q<=0)return;
+    const iid=r.itemId||'';if(!iid)return;
+    const c=r.color||'',sz=r.size||'';
+    if(!grid[iid])grid[iid]={};
+    if(!grid[iid][c])grid[iid][c]={};
+    grid[iid][c][sz]=(grid[iid][c][sz]||0)+q;
+    total+=q;
+  });
+  sch.cuttingGrid=grid;
+  sch.cuttingQty=total;
+}
+// cuttingGrid(셀 편집) → cuttingShipments 동기화 (해당 itemId만 manual 회차로 교체)
+function pdSyncCuttingGridToShipments(sch,itemId){
+  if(!sch||!itemId)return;
+  if(!Array.isArray(sch.cuttingShipments))sch.cuttingShipments=[];
+  // 이 itemId의 기존 회차 제거
+  sch.cuttingShipments=sch.cuttingShipments.filter(r=>!r||r.itemId!==itemId);
+  // cuttingGrid[itemId]를 회차로 펼침 (날짜는 sch.cuttingDate 또는 빈값)
+  const cg=(sch.cuttingGrid&&sch.cuttingGrid[itemId])||{};
+  const defDate=sch.cuttingDate||'';
+  Object.entries(cg).forEach(([c,szs])=>{
+    Object.entries(szs||{}).forEach(([sz,v])=>{
+      const q=+v||0;
+      if(q>0){
+        sch.cuttingShipments.push({id:(typeof uid==='function'?uid():'cs'+Date.now()+Math.random()),date:defDate,color:c,size:sz,qty:q,memo:'',itemId:itemId});
+      }
+    });
+  });
 }
 function pdScrollToBrand(btnOrBid){
   // 호환성 위해 유지하되 필터링 동작으로 변경
