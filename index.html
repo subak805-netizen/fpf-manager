@@ -261,6 +261,10 @@ input[type=number]{-moz-appearance:textfield;}
 .pd-summary .line .colors{color:#4b5563;}
 .pd-summary .line .slash{color:#9ca3af;margin:0 4px;}
 .pd-summary .line .total{color:#333;font-weight:600;margin-left:4px;}
+.pd-summary .subline{font-size:12px;color:#6b7280;padding-left:18px;line-height:1.6;margin:-2px 0 2px;letter-spacing:-.1px;}
+.pd-summary .subline .sg{display:inline-block;margin-right:10px;white-space:nowrap;}
+.pd-summary .subline .sg .c{color:#4b5563;font-weight:600;margin-right:3px;}
+.pd-summary .subline .sg .sz{color:#6b7280;}
 .pd-proc{width:130px;min-width:130px;}
 .pd-proc-name{font-size:11px;font-weight:600;color:#333;margin-bottom:6px;display:block;}
 .pd-proc-input{width:100%;padding:4px 7px;font-size:11px;border:1px solid #e5e7eb;border-radius:5px;background:#fff;color:#333;font-family:inherit;margin-bottom:4px;}
@@ -9363,31 +9367,37 @@ function renderProdDash(){
           dday=Math.ceil((etaDate-todayDate)/(1000*60*60*24));
         }catch(e){}
       }
-      // 오더수량
+      // 오더수량 (컬러 합계 + 컬러×사이즈 그리드)
       const colors=it.colors&&it.colors.length?it.colors:[''];
       const sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
-      let orderTotal=0;const orderColors={};
+      let orderTotal=0;const orderColors={};const orderSizeGrid={};
       colors.forEach(c=>{
-        let cTot=0;
-        sizes.forEach(sz=>{cTot+=+oi.qtyGrid?.[c]?.[sz]||0;});
-        if(cTot>0){orderColors[c]=cTot;orderTotal+=cTot;}
+        let cTot=0;const szs={};
+        sizes.forEach(sz=>{
+          const q=+oi.qtyGrid?.[c]?.[sz]||0;
+          if(q>0){szs[sz]=q;cTot+=q;}
+        });
+        if(cTot>0){orderColors[c]=cTot;orderTotal+=cTot;orderSizeGrid[c]=szs;}
       });
       if(!orderTotal)continue;
-      // 출고 수량
-      let shipTotal=0;const shipColors={};const shipDates=[];
+      // 출고 수량 (컬러 합계 + 컬러×사이즈 그리드)
+      let shipTotal=0;const shipColors={};const shipDates=[];const shipSizeGrid={};
       if(sewSch&&sewSch.shipments){
         sewSch.shipments.forEach(s=>{
           if(!s||!+s.qty)return;
           if(s.itemId&&s.itemId!==oi.itemId)return;
           if(!s.itemId&&o.orderItems.length>1)return;
-          shipTotal+=(+s.qty||0);
-          const c=s.color||'';
-          shipColors[c]=(shipColors[c]||0)+(+s.qty||0);
+          const q=+s.qty||0;
+          shipTotal+=q;
+          const c=s.color||'';const sz=s.size||'';
+          shipColors[c]=(shipColors[c]||0)+q;
+          if(!shipSizeGrid[c])shipSizeGrid[c]={};
+          shipSizeGrid[c][sz]=(shipSizeGrid[c][sz]||0)+q;
           if(s.date)shipDates.push(s.date);
         });
       }
       shipDates.sort((a,b)=>cmpDate(a).localeCompare(cmpDate(b)));
-      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,shipTotal,shipColors,shipDates,brandId:it.brandId||''});
+      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,shipTotal,shipColors,shipSizeGrid,shipDates,brandId:it.brandId||''});
     }
   }
   if(!rows.length){
@@ -9511,6 +9521,15 @@ function pdShipQty(sch,itemId,isSingleOrder){
 }
 function renderProdDashRow(r){
   const colorStr=(co)=>Object.entries(co).filter(([k,v])=>v>0).map(([k,v])=>(k||'')+v).join(' ');
+  // 컬러별 사이즈 분해: "아이 S5·M10·L15  블랙 S8·M15·L17"
+  const sizeStr=(grid)=>{
+    const parts=[];
+    Object.entries(grid||{}).forEach(([c,szs])=>{
+      const szParts=Object.entries(szs||{}).filter(([sz,v])=>+v>0).map(([sz,v])=>`<span class="sz">${esc(sz)}${v}</span>`);
+      if(szParts.length)parts.push(`<span class="sg"><span class="c">${esc(c||'-')}</span>${szParts.join('·')}</span>`);
+    });
+    return parts.join('');
+  };
   // 디데이 태그
   let ddayHtml='';
   if(r.dday===null){
@@ -9531,7 +9550,8 @@ function renderProdDashRow(r){
     const uniqueDates=Array.from(new Set(r.shipDates));
     const dateStr=uniqueDates.map(d=>typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d).join(' · ');
     const csStr=colorStr(r.shipColors);
-    shipLineHtml=`<div class="line"><span class="bullet">*</span><span class="lbl">출고일</span><span>${esc(dateStr)}</span>${csStr?'<span class="colors">'+esc(csStr)+'</span>':''}<span class="slash">/</span><span class="total">총${r.shipTotal}장</span></div>`;
+    const shipSizeHtml=sizeStr(r.shipSizeGrid);
+    shipLineHtml=`<div class="line"><span class="bullet">*</span><span class="lbl">출고일</span><span>${esc(dateStr)}</span>${csStr?'<span class="colors">'+esc(csStr)+'</span>':''}<span class="slash">/</span><span class="total">총${r.shipTotal}장</span></div>${shipSizeHtml?'<div class="subline">'+shipSizeHtml+'</div>':''}`;
   }else{
     const eta=r.sewSch?(r.sewSch.shippingDate||r.sewSch.shipExpectedDate):'';
     if(eta){
@@ -9601,6 +9621,7 @@ function renderProdDashRow(r){
     <td class="pd-summary">
       <div class="title">${ddayHtml}<span class="brand">${esc(brandNm)}</span>${code?'<span class="code">'+esc(code)+'</span>':''}<span>${esc(r.it.name)}</span></div>
       <div class="line"><span class="bullet">*</span><span class="lbl">오더일</span><span>${esc(orderDateStr)}</span><span class="colors">${esc(colorStr(r.orderColors))}</span><span class="slash">/</span><span class="total">총${r.orderTotal}장</span></div>
+      ${(function(){const s=sizeStr(r.orderSizeGrid);return s?'<div class="subline">'+s+'</div>':'';})()}
       ${shipLineHtml}
     </td>
     ${prepCell('fab',fabSup,'입고완료')}
