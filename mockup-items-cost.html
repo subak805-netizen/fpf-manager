@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>아이템 + 원가계산서 통합 시안</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  button, input, select, textarea { font-family: inherit; }
+  body {
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+    background: #fafbfc; color: #333; margin: 0; padding: 20px;
+    line-height: 1.5; font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.2px;
+  }
+  .container { max-width: 1500px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 700; letter-spacing: -0.4px; }
+  .sub { color: #6b7280; font-size: 13px; margin: 0 0 22px; }
+
+  .info-box {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e40af;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 12px;
+    margin-bottom: 16px;
+    line-height: 1.7;
+  }
+
+  /* 메인 레이아웃: 좌측 리스트 + 우측 원가 */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  /* 좌측 아이템 리스트 */
+  .list-pane {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03);
+    overflow: hidden;
+    align-self: start;
+  }
+  .list-head {
+    padding: 12px 14px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .list-head .title {
+    font-size: 13px; font-weight: 700; color: #333;
+    margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .list-head .title .add {
+    padding: 4px 10px;
+    background: #1f2937;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .list-head .search {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #333;
+  }
+  .list-head .filters {
+    display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap;
+  }
+  .list-head .filter-chip {
+    padding: 3px 10px;
+    border-radius: 100px;
+    background: transparent;
+    border: 1px solid #e5e7eb;
+    font-size: 10px;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+  }
+  .list-head .filter-chip.on {
+    background: #1f2937;
+    color: #fff;
+    border-color: #1f2937;
+  }
+
+  .item-row {
+    padding: 11px 14px;
+    border-bottom: 1px solid #f3f4f6;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .item-row:hover { background: #fafbfc; }
+  .item-row.active { background: #f0f9ff; border-left: 3px solid #0284c7; padding-left: 11px; }
+  .item-row .top {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;
+  }
+  .item-row .brand {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 100px;
+  }
+  .item-row .brand.aruod { background: #ede9fe; color: #6d28d9; }
+  .item-row .brand.tf { background: #fef3c7; color: #b45309; }
+  .item-row .brand.lb { background: #d1fae5; color: #047857; }
+  .item-row .code {
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #333;
+    background: #f3f4f6;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .item-row .name {
+    font-size: 13px;
+    font-weight: 700;
+    color: #333;
+    letter-spacing: -0.2px;
+  }
+  .item-row .cost-mini {
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 4px;
+  }
+  .item-row .cost-mini .price {
+    color: #1f2937; font-weight: 700;
+  }
+
+  /* 우측 원가 패널 */
+  .cost-pane {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03);
+    padding: 20px 22px;
+  }
+  .cost-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding-bottom: 14px;
+    margin-bottom: 18px;
+    border-bottom: 2px solid #374151;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .cost-head .title {
+    font-size: 17px; font-weight: 700; color: #333;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    letter-spacing: -0.3px;
+  }
+  .cost-head .title .brand-pill {
+    padding: 2px 10px;
+    border-radius: 100px;
+    font-size: 11px; font-weight: 700;
+  }
+  .cost-head .title .code-pill {
+    font-family: ui-monospace, monospace;
+    font-size: 12px; font-weight: 700; color: #333;
+    background: #f3f4f6;
+    padding: 2px 8px;
+    border-radius: 5px;
+  }
+  .cost-head .actions {
+    display: flex; gap: 6px;
+  }
+  .cost-head .actions button {
+    padding: 6px 12px;
+    background: #f3f4f6;
+    color: #374151;
+    border: none;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .cost-head .actions button.edit {
+    background: #1f2937; color: #fff;
+  }
+
+  /* 원가 섹션 */
+  .cost-section {
+    margin-bottom: 22px;
+  }
+  .cost-section .section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #333;
+    margin-bottom: 8px;
+    padding: 0 2px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .cost-section .section-title .add-mini {
+    padding: 3px 9px;
+    background: transparent;
+    border: 1px dashed #d1d5db;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+  }
+  .cost-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .cost-table th {
+    background: #f9fafb;
+    padding: 8px 10px;
+    font-weight: 700;
+    color: #4b5563;
+    font-size: 10px;
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+    letter-spacing: 0.2px;
+  }
+  .cost-table th.c { text-align: center; }
+  .cost-table th.r { text-align: right; }
+  .cost-table td {
+    padding: 7px 8px;
+    color: #333;
+    border-bottom: 1px solid #f3f4f6;
+    font-weight: 500;
+  }
+  .cost-table td.r { text-align: right; font-weight: 600; }
+  .cost-table td.c { text-align: center; }
+  .cost-table td input.inline-edit {
+    width: 100%;
+    padding: 5px 7px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    font-size: 12px;
+    color: #333;
+    font-family: inherit;
+    font-weight: 500;
+  }
+  .cost-table td input.inline-edit:hover { background: #f9fafb; }
+  .cost-table td input.inline-edit:focus { background: #fff; border-color: #1f2937; outline: none; font-weight: 600; }
+  .cost-table td input.inline-edit.qty { text-align: center; font-weight: 600; }
+  .cost-table td input.inline-edit.price { text-align: right; font-weight: 600; }
+  .cost-table td.subtotal { text-align: right; font-weight: 800; color: #1f2937; }
+
+  /* 합계 박스 */
+  .cost-total {
+    background: #f9fafb;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-top: 20px;
+  }
+  .cost-total .row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 6px 0;
+    font-size: 13px;
+  }
+  .cost-total .row .lbl {
+    color: #4b5563; font-weight: 600;
+  }
+  .cost-total .row .v {
+    color: #333; font-weight: 700;
+    font-size: 14px;
+  }
+  .cost-total .final {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 2px solid #374151;
+    align-items: center;
+  }
+  .cost-total .final .lbl {
+    font-size: 15px; color: #333; font-weight: 800;
+  }
+  .cost-total .final .v {
+    font-size: 22px; color: #333; font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .cost-total .per-piece {
+    font-size: 11px; color: #6b7280; margin-top: 4px;
+    text-align: right; font-weight: 500;
+  }
+
+  /* 빈 상태 */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #9ca3af;
+    font-size: 13px;
+  }
+
+  /* 디자인 노트 */
+  .design-note {
+    background: #fff;
+    padding: 20px 22px;
+    border-radius: 12px;
+    margin-top: 28px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .design-note h3 { margin: 0 0 12px; font-size: 14px; font-weight: 700; }
+  .design-note ul { margin: 0; padding-left: 20px; font-size: 12px; line-height: 1.9; color: #4b5563; }
+  .design-note ul li b { color: #333; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>📋 아이템 + 원가계산서 통합 시안</h1>
+  <p class="sub">탭 이동 없이 한 화면에서 아이템 리스트·원가 모두 확인·수정.</p>
+
+  <div class="info-box">
+    💡 좌측 아이템 클릭 → 우측에 원가계산서 즉시 표시. 항목 클릭해서 바로 수정. 별도 저장 없이 자동.
+  </div>
+
+  <div class="layout">
+    <!-- 좌측 아이템 리스트 -->
+    <div class="list-pane">
+      <div class="list-head">
+        <div class="title">
+          <span>📋 아이템 (12)</span>
+          <button class="add">＋ 추가</button>
+        </div>
+        <input class="search" placeholder="🔍 검색 (이름·품번·브랜드)">
+        <div class="filters">
+          <span class="filter-chip on">전체</span>
+          <span class="filter-chip">아루드</span>
+          <span class="filter-chip">더프루토</span>
+          <span class="filter-chip">리틀그로브</span>
+        </div>
+      </div>
+
+      <div class="item-row active">
+        <div class="top">
+          <span class="brand aruod">아루드</span>
+          <span class="code">AR2501</span>
+        </div>
+        <div class="name">로즈 원피스</div>
+        <div class="cost-mini">장당 <span class="price">93,210원</span></div>
+      </div>
+      <div class="item-row">
+        <div class="top">
+          <span class="brand aruod">아루드</span>
+          <span class="code">AR2502</span>
+        </div>
+        <div class="name">데님 스커트</div>
+        <div class="cost-mini">장당 <span class="price">68,400원</span></div>
+      </div>
+      <div class="item-row">
+        <div class="top">
+          <span class="brand tf">더프루토</span>
+          <span class="code">TF2502</span>
+        </div>
+        <div class="name">레터링 티셔츠</div>
+        <div class="cost-mini">장당 <span class="price">45,800원</span></div>
+      </div>
+      <div class="item-row">
+        <div class="top">
+          <span class="brand tf">더프루토</span>
+          <span class="code">TF2503</span>
+        </div>
+        <div class="name">크롭 스웨터</div>
+        <div class="cost-mini">장당 <span class="price">52,300원</span></div>
+      </div>
+      <div class="item-row">
+        <div class="top">
+          <span class="brand lb">리틀그로브</span>
+          <span class="code">LB2503</span>
+        </div>
+        <div class="name">데님 반바지</div>
+        <div class="cost-mini">장당 <span class="price">41,500원</span></div>
+      </div>
+      <div class="item-row">
+        <div class="top">
+          <span class="brand lb">리틀그로브</span>
+          <span class="code">LB2504</span>
+        </div>
+        <div class="name">린넨 자켓</div>
+        <div class="cost-mini">장당 <span class="price">87,200원</span></div>
+      </div>
+    </div>
+
+    <!-- 우측 원가계산서 -->
+    <div class="cost-pane">
+      <div class="cost-head">
+        <div class="title">
+          <span class="brand-pill" style="background:#ede9fe;color:#6d28d9">아루드</span>
+          <span class="code-pill">AR2501</span>
+          <span>로즈 원피스</span>
+        </div>
+        <div class="actions">
+          <button>✎ 아이템 편집</button>
+          <button>📋 복사</button>
+          <button class="edit">💾 저장</button>
+        </div>
+      </div>
+
+      <!-- 원단 -->
+      <div class="cost-section">
+        <div class="section-title">
+          <span>🧵 원단</span>
+          <button class="add-mini">+ 원단 추가</button>
+        </div>
+        <table class="cost-table">
+          <thead>
+            <tr>
+              <th>거래처</th>
+              <th>원단명</th>
+              <th>혼용률</th>
+              <th class="c">폭</th>
+              <th class="c">요척(yd)</th>
+              <th class="r">단가</th>
+              <th class="r">금액</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><input class="inline-edit" value="데일리텍스"></td>
+              <td><input class="inline-edit" value="새틴 60수"></td>
+              <td><input class="inline-edit" value="코튼 100%"></td>
+              <td class="c"><input class="inline-edit qty" value="58"></td>
+              <td class="c"><input class="inline-edit qty" value="2.5"></td>
+              <td class="r"><input class="inline-edit price" value="3,500"></td>
+              <td class="r subtotal">8,750원</td>
+            </tr>
+            <tr>
+              <td><input class="inline-edit" value="데일리텍스"></td>
+              <td><input class="inline-edit" value="안감 폴리"></td>
+              <td><input class="inline-edit" value="폴리 100%"></td>
+              <td class="c"><input class="inline-edit qty" value="58"></td>
+              <td class="c"><input class="inline-edit qty" value="2.2"></td>
+              <td class="r"><input class="inline-edit price" value="1,200"></td>
+              <td class="r subtotal">2,640원</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 부자재 -->
+      <div class="cost-section">
+        <div class="section-title">
+          <span>🪛 부자재</span>
+          <button class="add-mini">+ 부자재 추가</button>
+        </div>
+        <table class="cost-table">
+          <thead>
+            <tr>
+              <th>거래처</th>
+              <th>부자재명</th>
+              <th>규격</th>
+              <th>색상</th>
+              <th class="c">벌당</th>
+              <th class="r">단가</th>
+              <th class="r">금액</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><input class="inline-edit" value="메이드"></td>
+              <td><input class="inline-edit" value="단추"></td>
+              <td><input class="inline-edit" value="15mm"></td>
+              <td><input class="inline-edit" value="화이트"></td>
+              <td class="c"><input class="inline-edit qty" value="4"></td>
+              <td class="r"><input class="inline-edit price" value="250"></td>
+              <td class="r subtotal">1,000원</td>
+            </tr>
+            <tr>
+              <td><input class="inline-edit" value="메이드"></td>
+              <td><input class="inline-edit" value="지퍼"></td>
+              <td><input class="inline-edit" value="3호 12&quot;"></td>
+              <td><input class="inline-edit" value="블랙"></td>
+              <td class="c"><input class="inline-edit qty" value="1"></td>
+              <td class="r"><input class="inline-edit price" value="800"></td>
+              <td class="r subtotal">800원</td>
+            </tr>
+            <tr>
+              <td><input class="inline-edit" value="메이드"></td>
+              <td><input class="inline-edit" value="케어라벨"></td>
+              <td><input class="inline-edit" value="—"></td>
+              <td><input class="inline-edit" value="—"></td>
+              <td class="c"><input class="inline-edit qty" value="1"></td>
+              <td class="r"><input class="inline-edit price" value="120"></td>
+              <td class="r subtotal">120원</td>
+            </tr>
+            <tr>
+              <td><input class="inline-edit" value="메이드"></td>
+              <td><input class="inline-edit" value="메인라벨"></td>
+              <td><input class="inline-edit" value="—"></td>
+              <td><input class="inline-edit" value="—"></td>
+              <td class="c"><input class="inline-edit qty" value="1"></td>
+              <td class="r"><input class="inline-edit price" value="180"></td>
+              <td class="r subtotal">180원</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 가공비 -->
+      <div class="cost-section">
+        <div class="section-title">
+          <span>⚙️ 가공비 (장당)</span>
+        </div>
+        <table class="cost-table">
+          <thead>
+            <tr>
+              <th>공정</th>
+              <th>공장</th>
+              <th class="r">단가</th>
+              <th>공정</th>
+              <th>공장</th>
+              <th class="r">단가</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">공임 (봉제)</td>
+              <td><input class="inline-edit" value="아이케이"></td>
+              <td class="r"><input class="inline-edit price" value="25,000"></td>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">완성</td>
+              <td><input class="inline-edit" value="다산사 완성집"></td>
+              <td class="r"><input class="inline-edit price" value="4,000"></td>
+            </tr>
+            <tr>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">자수</td>
+              <td><input class="inline-edit" value="백제사"></td>
+              <td class="r"><input class="inline-edit price" value="700"></td>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">검품</td>
+              <td><input class="inline-edit" value="블루패킹"></td>
+              <td class="r"><input class="inline-edit price" value="0"></td>
+            </tr>
+            <tr>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">워싱</td>
+              <td><input class="inline-edit" value="—"></td>
+              <td class="r"><input class="inline-edit price" value="0"></td>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">나염</td>
+              <td><input class="inline-edit" value="—"></td>
+              <td class="r"><input class="inline-edit price" value="0"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 기타 -->
+      <div class="cost-section">
+        <div class="section-title">
+          <span>📦 기타 비용 (1회/벌당)</span>
+        </div>
+        <table class="cost-table">
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th class="r">단가</th>
+              <th>항목</th>
+              <th class="r">단가</th>
+              <th>항목</th>
+              <th class="r">단가</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">패턴비 (1회)</td>
+              <td class="r"><input class="inline-edit price" value="80,000"></td>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">샘플비 (1회)</td>
+              <td class="r"><input class="inline-edit price" value="25,000"></td>
+              <td style="color:#6b7280;font-weight:600;font-size:11px">1회 비용</td>
+              <td class="r"><input class="inline-edit price" value="10,000"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 합계 -->
+      <div class="cost-total">
+        <div class="row">
+          <span class="lbl">원단 합계</span>
+          <span class="v">11,390원</span>
+        </div>
+        <div class="row">
+          <span class="lbl">부자재 합계</span>
+          <span class="v">2,100원</span>
+        </div>
+        <div class="row">
+          <span class="lbl">가공비 합계</span>
+          <span class="v">29,700원</span>
+        </div>
+        <div class="row">
+          <span class="lbl">기타 비용 (47장 기준 분배)</span>
+          <span class="v">2,447원</span>
+        </div>
+        <div class="row final">
+          <span class="lbl">장당 원가</span>
+          <span class="v">45,637원</span>
+        </div>
+        <div class="per-piece">
+          기준 수량 47장 · 총 원가 2,144,939원
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 디자인 노트 -->
+  <div class="design-note">
+    <h3>📐 디자인 핵심</h3>
+    <ul>
+      <li><b>좌측 리스트</b>: 320px 폭, 검색·필터·아이템 카드. 카드에 장당 원가 미리보기.</li>
+      <li><b>우측 원가계산서</b>: 선택된 아이템의 원가. 헤더(브랜드·품번·아이템명) + 4섹션(원단·부자재·가공비·기타) + 합계.</li>
+      <li><b>인라인 편집</b>: 모든 값이 input. 클릭하면 바로 수정. 포커스 아웃 시 자동 저장.</li>
+      <li><b>탭 이동 X</b>: 아이템 선택과 원가 수정이 한 화면. 작업 흐름 빠름.</li>
+      <li><b>장당 원가 미리보기</b>: 좌측 카드에도 미리 표시 → 비교 빠름.</li>
+      <li><b>합계 자동</b>: 원단·부자재·가공비·기타 → 장당 원가 + 총 원가.</li>
+    </ul>
+  </div>
+
+  <div class="design-note">
+    <h3>🤔 동작 흐름 (비교)</h3>
+    <ul>
+      <li><b>기존</b>: 아이템 탭 → 원하는 아이템 클릭 → 편집 모달 → 비용 입력 → 닫기 → <b>원가계산서 탭</b>으로 이동 → 그 아이템 검색 → 확인</li>
+      <li><b>변경 후</b>: 아이템 탭에서 좌측 아이템 클릭 → 우측에 원가 즉시 표시 → 인라인 수정 → 끝</li>
+      <li><b>탭 이동·검색 반복 사라짐</b>. 작업 속도 2~3배 빠름.</li>
+    </ul>
+  </div>
+
+  <div style="text-align:center;color:#9ca3af;font-size:11px;margin-top:24px;padding:14px">
+    이 페이지는 mockup용 별도 미리보기예요. 실제 앱(index.html)은 그대로입니다.<br>
+    이대로 OK하시면 본 코드 반영 시작할게요.
+  </div>
+
+</div>
+</body>
+</html>
