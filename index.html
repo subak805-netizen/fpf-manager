@@ -9727,55 +9727,63 @@ function pdSavePrepDone(el){
   if(lbl){if(el.checked)lbl.classList.add('done');else lbl.classList.remove('done');}
 }
 // ===== 카톡 메시지 템플릿 =====
+// 컬러×사이즈 수량 + 총수량 분해 (모든 메시지 공통 사용)
+function pdQtyBreakdown(it,o){
+  if(!o||!o.orderItems)return {text:'',total:0};
+  const oi=o.orderItems.find(x=>x.itemId===it.id);
+  if(!oi)return {text:'',total:0};
+  const colors=(it.colors&&it.colors.length)?it.colors:[''];
+  const sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+  const lines=[];let total=0;
+  colors.forEach(c=>{
+    const parts=[];let sub=0;
+    sizes.forEach(sz=>{
+      const q=+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0;
+      if(q>0){parts.push(`${sz} ${q}`);sub+=q;}
+    });
+    if(sub>0){
+      const cLbl=c||'-';
+      lines.push(`· ${cLbl} — ${parts.join(' · ')} (${sub}장)`);
+      total+=sub;
+    }
+  });
+  return {text:lines.join('\n'),total:total};
+}
 function pdBuildFactoryMsg(role,it,o,sch,fcName){
   const itName=it.name||'';
-  const qty=(function(){
-    if(!o.orderItems)return 0;
-    const oi=o.orderItems.find(x=>x.itemId===it.id);if(!oi)return 0;
-    let t=0;
-    (it.colors&&it.colors.length?it.colors:['']).forEach(c=>
-      (it.sizes&&it.sizes.length?it.sizes:['free']).forEach(sz=>{t+=+oi.qtyGrid?.[c]?.[sz]||0;}));
-    return t;
-  })();
+  const bd=pdQtyBreakdown(it,o);
   const fmt=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
-  const colorStr=function(){
-    if(!o.orderItems)return '';
-    const oi=o.orderItems.find(x=>x.itemId===it.id);if(!oi)return '';
-    const parts=[];
-    (it.colors||[]).forEach(c=>{
-      let cs=0;(it.sizes||['free']).forEach(sz=>{cs+=+oi.qtyGrid?.[c]?.[sz]||0;});
-      if(cs>0)parts.push(c+' '+cs);
-    });
-    return parts.join('·');
-  }();
+  const block=bd.text?`${bd.text}\n총 ${bd.total}장`:`총 ${bd.total}장`;
   switch(role){
-    case 'fab':return `📦 원단 입고 안내드립니다.\n${itName} ${qty}장\n입고 예정 ${fmt(o._prep?.fabDate)||'미정'}\n수령 후 확인 부탁드립니다.`;
-    case 'trim':return `📦 부자재 입고 안내드립니다.\n${itName} ${qty}장\n입고 예정 ${fmt(o._prep?.trimDate)||'미정'}\n수령 후 확인 부탁드립니다.`;
-    case 'jisi':return `📋 작업지시서 전달드립니다.\n${itName} ${qty}장\n· ${colorStr}\n전달 ${fmt(o._prep?.jisiDate)||'미정'} · 확인 부탁드립니다.`;
-    case '재단':return `✂ 재단 의뢰드립니다.\n${itName} ${qty}장\n· ${colorStr}\n재단 ${fmt(sch?.cuttingDate)||'미정'}까지 부탁드립니다.`;
-    case '외주':return `🔧 외주 의뢰드립니다.\n${itName} ${qty}장\n완료 ${fmt(sch?.shippingDate)||'미정'}까지 부탁드립니다.`;
-    case '봉제':return `🪡 봉제 의뢰드립니다.\n${itName} ${qty}장\n· ${colorStr}\n완료 ${fmt(sch?.sewingCompleteDate)||'미정'}까지 부탁드립니다.`;
-    case '완성':return `🎯 완성 의뢰드립니다.\n${itName} ${qty}장\n완료 ${fmt(sch?.shippingDate)||'미정'}까지 부탁드립니다.`;
-    case '검품':return `🔍 검품 의뢰드립니다.\n${itName} ${qty}장\n완료 ${fmt(sch?.inspectionDate)||'미정'}까지 부탁드립니다.`;
-    case '출고':return `🚚 ${fmt(sch?.shipExpectedDate)||'예정일'} 출고 안내.\n${itName} ${qty}장\n출고 후 거래명세서 전송드릴게요.`;
-    default:return `${fcName} 안내드립니다.\n${itName} ${qty}장`;
+    case 'fab':return `📦 원단 입고 안내드립니다.\n${itName}\n${block}\n입고 예정 ${fmt(o._prep?.fabDate)||'미정'}\n수령 후 확인 부탁드립니다.`;
+    case 'trim':return `📦 부자재 입고 안내드립니다.\n${itName}\n${block}\n입고 예정 ${fmt(o._prep?.trimDate)||'미정'}\n수령 후 확인 부탁드립니다.`;
+    case 'jisi':return `📋 작업지시서 전달드립니다.\n${itName}\n${block}\n전달 ${fmt(o._prep?.jisiDate)||'미정'} · 확인 부탁드립니다.`;
+    case '재단':return `✂ 재단 의뢰드립니다.\n${itName}\n${block}\n재단 ${fmt(sch?.cuttingDate)||'미정'}까지 부탁드립니다.`;
+    case '외주':return `🔧 외주 의뢰드립니다.\n${itName}\n${block}\n완료 ${fmt(sch?.shippingDate)||'미정'}까지 부탁드립니다.`;
+    case '봉제':return `🪡 봉제 의뢰드립니다.\n${itName}\n${block}\n완료 ${fmt(sch?.sewingCompleteDate)||'미정'}까지 부탁드립니다.`;
+    case '완성':return `🎯 완성 의뢰드립니다.\n${itName}\n${block}\n완료 ${fmt(sch?.shippingDate)||'미정'}까지 부탁드립니다.`;
+    case '검품':return `🔍 검품 의뢰드립니다.\n${itName}\n${block}\n완료 ${fmt(sch?.inspectionDate)||'미정'}까지 부탁드립니다.`;
+    case '출고':return `🚚 ${fmt(sch?.shipExpectedDate)||'예정일'} 출고 안내.\n${itName}\n${block}\n출고 후 거래명세서 전송드릴게요.`;
+    default:return `${fcName} 안내드립니다.\n${itName}\n${block}`;
   }
 }
 function pdBuildBrandMsg(role,it,o,sch){
   const brandNm=it.brandId&&typeof getBrandName==='function'?(getBrandName(it.brandId)||''):'';
   const itName=it.name||'';
+  const bd=pdQtyBreakdown(it,o);
   const fmt=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
   const greeting=brandNm?`안녕하세요 ${brandNm}님.`:'안녕하세요.';
+  const block=bd.text?`${bd.text}\n총 ${bd.total}장`:`총 ${bd.total}장`;
   switch(role){
     case 'fab':case 'trim':case 'jisi':
-      return `${greeting}\n${itName} 진행 상황 안내드려요.\n· 원단 입고 ${fmt(o._prep?.fabDate)||'-'}\n· 부자재 입고 ${fmt(o._prep?.trimDate)||'-'}\n· 작지 전달 ${fmt(o._prep?.jisiDate)||'-'}`;
-    case '재단':return `${greeting}\n${itName} 재단 ${fmt(sch?.cuttingDate)||'예정'}\n진행 상황 공유드려요.`;
-    case '외주':return `${greeting}\n${itName} 외주 ${fmt(sch?.shippingDate)||'예정'}\n진행 상황 공유드려요.`;
-    case '봉제':return `${greeting}\n${itName} 봉제 ${fmt(sch?.sewingCompleteDate)||'예정'}\n진행 상황 공유드려요.`;
-    case '완성':return `${greeting}\n${itName} 완성 ${fmt(sch?.shippingDate)||'예정'}\n진행 상황 공유드려요.`;
-    case '검품':return `${greeting}\n${itName} 검품 ${fmt(sch?.inspectionDate)||'예정'}\n진행 상황 공유드려요.`;
-    case '출고':return `${greeting}\n🚚 ${itName} ${fmt(sch?.shipExpectedDate)||'예정일'} 출고 예정 안내드려요.`;
-    default:return `${greeting}\n${itName} 진행 안내드려요.`;
+      return `${greeting}\n${itName} 진행 상황 안내드려요.\n${block}\n· 원단 입고 ${fmt(o._prep?.fabDate)||'-'}\n· 부자재 입고 ${fmt(o._prep?.trimDate)||'-'}\n· 작지 전달 ${fmt(o._prep?.jisiDate)||'-'}`;
+    case '재단':return `${greeting}\n${itName} 재단 ${fmt(sch?.cuttingDate)||'예정'}\n${block}\n진행 상황 공유드려요.`;
+    case '외주':return `${greeting}\n${itName} 외주 ${fmt(sch?.shippingDate)||'예정'}\n${block}\n진행 상황 공유드려요.`;
+    case '봉제':return `${greeting}\n${itName} 봉제 ${fmt(sch?.sewingCompleteDate)||'예정'}\n${block}\n진행 상황 공유드려요.`;
+    case '완성':return `${greeting}\n${itName} 완성 ${fmt(sch?.shippingDate)||'예정'}\n${block}\n진행 상황 공유드려요.`;
+    case '검품':return `${greeting}\n${itName} 검품 ${fmt(sch?.inspectionDate)||'예정'}\n${block}\n진행 상황 공유드려요.`;
+    case '출고':return `${greeting}\n🚚 ${itName} ${fmt(sch?.shipExpectedDate)||'예정일'} 출고 예정 안내드려요.\n${block}`;
+    default:return `${greeting}\n${itName} 진행 안내드려요.\n${block}`;
   }
 }
 function pdShowMsgPreview(msg,kind){
