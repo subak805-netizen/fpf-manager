@@ -575,10 +575,10 @@ tryInitFirebase();
   <button class="ntab" id="nt-items" onclick="switchTab('items')">아이템</button>
   <button class="ntab" id="nt-dash" onclick="switchTab('dash')">생산 대시보드</button>
   <button class="ntab" id="nt-orders" onclick="switchTab('orders')">오더 관리</button>
+  <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
   <button class="ntab" id="nt-board" onclick="switchTab('board')">샘플 진행보드</button>
   <button class="ntab" id="nt-sample" onclick="switchTab('sample')">샘플 발주</button>
   <button class="ntab" id="nt-defect" onclick="switchTab('defect')">불량 관리</button>
-  <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
   <button class="ntab" id="nt-analytics" onclick="switchTab('analytics')">분석</button>
   <!-- 공장관리·거래처단가장·잔량관리는 '오더 관리' 서브탭으로 통합됨 -->
   <!-- 원가계산서는 아이템 카드의 💰 원가 버튼으로 통합됨 -->
@@ -2662,37 +2662,49 @@ function fitAllAmounts(scope){
     if(w>avail&&avail>0){c.style.display='inline-block';c.style.transformOrigin='right center';c.style.transform=`scale(${Math.max(0.6,avail/w)})`;}
   });
 }
-// 드래그-스크롤: 휠은 가로 차단(세로만 페이지로) + 마우스 클릭+드래그로 가로 이동 (커서: grab→grabbing)
-function enableDragScroll(el){
-  if(!el||el._dragX)return;el._dragX=true;
-  let isDown=false,startX=0,startScroll=0,moved=false;
-  el.addEventListener('mousedown',e=>{
-    if(e.button!==0)return; // 좌클릭만
-    // 인터랙티브 요소 위에선 드래그 안 함
-    if(e.target.closest('button,input,select,textarea,a,label,.pd-chk,.pd-qty-btn'))return;
-    isDown=true;moved=false;startX=e.pageX;startScroll=el.scrollLeft;
-    el.classList.add('dragging');
-  });
-  el.addEventListener('mousemove',e=>{
-    if(!isDown)return;
-    const dx=e.pageX-startX;
-    if(Math.abs(dx)>2)moved=true;
-    el.scrollLeft=startScroll-dx;
+// ===== 가로 휠 차단 + 드래그-스크롤 (문서 레벨 위임 — innerHTML 교체에도 유지) =====
+// 1) 휠: 가로 스크롤 시도(deltaX>deltaY) 차단. 세로 휠은 자연 전파.
+(function(){
+  if(window._dragWheelInit)return;window._dragWheelInit=true;
+  document.addEventListener('wheel',function(e){
+    var wrap=e.target&&e.target.closest&&e.target.closest('.pd-table-wrap,.prod-wrap');
+    if(!wrap)return;
+    if(e.deltaX===0)return; // 순수 세로 휠 → 자연 전파
+    // 가로 성분이 조금이라도 있으면 차단, 세로 성분만 부모 패널로 수동 전달
     e.preventDefault();
+    if(e.deltaY!==0){
+      var panel=wrap.closest('.panel');
+      if(panel)panel.scrollTop+=e.deltaY;
+    }
+  },{passive:false,capture:true});
+  // 2) 드래그-스크롤 상태 (문서 레벨)
+  var st={el:null,startX:0,startScroll:0,moved:false};
+  document.addEventListener('mousedown',function(e){
+    if(e.button!==0)return;
+    var wrap=e.target&&e.target.closest&&e.target.closest('.pd-table-wrap,.prod-wrap');
+    if(!wrap)return;
+    if(e.target.closest('button,input,select,textarea,a,label,.pd-chk,.pd-qty-btn'))return;
+    st.el=wrap;st.startX=e.pageX;st.startScroll=wrap.scrollLeft;st.moved=false;
+    wrap.classList.add('dragging');
+  },true);
+  document.addEventListener('mousemove',function(e){
+    if(!st.el)return;
+    var dx=e.pageX-st.startX;
+    if(Math.abs(dx)>2)st.moved=true;
+    st.el.scrollLeft=st.startScroll-dx;
+    if(st.moved)e.preventDefault();
   });
-  const end=()=>{if(isDown){isDown=false;el.classList.remove('dragging');}};
-  el.addEventListener('mouseup',end);
-  el.addEventListener('mouseleave',end);
-  // 드래그 직후 발생하는 클릭(텍스트 선택 등) 막기
-  el.addEventListener('click',e=>{if(moved){e.preventDefault();e.stopPropagation();moved=false;}},true);
-  // 휠: 가로 시도 차단, 세로 휠은 페이지로 전파
-  el.addEventListener('wheel',e=>{
-    if(Math.abs(e.deltaX)>Math.abs(e.deltaY)){e.preventDefault();}
-  },{passive:false});
-}
-function setupDragScrollers(){
-  document.querySelectorAll('.pd-table-wrap,.prod-wrap').forEach(enableDragScroll);
-}
+  function end(){if(st.el){st.el.classList.remove('dragging');st.el=null;}}
+  document.addEventListener('mouseup',end);
+  document.addEventListener('mouseleave',end);
+  // 드래그 직후 클릭 차단
+  document.addEventListener('click',function(e){
+    if(st.moved){e.preventDefault();e.stopPropagation();st.moved=false;}
+  },true);
+})();
+// 호환용: 기존 호출을 막지 않게 빈 함수 유지
+function enableDragScroll(){}
+function setupDragScrollers(){}
 function render(){try{if(!window._nim){window._nim=1;try{new MutationObserver(function(ms){ms.forEach(function(m){(m.addedNodes||[]).forEach(function(n){if(n&&n.querySelectorAll){n.querySelectorAll('input[type=number]:not([inputmode])').forEach(function(i){i.setAttribute('inputmode','decimal');});setupDragScrollers();}});});}).observe(document.body,{childList:true,subtree:true});document.querySelectorAll('input[type=number]:not([inputmode])').forEach(function(i){i.setAttribute('inputmode','decimal');});}catch(e){}}renderItemsList();renderCSDropdown();switchTab(activeTab);setupDragScrollers();}catch(e){console.error('render error',e);}}
 
 /* ===== FACTORIES ===== */
