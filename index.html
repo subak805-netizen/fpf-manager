@@ -17184,11 +17184,32 @@ function toggleTaskManual(id){
 function openTaskNext(id){
   var t=getTasks().find(function(x){return x.id===id;});if(!t)return;
   var presets=['소통중','소통완료','발주','공장입고','도착','출고예정'];
+  var allItems=Object.values(S.items||{});
+  var brandItems=t.brandId?allItems.filter(function(i){return i.brandId===t.brandId;}):allItems;
+  var pbSups=Object.keys(S.priceBook||{}).sort(function(a,b){return a.localeCompare(b,'ko');});
   var h='<div class="fb" style="margin-bottom:10px"><b>🔗 다음 할 일 잇기</b><button class="btn s" onclick="closeModal(\'task-next-modal\')">✕</button></div>';
   h+='<div style="font-size:11px;color:var(--t2);margin-bottom:3px">방금 끝낸 일</div><div style="font-weight:600;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border-radius:6px">✓ '+esc(t.name)+'</div>';
   h+='<div style="font-size:12px;font-weight:600;margin-bottom:6px">다음 할 일이 있나요? <span class="muted" style="font-weight:400">(없으면 끝내기)</span></div>';
-  h+='<div class="fr" style="gap:5px;flex-wrap:wrap;margin-bottom:8px">'+presets.map(function(p){return '<button class="btn s" type="button" onclick="taskNextContinue(\''+id+'\',\''+p+'\')" style="background:#eef2ff;color:#4338ca;border-color:#c7d2fe">'+p+'</button>';}).join('')+'</div>';
-  h+='<div class="fr" style="gap:6px;margin-bottom:14px"><input id="task-next-input" placeholder="다음 할 일 직접 입력…" style="flex:1" onkeydown="if(event.key===\'Enter\')taskNextContinue(\''+id+'\')"><button class="btn p" type="button" onclick="taskNextContinue(\''+id+'\')">이어가기</button></div>';
+  // 빠른 프리셋
+  h+='<div class="fr" style="gap:5px;flex-wrap:wrap;margin-bottom:10px">'+presets.map(function(p){return '<button class="btn s" type="button" onclick="taskNextContinue(\''+id+'\',\''+p+'\')" style="background:#eef2ff;color:#4338ca;border-color:#c7d2fe">'+p+'</button>';}).join('')+'</div>';
+  // 직접 입력
+  h+='<div class="fr" style="gap:6px;margin-bottom:10px"><input id="task-next-input" placeholder="다음 할 일 직접 입력…" style="flex:1" onkeydown="if(event.key===\'Enter\')taskNextContinue(\''+id+'\')"><button class="btn p" type="button" onclick="taskNextContinue(\''+id+'\')">이어가기</button></div>';
+  // 상세: 아이템 / 업체 / 픽업 / 우선순위 (기존 값 자동 채움 → 그대로 이어받거나 바꿀 수 있음)
+  h+='<div style="margin-bottom:12px;padding:10px 12px;background:#fafafa;border:1px solid #e5e7eb;border-radius:6px">';
+  h+='<div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:6px">상세 (그대로 이어받거나 바꿀 수 있어요)</div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">';
+  // 아이템
+  h+='<div><label style="font-size:10px;color:#9ca3af;display:block;margin-bottom:2px">아이템</label><select id="task-next-item" style="width:100%;font-size:12px;padding:6px 8px"><option value="">— 없음 —</option>'+brandItems.map(function(it){return '<option value="'+it.id+'" '+(it.id===t.itemId?'selected':'')+'>'+esc(it.name)+(it.code?' ('+esc(it.code)+')':'')+'</option>';}).join('')+'</select></div>';
+  // 업체
+  h+='<div><label style="font-size:10px;color:#9ca3af;display:block;margin-bottom:2px">업체</label><input id="task-next-sup" list="dl-task-next-sup" value="'+esc(t.supplierName||'')+'" placeholder="단가장에서 자동" style="width:100%;font-size:12px;padding:6px 8px"><datalist id="dl-task-next-sup">'+pbSups.map(function(s){return '<option value="'+esc(s)+'">';}).join('')+'</datalist></div>';
+  h+='</div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+  // 픽업
+  h+='<div><label style="font-size:10px;color:#9ca3af;display:block;margin-bottom:2px">픽업</label><select id="task-next-loc" style="width:100%;font-size:12px;padding:6px 8px">'+TASK_LOCATIONS.map(function(l){return '<option value="'+l.key+'"'+((t.location||'')===l.key?' selected':'')+'>'+(l.key?esc(l.label):'미지정')+'</option>';}).join('')+'</select></div>';
+  // 언제 (우선순위)
+  h+='<div><label style="font-size:10px;color:#9ca3af;display:block;margin-bottom:2px">언제</label><select id="task-next-pri" style="width:100%;font-size:12px;padding:6px 8px">'+TASK_PRIORITIES.map(function(p){var cur=t.priority||'today';var lbl=String(p.label||'').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}🔴🟠🟡🔵🟢]/gu,'').trim();return '<option value="'+p.key+'"'+(p.key===cur?' selected':'')+'>'+esc(lbl)+'</option>';}).join('')+'</select></div>';
+  h+='</div>';
+  h+='</div>';
   h+='<div class="fr" style="justify-content:space-between"><button class="btn" type="button" onclick="closeModal(\'task-next-modal\')">취소</button><button class="btn ok" type="button" onclick="taskNextDone(\''+id+'\')">✓ 다음 없음 · 완료(끝)</button></div>';
   document.getElementById('task-next-body').innerHTML=h;
   document.getElementById('task-next-modal').style.display='flex';
@@ -17201,6 +17222,15 @@ function taskNextContinue(id,preset){
   if(!t.history)t.history=[];
   t.history.push({text:t.name,doneAt:today()});
   t.name=next;t.done=false;t.doneAt='';
+  // 상세 필드 읽기 (있으면 적용)
+  var itEl=document.getElementById('task-next-item');
+  var supEl=document.getElementById('task-next-sup');
+  var locEl=document.getElementById('task-next-loc');
+  var priEl=document.getElementById('task-next-pri');
+  if(itEl){t.itemId=itEl.value||'';if(t.itemId&&S.items[t.itemId])t.brandId=S.items[t.itemId].brandId||t.brandId;}
+  if(supEl)t.supplierName=(supEl.value||'').trim();
+  if(locEl)t.location=locEl.value||'';
+  if(priEl)t.priority=priEl.value||t.priority||'today';
   saveData();closeModal('task-next-modal');renderTasksPane();
   showToast('🔗 이어졌어요 → '+next);
 }
