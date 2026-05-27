@@ -9141,44 +9141,6 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
     +(fc.bank?'<div style="margin-top:14px;padding:10px;background:#e8f4ff;border-radius:5px;font-size:12px;text-align:center"><b>입금 계좌</b><br>'+esc(fc.bank)+'</div>':'');
   return {hasRows:true,innerHtml:inner,name:(fc.name||entityName),total:tTotal};
 }
-function downloadPayGroupReceipt(entityId,entityName,entityType){
-  var r=buildPayReceiptHTML(entityId,entityName,entityType);
-  if(!r||!r.hasRows){showToast('표시할 항목이 없어요');return;}
-  var rid='receipt-body-'+Date.now();
-  var nm=(r.name||'').replace(/['"\\]/g,'');
-  var modalHtml='<div id="'+rid+'" style="background:#fff;padding:16px;color:#000">'+r.innerHtml+'</div>';
-  var actions='<div class="fr" style="gap:8px;margin-top:14px;justify-content:flex-end;border-top:1px solid var(--bd);padding-top:12px"><button class="btn" onclick="closeGenericModal()">닫기</button><button class="btn p" onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')">📷 이미지 저장</button></div>';
-  showGenericModal('📋 거래 명세서',modalHtml+actions);
-}
-
-async function savePayReceiptImage(elId,name){
-  try{
-    if(typeof html2canvas==='undefined'){
-      await new Promise(function(resolve){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=resolve;document.head.appendChild(s);});
-    }
-    var el=document.getElementById(elId);if(!el){showToast('오류');return;}
-    var canvas=await html2canvas(el,{scale:2,backgroundColor:'#fff'});
-    var a=document.createElement('a');
-    a.download='거래명세서_'+name+'_'+todayISO()+'.png';
-    a.href=canvas.toDataURL('image/png');
-    a.click();
-    showToast('🖼 거래명세서 저장 완료');
-  }catch(e){showToast('이미지 저장 실패: '+e.message);}
-}
-
-async function savePaySheetImage(elId,name){
-  try{
-    const el=document.getElementById(elId);if(!el){showToast('오류: 요소 없음');return;}
-    if(typeof html2canvas==='undefined'){
-      showToast('이미지 저장 준비 중...');
-      await new Promise(r=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=r;document.head.appendChild(s);});
-    }
-    const canvas=await html2canvas(el,{backgroundColor:'#ffffff',scale:2});
-    const a=document.createElement('a');a.download=`결제서_${name}_${todayISO()}.png`;a.href=canvas.toDataURL('image/png');a.click();
-    showToast('✅ 이미지 저장 완료');
-  }catch(e){showToast('이미지 저장 실패: '+e.message);}
-}
-
 function renderMemoTab(o){
   return`<div class="fg"><label>오더 메모 (내부용)</label><textarea id="o-memo" rows="8" placeholder="공장 연락 내용, 특이사항, 리마인더 등...">${esc(o.notes||'')}</textarea></div>
   <button class="btn p s" onclick="S.orders['${o.id}'].notes=document.getElementById('o-memo').value;saveData();showToast('메모 저장 완료')">✓ 저장</button>`;
@@ -11179,6 +11141,21 @@ function ipCopyReceipt(btn){
 function ipSaveReceipt(btn){
   if(typeof savePayReceiptImage==='function')savePayReceiptImage(btn.dataset.target,btn.dataset.name);
 }
+// 명세서 카카오톡 공유 — navigator.share(폰) 또는 클립보드(데스크탑)
+function ipKakaoShare(btn){
+  const el=document.getElementById(btn.dataset.target);
+  if(!el){showToast('명세서를 찾을 수 없어요');return;}
+  const txt=el.innerText;
+  if(navigator.share){
+    navigator.share({title:'거래명세서',text:txt}).catch(function(){
+      if(navigator.clipboard)navigator.clipboard.writeText(txt).then(()=>showToast('📋 복사됨! 카톡에 붙여넣어주세요',3500));
+    });
+  }else if(navigator.clipboard){
+    navigator.clipboard.writeText(txt).then(()=>showToast('📋 복사됨! 카톡에 붙여넣어주세요',3500));
+  }else{
+    showToast('카톡 공유 안 됨 — 이미지 저장 후 카톡에 첨부해주세요',3500);
+  }
+}
 // 아이템 선택 (체크박스)
 window._ipSelected=window._ipSelected||{};
 function ipToggleSelect(chk){
@@ -11222,6 +11199,7 @@ function ipOpenBatchReceipt(){
       +`<div id="${rid}" style="max-width:680px;margin:0 auto">${r.innerHtml}</div>`
       +`<div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end">`
       +`<button data-target="${rid}" onclick="ipCopyReceipt(this)" style="padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:600">복사</button>`
+      +`<button data-target="${rid}" onclick="ipKakaoShare(this)" style="padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:none;background:#fee500;color:#3c1e1e;font-weight:700">💬 카카오톡</button>`
       +`<button data-target="${rid}" data-name="${esc(nm)}" onclick="ipSaveReceipt(this)" style="padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:none;background:#1f2937;color:#fff;font-weight:700">이미지 저장</button>`
       +`</div></div>`;
   });
@@ -11506,300 +11484,15 @@ function openItemReceiptModal(oid,fcId,itemId){
   const txt=(typeof buildReceiptText==='function')?buildReceiptText(oid,fcId,itemId):'';
   const modalHtml='<div id="'+rid+'" style="max-width:680px;margin:0 auto">'+r.innerHtml+'</div>';
   const btnStyle='padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700';
+  const btnKakaoStyle='padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#fee500;color:#3c1e1e;font-weight:700';
   const btnPriStyle='padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#1f2937;color:#fff;font-weight:700';
   const actions='<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">'
     +'<button onclick="closeGenericModal()" style="'+btnStyle+'">닫기</button>'
     +'<button data-target="'+rid+'" onclick="ipCopyReceipt(this)" style="'+btnStyle+'">복사</button>'
+    +'<button data-target="'+rid+'" onclick="ipKakaoShare(this)" style="'+btnKakaoStyle+'">💬 카카오톡</button>'
     +'<button data-target="'+rid+'" data-name="'+esc(nm)+'" onclick="ipSaveReceipt(this)" style="'+btnPriStyle+'">이미지 저장</button>'
     +'</div>';
   showGenericModal('📄 거래명세서',modalHtml+actions);
-}
-function renderFcPay(){
-  const el=document.getElementById('pay-content');if(!el)return;
-  const fltFcId=document.getElementById('pay-fc-flt')?.value||'';
-  const fcMulti=window._payFcMulti||[];
-  const fltBrand=window._payBrandFlt||'';
-  const periodRange=getPayPeriodRange();
-  const byFc={};
-  for(const o of Object.values(S.orders)){
-    // 브랜드 필터: 오더의 아이템 중 해당 브랜드가 있어야 함
-    if(fltBrand){
-      const hasBrand=(o.orderItems||[]).some(oi=>S.items[oi.itemId]?.brandId===fltBrand);
-      if(!hasBrand)continue;
-    }
-    // 결제 대상 공장 = 스케줄 공장 ∪ 아이템에서 어느 공정에든 선택된 공장(비용 0이어도) ∪ payFees 있는 공장
-    // 비용 0이어도 공장만 선택되어 있으면 결제관리에 노출 (블루패킹: 공임 0이지만 박스비·택배비 추가하라고)
-    const _fcIds=new Set(Object.keys(o.factorySchedules||{}));
-    for(const _oi of(o.orderItems||[])){const _it=S.items[_oi.itemId];if(!_it)continue;for(const[_ck,,_fk]of COST_DEFS){if(_it[_fk])_fcIds.add(_it[_fk]);}}
-    // payFees가 있는 공장도 추가 (블루패킹 케이스: 공임 0이지만 택배비·박스비 있음)
-    Object.keys(o.payFees||{}).forEach(function(_pk){
-      if(!_pk.startsWith('fc_'))return;
-      var _ckList=COST_DEFS.map(function(d){return d[0];});
-      var _mck=_ckList.find(function(c){return _pk.endsWith('_'+c);});
-      if(!_mck)return;
-      var _fid=_pk.substring(3,_pk.length-1-_mck.length);
-      var _arr=o.payFees[_pk]||[];
-      if(_arr.some(function(f){return +payFeeAmt(f)>0;}))_fcIds.add(_fid);
-    });
-    for(const fcId of _fcIds){
-      const sch=o.factorySchedules?.[fcId]||{};
-      if(fltFcId&&fcId!==fltFcId)continue;
-      if(fcMulti.length&&fcMulti.indexOf(fcId)<0)continue;
-      const fc=S.factories[fcId]||{name:'(삭제됨)',type:''};
-      const fnm=`${fc.name}${fc.type?' ('+fc.type+')':''}`;
-      if(!byFc[fnm])byFc[fnm]=[];
-      // 가공비 (pcs당 단가 기반)
-      const isSewingFc=o.orderItems?.some(oi=>S.items[oi.itemId]?.sewingFcId===fcId);
-      // 봉제공장의 최종 출고수량 찾기 (자수/워싱 등 보조 공장 결제 기준)
-      let sewingShippedQty=0;
-      if(!isSewingFc){
-        for(const[sid,ssch]of Object.entries(o.factorySchedules||{})){
-          const isThisSewing=o.orderItems?.some(oi=>S.items[oi.itemId]?.sewingFcId===sid);
-          if(!isThisSewing)continue;
-          // 회차 기록(shipments) 우선, 없으면 shippingQty (fcShippedQty 로직과 동일)
-          sewingShippedQty+=(typeof fcShippedQty==='function'?fcShippedQty(ssch):((ssch.shippingQty||0)));
-          sewingShippedQty+=(ssch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
-        }
-      }
-      let _pushedAnyForFc=false;     // 이 공장에 정상 결제 행이 1개라도 만들어졌는지
-      let _fkMatchedAnyCk=false;      // 이 공장이 어느 공정에든 아이템에 선택됐는지
-      let _fcHasFees=false;           // 이 공장에 어떤 ck로든 payFees가 있는지
-      for(const[ck,lbl,fk]of COST_DEFS){
-        let base=0,dets=[];
-        // 이 공장의 총 출고수량: 회차기록(shipments) 우선, 없으면 shippingQty + extraShipments
-        const totalShipped=(typeof fcShippedQty==='function'?fcShippedQty(sch):((sch.shippingQty||0)))+(sch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
-        for(const oi of(o.orderItems||[])){
-          const it=S.items[oi.itemId];if(!it)continue;
-          if(it[fk]&&it[fk]!==fcId)continue;
-          if(!it[fk]&&Object.keys(o.factorySchedules).length>1)continue;
-          if(it[fk]===fcId)_fkMatchedAnyCk=true;
-          const r=it[ck]||0;if(!r)continue;
-          const sizes=it.sizes?.length?it.sizes:['free'];
-          const colors=it.colors?.length?it.colors:[''];
-          // 결제는 실제 출고 수량 기준만 사용 (오더 수량 폴백 X).
-          // 봉제: 이 공장 실제 출고. 후공정(자수·완성·검품 등): 봉제공장 실제 출고.
-          // 봉제 출고가 0이면 청구 없음 → 출고 후에만 결제 잡힘.
-          let qtyBasis;
-          if(isSewingFc){
-            qtyBasis=totalShipped;
-          }else{
-            qtyBasis=sewingShippedQty;
-          }
-          if(!qtyBasis)continue;
-          base+=r*qtyBasis;
-          const qtyLabel=(!isSewingFc)?`봉제출고 ${qtyBasis}pcs`:`출고 ${qtyBasis}pcs`;
-          dets.push(`${esc(it.name)} ${qtyLabel}×${num(r)}원`);
-        }
-        // payFees 합산 (박스비·택배비·운임)
-        const _feeKey='fc_'+fcId+'_'+ck;
-        const _fees=(o.payFees||{})[_feeKey]||[];
-        const _feeTot=_fees.reduce((s,f)=>s+payFeeAmt(f),0);
-        if(_feeTot>0){
-          _fcHasFees=true;
-          _fees.forEach(function(f){var amt=payFeeAmt(f);if(amt>0)dets.push('🚚 '+(f.name||'운임')+' '+num(amt)+'원');});
-          base+=_feeTot;
-        }
-        if(!base)continue;
-        // 기간 필터: 출고일 결정 (이 공장 → 봉제공장 → 빈)
-        // 결제관리는 실제 출고된 날짜만 사용 (출고예정일은 제외)
-        var shipDate=fcActualShipDate(sch)||'';
-        if(!shipDate){
-          for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
-            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd=fcActualShipDate(ss);if(_sd){shipDate=_sd;break;}}
-          }
-        }
-        // 옵션 B 약화: base>0(단가 입력됨)이면 출고일 없어도 표시.
-        // 사용자가 단가/박스비 입력 = 결제 의사. 봉제 출고 전이라도 자수·완성·검품 등 외주공정은 청구 대상.
-        // 거래명세서와 동일하게 출고일 빈 채로 행 만들어 표시.
-        if(!isInPayPeriod(shipDate,periodRange))continue;
-        const vat=Math.round(base*((sch.vatRate||10)/100));
-        const k='fc_'+fcId+'_'+ck;const st=getPaySt(o.id,k);
-        const did=('fd'+fcId+ck+o.id).replace(/\W/g,'').slice(0,12);
-        byFc[fnm].push({fcId,oid:o.id,key:k,did,orderName:o.name,lbl,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,shipDate,isMain:true});
-        _pushedAnyForFc=true;
-      }
-      // ck 루프 후: 'fc:fcId' 형식 payFees(오더 결제서 화면에서 입력한 박스비·택배비) 처리
-      // 오더 결제서(payFeeBlock)는 'fc:'+fcId key로 저장하는데 ck 루프는 'fc_fcId_ck' key만 읽었어서
-      // 사용자가 입력한 fees가 결제관리 탭에 안 잡혔던 버그를 별도 행으로 노출
-      const _ofKey='fc:'+fcId;
-      const _ofFees=(o.payFees||{})[_ofKey]||[];
-      const _ofTot=_ofFees.reduce(function(s,f){return s+payFeeAmt(f);},0);
-      if(_ofTot>0){
-        _fcHasFees=true;
-        var _ofDets=[];
-        _ofFees.forEach(function(f){var amt=payFeeAmt(f);if(amt>0)_ofDets.push('🚚 '+(f.name||'운임')+' '+num(amt)+'원');});
-        var _ofShip=fcActualShipDate(sch)||'';
-        if(!_ofShip){
-          for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
-            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd3=fcActualShipDate(ss);if(_sd3){_ofShip=_sd3;break;}}
-          }
-        }
-        // fees는 옵션 B 우회 (사용자의 명시적 결제 의사)
-        if(isInPayPeriod(_ofShip,periodRange)){
-          const _ofVat=Math.round(_ofTot*((sch.vatRate||10)/100));
-          const _ofK='fc:'+fcId; // 오더 결제서와 같은 key로 paySt 공유
-          const _ofSt=getPaySt(o.id,_ofK);
-          const _ofDid=('fdF'+fcId+o.id).replace(/\W/g,'').slice(0,12);
-          byFc[fnm].push({fcId,oid:o.id,key:_ofK,did:_ofDid,orderName:o.name,lbl:'운임·기타',dets:_ofDets,base:_ofTot,vat:_ofVat,total:_ofTot+_ofVat,paid:_ofSt.paid,paidAt:_ofSt.paidAt,shipDate:_ofShip,isMain:true});
-          _pushedAnyForFc=true;
-        }
-      }
-      // 안내 행: 정상 행도 운임 행도 없는데 공장이 선택은 됐을 때만
-      if(!_pushedAnyForFc&&_fkMatchedAnyCk){
-        var _noticeShip=fcActualShipDate(sch)||'';
-        if(!_noticeShip){
-          for(const[sid,ss]of Object.entries(o.factorySchedules||{})){
-            if((o.orderItems||[]).some(oi=>S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===sid)){var _sd2=fcActualShipDate(ss);if(_sd2){_noticeShip=_sd2;break;}}
-          }
-        }
-        var _noticeKey='fc_'+fcId+'_notice';
-        var _noticeSt=getPaySt(o.id,_noticeKey);
-        var _noticeDid=('fdN'+fcId+o.id).replace(/\W/g,'').slice(0,12);
-        // 진단: 어떤 공정에 어떤 비용·박스비가 들어가 있는지 + 수량 정보를 행에 표시
-        // (사용자가 보고 어디가 0인지 즉시 알 수 있게)
-        var _diag=[];
-        COST_DEFS.forEach(function(d){
-          var _dck=d[0],_dlbl=d[1],_dfk=d[2];
-          var _itMatched=(o.orderItems||[]).find(function(oi){var it=S.items[oi.itemId];return it&&it[_dfk]===fcId;});
-          if(!_itMatched)return;
-          var _it=S.items[_itMatched.itemId];
-          var _costAmt=+_it[_dck]||0;
-          var _fKey='fc_'+fcId+'_'+_dck;
-          var _fArr=(o.payFees||{})[_fKey]||[];
-          var _fAmt=_fArr.reduce(function(s,f){return s+payFeeAmt(f);},0);
-          _diag.push(_dlbl+' 단가 '+num(_costAmt)+'원·박스비 '+num(_fAmt)+'원');
-        });
-        var _totalOrderQty=0;
-        (o.orderItems||[]).forEach(function(_oi){
-          Object.values(_oi.qtyGrid||{}).forEach(function(_cg){Object.values(_cg||{}).forEach(function(_v){_totalOrderQty+=+_v||0;});});
-        });
-        var _sewQty=0;
-        for(const[_sid,_ss]of Object.entries(o.factorySchedules||{})){
-          if((o.orderItems||[]).some(function(_oi){return S.items[_oi.itemId]&&S.items[_oi.itemId].sewingFcId===_sid;})){
-            _sewQty+=(_ss.shippingQty||0)+(_ss.extraShipments||[]).reduce(function(s,e){return s+(+e.qty||0);},0);
-            _sewQty+=(_ss.shipments||[]).reduce(function(s,e){return s+(+e.qty||0);},0);
-          }
-        }
-        var _noticeMsg=_fcHasFees
-          ? '⚠️ 입력한 운임·기타가 0원 — 박스수×단가를 확인해주세요'
-          : '⚠️ 비용 미입력 — 아이템 단가 또는 거래명세서에서 + 박스비/택배비를 추가해주세요';
-        var _noticeDets=[_noticeMsg];
-        if(_diag.length)_noticeDets.push('🔍 진단: '+_diag.join(' / '));
-        _noticeDets.push('📦 오더수량 '+_totalOrderQty+'pcs · 봉제출고 '+_sewQty+'pcs · 출고일 '+(_noticeShip||'없음'));
-        byFc[fnm].push({fcId,oid:o.id,key:_noticeKey,did:_noticeDid,orderName:o.name,lbl:'안내',dets:_noticeDets,base:0,vat:0,total:0,paid:_noticeSt.paid,paidAt:_noticeSt.paidAt,shipDate:_noticeShip,isMain:true,isNotice:true});
-      }
-    }
-  }
-  // 공제 항목 수집 (공장별 - deductTargets 기반)
-  const fcDeductMap={};
-  const spDeductMap={};  // 거래처별 공제도 수집
-  for(const o of Object.values(S.orders)){
-    for(const b of(o.trackBlocks||[])){
-      for(const d of(b.defects||[])){
-        if(d.deductType!=='공제예정')continue;
-        const baseInfo={...d,orderName:o.name,itemName:b.itemName,oid:o.id,blockId:b.id,defIdx:b.defects.indexOf(d)};
-        for(const t of(d.deductTargets||[])){
-          if(t.entityType==='factory'&&t.entityId){
-            if(fltFcId&&t.entityId!==fltFcId)continue;
-            if(!fcDeductMap[t.entityId])fcDeductMap[t.entityId]=[];
-            fcDeductMap[t.entityId].push({...baseInfo,thisAmount:t.amount,entityName:t.entityName});
-          }else if(t.entityType==='supplier'){
-            if(!spDeductMap[t.entityName])spDeductMap[t.entityName]=[];
-            spDeductMap[t.entityName].push({...baseInfo,thisAmount:t.amount,entityName:t.entityName});
-          }
-        }
-        // 구버전 호환 (deductTargets 없는 경우)
-        if(!d.deductTargets?.length&&d.deductEntityId&&d.deductType==='공제예정'){
-          if(!fltFcId||d.deductEntityId===fltFcId){
-            if(!fcDeductMap[d.deductEntityId])fcDeductMap[d.deductEntityId]=[];
-            fcDeductMap[d.deductEntityId].push({...baseInfo,thisAmount:d.deductAmount,entityName:d.deductEntity});
-          }
-        }
-      }
-    }
-  }
-  if(!Object.keys(byFc).length&&!Object.keys(fcDeductMap).length){el.innerHTML='<div class="empty">결제 데이터가 없습니다<br><div class="muted" style="margin-top:6px">아이템에 가공비와 담당 공장을 연결한 후, 오더의 "공장 진행" 탭에서 공장을 추가하세요</div></div>';return;}
-  const showDone=document.getElementById('pay-show-done')?.checked;
-  el.innerHTML=Object.entries(byFc).sort(function(a,b){
-    var da=a[1].map(function(r){return r.shipDate;}).filter(Boolean).map(cmpDate).sort()[0]||'99999999';
-    var db=b[1].map(function(r){return r.shipDate;}).filter(Boolean).map(cmpDate).sort()[0]||'99999999';
-    return da<db?-1:da>db?1:0;
-  }).map(([fn,rows])=>{
-    if(!rows.length)return'';
-    const thisFcId=rows[0]?.fcId||'';
-    const mainRows=rows.slice().sort(function(a,b){var da=cmpDate(a.shipDate),db=cmpDate(b.shipDate);return da<db?-1:da>db?1:0;});
-    const tot=mainRows.reduce((s,r)=>s+r.total,0);const upaid=mainRows.filter(r=>!r.paid).reduce((s,r)=>s+r.total,0);
-    const paidMain=mainRows.filter(r=>r.paid);const unpaidMain=mainRows.filter(r=>!r.paid);
-    const deductions=(fcDeductMap[thisFcId]||[]);
-    const pendingDeducts=showDone?deductions:deductions.filter(d=>!d.deductDone);
-    const deductTotal=pendingDeducts.reduce((s,d)=>s+(d.thisAmount||d.deductAmount||0),0);
-    if(!showDone&&unpaidMain.length===0&&pendingDeducts.length===0)return'';
-    const visibleMain=showDone?mainRows:unpaidMain;
-    // === 정산 요약: 건수 진행률 + 기간 정보 (월별 정산 카드 헤더용) ===
-    const paidPct=mainRows.length?Math.round((paidMain.length/mainRows.length)*100):0;
-    const paidAmount=mainRows.filter(r=>r.paid).reduce((s,r)=>s+r.total,0);
-    // 출고일 범위 추출 (이 공장의 가장 빠른~늦은 출고일)
-    const shipDates=mainRows.map(r=>r.shipDate).filter(Boolean).sort(_cmpDateFn);
-    const dateRangeTxt=shipDates.length?(shipDates.length===1?shipDates[0]:`${shipDates[0]} ~ ${shipDates[shipDates.length-1]}`):'';
-    return`<div class="pay-group" id="paygrp-${thisFcId}">
-    <div class="pay-group-hdr" style="flex-wrap:wrap;gap:8px;align-items:flex-start">
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-          <b style="font-size:14px">${esc(fn)}</b>
-          ${dateRangeTxt?`<span class="muted" style="font-size:11px">📅 ${dateRangeTxt}</span>`:''}
-        </div>
-        <!-- 정산 요약 정보 한 줄 -->
-        <div style="margin-top:5px;font-size:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-          <span>미결제 <b style="color:var(--amber)">${num(upaid)}원</b></span>
-          <span style="color:var(--t3)">/</span>
-          <span class="muted">완료 ${num(paidAmount)}원</span>
-          <span style="color:var(--t3)">/</span>
-          <span class="muted">합계 <b>${num(tot)}원</b></span>
-          ${!showDone&&paidMain.length?`<span class="muted" style="font-size:10px"> (완료 ${paidMain.length}건 숨김)</span>`:''}
-          ${pendingDeducts.length?`<span style="font-size:11px;color:var(--red);font-weight:600"> ✂ 공제 -${num(deductTotal)}원 → 실결제 ${num(Math.max(0,upaid-deductTotal))}원</span>`:''}
-        </div>
-        <!-- 결제 진행률 바 + 건수 카운트 -->
-        <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
-          <div style="flex:1;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden;min-width:80px">
-            <div style="width:${paidPct}%;height:100%;background:linear-gradient(90deg,var(--green),#10b981);transition:width .3s"></div>
-          </div>
-          <span style="font-size:11px;color:var(--t2);white-space:nowrap;font-weight:600">${paidMain.length}/${mainRows.length}건 ${paidPct}%</span>
-        </div>
-      </div>
-      <div style="display:flex;gap:5px;flex-wrap:wrap">
-        ${(window._paySelected&&window._paySelected[thisFcId]&&window._paySelected[thisFcId].length)?`<button class="btn s g" onclick="clearPaySelection('${thisFcId}')" style="font-size:10px;padding:3px 6px">선택 해제 (${window._paySelected[thisFcId].length})</button>`:''}
-      </div>
-    </div>
-    ${visibleMain.map(r=>{
-      const isSelected=window._paySelected&&window._paySelected[thisFcId]&&window._paySelected[thisFcId].indexOf(r.oid+':'+r.key)>=0;
-      return `<div class="pay-row${r.paid?' paid-r':''}" style="${isSelected?'background:#f0f7ff':''}">
-      <input type="checkbox" title="명세서에 포함" ${isSelected?'checked':''} onchange="togglePaySelect('${thisFcId}','${r.oid}','${r.key}',this.checked)" style="accent-color:#1976d2">
-      <div style="flex:1"><div style="font-weight:500">${esc(r.orderName)} <span class="badge b0" style="font-size:10px;font-weight:600">🚚 ${r.shipDate?(typeof fmtKoDate==='function'?fmtKoDate(toISO(r.shipDate)):r.shipDate):'출고일 미입력'}</span></div><div class="muted">${r.dets.join(' / ')}</div></div>
-      <span class="badge b1">${r.lbl}</span>
-      <div style="white-space:nowrap;min-width:65px;text-align:right">${num(r.base)}원</div>
-      <div style="white-space:nowrap;color:var(--t2);min-width:55px;text-align:right">+${num(r.vat)}</div>
-      <div style="white-space:nowrap;font-weight:700;min-width:75px;text-align:right">${num(r.total)}원</div>
-      <input type="date" id="pd${r.did}" value="${r.paidAt||''}" style="width:118px;font-size:11px" onchange="setPaySt('${r.oid}','${r.key}',${r.paid},this.value)">
-      <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:${r.paid?'var(--green)':'var(--t2)'};white-space:nowrap;cursor:pointer">
-        <input type="checkbox" title="결제완료" ${r.paid?'checked':''} onchange="setPaySt('${r.oid}','${r.key}',this.checked,document.getElementById('pd${r.did}')?.value||'')" style="accent-color:var(--green)">결제완료
-      </label>
-    </div>`;}).join('')}
-    ${(function(){var sel=window._paySelected&&window._paySelected[thisFcId]||[];var r=buildPayReceiptHTML(thisFcId,fn,'fc');if(!r.hasRows)return '';var rid='payrcpt-fc-'+(''+thisFcId).replace(/\W/g,'');var nm=(r.name||'').replace(/['"\\]/g,'');return '<div style="width:100%;margin-top:10px;border-top:1px dashed var(--bd);padding-top:10px"><div style="font-size:11px;color:var(--t2);margin-bottom:6px;font-weight:600">📄 거래명세서'+(sel.length?' (선택 '+sel.length+'건)':' (전체)')+'</div><div id="'+rid+'" style="background:#fff;padding:14px;color:#000;border:1px solid var(--bd);border-radius:8px;overflow-x:auto;max-width:640px;margin:0 auto">'+r.innerHtml+'</div><div class="fr" style="margin-top:8px;justify-content:flex-end"><button class="btn s ok" onclick="savePayReceiptImage(\''+rid+'\',\''+nm+'\')">📷 이미지 저장'+(sel.length?' (선택분)':'')+'</button></div></div>';})()}
-    ${pendingDeducts.length?`<div style="margin-top:4px;border:1px dashed var(--red);border-radius:6px;padding:6px 8px">
-      <div style="font-size:11px;font-weight:600;color:var(--red);margin-bottom:4px">✂ 공제 내역</div>
-      ${pendingDeducts.map(d=>`<div class="pay-row" style="background:#fff8f8;border-color:var(--red);padding:5px 8px">
-        <input type="checkbox"${d.deductDone?' checked':''} title="${d.deductDone?'체크 해제 시 공제 취소':'체크 시 공제 완료'}"
-          onchange="this.checked?markDefectDeductDone('${d.oid}','${d.blockId}',${d.defIdx}):unmarkDefectDeductDone('${d.oid}','${d.blockId}',${d.defIdx})">
-        <div style="flex:1">
-          <div style="font-weight:500;color:var(--red);font-size:12px">${esc(d.orderName)} — ${esc(d.type)} ${d.qty}장</div>
-          <div class="muted" style="font-size:10px">${esc(d.itemName)}${d.colorName?' · '+d.colorName:''}${d.note?' · '+d.note:''}</div>
-        </div>
-        <span class="badge ${d.deductDone?'b3':'b4'}" style="font-size:10px">${d.deductDone?'공제완료':'공제예정'}</span>
-        <div style="white-space:nowrap;font-weight:700;color:var(--red);min-width:70px;text-align:right">-${num(d.thisAmount||d.deductAmount||0)}원</div>
-      </div>`).join('')}
-      <div style="text-align:right;font-size:12px;font-weight:700;color:var(--red);padding-top:4px;border-top:1px solid #fcc">실결제액: ${num(Math.max(0,upaid-deductTotal))}원</div>
-    </div>`:''}
-    </div>`;}).join('')||'<div class="empty">미결제 항목 없음 ✅<br><div class="muted" style="margin-top:4px">"결제완료 항목 보기"를 체크하면 완료된 항목을 볼 수 있어요</div></div>';
 }
 function renderSpPay(){
   const el=document.getElementById('pay-content');if(!el)return;
