@@ -9512,17 +9512,26 @@ function renderProdDashRow(r){
   const schExt=fcExt?(r.o.factorySchedules||{})[fcExt]:null;
   const schFin=fcFin?(r.o.factorySchedules||{})[fcFin]:null;
   const schInsp=fcInsp?(r.o.factorySchedules||{})[fcInsp]:null;
-  // 원자재·부자재·지시서 셀 (단순화)
-  const prepCell=(label,supName,dateVal,done,doneLbl)=>`<td class="pd-proc">
-    <div class="pd-proc-name">${esc(supName||'—')}</div>
-    <input class="pd-proc-input" type="date" value="${esc(dateVal||'')}">
-    <div class="pd-spacer"></div>
-    <label class="pd-chk ${done?'done':''}"><input type="checkbox" ${done?'checked':''}> ${esc(doneLbl)}</label>
-    <div class="pd-actions">
-      <button class="pd-btn kakao">📞 공장</button>
-      <button class="pd-btn brand">📣 브랜드</button>
-    </div>
-  </td>`;
+  // 원자재·부자재·지시서 셀 (양방향 저장)
+  // 데이터 저장 위치: o._prep = {fabDate, fabDone, trimDate, trimDone, jisiDate, jisiDone}
+  if(!r.o._prep)r.o._prep={};
+  const prep=r.o._prep;
+  const prepCell=(kind,supName,doneLbl)=>{
+    const dateField=kind+'Date';
+    const doneField=kind+'Done';
+    const dateVal=prep[dateField]||'';
+    const isDone=!!prep[doneField];
+    return `<td class="pd-proc">
+      <div class="pd-proc-name">${esc(supName||'—')}</div>
+      <input class="pd-proc-input" type="date" value="${esc(dateVal)}" data-oid="${esc(r.o.id)}" data-prepfield="${esc(dateField)}" onchange="pdSavePrep(this)">
+      <div class="pd-spacer"></div>
+      <label class="pd-chk ${isDone?'done':''}"><input type="checkbox" ${isDone?'checked':''} data-oid="${esc(r.o.id)}" data-prepfield="${esc(doneField)}" onchange="pdSavePrepDone(this)"> ${esc(doneLbl)}</label>
+      <div class="pd-actions">
+        <button class="pd-btn kakao">📞 공장</button>
+        <button class="pd-btn brand">📣 브랜드</button>
+      </div>
+    </td>`;
+  };
   // 원단/부자재/지시서 supplier 추출
   const fabSup=r.it.fabrics?.[0]?.supplier||'';
   const trimSup=r.it.trims?.[0]?.supplier||'';
@@ -9539,9 +9548,9 @@ function renderProdDashRow(r){
       <div class="line"><span class="bullet">*</span><span class="lbl">오더일</span><span>${esc(orderDateStr)}</span><span class="colors">${esc(colorStr(r.orderColors))}</span><span class="slash">/</span><span class="total">총${r.orderTotal}장</span></div>
       ${shipLineHtml}
     </td>
-    ${prepCell('원자재',fabSup,'',false,'입고완료')}
-    ${prepCell('부자재',trimSup,'',false,'입고완료')}
-    ${prepCell('지시서',sewFcNm,'',false,'전달완료')}
+    ${prepCell('fab',fabSup,'입고완료')}
+    ${prepCell('trim',trimSup,'입고완료')}
+    ${prepCell('jisi',sewFcNm,'전달완료')}
     ${cell('재단',fcSew,schSew,(schSew?(schSew.cuttingQty||0):0),'cuttingDate','cuttingDone')}
     ${cell('외주',fcExt,schExt,0,'shippingDate','shipDone')}
     ${cell('봉제',fcSew,schSew,r.shipTotal,'sewingCompleteDate','sewingDone')}
@@ -9696,6 +9705,26 @@ function pdScrollToBrand(btnOrBid){
 function pdFilterBrand(bid){
   window._pdBrandFilter=(window._pdBrandFilter===bid)?'':bid;
   if(typeof renderProdDash==='function')renderProdDash();
+}
+// 원·부자재·지시서 날짜 저장 (오더 단위)
+function pdSavePrep(el){
+  const oid=el.dataset.oid,field=el.dataset.prepfield;
+  if(!oid||!field)return;
+  const o=S.orders[oid];if(!o)return;
+  if(!o._prep)o._prep={};
+  o._prep[field]=el.value;
+  saveData();
+}
+function pdSavePrepDone(el){
+  const oid=el.dataset.oid,field=el.dataset.prepfield;
+  if(!oid||!field)return;
+  const o=S.orders[oid];if(!o)return;
+  if(!o._prep)o._prep={};
+  o._prep[field]=el.checked;
+  saveData();
+  // 색상 변경
+  const lbl=el.closest('.pd-chk');
+  if(lbl){if(el.checked)lbl.classList.add('done');else lbl.classList.remove('done');}
 }
 
 function renderDash(){
