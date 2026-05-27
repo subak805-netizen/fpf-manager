@@ -9498,8 +9498,8 @@ function renderProdDashRow(r){
       <button class="pd-qty-btn${qty>0?'':' empty'}" onclick="pdOpenQtyModal('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}','${esc(fcId||'')}')">${qtyDisp||'+ 입력'}<span class="icon">✎</span></button>
       <label class="pd-chk ${isDone?'done':''}"><input type="checkbox" ${isDone?'checked':''} data-oid="${esc(r.o.id)}" data-fcid="${esc(fcId||'')}" data-field="${esc(doneField)}" onchange="pdToggleDone(this)"> 완료</label>
       <div class="pd-actions">
-        <button class="pd-btn kakao">📞 공장</button>
-        <button class="pd-btn brand">📣 브랜드</button>
+        <button class="pd-btn kakao" onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}','${esc(fcId||'')}')">📞 공장</button>
+        <button class="pd-btn brand" onclick="pdKakaoBrand('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}')">📣 브랜드</button>
       </div>
     </td>`;
   };
@@ -9527,8 +9527,8 @@ function renderProdDashRow(r){
       <div class="pd-spacer"></div>
       <label class="pd-chk ${isDone?'done':''}"><input type="checkbox" ${isDone?'checked':''} data-oid="${esc(r.o.id)}" data-prepfield="${esc(doneField)}" onchange="pdSavePrepDone(this)"> ${esc(doneLbl)}</label>
       <div class="pd-actions">
-        <button class="pd-btn kakao">📞 공장</button>
-        <button class="pd-btn brand">📣 브랜드</button>
+        <button class="pd-btn kakao" onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}','')">📞 공장</button>
+        <button class="pd-btn brand" onclick="pdKakaoBrand('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}')">📣 브랜드</button>
       </div>
     </td>`;
   };
@@ -9725,6 +9725,102 @@ function pdSavePrepDone(el){
   // 색상 변경
   const lbl=el.closest('.pd-chk');
   if(lbl){if(el.checked)lbl.classList.add('done');else lbl.classList.remove('done');}
+}
+// ===== 카톡 메시지 템플릿 =====
+function pdBuildFactoryMsg(role,it,o,sch,fcName){
+  const itName=it.name||'';
+  const qty=(function(){
+    if(!o.orderItems)return 0;
+    const oi=o.orderItems.find(x=>x.itemId===it.id);if(!oi)return 0;
+    let t=0;
+    (it.colors&&it.colors.length?it.colors:['']).forEach(c=>
+      (it.sizes&&it.sizes.length?it.sizes:['free']).forEach(sz=>{t+=+oi.qtyGrid?.[c]?.[sz]||0;}));
+    return t;
+  })();
+  const fmt=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
+  const colorStr=function(){
+    if(!o.orderItems)return '';
+    const oi=o.orderItems.find(x=>x.itemId===it.id);if(!oi)return '';
+    const parts=[];
+    (it.colors||[]).forEach(c=>{
+      let cs=0;(it.sizes||['free']).forEach(sz=>{cs+=+oi.qtyGrid?.[c]?.[sz]||0;});
+      if(cs>0)parts.push(c+' '+cs);
+    });
+    return parts.join('·');
+  }();
+  switch(role){
+    case 'fab':return `📦 원단 입고 안내드립니다.\n${itName} ${qty}장\n입고 예정 ${fmt(o._prep?.fabDate)||'미정'}\n수령 후 확인 부탁드립니다.`;
+    case 'trim':return `📦 부자재 입고 안내드립니다.\n${itName} ${qty}장\n입고 예정 ${fmt(o._prep?.trimDate)||'미정'}\n수령 후 확인 부탁드립니다.`;
+    case 'jisi':return `📋 작업지시서 전달드립니다.\n${itName} ${qty}장\n· ${colorStr}\n전달 ${fmt(o._prep?.jisiDate)||'미정'} · 확인 부탁드립니다.`;
+    case '재단':return `✂ 재단 의뢰드립니다.\n${itName} ${qty}장\n· ${colorStr}\n재단 ${fmt(sch?.cuttingDate)||'미정'}까지 부탁드립니다.`;
+    case '외주':return `🔧 외주 의뢰드립니다.\n${itName} ${qty}장\n완료 ${fmt(sch?.shippingDate)||'미정'}까지 부탁드립니다.`;
+    case '봉제':return `🪡 봉제 의뢰드립니다.\n${itName} ${qty}장\n· ${colorStr}\n완료 ${fmt(sch?.sewingCompleteDate)||'미정'}까지 부탁드립니다.`;
+    case '완성':return `🎯 완성 의뢰드립니다.\n${itName} ${qty}장\n완료 ${fmt(sch?.shippingDate)||'미정'}까지 부탁드립니다.`;
+    case '검품':return `🔍 검품 의뢰드립니다.\n${itName} ${qty}장\n완료 ${fmt(sch?.inspectionDate)||'미정'}까지 부탁드립니다.`;
+    case '출고':return `🚚 ${fmt(sch?.shipExpectedDate)||'예정일'} 출고 안내.\n${itName} ${qty}장\n출고 후 거래명세서 전송드릴게요.`;
+    default:return `${fcName} 안내드립니다.\n${itName} ${qty}장`;
+  }
+}
+function pdBuildBrandMsg(role,it,o,sch){
+  const brandNm=it.brandId&&typeof getBrandName==='function'?(getBrandName(it.brandId)||''):'';
+  const itName=it.name||'';
+  const fmt=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
+  const greeting=brandNm?`안녕하세요 ${brandNm}님.`:'안녕하세요.';
+  switch(role){
+    case 'fab':case 'trim':case 'jisi':
+      return `${greeting}\n${itName} 진행 상황 안내드려요.\n· 원단 입고 ${fmt(o._prep?.fabDate)||'-'}\n· 부자재 입고 ${fmt(o._prep?.trimDate)||'-'}\n· 작지 전달 ${fmt(o._prep?.jisiDate)||'-'}`;
+    case '재단':return `${greeting}\n${itName} 재단 ${fmt(sch?.cuttingDate)||'예정'}\n진행 상황 공유드려요.`;
+    case '외주':return `${greeting}\n${itName} 외주 ${fmt(sch?.shippingDate)||'예정'}\n진행 상황 공유드려요.`;
+    case '봉제':return `${greeting}\n${itName} 봉제 ${fmt(sch?.sewingCompleteDate)||'예정'}\n진행 상황 공유드려요.`;
+    case '완성':return `${greeting}\n${itName} 완성 ${fmt(sch?.shippingDate)||'예정'}\n진행 상황 공유드려요.`;
+    case '검품':return `${greeting}\n${itName} 검품 ${fmt(sch?.inspectionDate)||'예정'}\n진행 상황 공유드려요.`;
+    case '출고':return `${greeting}\n🚚 ${itName} ${fmt(sch?.shipExpectedDate)||'예정일'} 출고 예정 안내드려요.`;
+    default:return `${greeting}\n${itName} 진행 안내드려요.`;
+  }
+}
+function pdShowMsgPreview(msg,kind){
+  const isFactory=kind==='factory';
+  const titleColor=isFactory?'#3c1e1e':'#075985';
+  const titleBg=isFactory?'#fee500':'#c8eaff';
+  const title=isFactory?'📞 공장에 보낼 메시지':'📣 브랜드에 보낼 메시지';
+  const html=`<div style="font-family:'Pretendard',-apple-system,sans-serif">
+    <div style="display:inline-block;padding:4px 12px;background:${titleBg};color:${titleColor};border-radius:100px;font-size:11px;font-weight:700;margin-bottom:12px">${title}</div>
+    <textarea id="pd-msg-ta" style="width:100%;min-height:160px;padding:12px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;line-height:1.7;color:#333;font-family:inherit;resize:vertical">${esc(msg)}</textarea>
+    <div style="font-size:11px;color:#6b7280;margin-top:6px">💡 메시지 수정 후 전송 가능. 모바일이면 카톡 앱 열림 / 데스크탑이면 클립보드 복사.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button onclick="closeGenericModal()" style="padding:9px 18px;background:#f3f4f6;color:#374151;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">닫기</button>
+      <button onclick="pdSendKakao()" style="padding:9px 18px;background:#fee500;color:#3c1e1e;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">💬 카카오톡 전송</button>
+    </div>
+  </div>`;
+  showGenericModal(title,html);
+}
+function pdSendKakao(){
+  const ta=document.getElementById('pd-msg-ta');if(!ta)return;
+  const text=ta.value;
+  if(navigator.share){
+    navigator.share({text:text}).catch(()=>{
+      if(navigator.clipboard)navigator.clipboard.writeText(text).then(()=>showToast('📋 복사됨! 카톡에 붙여넣으세요',3500));
+    });
+  }else if(navigator.clipboard){
+    navigator.clipboard.writeText(text).then(()=>showToast('📋 복사됨! 카톡에 붙여넣으세요',3500));
+  }else{
+    showToast('수동 복사: '+text.substring(0,50)+'...',5000);
+  }
+}
+function pdKakaoFactory(oid,itemId,role,fcId){
+  const o=S.orders[oid];const it=S.items[itemId];if(!o||!it)return;
+  const sch=fcId?(o.factorySchedules||{})[fcId]:null;
+  const fc=fcId?S.factories[fcId]:null;
+  const msg=pdBuildFactoryMsg(role,it,o,sch,fc?.name||'');
+  pdShowMsgPreview(msg,'factory');
+}
+function pdKakaoBrand(oid,itemId,role){
+  const o=S.orders[oid];const it=S.items[itemId];if(!o||!it)return;
+  // 봉제공장 sch을 기본 sch로
+  const sewFcId=it.sewingFcId||'';
+  const sch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;
+  const msg=pdBuildBrandMsg(role,it,o,sch);
+  pdShowMsgPreview(msg,'brand');
 }
 
 function renderDash(){
