@@ -270,7 +270,12 @@ input[type=number]{-moz-appearance:textfield;}
 .pd-brand-hdr .pill{padding:4px 14px;border-radius:100px;font-size:14px;font-weight:800;letter-spacing:-.2px;background:#f3f4f6;color:#4b5563;}
 .pd-brand-hdr .count{font-size:12px;color:#6b7280;font-weight:500;}
 .pd-brand-hdr .send-btn{margin-left:auto;padding:6px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:100px;font-size:11px;font-weight:600;color:#374151;cursor:pointer;}
-.pd-table-wrap{background:#fff;border-radius:12px;overflow-x:auto;overflow-y:visible;box-shadow:0 1px 2px rgba(0,0,0,.03);-webkit-overflow-scrolling:touch;scrollbar-width:thin;}
+.pd-table-wrap{background:#fff;border-radius:12px;overflow-x:auto;overflow-y:visible;box-shadow:0 1px 2px rgba(0,0,0,.03);-webkit-overflow-scrolling:touch;scrollbar-width:thin;cursor:grab;}
+.pd-table-wrap.dragging{cursor:grabbing;user-select:none;}
+.pd-table-wrap.dragging *{cursor:grabbing!important;}
+.prod-wrap{cursor:grab;}
+.prod-wrap.dragging{cursor:grabbing;user-select:none;}
+.prod-wrap.dragging *{cursor:grabbing!important;}
 .pd-table-wrap::-webkit-scrollbar{height:10px;}
 .pd-table-wrap::-webkit-scrollbar-track{background:#f3f4f6;border-radius:5px;}
 .pd-table-wrap::-webkit-scrollbar-thumb{background:#9ca3af;border-radius:5px;}
@@ -574,14 +579,18 @@ tryInitFirebase();
   <button class="ntab" id="nt-sample" onclick="switchTab('sample')">샘플 발주</button>
   <button class="ntab" id="nt-defect" onclick="switchTab('defect')">불량 관리</button>
   <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
-  <button class="ntab" id="nt-costs" onclick="switchTab('costs')">원가계산서</button>
-  <button class="ntab" id="nt-leftover" onclick="switchTab('leftover')">잔량 관리</button>
   <button class="ntab" id="nt-analytics" onclick="switchTab('analytics')">분석</button>
-  <!-- 픽업/동선 탭은 할일&동선으로 통합됨 -->
-  <button class="ntab" id="nt-factories" onclick="switchTab('factories')">공장 관리</button>
-  <button class="ntab" id="nt-book" onclick="switchTab('book')">거래처/단가장</button>
+  <!-- 공장관리·거래처단가장·잔량관리는 '오더 관리' 서브탭으로 통합됨 -->
+  <!-- 원가계산서는 아이템 카드의 💰 원가 버튼으로 통합됨 -->
 </div>
 <div class="content">
+  <!-- 오더 관리 서브탭 (오더목록 / 공장 / 단가장 / 잔량) -->
+  <div id="orders-subtabs" class="dtabs" style="display:none;margin:0 0 10px;gap:4px;flex-wrap:wrap">
+    <button class="dtab" id="st-orders" onclick="switchTab('orders')">📋 오더 목록</button>
+    <button class="dtab" id="st-factories" onclick="switchTab('factories')">🏭 공장 관리</button>
+    <button class="dtab" id="st-book" onclick="switchTab('book')">💰 거래처/단가장</button>
+    <button class="dtab" id="st-leftover" onclick="switchTab('leftover')">📦 잔량 관리</button>
+  </div>
   <!-- 진행보드 (브랜드별 칸반) -->
   <div id="pane-board" class="panel" style="display:none"><div id="board-body"></div></div>
   <!-- 샘플발주 -->
@@ -2599,6 +2608,18 @@ function switchTab(t){
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
+  // 오더 관리 서브탭 처리 (오더목록/공장/단가장/잔량을 '오더 관리' 묶음으로 표시)
+  const orderSubTabs=['orders','factories','book','leftover'];
+  const subBar=document.getElementById('orders-subtabs');
+  if(subBar){
+    if(orderSubTabs.indexOf(t)>=0){
+      subBar.style.display='flex';
+      const nto=document.getElementById('nt-orders');if(nto)nto.className='ntab on';
+      orderSubTabs.forEach(n=>{const b=document.getElementById('st-'+n);if(b)b.className='dtab'+(n===t?' on':'');});
+    }else{
+      subBar.style.display='none';
+    }
+  }
   const pane=document.getElementById('pane-'+t);if(!pane)return;
   pane.style.display=(t==='orders'||t==='sample')?'flex':'block';
   try{
@@ -2619,7 +2640,7 @@ function switchTab(t){
     console.error('Tab render error:',err);
     if(pane)pane.innerHTML=`<div class="warn-box" style="margin:1rem">화면 오류: ${esc(err.message)}<br><div class="muted" style="margin-top:4px">새로고침 후 다시 시도해주세요</div></div>`;
   }
-  requestAnimationFrame(()=>{try{fitAllAmounts(pane);}catch(e){}});
+  requestAnimationFrame(()=>{try{fitAllAmounts(pane);}catch(e){}try{setupDragScrollers();}catch(e){}});
 }
 // 전역: 박스 안 큰 글씨가 넘치면 자동 축소 (모든 탭 공통)
 function fitAllAmounts(scope){
@@ -2638,7 +2659,38 @@ function fitAllAmounts(scope){
     if(w>avail&&avail>0){c.style.display='inline-block';c.style.transformOrigin='right center';c.style.transform=`scale(${Math.max(0.6,avail/w)})`;}
   });
 }
-function render(){try{if(!window._nim){window._nim=1;try{new MutationObserver(function(ms){ms.forEach(function(m){(m.addedNodes||[]).forEach(function(n){if(n&&n.querySelectorAll)n.querySelectorAll('input[type=number]:not([inputmode])').forEach(function(i){i.setAttribute('inputmode','decimal');});});});}).observe(document.body,{childList:true,subtree:true});document.querySelectorAll('input[type=number]:not([inputmode])').forEach(function(i){i.setAttribute('inputmode','decimal');});}catch(e){}}renderItemsList();renderCSDropdown();switchTab(activeTab);}catch(e){console.error('render error',e);}}
+// 드래그-스크롤: 휠은 가로 차단(세로만 페이지로) + 마우스 클릭+드래그로 가로 이동 (커서: grab→grabbing)
+function enableDragScroll(el){
+  if(!el||el._dragX)return;el._dragX=true;
+  let isDown=false,startX=0,startScroll=0,moved=false;
+  el.addEventListener('mousedown',e=>{
+    if(e.button!==0)return; // 좌클릭만
+    // 인터랙티브 요소 위에선 드래그 안 함
+    if(e.target.closest('button,input,select,textarea,a,label,.pd-chk,.pd-qty-btn'))return;
+    isDown=true;moved=false;startX=e.pageX;startScroll=el.scrollLeft;
+    el.classList.add('dragging');
+  });
+  el.addEventListener('mousemove',e=>{
+    if(!isDown)return;
+    const dx=e.pageX-startX;
+    if(Math.abs(dx)>2)moved=true;
+    el.scrollLeft=startScroll-dx;
+    e.preventDefault();
+  });
+  const end=()=>{if(isDown){isDown=false;el.classList.remove('dragging');}};
+  el.addEventListener('mouseup',end);
+  el.addEventListener('mouseleave',end);
+  // 드래그 직후 발생하는 클릭(텍스트 선택 등) 막기
+  el.addEventListener('click',e=>{if(moved){e.preventDefault();e.stopPropagation();moved=false;}},true);
+  // 휠: 가로 시도 차단, 세로 휠은 페이지로 전파
+  el.addEventListener('wheel',e=>{
+    if(Math.abs(e.deltaX)>Math.abs(e.deltaY)){e.preventDefault();}
+  },{passive:false});
+}
+function setupDragScrollers(){
+  document.querySelectorAll('.pd-table-wrap,.prod-wrap').forEach(enableDragScroll);
+}
+function render(){try{if(!window._nim){window._nim=1;try{new MutationObserver(function(ms){ms.forEach(function(m){(m.addedNodes||[]).forEach(function(n){if(n&&n.querySelectorAll){n.querySelectorAll('input[type=number]:not([inputmode])').forEach(function(i){i.setAttribute('inputmode','decimal');});setupDragScrollers();}});});}).observe(document.body,{childList:true,subtree:true});document.querySelectorAll('input[type=number]:not([inputmode])').forEach(function(i){i.setAttribute('inputmode','decimal');});}catch(e){}}renderItemsList();renderCSDropdown();switchTab(activeTab);setupDragScrollers();}catch(e){console.error('render error',e);}}
 
 /* ===== FACTORIES ===== */
 function renderFactories(){
