@@ -16745,8 +16745,9 @@ function qbStylesHTML(){
     +'.q-card.complete{background:var(--neon-green-tint);border-color:#5BB97D;}'
     +".q-card.complete::after{content:'★ READY TO SHIP ★';display:block;text-align:center;font-family:'Press Start 2P',monospace;font-size:8px;color:#3D8C5C;letter-spacing:1.5px;margin-top:8px;animation:blink 1.2s infinite;}"
     +'@keyframes blink{0%,100%{opacity:1;}50%{opacity:.4;}}'
-    +'/* SENT 카드 (확실하게 비활성화 — 회색 톤다운) */'
-    +'.q-card.sent{background:var(--dim-bg);color:var(--dim-text);box-shadow:2px 2px 0 var(--dim-border);border-color:var(--dim-border);opacity:.55;filter:grayscale(.85);}'
+    +'/* SENT 카드 (opacity 0.4 + grayscale 1로 확실하게 끔) */'
+    +'.q-card.sent{background:var(--dim-bg);color:var(--dim-text);box-shadow:2px 2px 0 var(--dim-border);border-color:var(--dim-border);opacity:.4;filter:grayscale(1);}'
+    +'.q-card.sent:hover{opacity:.6;filter:grayscale(.5);transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--dim-border);}'
     +".q-card.sent::before{content:'SENT';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-12deg);font-family:'Press Start 2P',monospace;font-size:20px;letter-spacing:3px;color:#666;text-shadow:1px 1px 0 #fff,2px 2px 0 #ccc;z-index:3;pointer-events:none;}"
     +'.q-card.sent .q-card-hd{border-bottom-color:#ccc;}'
     +'.q-card.sent .q-card-hd .nm{color:var(--dim-text);}'
@@ -16784,7 +16785,13 @@ function qbStylesHTML(){
     +'.q-acts .parcel{background:#fff;}'/* 택배는 화이트 (블루는 메인 액션 QUICK에만) */
     +'.q-acts .restore{background:#fff;font-size:10px;flex:0 0 auto;padding:6px 10px;}'
     +'.q-acts .restore:hover{background:var(--neon-green);}'
-    +'.q-acts button:disabled{background:repeating-linear-gradient(45deg,#fff 0,#fff 3px,#bbb 3px,#bbb 4px);color:#888;cursor:not-allowed;box-shadow:none;}'
+    +'/* 1단계 disabled — 회색 사선 + 톤다운 (확실히 잠긴 느낌) */'
+    +'.q-acts button:disabled{background:repeating-linear-gradient(45deg,#eee 0,#eee 4px,#bbb 4px,#bbb 6px);color:#999;cursor:not-allowed;box-shadow:none;border-color:#aaa;}'
+    +'.q-acts button:disabled:hover{transform:none;box-shadow:none;}'
+    +'/* 2단계 READY — 활성 버튼 네온블루 글로우 */'
+    +'.q-card.complete .q-acts .quick{background:var(--neon-blue);animation:readyPulse 1.6s infinite;}'
+    +'.q-card.complete .q-acts .parcel{background:#fff;animation:readyPulse 1.6s infinite .3s;}'
+    +'@keyframes readyPulse{0%,100%{box-shadow:2px 2px 0 var(--ink);}50%{box-shadow:2px 2px 0 var(--ink),0 0 12px var(--neon-blue);}}'
     +'/* ===== 우측 자재 폴더 zone ===== */'
     +'.mat-zone{background:#fff;border:2.5px solid var(--ink);border-radius:3px;padding:16px 14px 14px;margin-bottom:24px;position:relative;box-shadow:4px 4px 0 var(--ink);}'
     +".mat-zone-hd{position:absolute;top:-14px;left:14px;background:#fff;border:2.5px solid var(--ink);border-bottom:0;padding:3px 14px 2px;font-family:'Galmuri11',monospace;font-size:13px;font-weight:700;letter-spacing:.5px;color:var(--ink);}"
@@ -16937,11 +16944,14 @@ function qbOpenPackageModal(){
   var brands=getBrands();
   var factories=Object.values(S.factories||{});
   var sups=Object.keys(S.priceBook||{}).sort(function(a,b){return a.localeCompare(b,'ko');});
-  // 검색용 옵션 리스트 빌드
+  // 검색용 옵션 리스트 빌드 (공장 + 협력처 + 브랜드)
   var destOpts=[];
   factories.forEach(function(f){destOpts.push({key:'fc:'+f.id,label:f.name+(f.type?' ('+f.type+')':' (공장)')});});
   sups.forEach(function(s){destOpts.push({key:'sp:'+s,label:s+' (협력처)'});});
+  brands.forEach(function(b){destOpts.push({key:'brand:'+b.id,label:b.name+' (브랜드)'});});
   window._qbDestOpts=destOpts;
+  // 모달 열 때마다 커스텀 슬롯 초기화
+  window._qbCustomSlots=[];
   var itemOpts=[];
   items.forEach(function(it){
     var br=it.brandId?(brands.find(function(b){return b.id===it.brandId;})||{}).name:'';
@@ -16958,26 +16968,33 @@ function qbOpenPackageModal(){
   }
   bd.innerHTML='<div class="qb-modal"><div class="qb-modal-bar"><div class="title">＋ NEW QUEST</div><div class="close" onclick="qbClosePackageModal()">X</div></div>'
     +'<div class="qb-modal-body">'
-    // 검색형 목적지
-    +'<div class="fg"><label>📍 목적지 공장 / 협력처</label>'
-    +'<input id="qb-pkg-dest-input" list="dl-qb-pkg-dest" placeholder="검색 또는 선택 (예: 엄지, 알레)" oninput="qbResolveDest()" onchange="qbResolveDest()" autocomplete="off">'
+    // 검색형 목적지 (공장 + 협력처 + 브랜드)
+    +'<div class="fg"><label>📍 목적지 (공장·협력처·브랜드)</label>'
+    +'<input id="qb-pkg-dest-input" list="dl-qb-pkg-dest" placeholder="검색 (예: 엄지, 알레, 리틀그로브)" oninput="qbResolveDest()" onchange="qbResolveDest()" autocomplete="off">'
     +'<input type="hidden" id="qb-pkg-dest">'
     +'<datalist id="dl-qb-pkg-dest">'+destOpts.map(function(o){return '<option value="'+esc(o.label)+'">';}).join('')+'</datalist>'
-    +'<div class="hint">한 글자만 타이핑해도 바로 검색돼요. 공장관리·단가장에 등록된 곳만 보여요.</div></div>'
-    // 검색형 아이템
-    +'<div class="fg"><label>🧥 만들 아이템</label>'
-    +'<input id="qb-pkg-item-input" list="dl-qb-pkg-item" placeholder="검색 또는 선택 (예: 로즈, 기모) — 비우면 직접 입력" oninput="qbResolveItem()" onchange="qbResolveItem()" autocomplete="off">'
+    +'<div class="hint">공장·단가장 거래처·브랜드 모두 검색 가능. 한 글자만 타이핑해도 필터링됨.</div></div>'
+    // 기존 아이템 검색
+    +'<div class="fg"><label>🧥 등록된 아이템에서 검색</label>'
+    +'<input id="qb-pkg-item-input" list="dl-qb-pkg-item" placeholder="검색 (예: 로즈, 기모)" oninput="qbResolveItem()" onchange="qbResolveItem()" autocomplete="off">'
     +'<input type="hidden" id="qb-pkg-item">'
     +'<datalist id="dl-qb-pkg-item">'+itemOpts.map(function(o){return '<option value="'+esc(o.label)+'">';}).join('')+'</datalist>'
-    +'<div class="hint">기존 아이템 선택 시 등록된 원단·부자재 정보로 슬롯이 자동 채워져요.</div></div>'
-    +'<div class="fg" id="qb-pkg-name-row" style="display:none"><label>📝 직접 입력 이름</label><input type="text" id="qb-pkg-name" placeholder="예: 기모조거팬츠 v2"></div>'
-    +'<div class="qb-slot-preview"><div class="qb-slot-preview-hd">↓ 슬롯 4개가 밑그림으로 생성됩니다</div>'
-    +'<div class="qb-slot-preview-grid">'
+    +'<div class="hint">선택 시 원단·부자재 정보로 슬롯 자동 매핑.</div></div>'
+    // 직접 입력 — 항상 표시 (자유 미션)
+    +'<div class="fg" style="background:#FFF6B8;padding:10px;border:2px dashed #0B0A05;border-radius:3px">'
+    +'<label style="display:block;font-weight:800">＋ 또는 직접 입력 (자유 미션)</label>'
+    +'<input type="text" id="qb-pkg-name" placeholder="예: 신상 스와치, 정산서 전달, 견본 픽업" style="font-weight:600">'
+    +'<div class="hint">기존 아이템이 없어도 자유롭게 미션 이름을 적으세요. 등록된 아이템 검색 비워둘 때만 적용돼요.</div></div>'
+    // 슬롯 미리보기 + 커스텀 슬롯 추가
+    +'<div class="qb-slot-preview"><div class="qb-slot-preview-hd">↓ 슬롯 미리보기 (기본 4개 + 커스텀)</div>'
+    +'<div class="qb-slot-preview-grid" id="qb-slot-preview-grid">'
     +'<div class="s"><span class="ic">F</span><span>원단</span></div>'
     +'<div class="s"><span class="ic">I</span><span>지시서</span></div>'
     +'<div class="s"><span class="ic">T</span><span>부자재</span></div>'
     +'<div class="s"><span class="ic">P</span><span>패턴</span></div>'
-    +'</div></div>'
+    +'</div>'
+    +'<button type="button" onclick="qbAddCustomSlot()" style="margin-top:8px;background:#fff;border:2px solid #0B0A05;padding:7px 12px;font-family:\'Galmuri11\',monospace;font-size:12px;font-weight:700;cursor:pointer;box-shadow:2px 2px 0 #0B0A05;letter-spacing:.3px;width:100%">＋ 슬롯 추가 (스와치, 견본 등 자유 입력)</button>'
+    +'</div>'
     +'<div class="fg-row">'
     +'<div class="fg"><label>📅 발송 예정일</label><input type="date" id="qb-pkg-date" value="'+todayISO()+'"></div>'
     +'<div class="fg"><label>🚚 운송 방식 (선택)</label><select id="qb-pkg-ship"><option value="">미정</option><option value="quick">퀵 (당일)</option><option value="parcel">택배 (1~2일)</option></select></div>'
@@ -17020,39 +17037,68 @@ function qbClosePackageModal(){
   var bd=document.getElementById('qb-pkg-modal');if(bd)bd.classList.remove('show');
 }
 function qbOnPkgItemChange(){
-  var hidden=document.getElementById('qb-pkg-item');
-  var inp=document.getElementById('qb-pkg-item-input');
-  var nameRow=document.getElementById('qb-pkg-name-row');
-  if(!hidden||!nameRow)return;
-  // 아이템이 매칭되지 않았는데 텍스트가 있으면 직접 입력 모드 (이름 자동 채움)
-  var hasMatch=!!hidden.value;
-  var hasText=inp&&(inp.value||'').trim().length>0;
-  nameRow.style.display=(!hasMatch&&hasText)?'block':'none';
-  if(!hasMatch&&hasText){
-    var nameEl=document.getElementById('qb-pkg-name');
-    if(nameEl&&!nameEl.value)nameEl.value=inp.value.trim();
-  }
+  // 직접입력 필드는 이제 항상 표시되므로 별도 토글 불필요
+}
+// ===== 커스텀 슬롯 추가/삭제 =====
+function qbAddCustomSlot(){
+  var nm=prompt('슬롯 이름을 입력하세요\n(예: 스와치, 견본, 전달건, 라벨샘플)','');
+  if(!nm)return;
+  nm=String(nm).trim();
+  if(!nm)return;
+  if(!window._qbCustomSlots)window._qbCustomSlots=[];
+  window._qbCustomSlots.push({label:nm});
+  qbRefreshSlotPreview();
+}
+function qbRemoveCustomSlot(idx){
+  if(!window._qbCustomSlots)return;
+  window._qbCustomSlots.splice(idx,1);
+  qbRefreshSlotPreview();
+}
+function qbRefreshSlotPreview(){
+  var el=document.getElementById('qb-slot-preview-grid');
+  if(!el)return;
+  var html=''
+    +'<div class="s"><span class="ic">F</span><span>원단</span></div>'
+    +'<div class="s"><span class="ic">I</span><span>지시서</span></div>'
+    +'<div class="s"><span class="ic">T</span><span>부자재</span></div>'
+    +'<div class="s"><span class="ic">P</span><span>패턴</span></div>';
+  (window._qbCustomSlots||[]).forEach(function(cs,i){
+    html+='<div class="s" style="background:#FFF6B8"><span class="ic">★</span><span style="flex:1">'+esc(cs.label)+'</span><button type="button" onclick="qbRemoveCustomSlot('+i+')" style="background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:0 4px;line-height:1;font-family:inherit" title="제거">×</button></div>';
+  });
+  el.innerHTML=html;
 }
 function qbSavePackage(){
   var destVal=(document.getElementById('qb-pkg-dest')||{}).value||'';
   if(!destVal){showToast('목적지를 입력·선택해주세요');return;}
   var itemId=(document.getElementById('qb-pkg-item')||{}).value||'';
-  var customName=(document.getElementById('qb-pkg-name')||{}).value||'';
-  var typedItem=(document.getElementById('qb-pkg-item-input')||{}).value||'';
-  // 이름 결정: 아이템 매칭됐으면 그 이름, 아니면 직접 입력 or 타이핑한 텍스트
-  var name=itemId&&S.items[itemId]?S.items[itemId].name:(customName||typedItem);
+  var customName=((document.getElementById('qb-pkg-name')||{}).value||'').trim();
+  var typedItem=((document.getElementById('qb-pkg-item-input')||{}).value||'').trim();
+  // 이름 우선순위: 직접입력 > 매칭된 아이템 > 타이핑한 검색어
+  var name=customName||(itemId&&S.items[itemId]?S.items[itemId].name:typedItem);
   if(!name){showToast('아이템 또는 이름을 입력해주세요');return;}
   var date=(document.getElementById('qb-pkg-date')||{}).value||'';
   var ship=(document.getElementById('qb-pkg-ship')||{}).value||'';
   var memo=(document.getElementById('qb-pkg-memo')||{}).value||'';
-  // 목적지 파싱
-  var destFactoryId='',destSupplierName='';
+  // 목적지 파싱 (fc:/sp:/brand:)
+  var destFactoryId='',destSupplierName='',destBrandId='';
   if(destVal.indexOf('fc:')===0)destFactoryId=destVal.slice(3);
   else if(destVal.indexOf('sp:')===0)destSupplierName=destVal.slice(3);
-  // 아이템에서 brandId 추출
+  else if(destVal.indexOf('brand:')===0)destBrandId=destVal.slice(6);
+  // 브랜드 ID (아이템에서 추출, 단 직접입력 우선 시 비어있을 수 있음)
   var brandId=itemId&&S.items[itemId]?(S.items[itemId].brandId||''):'';
-  // 패키지 생성
+  if(!brandId&&destBrandId)brandId=destBrandId;
+  // 패키지 생성 (기본 슬롯 4개 + 커스텀 슬롯)
   if(!S.packages)S.packages=[];
+  var slots=[
+    {id:'sl_'+uid(),type:'fabric',sourceSupplier:'',materialName:'',picked:false,pickedAt:''},
+    {id:'sl_'+uid(),type:'instruction',sourceSupplier:'',materialName:'',picked:false,pickedAt:''},
+    {id:'sl_'+uid(),type:'trim',sourceSupplier:'',materialName:'',picked:false,pickedAt:''},
+    {id:'sl_'+uid(),type:'pattern',sourceSupplier:'',materialName:'',picked:false,pickedAt:''}
+  ];
+  // 커스텀 슬롯 추가
+  (window._qbCustomSlots||[]).forEach(function(cs){
+    slots.push({id:'sl_'+uid(),type:'custom',customLabel:cs.label,sourceSupplier:'',materialName:'',picked:false,pickedAt:''});
+  });
   var pkg={
     id:'pkg_'+uid(),
     name:name,
@@ -17060,17 +17106,13 @@ function qbSavePackage(){
     brandId:brandId,
     destFactoryId:destFactoryId,
     destSupplierName:destSupplierName,
+    destBrandId:destBrandId,
     expectedShipDate:date,
     plannedShipMethod:ship,
     shipMethod:'',
     sentAt:'',
     memo:memo,
-    slots:[
-      {id:'sl_'+uid(),type:'fabric',sourceSupplier:'',materialName:'',picked:false,pickedAt:''},
-      {id:'sl_'+uid(),type:'trim',sourceSupplier:'',materialName:'',picked:false,pickedAt:''},
-      {id:'sl_'+uid(),type:'pattern',sourceSupplier:'',materialName:'',picked:false,pickedAt:''},
-      {id:'sl_'+uid(),type:'instruction',sourceSupplier:'',materialName:'',picked:false,pickedAt:''}
-    ],
+    slots:slots,
     createdAt:new Date().toISOString()
   };
   // 아이템에서 자재 정보 자동 채우기
@@ -17079,9 +17121,10 @@ function qbSavePackage(){
     var fabs=(it.fabrics||[]).filter(function(f){return f.supplier;});
     var trims=(it.trims||[]).filter(function(t){return t.supplier;});
     if(fabs[0]){pkg.slots[0].sourceSupplier=fabs[0].supplier;pkg.slots[0].materialName=fabs[0].name||'원단';}
-    if(trims[0]){pkg.slots[1].sourceSupplier=trims[0].supplier;pkg.slots[1].materialName=trims[0].name||'부자재';}
+    if(trims[0]){pkg.slots[2].sourceSupplier=trims[0].supplier;pkg.slots[2].materialName=trims[0].name||'부자재';}
   }
   S.packages.push(pkg);
+  window._qbCustomSlots=[];/* reset */
   saveData();
   qbClosePackageModal();
   showToast('✅ 퀘스트 등록됨');
@@ -17226,6 +17269,11 @@ function qbPkgDestInfo(p){
     var addr=pb?[pb.market,pb.building,pb.floor,pb.room].filter(Boolean).join(' '):'';
     return{key:'sp:'+p.destSupplierName,name:p.destSupplierName,type:'supplier',address:addr,phone:pb?(pb.phone||''):''};
   }
+  if(p.destBrandId){
+    var brands=getBrands();
+    var b=brands.find(function(x){return x.id===p.destBrandId;});
+    return{key:'brand:'+p.destBrandId,name:(b?b.name:'브랜드')+' (브랜드)',type:'brand',address:b&&b.address?b.address:'',phone:b&&b.phone?b.phone:''};
+  }
   return{key:'self',name:'본사',type:'self',address:'',phone:''};
 }
 function buildQuestBoardHTML(){
@@ -17303,16 +17351,34 @@ function buildQuestBoardHTML(){
     if(!typeMap[t][sn]){
       var pb=S.priceBook&&S.priceBook[sn];
       var addr=pb?[pb.market,pb.building,pb.floor,pb.room].filter(Boolean).join(' '):'';
-      typeMap[t][sn]={name:sn,address:addr,phone:pb?(pb.phone||''):'',pickups:[]};
+      typeMap[t][sn]={name:sn,address:addr,phone:pb?(pb.phone||''):'',pickups:[],pkgSlots:[]};
     }
     typeMap[t][sn].pickups.push(p);
   });
-  // 통계 (진행 중만 카운트)
+  // ===== NEW: 패키지 슬롯도 우측 수집처에 등장 (PICK으로 슬롯 점등) =====
+  pkgInProgress.forEach(function(pp){
+    (pp.slots||[]).forEach(function(s){
+      if(s.picked)return;
+      var sn=s.sourceSupplier;
+      if(!sn)return;/* sourceSupplier 없으면 우측에 안 나옴 (좌측 직접 클릭만) */
+      var t=(s.type==='custom')?'other':s.type;
+      if(!typeMap[t][sn]){
+        var pb=S.priceBook&&S.priceBook[sn];
+        var addr=pb?[pb.market,pb.building,pb.floor,pb.room].filter(Boolean).join(' '):'';
+        typeMap[t][sn]={name:sn,address:addr,phone:pb?(pb.phone||''):'',pickups:[],pkgSlots:[]};
+      }
+      if(!typeMap[t][sn].pkgSlots)typeMap[t][sn].pkgSlots=[];
+      typeMap[t][sn].pkgSlots.push({pkgId:pp.id,slotId:s.id,pkgName:pp.name,destName:qbPkgDestName(pp),slot:s});
+    });
+  });
+  // 통계 (진행 중만 카운트) — 패키지 슬롯도 포함
   var totalDests=Object.keys(destMap).length;
   var totalQuests=0;
   Object.keys(destMap).forEach(function(k){totalQuests+=destMap[k].quests.length+destMap[k].packages.length;});
   var pickedCnt=pickupsDone.length;
   pkgInProgress.forEach(function(p){pickedCnt+=(p.slots||[]).filter(function(s){return s.picked;}).length;});
+  // 패키지 발송 완료(SENT)도 PICKED 카운트에 합산
+  pkgDone.forEach(function(p){pickedCnt+=(p.slots||[]).filter(function(s){return s.picked;}).length;});
   var waitingCnt=pickupsWaiting.length;
   pkgInProgress.forEach(function(p){waitingCnt+=(p.slots||[]).filter(function(s){return !s.picked;}).length;});
   // 헤더 (퀘스트보드 + 스코어 + ADD 버튼들)
@@ -17391,7 +17457,7 @@ function renderDoneQuestsSection(pkgDone,doneQuestsList,brands){
   var cls='qb-done'+(open?'':' closed');
   var html='<div class="'+cls+'" id="qb-done-quests">';
   html+='<div class="qb-done-hd" onclick="qbToggleDone(\'quests\')">'
-    +'<span class="lbl"><span class="check">✓</span>📁 CLEARED MISSIONS <span class="cnt">'+total+'</span></span>'
+    +'<span class="lbl"><span class="check">✓</span>📁 CLEAR PACKAGES <span class="cnt">'+total+'</span></span>'
     +'<span class="chev">▼</span></div>';
   html+='<div class="qb-done-body">';
   pkgDone.forEach(function(p){html+=renderPackageCard(p,brands);});
@@ -17521,18 +17587,19 @@ function renderPackageCard(p,brands){
   if(brand)html+='<span class="badge brand">'+esc(brand.name)+'</span>';
   html+='<button class="del-btn" onclick="event.stopPropagation();qbDeletePackage(\''+esc(p.id)+'\')" title="패키지 삭제">X</button>';
   html+='</div>';
-  // 슬롯 4개
+  // 슬롯 (기본 4 + 커스텀)
   html+='<div class="slot-list">';
   (p.slots||[]).forEach(function(s){
     var typ=s.type;
-    var label={fabric:'원단',trim:'부자재',pattern:'패턴',instruction:'지시서',other:'기타'}[typ]||typ;
-    var ic=qbSlotEmoji(typ);
+    var label=s.customLabel||{fabric:'원단',trim:'부자재',pattern:'패턴',instruction:'지시서',other:'기타'}[typ]||typ;
+    var ic=typ==='custom'?'★':qbSlotEmoji(typ);
     var on=s.picked;
     var from=s.sourceSupplier||(s.materialName||'')||'미연결';
     if(s.materialName&&s.sourceSupplier)from=s.sourceSupplier+' · '+s.materialName;
-    html+='<div class="slot '+(on?'on '+typ:'off')+'" onclick="qbToggleSlot(\''+esc(p.id)+'\',\''+esc(s.id)+'\')" title="클릭으로 토글">'
+    var cls=on?('on '+(typ==='custom'?'custom':typ)):'off';
+    html+='<div class="slot '+cls+'" onclick="event.stopPropagation();qbToggleSlot(\''+esc(p.id)+'\',\''+esc(s.id)+'\')" title="클릭으로 토글">'
       +'<span class="ic">'+ic+'</span>'
-      +'<span class="lb">'+label+'</span>'
+      +'<span class="lb">'+esc(label)+'</span>'
       +'<span class="from">'+esc(from)+'</span>'
       +'</div>';
   });
@@ -17604,7 +17671,9 @@ function renderQuestCard(q,destKey,brands){
 function renderMatZone(typ,label,supsObj){
   var html='<div class="mat-zone"><div class="mat-zone-hd '+typ+'">'+label+'</div><div class="mat-zone-inner">';
   Object.values(supsObj).forEach(function(s){
-    var allPicked=s.pickups.length>0&&s.pickups.every(function(p){return p.status==='pickedUp';});
+    var allItemsPicked=s.pickups.length>0&&s.pickups.every(function(p){return p.status==='pickedUp';});
+    var allSlotsPicked=(!s.pkgSlots||!s.pkgSlots.length||s.pkgSlots.every(function(ps){return ps.slot.picked;}));
+    var allPicked=s.pickups.length>0&&allItemsPicked&&allSlotsPicked;
     html+='<div class="sup-card">';
     html+='<div class="sup-name">'+esc(s.name)+(allPicked?'<button class="pick-btn done" disabled>완료</button>':'')+'</div>';
     if(s.address||s.phone){
@@ -17616,7 +17685,6 @@ function renderMatZone(typ,label,supsObj){
       var picked=p.status==='pickedUp';
       var di=qbDestInfo(p);
       var ic=qbSlotEmoji(qbSlotType(p.type));
-      // 세부 내용(subitemName) 우선 강조 → 본문, 아이템명은 부가
       var sub=p.subitemName||'';
       var itemNm=p.itemName||(p.itemId&&S.items[p.itemId]?S.items[p.itemId].name:'')||p.notes||esc(p.type||'기타');
       var bodyHtml;
@@ -17632,6 +17700,22 @@ function renderMatZone(typ,label,supsObj){
         +(picked
           ?'<button class="pk" style="background:#A5E6BA" onclick="qbUnPickup(\''+esc(p.id)+'\')" title="픽업 취소">✓</button>'
           :'<button class="pk" onclick="qbPickup(\''+esc(p.id)+'\',this)">PICK</button>')
+        +'</div>';
+    });
+    // 패키지 슬롯도 픽업 항목처럼 렌더 (PICK으로 슬롯 점등)
+    (s.pkgSlots||[]).forEach(function(ps){
+      var slot=ps.slot;
+      var lbl=slot.customLabel||{fabric:'원단',trim:'부자재',pattern:'패턴',instruction:'지시서'}[slot.type]||'기타';
+      var ic=slot.type==='custom'?'★':qbSlotEmoji(slot.type);
+      var mat=slot.materialName||'';
+      var bodyHtml='<b style="font-weight:800">'+esc(lbl)+'</b>'+(mat?' <span style="color:#666;font-size:10px;font-weight:500">· '+esc(mat)+'</span>':'');
+      var picked=slot.picked;
+      html+='<div class="sup-item'+(picked?' picked':'')+'" style="background:#FAFFF8">'
+        +'<span class="ic">'+ic+'</span>'
+        +'<span class="nm">'+bodyHtml+' <span class="dest">→ '+esc(ps.destName)+'·'+esc(ps.pkgName)+'</span></span>'
+        +(picked
+          ?'<button class="pk" style="background:#A5E6BA" onclick="qbToggleSlot(\''+esc(ps.pkgId)+'\',\''+esc(ps.slotId)+'\')" title="슬롯 끄기">✓</button>'
+          :'<button class="pk" onclick="qbToggleSlot(\''+esc(ps.pkgId)+'\',\''+esc(ps.slotId)+'\')">PICK</button>')
         +'</div>';
     });
     html+='</div></div>';
