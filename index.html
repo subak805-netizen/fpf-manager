@@ -16752,12 +16752,14 @@ function qbStylesHTML(){
     +'.q-card.sent .q-card-hd .nm{color:var(--dim-text);}'
     +'.q-card.sent .slot{filter:grayscale(1) opacity(.6);}'
     +'.q-card.sent .q-acts button{opacity:.6;}'
-    +'.q-card-hd{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px;letter-spacing:.2px;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;padding-bottom:6px;border-bottom:1.5px solid var(--ink);}'
+    +'.q-card-hd{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px;letter-spacing:.2px;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:nowrap;padding-bottom:6px;border-bottom:1.5px solid var(--ink);}'
+    +'.q-card-hd .nm{font-family:"Galmuri11","Pretendard",sans-serif;}'
     +".q-card-hd .nm{font-family:'Galmuri11',monospace;font-size:14px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
     +".q-card-hd .badge{font-family:'Press Start 2P',monospace;font-size:7px;font-weight:400;padding:3px 5px;border:1.5px solid var(--ink);background:#fff;letter-spacing:.3px;border-radius:2px;}"
     +'.q-card-hd .badge.brand{background:var(--ink);color:#fff;}'
-    +'.q-card-hd .del-btn{background:none;border:none;color:#888;cursor:pointer;font-size:12px;padding:2px 4px;line-height:1;}'
-    +'.q-card-hd .del-btn:hover{color:#d33;}'
+    +'/* 패키지 삭제 X — 평소 옅게, hover 시 또렷 */'
+    +'.q-card-hd .del-btn{background:#fff;border:1.5px solid #ccc;color:#aaa;cursor:pointer;font-family:"Press Start 2P",monospace;font-size:9px;padding:2px 5px;line-height:1;border-radius:2px;flex-shrink:0;transition:all .12s;}'
+    +'.q-card-hd .del-btn:hover{color:#0B0A05;border-color:#0B0A05;background:#fff;box-shadow:1.5px 1.5px 0 #0B0A05;transform:translate(-1px,-1px);}'
     +'/* 슬롯 — 밑그림(off) → 채워짐(on) */'
     +'.slot-list{display:flex;flex-direction:column;gap:5px;margin-bottom:8px;}'
     +'.slot{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1.5px dashed var(--ink);background:#fff;font-size:12px;min-height:30px;position:relative;border-radius:2px;}'
@@ -17087,9 +17089,69 @@ function qbSavePackage(){
 }
 function qbDeletePackage(pkgId){
   if(!S.packages)return;
-  if(!confirm('이 퀘스트를 삭제할까요?'))return;
-  S.packages=S.packages.filter(function(p){return p.id!==pkgId;});
-  saveData();renderRoutePane();
+  var p=S.packages.find(function(x){return x.id===pkgId;});if(!p)return;
+  // 연결된 미완료 픽업 추적 (같은 destination + itemId)
+  var destKey=p.destFactoryId?('fc:'+p.destFactoryId):p.destSupplierName?('sp:'+p.destSupplierName):'self';
+  var linkedPickups=(S.pickups||[]).filter(function(pk){
+    if(pk.status==='delivered'||pk.status==='canceled')return false;
+    if(pk.status==='pickedUp')return false; // 픽업 완료된 건 cascade 안 함
+    var pkDest=qbDestInfo(pk).key;
+    if(pkDest!==destKey)return false;
+    if(!p.itemId)return false;
+    return pk.itemId===p.itemId;
+  });
+  qbConfirmModal({
+    title:'패키지 삭제',
+    body:'이 패키지 미션을 완전히 삭제하시겠습니까? 👾<br><br><b>'+esc(p.name||'(이름 없음)')+'</b>'
+      +(linkedPickups.length?'<div style="margin-top:10px;padding:8px 10px;background:#FFF6B8;border:1.5px solid #0B0A05;font-size:12px;color:#0B0A05;font-weight:600">⚠ 연결된 우측 미완료 픽업 '+linkedPickups.length+'건도 함께 삭제됩니다</div>':''),
+    okLabel:'🗑 삭제',
+    okStyle:'background:#FF6B6B;color:#fff;',
+    onOk:function(){
+      S.packages=S.packages.filter(function(x){return x.id!==pkgId;});
+      if(linkedPickups.length){
+        var idsToDel={};
+        linkedPickups.forEach(function(pk){idsToDel[pk.id]=true;});
+        S.pickups=(S.pickups||[]).filter(function(pk){return !idsToDel[pk.id];});
+      }
+      saveData();renderRoutePane();
+      qbToast('🗑 삭제됨','#FF6B6B');
+    }
+  });
+}
+// ===== 레트로 게임 스타일 확인 모달 =====
+function qbConfirmModal(opts){
+  opts=opts||{};
+  var bd=document.getElementById('qb-confirm-modal');
+  if(!bd){
+    bd=document.createElement('div');
+    bd.id='qb-confirm-modal';
+    bd.className='qb-modal-bd';
+    document.body.appendChild(bd);
+  }
+  bd.onclick=function(e){if(e.target===bd)qbCloseConfirm();};
+  var safeTitle=opts.title||'확인';
+  var safeBody=opts.body||'정말로 진행할까요?';
+  var safeOk=opts.okLabel||'확인';
+  var okStyle=opts.okStyle||'background:#A5E6BA;';
+  window._qbConfirmCb=opts.onOk||function(){};
+  bd.innerHTML='<div class="qb-modal" style="max-width:380px"><div class="qb-modal-bar"><div class="title">'+esc(safeTitle)+'</div><div class="close" onclick="qbCloseConfirm()">X</div></div>'
+    +'<div class="qb-modal-body">'
+    +'<div style="font-family:Pretendard,sans-serif;font-size:13.5px;line-height:1.6;color:#0B0A05;letter-spacing:-0.2px;padding:8px 4px 18px">'+safeBody+'</div>'
+    +'<div class="qb-modal-acts">'
+    +'<button onclick="qbCloseConfirm()">취소</button>'
+    +'<button class="save" style="'+okStyle+'" onclick="qbRunConfirm()">'+esc(safeOk)+'</button>'
+    +'</div>'
+    +'</div></div>';
+  bd.classList.add('show');
+}
+function qbCloseConfirm(){
+  var bd=document.getElementById('qb-confirm-modal');if(bd)bd.classList.remove('show');
+  window._qbConfirmCb=null;
+}
+function qbRunConfirm(){
+  var cb=window._qbConfirmCb;
+  qbCloseConfirm();
+  if(typeof cb==='function')cb();
 }
 // 되살리기 — SENT 패키지를 메인 대시보드로 복귀 (슬롯 리셋)
 function qbRestorePackage(pkgId){
@@ -17237,7 +17299,7 @@ function buildQuestBoardHTML(){
   var typeMap={fabric:{},trim:{},pattern:{},instruction:{},other:{}};
   pickupsWaiting.forEach(function(p){
     var t=qbSlotType(p.type);
-    var sn=p.supplierName||'(미지정)';
+    var sn=p.supplierName||'[미정]';
     if(!typeMap[t][sn]){
       var pb=S.priceBook&&S.priceBook[sn];
       var addr=pb?[pb.market,pb.building,pb.floor,pb.room].filter(Boolean).join(' '):'';
@@ -17345,7 +17407,7 @@ function renderDonePickupsSection(pickupsDone){
   var typeMap={fabric:{},trim:{},pattern:{},instruction:{},other:{}};
   pickupsDone.forEach(function(p){
     var t=qbSlotType(p.type);
-    var sn=p.supplierName||'(미지정)';
+    var sn=p.supplierName||'[미정]';
     if(!typeMap[t][sn]){
       var pb=S.priceBook&&S.priceBook[sn];
       typeMap[t][sn]={name:sn,address:pb?[pb.market,pb.building,pb.floor,pb.room].filter(Boolean).join(' '):'',pickups:[]};
@@ -17365,8 +17427,10 @@ function renderDonePickupsSection(pickupsDone){
         +'<div class="nm">'+esc(s.name)+(s.address?' <span style="font-size:10px;color:#6b6555;font-weight:400">· '+esc(s.address)+'</span>':'')+'</div>';
       s.pickups.forEach(function(p){
         var di=qbDestInfo(p);
+        var sub=p.subitemName||'';
         var itemNm=p.itemName||(p.itemId&&S.items[p.itemId]?S.items[p.itemId].name:'')||p.notes||esc(p.type||'기타');
-        html+='<div class="item"><span>'+esc(itemNm)+'</span><span class="dest">→ '+esc(di.name)+'</span><button class="undo" onclick="qbUnPickup(\''+esc(p.id)+'\')" title="픽업 취소">UNDO</button></div>';
+        var body=sub?('<b>'+esc(sub)+'</b>'+(itemNm&&itemNm!==sub?' <span style="color:#888;font-size:10px">· '+esc(itemNm)+'</span>':'')):esc(itemNm);
+        html+='<div class="item"><span>'+body+'</span><span class="dest">→ '+esc(di.name)+'</span><button class="undo" onclick="qbUnPickup(\''+esc(p.id)+'\')" title="픽업 취소">UNDO</button></div>';
       });
       html+='</div>';
     });
@@ -17455,7 +17519,7 @@ function renderPackageCard(p,brands){
   html+='<div class="q-card-hd">'
     +'<span class="nm">'+esc(p.name||'(이름 없음)')+'</span>';
   if(brand)html+='<span class="badge brand">'+esc(brand.name)+'</span>';
-  html+='<button class="del-btn" onclick="qbDeletePackage(\''+esc(p.id)+'\')" title="삭제">✕</button>';
+  html+='<button class="del-btn" onclick="event.stopPropagation();qbDeletePackage(\''+esc(p.id)+'\')" title="패키지 삭제">X</button>';
   html+='</div>';
   // 슬롯 4개
   html+='<div class="slot-list">';
@@ -17552,12 +17616,21 @@ function renderMatZone(typ,label,supsObj){
       var picked=p.status==='pickedUp';
       var di=qbDestInfo(p);
       var ic=qbSlotEmoji(qbSlotType(p.type));
+      // 세부 내용(subitemName) 우선 강조 → 본문, 아이템명은 부가
+      var sub=p.subitemName||'';
       var itemNm=p.itemName||(p.itemId&&S.items[p.itemId]?S.items[p.itemId].name:'')||p.notes||esc(p.type||'기타');
+      var bodyHtml;
+      if(sub){
+        bodyHtml='<b style="font-weight:800;color:#0B0A05">'+esc(sub)+'</b>'
+          +(itemNm&&itemNm!==sub?' <span style="color:#888;font-size:10px;font-weight:500">· '+esc(itemNm)+'</span>':'');
+      }else{
+        bodyHtml='<b style="font-weight:700">'+esc(itemNm)+'</b>';
+      }
       html+='<div class="sup-item'+(picked?' picked':'')+'">'
         +'<span class="ic">'+ic+'</span>'
-        +'<span class="nm">'+esc(itemNm)+' <span class="dest">→ '+esc(di.name)+'</span></span>'
+        +'<span class="nm">'+bodyHtml+' <span class="dest">→ '+esc(di.name)+'</span></span>'
         +(picked
-          ?'<button class="pk" style="background:#00E676" onclick="qbUnPickup(\''+esc(p.id)+'\')" title="픽업 취소">✓</button>'
+          ?'<button class="pk" style="background:#A5E6BA" onclick="qbUnPickup(\''+esc(p.id)+'\')" title="픽업 취소">✓</button>'
           :'<button class="pk" onclick="qbPickup(\''+esc(p.id)+'\',this)">PICK</button>')
         +'</div>';
     });
@@ -18713,9 +18786,9 @@ function showPickupForm(pid){
   
   const p=editing||{id:uid(),type:'샘플감',supplierName:'',itemId:'',itemName:'',deliveryTo:{type:'factory'},expectedDate:todayISO(),expectedTime:'',status:'expected',notes:'',source:'manual'};
   const html=`
-    <div style="background:rgba(0,0,0,0.5);position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:10px" onclick="if(event.target===this)closePickupForm()">
-      <div style="background:#fff;border-radius:12px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;padding:18px">
-        <div class="fb" style="margin-bottom:12px"><b style="font-size:16px">${editing?'픽업 수정':'+ 새 픽업 추가'}</b><button class="btn s" onclick="closePickupForm()">×</button></div>
+    <div style="background:rgba(0,0,0,.78);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);position:fixed;inset:0;z-index:99990;display:flex;align-items:center;justify-content:center;padding:14px;font-family:'Pretendard Variable','Pretendard',sans-serif;" onclick="if(event.target===this)closePickupForm()">
+      <div style="background:#fff;border:3px solid #0B0A05;box-shadow:6px 6px 0 #0B0A05;border-radius:3px;max-width:480px;width:100%;max-height:92vh;overflow-y:auto;padding:18px;font-family:'Pretendard Variable','Pretendard',sans-serif;">
+        <div class="fb" style="margin-bottom:14px;padding-bottom:10px;border-bottom:2px dashed #0B0A05"><b style="font-size:15px;font-weight:800;letter-spacing:-0.3px">${editing?'＋ 픽업 수정':'＋ 새 픽업 추가'}</b><button class="btn s" onclick="closePickupForm()" style="border:1.5px solid #0B0A05;background:#fff;font-weight:700;box-shadow:1.5px 1.5px 0 #0B0A05">×</button></div>
         
         <div class="fg"><label>종류</label>
           <select id="pk-type">
@@ -18731,23 +18804,23 @@ function showPickupForm(pid){
           <div class="muted" style="font-size:10px;margin-top:3px">아이템 선택 시 자동으로 채워져요</div>
         </div>
         
-        <div class="fg"><label>거래처 (어디서 픽업)</label>
+        <div class="fg"><label>거래처 (어디서 픽업) <span style="font-weight:500;color:#888;font-size:11px">— 선택 사항</span></label>
           <select id="pk-supplier" onchange="onPickupSupplierChange()">
-            <option value="">선택…</option>
+            <option value="">[미정] — 거래처 미정 / 미선택</option>
             ${supList.map(s=>`<option value="${esc(s)}"${p.supplierName===s?' selected':''}>${esc(s)}</option>`).join('')}
           </select>
           <div id="pk-supplier-loc" class="muted" style="font-size:11px;margin-top:4px">${renderPickupSupLocPreview(p.supplierName)}</div>
         </div>
-        
+
         <div class="fg"><label>관련 아이템 (선택)</label>
           <select id="pk-item" onchange="onPickupItemChange()">
             <option value="">선택 안 함</option>
             ${itemList.map(it=>`<option value="${it.id}"${p.itemId===it.id?' selected':''}>${esc(it.name)}${it.season?` (${esc(it.season)})`:''}</option>`).join('')}
           </select>
         </div>
-        
-        <div class="fg"><label>세부 (예: 컨펌용 1차, 자수 샘플)</label>
-          <input id="pk-subitem" value="${esc(p.subitemName||'')}" placeholder="비워두어도 됩니다">
+
+        <div class="fg"><label style="background:#FFF6B8;padding:2px 6px;border:1.5px solid #0B0A05;display:inline-block;letter-spacing:-0.2px">★ 세부 내용 <span style="font-weight:500;color:#666;font-size:10px">(거래처·아이템 없어도 이게 본문이 됩니다)</span></label>
+          <input id="pk-subitem" value="${esc(p.subitemName||'')}" placeholder="예: 베이커리, 텍스컴 신상스와치 / 컨펌용 1차" style="font-weight:600;border:2px solid #0B0A05">
         </div>
         
         <div class="fg"><label>배송지 (픽업 후 어디로)</label>
@@ -18790,9 +18863,9 @@ function showPickupForm(pid){
           <textarea id="pk-notes" rows="2" placeholder="추가 정보 (수량, 컬러 등)">${esc(p.notes||'')}</textarea>
         </div>
         
-        <div class="fr" style="gap:6px;justify-content:flex-end;margin-top:12px">
-          <button class="btn s" onclick="closePickupForm()">취소</button>
-          <button class="btn p" onclick="savePickupForm('${p.id}',${editing?'true':'false'})">💾 저장</button>
+        <div class="fr" style="gap:10px;justify-content:flex-end;align-items:center;margin-top:18px;padding-top:14px;border-top:2px dashed #0B0A05">
+          <button class="btn s" onclick="closePickupForm()" style="border:2px solid #0B0A05;background:#fff;font-weight:700;box-shadow:2px 2px 0 #0B0A05;padding:8px 16px;letter-spacing:.3px">취소</button>
+          <button class="btn p" onclick="savePickupForm('${p.id}',${editing?'true':'false'})" style="border:2px solid #0B0A05;background:#B0DBF0;color:#0B0A05;font-weight:800;box-shadow:3px 3px 0 #0B0A05;padding:8px 18px;letter-spacing:.3px">💾 저장</button>
         </div>
       </div>
     </div>
@@ -18849,8 +18922,13 @@ function savePickupForm(pid,isEdit){
   const expectedTime=document.getElementById('pk-time').value;
   const status=document.getElementById('pk-status').value;
   const notes=document.getElementById('pk-notes').value;
-  if(!supplierName){showToast('거래처를 선택하세요');return;}
+  // 거래처는 옵션(미정 허용) — 세부 내용만 있어도 빠른 등록 가능
   if(!S.pickups)S.pickups=[];
+  // 빈 등록 방지: 거래처·아이템·세부 메모 다 비어있으면 막음
+  if(!supplierName&&!itemId&&!subitemName&&!notes){
+    showToast('거래처·아이템·세부 메모 중 하나는 입력해주세요');
+    return;
+  }
   const it=itemId?S.items[itemId]:null;
   const fc=delFcId?S.factories[delFcId]:null;
   // 브랜드 자동 추정 (아이템에서)
