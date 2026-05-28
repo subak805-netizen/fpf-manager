@@ -16844,6 +16844,29 @@ function qbStylesHTML(){
     +'.qb-modal-acts button:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink);}'
     +'.qb-modal-acts .save{background:var(--hl-mint);font-size:14px;padding:10px 22px;}'
     +'.qb-modal-acts .save .ico{margin-right:4px;}'
+    +'/* ===== 완료 섹션 (접이식) ===== */'
+    +'.qb-done{margin-top:18px;background:#fff;border:2.5px solid var(--ink);box-shadow:4px 4px 0 var(--ink);border-radius:3px;}'
+    +".qb-done-hd{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;background:var(--paper2);border-bottom:2.5px solid var(--ink);user-select:none;font-family:'Galmuri11',monospace;font-size:13px;font-weight:700;letter-spacing:.3px;color:var(--ink);}"
+    +'.qb-done-hd:hover{background:var(--hl-yellow);}'
+    +'.qb-done.closed .qb-done-hd{border-bottom:none;}'
+    +'.qb-done-hd .lbl{display:flex;align-items:center;gap:8px;}'
+    +'.qb-done-hd .check{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;background:var(--hl-mint);border:1.5px solid var(--ink);font-size:12px;font-weight:700;line-height:1;}'
+    +".qb-done-hd .cnt{font-family:'Press Start 2P',monospace;font-size:9px;background:var(--ink);color:var(--hl-yellow);padding:3px 6px;letter-spacing:.3px;}"
+    +".qb-done-hd .chev{font-family:'Press Start 2P',monospace;font-size:10px;color:var(--ink);transition:transform .15s;}"
+    +'.qb-done.closed .qb-done-hd .chev{transform:rotate(-90deg);}'
+    +'.qb-done-body{padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;background:repeating-linear-gradient(45deg,#fff 0,#fff 6px,#F5EFD8 6px,#F5EFD8 7px);}'
+    +'.qb-done.closed .qb-done-body{display:none;}'
+    +'@media(max-width:500px){.qb-done-body{grid-template-columns:1fr;padding:10px;}}'
+    +'.qb-done-empty{font-family:Pretendard;font-size:12px;color:#6b6555;text-align:center;padding:18px;letter-spacing:-0.2px;grid-column:1/-1;}'
+    +'/* 우측 완료 픽업 리스트 (자재 종류별 미니) */'
+    +'.qb-done-src{background:#fff;border:2px solid var(--ink);border-radius:2px;padding:8px 10px;box-shadow:2px 2px 0 var(--ink);}'
+    +".qb-done-src .typ-tag{display:inline-block;padding:1px 6px;font-family:'Press Start 2P',monospace;font-size:7px;border:1.5px solid var(--ink);background:var(--hl-mint);color:var(--ink);letter-spacing:.3px;margin-bottom:5px;}"
+    +".qb-done-src .nm{font-family:'Galmuri11',monospace;font-size:12px;font-weight:700;letter-spacing:.2px;margin-bottom:2px;}"
+    +'.qb-done-src .item{font-size:11px;color:#3a3528;display:flex;justify-content:space-between;gap:6px;border-top:1px dashed var(--ink);padding-top:3px;margin-top:3px;font-family:Pretendard;letter-spacing:-0.2px;}'
+    +'.qb-done-src .item:first-of-type{border-top:none;margin-top:0;padding-top:0;}'
+    +".qb-done-src .item .dest{color:var(--ink);font-weight:700;font-family:'Galmuri11',monospace;font-size:11px;flex-shrink:0;}"
+    +".qb-done-src .undo{background:#fff;border:1.5px solid var(--ink);font-family:'Press Start 2P',monospace;font-size:7px;padding:1px 5px;cursor:pointer;margin-left:auto;color:var(--ink);}"
+    +'.qb-done-src .undo:hover{background:var(--hl-coral);color:#fff;}'
     +'/* 모바일 보정 */'
     +'@media(max-width:640px){'
     +'.qb-head{flex-direction:column;align-items:stretch;}'
@@ -17064,23 +17087,27 @@ function buildQuestBoardHTML(){
   if(!S.pickups)S.pickups=[];
   if(!S.packages)S.packages=[];
   var active=S.pickups.filter(function(p){return p.status!=='delivered'&&p.status!=='canceled';});
-  // SENT 패키지도 화면에는 남김 (어두운 카드로). 단 너무 오래된 건 제외 (30일 이상)
+  // 30일 지난 SENT 패키지 자동 제외
   var nowMs=Date.now();
-  var pkgActive=S.packages.filter(function(p){
+  var pkgAll=S.packages.filter(function(p){
     if(!p.sentAt)return true;
     var dt=new Date(p.sentAt).getTime();
     return (nowMs-dt)<(30*86400000);
   });
+  // 진행 중 vs 발송 완료 분리
+  var pkgInProgress=pkgAll.filter(function(p){return !p.sentAt;});
+  var pkgDone=pkgAll.filter(function(p){return p.sentAt;});
+  // 픽업: 미픽업 vs 픽업 완료
+  var pickupsWaiting=active.filter(function(p){return p.status!=='pickedUp';});
+  var pickupsDone=active.filter(function(p){return p.status==='pickedUp';});
   var brands=getBrands();
-  // 좌측: 목적지별 그룹
+  // ===== destMap (진행 중인 패키지/quest만) =====
   var destMap={};
-  // (1) S.packages 먼저
-  pkgActive.forEach(function(p){
+  pkgInProgress.forEach(function(p){
     var di=qbPkgDestInfo(p);
     if(!destMap[di.key])destMap[di.key]={info:di,quests:{},pickups:[],packages:[]};
     destMap[di.key].packages.push(p);
   });
-  // (2) 기존 S.pickups (옛 호환)
   active.forEach(function(p){
     var di=qbDestInfo(p);
     if(!destMap[di.key])destMap[di.key]={info:di,quests:{},pickups:[],packages:[]};
@@ -17108,13 +17135,24 @@ function buildQuestBoardHTML(){
     if(!destMap[di.key].quests[qkey])destMap[di.key].quests[qkey]={key:qkey,label:qlabel,brandId:qbrandId,pickups:[]};
     destMap[di.key].quests[qkey].pickups.push(p);
   });
-  // destMap.quests를 array로 변환
+  // quests를 array로 변환 + SENT quest는 doneQuests로 분리
+  var doneQuestsList=[]; // {destInfo, quest}[]
   Object.keys(destMap).forEach(function(k){
-    destMap[k].quests=Object.values(destMap[k].quests);
+    var d=destMap[k];
+    var qArr=Object.values(d.quests);
+    d.quests=qArr.filter(function(q){
+      var allSent=q.pickups.length>0&&q.pickups.every(function(p){return p.shipMethod;});
+      if(allSent)doneQuestsList.push({destInfo:d.info,quest:q});
+      return !allSent;
+    });
   });
-  // 우측: 자재 타입별 → 그 안에 거래처별
+  // destMap에서 빈 zone 제거 (패키지·quest 둘 다 비어있으면)
+  Object.keys(destMap).forEach(function(k){
+    if(destMap[k].packages.length===0&&destMap[k].quests.length===0)delete destMap[k];
+  });
+  // 우측: 자재 타입별 → 거래처별 (미픽업만)
   var typeMap={fabric:{},trim:{},pattern:{},instruction:{},other:{}};
-  active.forEach(function(p){
+  pickupsWaiting.forEach(function(p){
     var t=qbSlotType(p.type);
     var sn=p.supplierName||'(미지정)';
     if(!typeMap[t][sn]){
@@ -17124,14 +17162,14 @@ function buildQuestBoardHTML(){
     }
     typeMap[t][sn].pickups.push(p);
   });
-  // 통계 (S.packages + S.pickups 합산)
+  // 통계 (진행 중만 카운트)
   var totalDests=Object.keys(destMap).length;
   var totalQuests=0;
   Object.keys(destMap).forEach(function(k){totalQuests+=destMap[k].quests.length+destMap[k].packages.length;});
-  var pickedCnt=active.filter(function(p){return p.status==='pickedUp';}).length;
-  pkgActive.forEach(function(p){pickedCnt+=(p.slots||[]).filter(function(s){return s.picked;}).length;});
-  var waitingCnt=active.filter(function(p){return p.status!=='pickedUp';}).length;
-  pkgActive.forEach(function(p){if(!p.sentAt)waitingCnt+=(p.slots||[]).filter(function(s){return !s.picked;}).length;});
+  var pickedCnt=pickupsDone.length;
+  pkgInProgress.forEach(function(p){pickedCnt+=(p.slots||[]).filter(function(s){return s.picked;}).length;});
+  var waitingCnt=pickupsWaiting.length;
+  pkgInProgress.forEach(function(p){waitingCnt+=(p.slots||[]).filter(function(s){return !s.picked;}).length;});
   // 헤더 (퀘스트보드 + 스코어 + ADD 버튼들)
   var html='<div class="qb-head"><div><h2>QUEST BOARD</h2><div class="sub">공장에 큰그림 그리고 → 자재 픽업 → 퀵·택배로 발송</div></div>'
     +'<div class="qb-head-actions">'
@@ -17144,27 +17182,105 @@ function buildQuestBoardHTML(){
     +'<button class="qb-add-pkg" onclick="qbOpenPackageModal()">＋ ADD PACKAGE</button>'
     +'<button class="qb-add" onclick="showPickupForm(null)">＋ ADD PICKUP</button>'
     +'</div></div>';
-  if(!totalDests){
+  // 빈 메인 + 완료 섹션 둘 다 없으면 가이드 표시
+  var hasMain=totalDests>0;
+  var sumSrc=0;['fabric','trim','pattern','instruction','other'].forEach(function(t){sumSrc+=Object.keys(typeMap[t]).length;});
+  var hasDoneQ=pkgDone.length+doneQuestsList.length>0;
+  var hasDoneP=pickupsDone.length>0;
+  if(!hasMain&&sumSrc===0&&!hasDoneQ&&!hasDoneP){
     html+='<div class="qb-empty">NO ACTIVE QUEST<div class="sub">＋ADD PACKAGE로 어느 공장에 무슨 아이템 만들지 큰그림 먼저 그리세요.<br>샘플 발주·PO 보내면 자동으로 퀘스트가 추가됩니다.</div></div>';
     return html;
   }
-  // 2단 그리드
-  html+='<div class="qb-grid">';
-  // [좌측] 공장 zones
-  html+='<div><div class="qb-col-hd">DEST · 목적지 <span class="cnt">'+totalDests+'곳</span></div>';
-  Object.values(destMap).forEach(function(d){html+=renderFcZone(d,brands);});
-  html+='</div>';
-  // [우측] 자재 타입 zones
-  var sumSrc=0;['fabric','trim','pattern','instruction','other'].forEach(function(t){sumSrc+=Object.keys(typeMap[t]).length;});
-  html+='<div><div class="qb-col-hd">SOURCE · 수집처 <span class="cnt">'+sumSrc+'곳</span></div>';
+  // 2단 그리드 (진행 중인 것만)
+  if(hasMain||sumSrc>0){
+    html+='<div class="qb-grid">';
+    // [좌측] 공장 zones
+    html+='<div><div class="qb-col-hd">DEST · 목적지 <span class="cnt">'+totalDests+'곳</span></div>';
+    Object.values(destMap).forEach(function(d){html+=renderFcZone(d,brands);});
+    if(!hasMain)html+='<div class="qb-empty" style="margin-top:0">＋ADD PACKAGE로 큰그림 그리기</div>';
+    html+='</div>';
+    // [우측] 자재 타입 zones
+    html+='<div><div class="qb-col-hd">SOURCE · 수집처 <span class="cnt">'+sumSrc+'곳</span></div>';
+    var matLabels={fabric:'원단',trim:'부자재',pattern:'패턴',instruction:'지시서',other:'기타'};
+    ['fabric','trim','pattern','instruction','other'].forEach(function(t){
+      var sups=typeMap[t];if(!sups||!Object.keys(sups).length)return;
+      html+=renderMatZone(t,matLabels[t],sups);
+    });
+    if(sumSrc===0)html+='<div class="qb-empty" style="margin-top:0">픽업 대기 없음 — 좌측 슬롯 직접 클릭으로도 켤 수 있어요</div>';
+    html+='</div>';
+    html+='</div>';
+  }
+  // ===== 완료 섹션 (접이식) =====
+  // 좌·우 2단 그리드로 동일 배치
+  var doneTotalQuests=pkgDone.length+doneQuestsList.length;
+  var doneTotalSrc=pickupsDone.length;
+  if(doneTotalQuests>0||doneTotalSrc>0){
+    html+='<div class="qb-grid" style="margin-top:18px">';
+    // [좌측] 발송 완료 퀘스트
+    html+='<div>'+renderDoneQuestsSection(pkgDone,doneQuestsList,brands)+'</div>';
+    // [우측] 픽업 완료
+    html+='<div>'+renderDonePickupsSection(pickupsDone)+'</div>';
+    html+='</div>';
+  }
+  return html;
+}
+// ===== 완료 섹션 렌더 =====
+function renderDoneQuestsSection(pkgDone,doneQuestsList,brands){
+  var total=pkgDone.length+doneQuestsList.length;
+  if(!total)return '';
+  var open=(window._qbDoneOpen!==false); // 기본 열림
+  var cls='qb-done'+(open?'':' closed');
+  var html='<div class="'+cls+'" id="qb-done-quests">';
+  html+='<div class="qb-done-hd" onclick="qbToggleDone(\'quests\')">'
+    +'<span class="lbl"><span class="check">✓</span>발송 완료 <span class="cnt">'+total+'</span></span>'
+    +'<span class="chev">▼</span></div>';
+  html+='<div class="qb-done-body">';
+  pkgDone.forEach(function(p){html+=renderPackageCard(p,brands);});
+  doneQuestsList.forEach(function(dq){html+=renderQuestCard(dq.quest,dq.destInfo.key,brands);});
+  html+='</div></div>';
+  return html;
+}
+function renderDonePickupsSection(pickupsDone){
+  if(!pickupsDone.length)return '';
+  var open=(window._qbDonePkOpen!==false);
+  var cls='qb-done'+(open?'':' closed');
+  // 자재 타입별로 그룹
+  var typeMap={fabric:{},trim:{},pattern:{},instruction:{},other:{}};
+  pickupsDone.forEach(function(p){
+    var t=qbSlotType(p.type);
+    var sn=p.supplierName||'(미지정)';
+    if(!typeMap[t][sn]){
+      var pb=S.priceBook&&S.priceBook[sn];
+      typeMap[t][sn]={name:sn,address:pb?[pb.market,pb.building,pb.floor,pb.room].filter(Boolean).join(' '):'',pickups:[]};
+    }
+    typeMap[t][sn].pickups.push(p);
+  });
   var matLabels={fabric:'원단',trim:'부자재',pattern:'패턴',instruction:'지시서',other:'기타'};
+  var html='<div class="'+cls+'" id="qb-done-pickups">';
+  html+='<div class="qb-done-hd" onclick="qbToggleDone(\'pickups\')">'
+    +'<span class="lbl"><span class="check">✓</span>픽업 완료 <span class="cnt">'+pickupsDone.length+'</span></span>'
+    +'<span class="chev">▼</span></div>';
+  html+='<div class="qb-done-body">';
   ['fabric','trim','pattern','instruction','other'].forEach(function(t){
     var sups=typeMap[t];if(!sups||!Object.keys(sups).length)return;
-    html+=renderMatZone(t,matLabels[t],sups);
+    Object.values(sups).forEach(function(s){
+      html+='<div class="qb-done-src"><span class="typ-tag">'+matLabels[t]+'</span>'
+        +'<div class="nm">'+esc(s.name)+(s.address?' <span style="font-size:10px;color:#6b6555;font-weight:400">· '+esc(s.address)+'</span>':'')+'</div>';
+      s.pickups.forEach(function(p){
+        var di=qbDestInfo(p);
+        var itemNm=p.itemName||(p.itemId&&S.items[p.itemId]?S.items[p.itemId].name:'')||p.notes||esc(p.type||'기타');
+        html+='<div class="item"><span>'+esc(itemNm)+'</span><span class="dest">→ '+esc(di.name)+'</span><button class="undo" onclick="qbUnPickup(\''+esc(p.id)+'\')" title="픽업 취소">UNDO</button></div>';
+      });
+      html+='</div>';
+    });
   });
-  html+='</div>';
-  html+='</div>';
+  html+='</div></div>';
   return html;
+}
+function qbToggleDone(which){
+  if(which==='quests')window._qbDoneOpen=(window._qbDoneOpen===false);
+  else if(which==='pickups')window._qbDonePkOpen=(window._qbDonePkOpen===false);
+  renderRoutePane();
 }
 // 공장 윈도우 (목적지 1개 = window 1개, 그 안에 packages + 기존 quest들)
 function renderFcZone(d,brands){
