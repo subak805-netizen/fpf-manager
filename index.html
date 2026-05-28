@@ -16939,14 +16939,15 @@ function qbStylesHTML(){
     +'.slot.on{border-style:solid;border-width:2px;border-color:#5BB97D;background:var(--neon-green-tint);animation:pixelPop .3s ease;}'
     +'.slot.on .ic{background:var(--ink);color:var(--neon-green);}'
     +'@keyframes pixelPop{0%{transform:scale(.92);}40%{transform:scale(1.05);}100%{transform:scale(1);}}'
-    +'/* sent-pending — 발송 완료이나 아직 보관함으로 미이동 */'
+    +'/* sent-pending — 발송 완료이나 아직 보관함으로 미이동: 불 탁 꺼진 어두운 상태 */'
     +'.q-card.sent-pending{background:var(--dim-bg);border-color:var(--dim-border);box-shadow:2px 2px 0 var(--dim-border);}'
-    +'.q-card.sent-pending .q-card-hd .nm{opacity:.5;}'
-    +'.q-card.sent-pending .slot-list{opacity:.4;}'
-    +'.q-card.sent-pending .q-acts{opacity:.4;}'
-    +'/* 수동 보관함 이동 버튼 */'
-    +".qb-archive-btn{display:block;width:100%;margin-top:8px;padding:7px 4px;border:2px dashed var(--ink);background:#fff;font-family:'Galmuri11',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.3px;color:var(--ink);text-align:center;border-radius:2px;transition:all .1s;}"
-    +'.qb-archive-btn:hover{background:var(--neon-green-tint);}'
+    +'.q-card.sent-pending .q-card-hd,.q-card.sent-pending .slot-list,.q-card.sent-pending .q-acts{opacity:.38;filter:grayscale(1);pointer-events:none;}'
+    +'.q-card.sent-pending .q-card-hd .del-btn{pointer-events:auto;}'/* 삭제는 살려둠 */
+    +'.q-card.sent-pending .q-acts .restore{pointer-events:auto;opacity:1;filter:none;}'/* 되살리기는 항상 또렷 */
+    +'/* 수동 보관함 이동 버튼 — 어두운 카드 위에서도 또렷하게 (네온그린 강조) */'
+    +".qb-archive-btn{display:block;width:100%;margin-top:8px;padding:9px 4px;border:2px solid var(--ink);background:var(--neon-green);font-family:'Galmuri11',monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.3px;color:var(--ink);text-align:center;border-radius:3px;transition:all .1s;box-shadow:2px 2px 0 var(--ink);position:relative;z-index:2;}"
+    +'.qb-archive-btn:hover{background:#8FDCA8;transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink);}'
+    +'.qb-archive-btn:active{transform:translate(1px,1px);box-shadow:0 0 0 var(--ink);}'
     +'/* 픽업 시간 태그 */'
     +".pk-time-tag{display:inline-flex;align-items:center;padding:1px 5px;background:#FFF3E0;border:1px solid #FFB74D;border-radius:2px;font-size:10px;font-weight:600;color:#E65100;margin-left:5px;font-family:'Pretendard',sans-serif;letter-spacing:-0.2px;white-space:nowrap;}"
     +'/* (수집처 PICK/MADE 버튼 스타일은 아래 .sup-item 블록에 통합) */'
@@ -17531,9 +17532,9 @@ function qbRunConfirm(){
 function qbRestorePackage(pkgId){
   if(!S.packages)return;
   var p=S.packages.find(function(x){return x.id===pkgId;});if(!p)return;
-  p.shipMethod='';p.sentAt='';
-  // 슬롯도 모두 리셋 → 미완료 밑그림 상태로
-  (p.slots||[]).forEach(function(s){s.picked=false;s.pickedAt='';});
+  p.shipMethod='';p.sentAt='';p.archived=false;
+  // 슬롯도 모두 리셋 → 미완료 밑그림 상태로 (보관 플래그도 해제)
+  (p.slots||[]).forEach(function(s){s.picked=false;s.pickedAt='';s.madeStatus=false;s.srcArchived=false;});
   saveData();
   qbToast('🔄 되살아남 — 좌측 메인으로 복귀','#A5E6BA');
   renderRoutePane();
@@ -17550,12 +17551,12 @@ function qbRestoreQuest(destKey,questKey){
     else if(p.itemId)qk='item:'+p.itemId;
     else qk='misc:'+(p.supplierName||'기타');
     if(qk!==questKey)return;
-    // shipMethod 클리어 + status를 waiting으로
+    // shipMethod 클리어 + status를 waiting으로 + 보관 플래그 해제
     p.shipMethod='';p.shippedAt='';p.deliveredAt='';
-    p.status='waiting';
+    p.status='waiting';p.archived=false;
   });
   saveData();
-  qbToast('🔄 되살아남','#A5E6BA');
+  qbToast('🔄 되살아남 — 좌측 메인으로 복귀','#A5E6BA');
   renderRoutePane();
 }
 // 옛 픽업 기반 퀘스트 삭제 (destKey+questKey로 묶인 픽업들 제거)
@@ -18328,29 +18329,27 @@ function qbSendQuest(destKey,questKey,method,btnEl){
   var allPicked=related.every(function(p){return p.status==='pickedUp';});
   if(!allPicked){qbToast('아직 모든 슬롯이 켜지지 않았어요','#FF3D7F');return;}
   var destName=qbDestInfo(related[0]).name;
+  // 발송 표시만 (shipMethod) — 즉시 사라지지 않고 sent-pending(어둡게)으로 남음.
+  // status는 절대 delivered로 바꾸지 않음 → 사용자가 [📦 보관함으로 보내기] 누를 때만 archived 처리되어 CLEAR PACKAGES로 이동
   related.forEach(function(p){p.shipMethod=method;p.shippedAt=new Date().toISOString();});
   saveData();
   if(btnEl)qbDotBurst(btnEl,method==='quick'?'#00E5FF':'#FFD600');
   var ico=method==='quick'?'🛵':'📦';
   var label=method==='quick'?'QUICK 발송':'택배 발송';
-  qbBigToast(ico,destName,label+' 시작!');
-  // 발송 완료 후 약간 딜레이 후 delivered 처리 + 화면 새로고침
-  setTimeout(function(){
-    related.forEach(function(p){p.status='delivered';p.deliveredAt=new Date().toISOString();});
-    saveData();renderRoutePane();
-  },1200);
+  qbBigToast(ico,destName,label+' 완료! 📦 보관함으로 보내기로 정리하세요');
+  renderRoutePane();
 }
-// 옛 호출 호환용
+// 옛 호출 호환용 — 마찬가지로 즉시 delivered 처리 금지 (수동 보관 흐름 통일)
 function qbSend(destKey,method){
   if(!S.pickups)return;
   var related=S.pickups.filter(function(p){return p.status!=='delivered'&&p.status!=='canceled'&&qbDestInfo(p).key===destKey;});
   if(!related.length)return;
   if(!related.every(function(p){return p.status==='pickedUp';})){qbToast('아직 모든 슬롯이 켜지지 않았어요','#FF3D7F');return;}
   var destName=qbDestInfo(related[0]).name;
-  related.forEach(function(p){p.status='delivered';p.deliveredAt=new Date().toISOString();p.shipMethod=method;});
+  related.forEach(function(p){p.shipMethod=method;p.shippedAt=new Date().toISOString();});
   saveData();
   var ico=method==='quick'?'🛵':'📦';
-  qbBigToast(ico,destName,(method==='quick'?'QUICK 발송':'택배 발송')+' 시작!');
+  qbBigToast(ico,destName,(method==='quick'?'QUICK 발송':'택배 발송')+' 완료! 📦 보관함으로 보내기로 정리하세요');
   renderRoutePane();
 }
 // 도트 폭발 애니메이션 (팩맨 도트 먹기 느낌)
