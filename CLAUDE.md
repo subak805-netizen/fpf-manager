@@ -1,0 +1,180 @@
+# 패션 생산관리 PRO (커먼웍스) — 인수인계 / 작업 이어가기
+
+> 새 채팅에서 이 문서를 붙여넣고 `index.html`(또는 프로젝트의 파일)을 올리면 바로 이어서 작업 가능.
+
+---
+
+## 0. 프로젝트 한 줄 요약
+- **단일 파일 `index.html`** (~16,300줄, 임베디드 JS, localStorage + Firebase 동기화). 모바일(아이폰) 사용.
+- 회사: **커먼웍스** / 브랜드: 아루드(AR)·더프루토(TF)·리틀그로브(LB).
+- 배포: GitHub Pages `subak805-netizen.github.io/fpf-manager` (수동 업로드 → 1~2분 빌드 → 강력 새로고침 필요).
+- 공장: 엄지·아이케이·넘버파이브·블루베리·금풍·다산사·블루패킹·다산사완성집·INS검품·황금검품소 등 (타입: 봉제공임/워싱/자수/나염/완성/검품).
+
+## 1. 작업 워크플로 (매 턴 반드시)
+1. `index.html` 편집 (str_replace/view, 라인번호는 편집마다 밀리니 **편집 전 항상 재-grep**).
+2. **검증**: 아래 스크립트로 `<script>` 추출 → `node --check` → "SYNTAX OK" 확인.
+   ```bash
+   python3 - <<'PY'
+   import re
+   html=open('index.html',encoding='utf-8').read()
+   scripts=re.findall(r'<script\b[^>]*>(.*?)</script>',html,re.S|re.I)
+   open('/tmp/chk.js','w',encoding='utf-8').write("\n;\n".join(s for s in scripts if s.strip()))
+   PY
+   node --check /tmp/chk.js && echo "SYNTAX OK"
+   ```
+3. `cp index.html /mnt/user-data/outputs/index.html` 후 **present_files로 index.html(미리보기) + index.zip 둘 다** 전달.
+4. **bash 네트워크 비활성** — 정적 검사(node --check, grep, node 시뮬)만. 라이브 Firebase/브라우저 테스트 불가.
+5. **돈/원가/결제 변경**은 먼저 설명+확인(모바일 선택은 ask_user_input_v0) 후 코딩.
+6. "안 보여요/안 바뀌어요" = 대부분 **캐시** → GitHub 재업로드 + 강력 새로고침 안내.
+7. **톤**: 한국어 존댓말(~해요/~예요), 따뜻하게, 가끔 😊. 끝에 항상 "올리고 강력 새로고침" 안내.
+8. **사용자 선호**: 파일은 **zip 말고 index.html 직접**(미리보기). 안 뜨면 zip 병행.
+9. **중요 교훈**: "이 화면만" 고치지 말고 **같은 종류 전부**를 기본으로 고칠 것 (사용자가 하나하나 지적 안 하게).
+
+## 2. 데이터 스키마 (핵심)
+- `S = {items:{}, orders:{}, factories:{}, priceBook:{}, ...}`. **priceBook은 공유**(회사 간), items/orders는 회사별.
+- `S.items[id]` = {id,name,code,client,season,notes,brandId, **sewingFcId**, colors:[],sizes:[], fabrics:[], trims:[], trimCosts:[], finishCosts:[], laborCost/washingCost/embroideryCost/printingCost/**finishingCost**/inspectionCost, patternCost,sampleCost,onceCost, **csQtyOvr:{}, csPriceOvr:{}** (CS 사용량/단가 수정 저장)}.
+- **COST_DEFS** = [['laborCost','공임','sewingFcId',...],['washingCost','워싱','washingFcId',...],['embroideryCost','자수','embroideryFcId',...],['printingCost','나염비','printingFcId',...],['finishingCost','완성비','finishingFcId',...],['inspectionCost','검품비','inspectionFcId',...]]. 각=[costKey,label,fkKey,fkLabel].
+- **Trim 객체**: {id,supplier,name,color,**orderType**('count'/'yard'/'roll'/'zipper'/'button'/'thread'/'careLabel'/'mainLabel'/'buttonloop'/'bias'/'care'...),unitPrice,buffer(로스%),qtyPerPiece,consumptionPerPiece,yardsPerRoll, **rollUnit**('롤'/'절'/'박스'/'봉'), **useMinSplit,minSplitQty**(÷N 분배), sizeRates:[{size,price}], sizeMode('bySize'),sizeBySize:{},qtyBySize:{}, colorLinks:[], part(용도), isLace ...}.
+  - `rollUnit`: 롤 타입의 단위 라벨 (심지=절, 밴드=롤 등). 계산은 동일, 라벨만.
+  - 사이즈별 단가: `mkTrimSizeSec(i,t,withPrice)` 표에 단가 칼럼 → 규격 기준 sizeRates에 저장.
+- **Fabric 객체**: {id,supplier,name,composition,width,consumption,unitPrice,pricePerKg,yardsPerKg,pricingUnit,buffer...}.
+- **Order**: {id,name,createdAt,orderItems:[{itemId,qtyGrid:{color:{size:qty}},grandTotal}], **factorySchedules**:{fcId:sch}, reorderOverride,skipBilling...}. sch={shippingDate,shippingGrid:{itemId:{color:{size:qty}}},shipments:[{date,color,size,qty,itemId}],shipDoneDate,vatRate:10,...}.
+- **priceBook[supplierName]** = {email,phone,kakaoId,bank,market,materials:{key:entry}}. key=pbKey(name,color). trim/fabric entry에 size·sizeRates·width·composition 포함.
+
+## 3. 핵심 함수 위치 (편집 전 재-grep 필수, 라인 근사치)
+- 유틸: esc,num,uid,today(),todayISO(),**fmtKoDate**(ISO→"2026. 05. 22."),createdToISO,**cmpDate**(어떤 날짜형식→YYYYMMDD 비교용),**_cmpDateFn**(정렬용),**toISO**(어떤형식→YYYY-MM-DD),pbKey,getPB.
+- **날짜 형식 통일 (중요)**: 앱에 ISO("2026-05-13")와 한글식("2026. 05. 24.")이 섞임. 날짜 정렬은 반드시 `.sort(_cmpDateFn)`, 비교는 `cmpDate()`, 표시 정규화는 `toISO()` 사용.
+- 아이템: `renderItemsList`(@~3326, 빈상태=온보딩 가이드+공장등록 버튼), `saveItemForm`(이름검증/품번중복경고/음수가드/csQtyOvr·csPriceOvr 보존), `delItem`(사용 오더 경고).
+- 트림 폼: `trimRowHTML(t,i)`(분기: bias/care/main/zipper/button/일반). 일반카드는 **2줄**(1줄:부자재처·명·크기·색상 / 2줄:요척·단가·단위·로스). `renderTrimRows`(라벨류=careLabel/mainLabel는 **하단 #label-trim-rows** 별도 렌더). `addTrimRow(t)`(프리셋, **'jeol'**=롤+절+÷30, 'yard'=야드심지). `moveTrim(i,dir)`+`trimMoveBtns(i)`(▲▼). `colTR()`(수집, rollUnit/사이즈별단가 포함).
+- 트림 추가 버튼: **"+ 심지(절)"**=addTrimRow('jeol'). **🔧 타입변환** 도구: `openJijiConvert`/`scanJijiTargets`/`applyJijiConvert`(검색어로 부자재 찾아 롤+단위+÷N 일괄 변환, 미리보기 후 적용).
+- 단가장(book): `renderBookList`(@~2754, 카드 펼침상태=`window._bookOpen[s]` 유지, 품목 이름순 정렬, 🔍`showPBUsage`=사용 아이템 목록), `renamePBMaterial`(이름→전 아이템 전파), `updatePBPrice`→`propagatePriceToItems`(단가→아이템 전파, 옛 발주 보호), `autofillTrim`(단가·지퍼/단추·**size** 자동채움).
+- 원가계산서(CS, pane-costs): `renderCS`/`renderCSSummary`. 검색칸 아이템탭과 동일 디자인. 트림 detail: 계산식=`요척×단가`표시, **로스포함** 칼럼(=base×(1+로스%), `trimLoss`=전역 cs-trim-loss). 원단도 로스 동일(override해도 적용). **실(thread)도 로스 적용**. 소계=`로스 미포함 X · 로스포함 Y` 둘 다 표시. `csGetOverride`/`csSetOverride`/`csGetPriceOverride`/`csSetPriceOverride`(아이템 csQtyOvr/csPriceOvr에 저장→동기화).
+- 대시보드: `renderDash`/`renderDashFactory`. 출고일 표시 형식안전 정렬.
+- 결제관리: `renderFcPay`(@~10740 byFc 루프), `renderSpPay`, `buildPayReceiptHTML`(@8709, **거래명세서 단일 함수=모든 공장 공통**).
+  - **byFc 루프(@~10753)**: 결제 대상 공장 = `factorySchedules ∪ 아이템 원가공장(비용>0)` (스케줄 없어도 누락 안 됨). shipDate=`fcLastShipDate(sch)` → 없으면 봉제출고일 → 발주일 폴백. `isInPayPeriod`로 기간필터(전체면 null→통과).
+  - **그룹/행 정렬**: `cmpDate`로 출고일 빠른 순 (그룹·그룹내 오더 모두). 행에 **🚚 출고일 배지** 표시(정렬 이유 보이게).
+  - **거래명세서 수량(buildPayReceiptHTML)**: 우선순위 **① 회차별 출고 → ② 출고그리드(shippingGrid) → ③ 오더수량(최후)**. 날짜=출고일(없으면 발주일). 출고일은 `toISO`로 정규화 후 정렬.
+- 날짜헬퍼: `fcLastShipDate(sch)`(@6152, shipDoneDate→마지막 shipment→shippingDate), `fcShipped`,`fcShippedQty`.
+
+## 4. 이번 세션 완료 작업 (최신)
+1. 부자재 **사이즈별 단가** 입력(합친 표에 단가 칼럼, 규격 기준 sizeRates 저장).
+2. 부자재 **▲▼ 순서 이동**(6개 카드 전부).
+3. 단가장: **펼침상태 유지**+품목 이름순 정렬+**🔍 사용처 보기**+부자재 **크기(size) 저장/자동완성**.
+4. 결제 **체크박스↔거래명세서 일치**: byFc에 아이템 원가공장 포함(스케줄 없어도), 출고일 폴백.
+5. CS 검색칸 아이템탭과 동일 디자인.
+6. **로스**: 부자재비×로스% 정상(설명), 원단 로스 override해도 적용, **로스포함 금액** 칼럼, **실(thread)도 로스**, 소계 미포함/포함 둘 다.
+7. 부자재 입력칸 **2줄**로.
+8. CS 사용량/단가 수정값 **아이템에 저장**(csQtyOvr/csPriceOvr) → 동기화, saveItemForm 보존.
+9. **심지=절 타입**: rollUnit(절/롤/박스/봉) 선택, "+ 심지(절)" 버튼, **🔧 타입변환** 일괄도구.
+10. **완성 부자재(라벨) 하단 분리**(#label-trim-rows).
+11. **QA 수정**: 아이템/공장 삭제 사용처 경고, 음수 입력 0 클램프, 품번 중복 경고, 회사 빈이름 안내, 온보딩 가이드(+공장등록 버튼), 야드 고단가 "롤/절?" 경고.
+12. **UI**: 활성 탭 강조 강화, number 입력 모바일 숫자패드(inputmode), 저장 토스트(기존 확인).
+13. **날짜 형식 통일**(cmpDate/_cmpDateFn/toISO) → 결제·대시보드·명세서 등 모든 날짜 정렬 형식안전.
+
+## 5. 미해결 / 다음 후보
+- (제안만 함) **모바일 표→카드 전환**(거래명세서·원가표 가로스크롤 해소) — 위험도 높아 화면별 신중 작업 필요.
+- (제안만 함) **삭제 Undo(되돌리기)**.
+- 같은 규격 공유 사이즈는 단가 공유(엣지케이스).
+- 사용자가 "또 안 뜨면" 우려한 결제 누락: 대부분 ①옛 파일 미반영 ②동명 공장 중복 등록. 진단 시 공장관리 중복 확인.
+
+## 6. 자주 쓰는 JSON 양식
+- **작지**: {name,code,brand,season,client,sewingFactory,colors:[],sizes:[],notes,fabrics:[{part,supplier,name,composition,width}],trims:[{part,supplier,name,orderType,spec}]}.
+- **단가장**: {supplier,items:[{name,color,orderType:"roll"/"yard"/"count",yardsPerRoll,unitPrice}]}.
+
+---
+
+## 7. 마지막 세션 추가 수정 (거래명세서 핵심)
+- **거래명세서(buildPayReceiptHTML) = 단일 함수, 모든 공장 공통**. 아래는 전 공장 자동 적용:
+  - **출고날짜**: ① 이 공장 출고일 → ② 없으면 **봉제공장 출고일** → ③ 그래도 없으면 **빈칸**(발주일로 대체 안 함). 헤더도 "날짜"→**"출고날짜"**.
+  - **출고수량**: ① 이 공장 회차/출고그리드 → ② 없으면 **봉제공장 실제 출고수량(=생산수량)** → ③ 없으면 오더수량. → 완성/검품 공장도 봉제(아이케이)와 **같은 장수·같은 날짜**로 뜸.
+  - 정렬·날짜 모두 `cmpDate`/`toISO`로 형식안전.
+- 결제 체크리스트 각 줄에 **🚚 출고날짜 배지** (정렬 이유 보이게). 정렬=출고일 빠른 순.
+- **단추(button) 부자재에 "🔵 로고 인쇄" 옵션** 추가: 체크 시 "로고 내용" 입력칸, 미리보기 표시, 단가장 저장/자동완성(hasButtonLogo/buttonLogoText). colTR 수집 + 프리셋 포함.
+  - ⚠️ TODO: 단추 로고를 **발주서(PO) 텍스트**에도 출력 연결 (현재는 폼·미리보기·단가장까지. 지퍼 sliderLogoText와 동일 패턴으로 calcSups/genPoText에 추가 필요).
+
+## 8. 옛 인수인계(이전 세션) 미해결 — 새 채팅에서 이어갈 것
+1. **실시간 동기화(폰↔맥)**: Firestore onSnapshot 미적용, 수동 새로고침. (사용자 "나중에")
+2. **부자재 단가 3종(매장가/협상가/원가용)**: 현재 원단만 3종. 부자재(단추·지퍼·심지)는 단가 1개(+컬러별). 부자재도 3종 적용 요청 시. 우선순위 낮음.
+   - 매장가=정가(견적) / 협상가=네고가(발주서에 나감) / 원가용=원가계산서 마진 기준(비우면 매장가).
+3. 원가계산서 소계 회색배경 토막남(아이폰)은 이번 세션 소계 div화로 거의 해결됐을 것. 재발 시 5개 소계 전부 표 밖 div로.
+
+---
+
+## 9. 마지막 세션 추가 (거래명세서·부자재 불러오기)
+
+### 거래명세서(buildPayReceiptHTML) — 모든 공장 공통
+- **출고날짜**: ① 이 공장 출고일 → ② 없으면 **봉제공장 출고일** → ③ 그래도 없으면 **빈칸**(발주일 대체 안 함). 헤더 "날짜"→**"출고날짜"**.
+- **출고수량**: ① 이 공장 회차/출고그리드 → ② 없으면 **봉제공장 실제 출고수량(=생산수량)** → ③ 없으면 오더수량. → 완성/검품 공장이 봉제(예: 아이케이)와 **같은 장수·같은 날짜**로 뜸.
+- 헬퍼 `_gt`(grid 합), `_rf`(itemId별 출고기록 필터), `_sewSch`(봉제공장 스케줄) 사용.
+- 결제 체크리스트 각 줄에 **🚚 출고날짜 배지** (정렬=출고일 빠른 순, cmpDate).
+
+### 단추 로고인쇄
+- 단추(button) 폼에 **🔵 로고 인쇄** 체크박스 + "로고 내용" 입력(hasButtonLogo/buttonLogoText). 미리보기 표시, 단가장 저장/자동완성, colTR 수집, 프리셋 포함.
+- ⚠️ TODO: 발주서(PO) 텍스트 출력 연결은 미완 (지퍼 sliderLogoText 패턴 참고).
+
+### 부자재 불러오기 (원단 패턴을 부자재에 이식)
+- **`updTnmDL(el)`** 신규(updFnmDL의 부자재판): 부자재처 선택 시 **그 거래처의 부자재명 목록**을 #dl-tnm에 채움(거래처 없으면 전체). 부자재처 입력 `oninput="updTnmDL(this)"`, 부자재명 입력 `onfocus="updTnmDL(this)"`, renderTrimRows에서 초기 채움. (이전엔 #dl-tnm이 비어 있어 이름 추천이 아예 안 떴음)
+- **`autofillTrim` 강화**: 
+  - 색상 정확히 안 맞아도 **같은 이름**의 부자재 있으면 불러오기(이름 폴백).
+  - 단가뿐 아니라 **폭(width)·크기(size)·요척(yardsPerRoll)·벌당개수(qtyPerPiece)·요척개수(consumptionPerPiece)·미니멈분배(useMinSplit/minSplitQty)·롤단위(rollUnit)·혼용률(composition)** 까지 **빈 칸만** 자동 채움 (필요 시 renderTrimRows 재호출).
+- **`saveToPB` 강화**: 부자재 저장 시 위 고정값(consumptionPerPiece/qtyPerPiece/useMinSplit/minSplitQty/rollUnit/width/composition)도 단가장에 저장 → 다음에 그대로 불러옴.
+
+## 10. Claude Code로 이어가기 (맥북↔맥미니)
+- 이 **인수인계.md를 프로젝트 폴더에 `CLAUDE.md`로 두면** Claude Code가 자동으로 읽어 맥락 파악.
+- 파일은 GitHub(이미 사용 중) push/pull 또는 iCloud 공유 폴더로 두 맥 간 이동.
+- Claude Code 세션 히스토리는 기기별 로컬이라 자동으로 안 넘어감 → CLAUDE.md로 맥락 재구성하는 방식 권장. (또는 Remote Control로 맥북 세션을 원격 조작 — 맥북 켜져 있어야 함)
+- 로컬 작업 경로: 작업본 `~/Downloads/files/index.html` · 깃 저장소 `~/Documents/fpf-manager/` (이쪽에서 commit/push). 보통 작업본 수정 후 `cp`로 저장소에 복사 → commit → push.
+
+---
+
+## 11. 이번 세션 작업 전체 (2026-05-27~28) ★최신★
+
+> **새 채팅 시작법**: 새 대화 열고 이 `CLAUDE.md` + `index.html` 올린 뒤 "동선 퀘스트 탭 이어서 작업하자" 등으로 시작. (대화방 "fork"는 갈래치기 기능 — 모르고 누르면 방이 나뉨. 본 흐름은 이 문서로 이어가면 됨.)
+
+### A. 탭 구조 재편
+- **오더 관리 안에 서브탭**: 공장관리·거래처단가장·잔량관리를 오더관리 하위 서브탭으로 통합. 원가계산서 탭은 제거(아이템 카드의 **💰 원가** 버튼으로 진입). `switchTab`에서 4개 서브탭(orders/factories/book/leftover)일 때 nt-orders 강조 + `#orders-subtabs` 표시.
+- **탭 순서**: 오더 관리 → **결제 관리** → 샘플 진행보드 → 샘플 발주 → 불량 관리.
+- **가로 휠 차단**: 문서레벨 위임(`#dragWheelInit`). `.pd-table-wrap`/`.prod-wrap`에서 **마우스 휠=가로 차단(세로만 부모 패널로)**, **트랙패드 두 손가락=가로 허용**. 판별: `deltaMode!==0` 또는 큰 정수 점프(≥50)=마우스.
+
+### B. 할 일 탭 (Pretendard 담백 데이터그리드)
+- **자동 생성 끔**: `generateAutoTasks()`는 `[]` 반환(옛 로직 `_generateAutoTasks_disabled`로 보존). 수동 입력만 표시. ⚙자동 버튼·설정패널 제거.
+- **필드 라벨**: "위치"→ 한때 "업체"로 바꿨다가 → 최종 **"픽업"(loc: 시장/사무실/전화/기타) + "업체"(supplierName: 단가장 datalist) 분리**.
+- **UI**: 빠른추가 카드 2층(1줄 인풋 + 2줄 select들+추가버튼), 브랜드별 **2컬럼 그리드**(`.tk-brand-grid` auto-fit minmax 360px), 행 가로구분선+여유패딩, 품번 회색 태그, 슬래시(/) 줄글, 이모지 제거, `getTaskStylesHTML`에 `.tk-*` 클래스. **renderTaskRow**가 한 줄 포맷.
+- **다음 할 일 잇기 모달**(`openTaskNext`): 아이템/업체/픽업/언제(우선순위) 선택칸 추가, 기존 값 자동 이어받기. `taskNextContinue`가 4개 필드 반영.
+
+### C. 생산 대시보드 (`renderProdDashRow`)
+- **사이즈별 수량 서브라인**: 오더일/출고일 줄 아래 `아이 S5·M10·L15` 컬러별 사이즈 분해(`.subline`, `orderSizeGrid`/`shipSizeGrid`).
+- **셀별 컬러×사이즈 미니**: 재단/외주/봉제/완성/검품/출고 셀에 `pdMiniGridHTML`(`pdCutSizeGrid`/`pdShipSizeGrid`).
+- **출고 셀**: 공장명·📞공장 버튼 제거(봉제와 같은 공장이라). 📣브랜드만.
+- **출고 그리드 입력**: `pdOpenQtyModal`이 모든 역할 grid 모드. 재단=replace, 출고/봉제/완성/검품/외주=**append**(saveMode). `pdGridSave` 분기. 숫자 스피너 전역 제거, bulkShip 입력칸 80px.
+- 상단 📅전체일정표·💬브랜드일정안내 버튼 제거. 오더 사이드바 📅일정 버튼 제거.
+
+### D. 샘플 진행보드 (`renderBoardPane`)
+- 칸반 카드 → **생산대시보드 스타일 테이블**. 상단 통계 strip, 브랜드 필터 pill, 브랜드별 pd-table. 컬럼: 샘플감/부자재/제작지시/패턴/패턴지시(체크리스트) + 공장전달/도착/컨펌(status). 32px 동그란 토글 버튼(`sbToggleCheck`/`sbSetStatus`), D-day 정렬.
+
+### E. 아이템/기타
+- 아이템 카드 버튼 순서: **수정 → 원가 → 복제 → 삭제**.
+- 공임 입력칸 너비 84px + tabular-nums(숫자 안 잘리게).
+- **혼용률 Row 빌더**(원단 폼): 단일 텍스트 → `[성분명][비율%][×]` 행 그리드 + `＋혼용성분 추가`. `parseComp`(기존 문자열→행, '40% rayon'/'C100' 등 인식)/`buildComp`(행→`\n` 문자열)/`renderCompBuilder`/`addCompRow`/`removeCompRow`/`setCompFromString`(autofill용). composition 필드는 **줄바꿈 문자열** 저장. 출력: 케어라벨 split에 `\n` 추가(한 줄 하나씩), 발주서 품명줄은 `\n→공백`.
+
+### F. ★카톡 메시지 포맷 전면 개편 (`pdBuildFactoryMsg`/`pdBuildBrandMsg`)
+- 새 양식: `아이템명 (M/D)` 헤더 + `아이30 블랙40 총70장 (오더장수)` 컬러합계 한 줄(사이즈 합). 라벨: 오더장수/재단장수/출고장수.
+- 헬퍼: `pdShortDate`(M/D), `pdOrderColorQtys`/`pdCutColorQtys`/`pdShipColorQtys`, `pdQtyLine`. 공장용/브랜드용 역할별 분기.
+
+### G. ★★동선(픽업/전달) 탭 = 게임형 "QUEST BOARD" (대규모 신규)
+- **탭**: `pane-route` → `renderRoutePane()` → `qbStylesHTML()` + `buildQuestBoardHTML()`. 모든 함수 `qb*` 접두사.
+- **데이터 흐름 뒤집기**: 좌측 공장에 **＋ADD PACKAGE**로 "어느 공장에 무슨 아이템" 큰그림 먼저 → 4슬롯 밑그림 생성 → 우측 수집처에서 PICK → 슬롯 점등 → 발송.
+- **신규 상태 `S.packages[]`**: `{id,name,itemId,brandId,destFactoryId/destSupplierName/destBrandId,expectedShipDate,shipMethod,sentAt,memo,slots:[{id,type('fabric'/'trim'/'pattern'/'instruction'/'custom'),customLabel,sourceSupplier,materialName,picked,pickedAt}]}`. 옛 `S.pickups`도 병행(implicit quest로 표시).
+- **레이아웃**: 좌 DEST(공장 윈도우=Mac 타이틀바 아코디언, `qbToggleFc` 한번에 하나 펼침, 📁/📂) / 우 SOURCE(자재종류별 폴더). 모바일(≤980px) **탭 스위치**(`qbSwitchMobileTab` 'dest'/'src', `#qb-board[data-tab]`).
+- **3단계 시각화**: ①준비전(슬롯 회색점선+disabled 사선버튼) ②준비완료(.complete: 슬롯 네온그린+버튼 네온블루 pulse+`★READY TO SHIP★`) ③발송끝(.sent: opacity .4+grayscale, SENT 도장).
+- **완료 보관함(접이식, 기본 닫힘)**: 좌 `📁 CLEAR PACKAGES`(발송끝 패키지, `renderDoneQuestsSection`), 우 `📁 TRASH / CLEAR`(픽업완료, `renderDonePickupsSection`). 각 카드에 **🔄 되살리기**(`qbRestorePackage`/`qbRestoreQuest`: 슬롯 리셋+메인 복귀).
+- **디자인 = 레트로 8bit 팩맨 + 갈무리(Galmuri11)**: 2컬러만 — `--neon-green #A5E6BA`(완료/DONE/슬롯ON), `--neon-blue #B0DBF0`(PICK/QUICK/ADD 액션). 나머지 흑백/연회색. 2.5px 검정보더 + 오프셋 그림자, Press Start 2P(라벨·숫자)+Galmuri11(제목)+Pretendard(본문). 배경 도트 없음.
+- **모달(`qbOpenPackageModal`)**: 백드롭 rgba(0,0,0,.78)+blur, 솔리드 #fff, z-index 99990. **검색형 목적지**(공장+협력처+**브랜드** datalist, `qbResolveDest`), **검색형 아이템**(`qbResolveItem`) + **직접입력 전용칸**(자유 미션). **하이브리드 슬롯**: 기본4개 토글 온오프 + `＋슬롯추가`(프리셋칩 스와치/견본/전달건 + 자유입력, `qbAddCustomSlot`/`qbRefreshSlotBuilder`/`_qbCustomSlots`).
+- **패키지 삭제**: 카드 우상단 `X`(`del-btn`, `qbDeletePackage`) → 커스텀 확인모달(`qbConfirmModal`/`qbRunConfirm`) → 연결된 미완료 픽업 cascade 삭제.
+- **발송 효과**: `qbDotBurst`(도트 폭발) + `qbBigToast`(맥 다이얼로그 풍).
+- ⚠️ **확인**: 하이브리드 슬롯·삭제버튼·혼용률빌더 모두 **코드에 반영 완료**(grep 확인). "안 보인다"=강력 새로고침/포크된 방 문제일 가능성.
+
+### 미해결/다음 후보
+- 단추 로고 PO 텍스트 출력 연결(기존 TODO, 지퍼 sliderLogoText 패턴).
+- 실시간 동기화(Firestore onSnapshot) — 사용자 "나중에".
+- 동선 패키지 슬롯의 우측 PICK 연동은 `sourceSupplier` 있는 슬롯만 노출(없으면 좌측 직접클릭).
