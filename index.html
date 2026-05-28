@@ -142,6 +142,10 @@ input[type=number]{-moz-appearance:textfield;}
 .comp-row .comp-del:hover{border-color:#9ca3af;color:#374151;background:#fafafa;}
 .comp-add-btn{background:#fff;border:1px dashed #cbd5e1;color:#6b7280;padding:6px 10px;font-size:11px;border-radius:4px;cursor:pointer;font-family:'Pretendard',sans-serif;margin-top:4px;width:100%;font-weight:500;letter-spacing:-0.2px;}
 .comp-add-btn:hover{border-color:#374151;color:#111;background:#fafafa;}
+.comp-sum{font-family:'Pretendard',sans-serif;font-size:11px;font-weight:600;letter-spacing:-0.2px;margin-top:5px;padding:1px 2px;font-variant-numeric:tabular-nums;transition:color .12s;}
+.comp-sum.empty{color:#b6bbc2;font-weight:500;}
+.comp-sum.ok{color:#4d9d6b;}
+.comp-sum.warn{color:#c97a3f;}
 .im-labor-in.miss{border-color:#fecaca;background:#fef2f2;color:#b91c1c;font-weight:600;}
 .im-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
 .im-stat{font-size:11px;color:#9ca3af;margin-right:4px;font-weight:500;white-space:nowrap;}
@@ -2938,6 +2942,50 @@ function updateCompString(idx){
   var s=buildComp(rows);
   var hid=document.getElementById('comp-hidden-'+idx);
   if(hid)hid.value=s;
+  updateCompSum(idx);
+}
+// 혼용률 합계 계산 — {hasAny:입력값있음, sum:반올림합계, ok:딱100}
+function compSumInfo(rows){
+  var hasAny=(rows||[]).some(function(r){return (r.name+'').trim()!==''||(r.pct+'').trim()!=='';});
+  var sum=0;(rows||[]).forEach(function(r){var v=parseFloat(r.pct);if(!isNaN(v))sum+=v;});
+  sum=Math.round(sum*100)/100;
+  return {hasAny:hasAny,sum:sum,ok:sum===100};
+}
+// 실시간 합계 표시선 갱신
+function updateCompSum(idx){
+  var el=document.getElementById('comp-sum-'+idx);
+  if(!el)return;
+  var info=compSumInfo(readCompRows(idx));
+  if(!info.hasAny){el.className='comp-sum empty';el.textContent='합계 —';return;}
+  if(info.ok){el.className='comp-sum ok';el.textContent='합계: '+info.sum+'% (정상)';}
+  else{el.className='comp-sum warn';el.textContent='합계: '+info.sum+'% (100%가 아닙니다)';}
+}
+// 저장 시 원단 혼용률 검증 — 입력값이 있으면 합계가 딱 100%여야 통과 (완전히 비우면 패스)
+function validateFabComps(){
+  for(var i=0;i<formFabs.length;i++){
+    var el=document.getElementById('comp-builder-'+i);
+    var info=el?compSumInfo(readCompRows(i)):compSumInfo(parseComp(formFabs[i].composition||''));
+    if(!info.hasAny)continue;
+    if(!info.ok)return {ok:false,name:(formFabs[i].name||'').trim()||('원단 '+(i+1)),sum:info.sum};
+  }
+  return {ok:true};
+}
+// 혼용률 100% 안내 모달 (담백한 오피스 톤)
+function showCompWarnModal(info){
+  var bd=document.getElementById('comp-warn-modal');
+  if(bd)bd.remove();
+  bd=document.createElement('div');
+  bd.id='comp-warn-modal';
+  bd.setAttribute('style','position:fixed;inset:0;z-index:99996;display:flex;align-items:center;justify-content:center;background:rgba(24,24,27,.34);backdrop-filter:blur(2px);padding:24px;');
+  bd.onclick=function(e){if(e.target===bd)bd.remove();};
+  var detail=(info&&info.name)?'<div style="margin-top:11px;padding:9px 11px;background:#FAF8F3;border:1px solid #ece8df;border-radius:8px;font-size:12.5px;color:#8a7f63;letter-spacing:-0.2px"><b style="color:#5a5444">'+esc(info.name)+'</b> · 현재 합계 '+esc(String(info.sum))+'%</div>':'';
+  bd.innerHTML='<div style="background:#fff;max-width:340px;width:100%;border:1px solid #e3e0d8;border-radius:12px;box-shadow:0 14px 44px rgba(0,0,0,.18);font-family:Pretendard,-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden">'
+    +'<div style="padding:22px 22px 6px;font-size:15px;font-weight:700;color:#2b2a26;letter-spacing:-0.3px">원단 혼용률 확인</div>'
+    +'<div style="padding:0 22px 18px;font-size:13px;line-height:1.65;color:#6b6960;letter-spacing:-0.2px">원단 혼용률의 총합이 100%가 되어야 저장이 가능합니다.'+detail+'</div>'
+    +'<div style="display:flex;border-top:1px solid #f0ede6">'
+    +'<button type="button" onclick="var m=document.getElementById(\'comp-warn-modal\');if(m)m.remove();" style="flex:1;border:0;background:#fff;padding:13px;font-family:inherit;font-size:14px;font-weight:600;color:#3b6ea5;cursor:pointer;letter-spacing:-0.2px">확인</button>'
+    +'</div></div>';
+  document.body.appendChild(bd);
 }
 function addCompRow(idx){
   var rows=readCompRows(idx);
@@ -4128,6 +4176,7 @@ function fabRowHTML(f,i){
     <div style="flex:1.6;min-width:200px"><label>혼용률 <span style="font-weight:500;color:#9ca3af;font-size:10px;letter-spacing:-0.2px">(한 줄에 한 성분)</span></label>
       <div class="comp-builder" id="comp-builder-${i}"></div>
       <button type="button" class="comp-add-btn" onclick="addCompRow(${i})">＋ 혼용성분 추가</button>
+      <div class="comp-sum empty" id="comp-sum-${i}">합계 —</div>
       <input type="hidden" data-f="composition" id="comp-hidden-${i}" value="${esc(f.composition||'')}">
     </div>
   </div>
@@ -5117,6 +5166,7 @@ function onTrimType(i,v){
 }
 function saveItemForm(){
   colFR();colTR();colTrimCosts();const nm=document.getElementById('f-nm').value.trim();if(!nm){alert('아이템명 입력');return;}
+  var _compChk=validateFabComps();if(!_compChk.ok){showCompWarnModal(_compChk);return;}
   const id=editItemId||uid();
   const _cd=document.getElementById('f-cd').value.trim();
   if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup&&!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}
@@ -17404,6 +17454,39 @@ function qbRestoreQuest(destKey,questKey){
   qbToast('🔄 되살아남','#A5E6BA');
   renderRoutePane();
 }
+// 옛 픽업 기반 퀘스트 삭제 (destKey+questKey로 묶인 픽업들 제거)
+function qbDeleteQuest(destKey,questKey){
+  if(!S.pickups)return;
+  function qkOf(p){
+    if(p._sampleId)return 'sample:'+p._sampleId;
+    if(p._fromOrderId)return 'order:'+p._fromOrderId+'_'+(p.itemId||'');
+    if(p.itemId)return 'item:'+p.itemId;
+    return 'misc:'+(p.supplierName||'기타');
+  }
+  var matched=S.pickups.filter(function(p){
+    if(p.status==='delivered'||p.status==='canceled')return false;
+    return qbDestInfo(p).key===destKey&&qkOf(p)===questKey;
+  });
+  if(!matched.length)return;
+  var f=matched[0],nm='(이름 없음)';
+  if(f._sampleId){var so=(S.sampleOrders||[]).find(function(s){return s.id===f._sampleId;});nm=so&&so.name?so.name:'샘플';}
+  else if(f.itemId&&S.items[f.itemId])nm=S.items[f.itemId].name;
+  else if(f._fromOrderId&&S.orders[f._fromOrderId])nm=S.orders[f._fromOrderId].name||'발주';
+  else nm=f.itemName||f.notes||f.supplierName||'기타';
+  qbConfirmModal({
+    title:'미션 삭제',
+    body:'이 픽업 미션을 완전히 삭제하시겠습니까? 👾<br><br><b>'+esc(nm)+'</b>'
+      +'<div style="margin-top:10px;padding:8px 10px;background:#FFF6B8;border:1.5px solid #0B0A05;font-size:12px;color:#0B0A05;font-weight:600">⚠ 연결된 픽업 '+matched.length+'건이 함께 삭제됩니다</div>',
+    okLabel:'🗑 삭제',
+    okStyle:'background:#FF6B6B;color:#fff;',
+    onOk:function(){
+      var ids={};matched.forEach(function(p){ids[p.id]=true;});
+      S.pickups=(S.pickups||[]).filter(function(p){return !ids[p.id];});
+      saveData();renderRoutePane();
+      qbToast('🗑 삭제됨','#FF6B6B');
+    }
+  });
+}
 // 슬롯 토글 (좌측 카드의 슬롯 직접 클릭 시)
 function qbToggleSlot(pkgId,slotId){
   if(!S.packages)return;
@@ -17825,7 +17908,9 @@ function renderQuestCard(q,destKey,brands){
   // SENT 어두운 카드 / READY 노랑 카드 / 일반
   var cls='q-card'+(anyHasShip?' sent':allPicked?' complete':'');
   var html='<div class="'+cls+'" data-quest="'+esc(q.key)+'">';
-  html+='<div class="q-card-hd"><span class="nm">'+esc(q.label)+'</span>'+brandBadge+'</div>';
+  html+='<div class="q-card-hd"><span class="nm">'+esc(q.label)+'</span>'+brandBadge
+    +'<button class="del-btn" onclick="event.stopPropagation();qbDeleteQuest(\''+esc(destKey)+'\',\''+esc(q.key)+'\')" title="미션 삭제">X</button>'
+    +'</div>';
   html+='<div class="slot-list">'+slotsHtml+'</div>';
   if(firstShip){
     var sIco=firstShip==='quick'?'🛵':'📦';
