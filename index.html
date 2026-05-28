@@ -130,6 +130,18 @@ input[type=number]{-moz-appearance:textfield;}
 .im-line .im-lbl{color:#6b7280;margin-right:4px;}
 .im-line .im-labor{display:inline-flex;align-items:center;gap:2px;}
 .im-labor-in{width:84px;font-size:12px;padding:2px 6px;border:1px solid #d1d5db;border-radius:4px;text-align:right;background:#fff;color:#111;font-family:inherit;font-weight:700;margin:0 2px;font-variant-numeric:tabular-nums;}
+/* 혼용률 Row 빌더 (오피스 서식 톤) */
+.comp-builder{display:flex;flex-direction:column;gap:4px;font-family:'Pretendard Variable','Pretendard',sans-serif;}
+.comp-row{display:grid;grid-template-columns:1fr 78px 28px;gap:4px;align-items:center;}
+.comp-row input{padding:6px 9px;border:1px solid #e5e7eb;background:#fff;font-size:12.5px;font-family:'Pretendard',sans-serif;border-radius:4px;color:#333;letter-spacing:-0.2px;width:100%;box-sizing:border-box;}
+.comp-row input:focus{outline:none;border-color:#374151;}
+.comp-row .comp-pct-wrap{position:relative;}
+.comp-row .comp-pct-wrap input{padding-right:22px;text-align:right;font-variant-numeric:tabular-nums;}
+.comp-row .comp-pct-wrap .pct-sfx{position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:11px;pointer-events:none;font-family:'Pretendard',sans-serif;}
+.comp-row .comp-del{background:#fff;border:1px solid #e5e7eb;color:#9ca3af;padding:4px 0;font-size:12px;border-radius:4px;cursor:pointer;font-family:inherit;line-height:1;}
+.comp-row .comp-del:hover{border-color:#9ca3af;color:#374151;background:#fafafa;}
+.comp-add-btn{background:#fff;border:1px dashed #cbd5e1;color:#6b7280;padding:6px 10px;font-size:11px;border-radius:4px;cursor:pointer;font-family:'Pretendard',sans-serif;margin-top:4px;width:100%;font-weight:500;letter-spacing:-0.2px;}
+.comp-add-btn:hover{border-color:#374151;color:#111;background:#fafafa;}
 .im-labor-in.miss{border-color:#fecaca;background:#fef2f2;color:#b91c1c;font-weight:600;}
 .im-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
 .im-stat{font-size:11px;color:#9ca3af;margin-right:4px;font-weight:500;white-space:nowrap;}
@@ -2859,18 +2871,90 @@ function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.t
   // 1) 거래처+이름 (단가장)
   if(sup&&nm){const e=S.priceBook[sup]?.materials[nm];if(e&&e.type==='fabric'){
     if(e.pricingUnit==='kg'){const p=r.querySelector('[data-f=pricePerKg]');if(p&&!+p.value){p.value=e.pricePerKg;flash(p);filled=true;}const y=r.querySelector('[data-f=yardsPerKg]');if(y&&e.yardsPerKg&&!+y.value)y.value=e.yardsPerKg;}else{const p=r.querySelector('[data-f=unitPrice]');if(p&&!+p.value&&e.unitPrice){p.value=e.unitPrice;flash(p);filled=true;}}
-    const wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e.width){wEl.value=e.width;filled=true;}const cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e.composition){cEl.value=e.composition;filled=true;}
+    const wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e.width){wEl.value=e.width;filled=true;}const cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e.composition){cEl.value=e.composition;var _idx=(r.id||'').replace('fr-','');if(_idx!==''&&typeof setCompFromString==='function')setCompFromString(_idx,e.composition);filled=true;}
     const bEl=r.querySelector('[data-f=building]');if(bEl&&!bEl.value&&e.building)bEl.value=e.building;
     const frEl=r.querySelector('[data-f=floorRoom]');if(frEl&&!frEl.value&&e.floorRoom)frEl.value=e.floorRoom;
   }}
   // 2) 이름만으로 — 다른 아이템/단가장에서 같은 원단명의 폭·혼용률·단가
   if(nm){var fdb=buildFabDB();var e2=fdb[nm];if(e2){
     var wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e2.width){wEl.value=e2.width;flash(wEl);filled=true;}
-    var cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e2.composition){cEl.value=e2.composition;flash(cEl);filled=true;}
+    var cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e2.composition){cEl.value=e2.composition;flash(cEl);var _idx2=(r.id||'').replace('fr-','');if(_idx2!==''&&typeof setCompFromString==='function')setCompFromString(_idx2,e2.composition);filled=true;}
     var pEl=r.querySelector('[data-f=unitPrice]');if(pEl&&!+pEl.value&&e2.unitPrice){pEl.value=e2.unitPrice;flash(pEl);filled=true;}
     var sEl=r.querySelector('[data-f=supplier]');if(sEl&&!sEl.value&&e2.supplier){sEl.value=e2.supplier;flash(sEl);filled=true;}
   }}
   if(filled)showToast('💡 원단명으로 폭·혼용률·단가 자동입력');
+}
+// ===== 혼용률 Row 빌더 (한 줄에 하나씩) =====
+function parseComp(str){
+  if(!str)return [];
+  if(Array.isArray(str))return str.map(function(r){return{name:String(r.name||'').trim(),pct:r.pct===''||r.pct==null?'':+r.pct};});
+  return String(str).split(/[\n,;\/]/).map(function(s){return s.trim();}).filter(Boolean).map(function(part){
+    // "40% rayon" 형식
+    var m=part.match(/^(\d+(?:\.\d+)?)\s*%?\s*(.+)$/);
+    if(m&&m[2].trim())return{name:m[2].trim(),pct:+m[1]};
+    // "rayon 40%" 형식
+    m=part.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*%?$/);
+    if(m)return{name:m[1].trim(),pct:+m[2]};
+    // "C100" 같은 단일 문자+숫자
+    m=part.match(/^([A-Za-z가-힣]+)(\d+(?:\.\d+)?)$/);
+    if(m)return{name:m[1],pct:+m[2]};
+    return{name:part,pct:''};
+  });
+}
+function buildComp(rows){
+  return (rows||[]).filter(function(r){return (r.name+'').trim()||r.pct;}).map(function(r){
+    var pct=r.pct!==''&&r.pct!=null?(r.pct+'% '):'';
+    return (pct+(r.name||'')).trim();
+  }).join('\n');
+}
+function renderCompBuilder(idx,initial){
+  var el=document.getElementById('comp-builder-'+idx);
+  if(!el)return;
+  var rows=parseComp(initial);
+  if(!rows.length)rows=[{name:'',pct:''}];
+  var html='';
+  rows.forEach(function(r,i){
+    html+='<div class="comp-row">'
+      +'<input type="text" class="comp-name" placeholder="성분명 (예: rayon, polyester)" value="'+esc(r.name||'')+'" oninput="updateCompString('+idx+')">'
+      +'<div class="comp-pct-wrap"><input type="number" class="comp-pct" placeholder="0" value="'+(r.pct!==''&&r.pct!=null?r.pct:'')+'" min="0" max="100" step="0.1" oninput="updateCompString('+idx+')"><span class="pct-sfx">%</span></div>'
+      +'<button type="button" class="comp-del" onclick="removeCompRow('+idx+','+i+')" title="삭제">×</button>'
+      +'</div>';
+  });
+  el.innerHTML=html;
+  updateCompString(idx);
+}
+function readCompRows(idx){
+  var el=document.getElementById('comp-builder-'+idx);
+  if(!el)return [];
+  return Array.from(el.querySelectorAll('.comp-row')).map(function(r){
+    return{
+      name:(r.querySelector('.comp-name')||{}).value||'',
+      pct:(r.querySelector('.comp-pct')||{}).value||''
+    };
+  });
+}
+function updateCompString(idx){
+  var rows=readCompRows(idx);
+  var s=buildComp(rows);
+  var hid=document.getElementById('comp-hidden-'+idx);
+  if(hid)hid.value=s;
+}
+function addCompRow(idx){
+  var rows=readCompRows(idx);
+  rows.push({name:'',pct:''});
+  renderCompBuilder(idx,rows);
+}
+function removeCompRow(idx,rowIdx){
+  var rows=readCompRows(idx);
+  rows.splice(rowIdx,1);
+  if(!rows.length)rows.push({name:'',pct:''});
+  renderCompBuilder(idx,rows);
+}
+// autofill에서 혼용률 채울 때 사용 (composition string → builder 재렌더)
+function setCompFromString(idx,compStr){
+  var hid=document.getElementById('comp-hidden-'+idx);
+  if(hid)hid.value=compStr||'';
+  renderCompBuilder(idx,compStr);
 }
 function autofillTrim(r){
   const sup=r.querySelector('[data-f=supplier]')?.value?.trim();
@@ -4041,7 +4125,11 @@ function fabRowHTML(f,i){
     <div style="flex:.7;min-width:60px"><label>용도 <span class="muted" style="font-size:9px">선택</span></label><input list="dl-fabpart" data-f="part" value="${esc(f.part||'')}" placeholder="몸판/스트링감"></div>
     <div style="flex:1.1;min-width:80px"><label>원단명</label><input list="dl-fnm" data-f="name" value="${esc(f.name||'')}" onchange="autofillFab(document.getElementById('fr-${i}'))"></div>
     <div style="flex:.6;min-width:50px"><label>폭 (인치)</label><input data-f="width" type="number" value="${f.width||''}" min="0" step="0.5" placeholder="58"></div>
-    <div style="flex:1;min-width:80px"><label>혼용률</label><input data-f="composition" value="${esc(f.composition||'')}" placeholder="C100, P65 C35"></div>
+    <div style="flex:1.6;min-width:200px"><label>혼용률 <span style="font-weight:500;color:#9ca3af;font-size:10px;letter-spacing:-0.2px">(한 줄에 한 성분)</span></label>
+      <div class="comp-builder" id="comp-builder-${i}"></div>
+      <button type="button" class="comp-add-btn" onclick="addCompRow(${i})">＋ 혼용성분 추가</button>
+      <input type="hidden" data-f="composition" id="comp-hidden-${i}" value="${esc(f.composition||'')}">
+    </div>
   </div>
   <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
     ${isKg?`<div style="flex:.8;min-width:68px"><label>KG단가(원)</label><input data-f="pricePerKg" type="number" value="${f.pricePerKg||0}" min="0"></div><div style="flex:.7;min-width:58px"><label>야드/KG</label><input data-f="yardsPerKg" type="number" value="${f.yardsPerKg||1}" min="0.01" step="0.01"></div>`
@@ -4601,7 +4689,10 @@ function updTnmDL(el){
   if(!opts.length){Object.values(S.priceBook||{}).forEach(function(pb){var mm=pb.materials||{};for(var k in mm){if(mm[k]&&mm[k].type==='trim'&&mm[k].name)add(mm[k].name,mm[k].unitPrice);}});}
   dl.innerHTML=opts.join('');
 }
-function renderFabRows(){const el=document.getElementById('fab-rows');if(!el)return;el.innerHTML=formFabs.length?formFabs.map((f,i)=>fabRowHTML(f,i)).join(''):'<div class="muted" style="text-align:center;padding:.5rem">원단 없음</div>';var dl=document.getElementById('dl-fnm');if(dl){var fdb=buildFabDB();dl.innerHTML=Object.keys(fdb).map(function(k){return '<option value="'+esc(k)+'">';}).join('');}}
+function renderFabRows(){const el=document.getElementById('fab-rows');if(!el)return;el.innerHTML=formFabs.length?formFabs.map((f,i)=>fabRowHTML(f,i)).join(''):'<div class="muted" style="text-align:center;padding:.5rem">원단 없음</div>';var dl=document.getElementById('dl-fnm');if(dl){var fdb=buildFabDB();dl.innerHTML=Object.keys(fdb).map(function(k){return '<option value="'+esc(k)+'">';}).join('');}
+  // 혼용률 빌더 각 row 초기 렌더
+  formFabs.forEach(function(f,i){renderCompBuilder(i,f.composition||'');});
+}
 function inlineTrimCostsHTML(t){
   if(!t||!t.id)return'';
   const linked=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>x.tc.trimId===t.id);
@@ -5900,7 +5991,7 @@ function genPoText(order,sn){
       g.colors.forEach(function(c){(c.appliedAdditions||[]).forEach(function(a){if(a.name&&fabAddNames.indexOf(a.name)<0)fabAddNames.push(a.name);});});
       if(fabAddNames.length)line+=' '+fabAddNames.join(' ');
       if(g.width)line+=` ${g.width}"`;
-      if(g.composition)line+=` ${g.composition}`;
+      if(g.composition)line+=` ${String(g.composition).replace(/\n/g,' ')}`;
       // 단가는 발주서에 표기하지 않음 (협상가/가산 모두 숨김)
       L.push(line);
       g.colors.forEach((cl,idx)=>{
@@ -6000,7 +6091,7 @@ function genPoText(order,sn){
           const comp=itC.fabrics[0].composition||'';
           if(comp){
             L.push('혼용률');
-            comp.split(/[,\/]/).forEach(function(p){
+            comp.split(/[\n,\/]/).forEach(function(p){
               const tp=p.trim();
               if(tp)L.push(tp);
             });
@@ -13191,7 +13282,7 @@ function renderCS(){
   const fr=it.fabrics.map(f=>{
     const cp=fabPure(f,qty);const cl={...cp,cost:cp.cost*(1+fabLoss/100)};
     const k='f-'+f.id;const inc=!isEx(k);if(inc){tf+=cp.cost;tfL+=cl.cost;}
-    const fabInfo=[f.width?f.width+'"':'',f.composition].filter(Boolean).join(' ');
+    const fabInfo=[f.width?f.width+'"':'',f.composition?String(f.composition).replace(/\n/g,' '):''].filter(Boolean).join(' ');
     const ovrVal=csGetOverride(id,'fab',f.id);
     return`<tr style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td class="muted" style="font-size:12px">${esc(f.supplier||'')}</td><td><b style="white-space:nowrap">${esc(f.name)}</b>${f.pricingUnit==='kg'?' <span class="badge b2" style="font-size:10px">KG</span>':''}${fabInfo?`<br><span class="muted" style="font-size:12px">${esc(fabInfo)}</span>`:''}</td><td class="muted" style="font-size:13px">${(function(){
       if(f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0){
@@ -15093,7 +15184,7 @@ function genSamplePoText(so,kind){
       if(firstSup&&f.supplier!==firstSup)continue;
       var line=f.name||'원단';
       if(f.width)line+=' '+f.width+'"';
-      if(f.composition)line+=' '+f.composition;
+      if(f.composition)line+=' '+String(f.composition).replace(/\n/g,' ');
       if(f.unitPrice)line+=' '+num(f.unitPrice)+'원';
       lines.push(line);
       // 컬러별로 한 줄씩
