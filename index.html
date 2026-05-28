@@ -16977,9 +16977,12 @@ function qbStylesHTML(){
     +".mat-zone-hd{position:absolute;top:-14px;left:14px;background:#fff;border:2.5px solid var(--ink);border-bottom:0;padding:3px 14px 2px;font-family:'Galmuri11',monospace;font-size:13px;font-weight:700;letter-spacing:.5px;color:var(--ink);}"
     +'.mat-zone-inner{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:6px;}'
     +'@media(max-width:500px){.mat-zone-inner{grid-template-columns:1fr;}}'
-    +'.sup-card{background:#fff;border:2px solid var(--ink);border-radius:2px;padding:8px 10px;font-size:12px;color:var(--ink);transition:all .12s;box-shadow:2px 2px 0 var(--ink);}'
+    +'.sup-card{background:#fff;border:2px solid var(--ink);border-radius:2px;padding:8px 10px;font-size:12px;color:var(--ink);transition:all .12s;box-shadow:2px 2px 0 var(--ink);cursor:grab;}'
     +'.sup-card:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink);}'
+    +'.sup-card.dragging{opacity:.35;filter:grayscale(.6);cursor:grabbing;}'
+    +'.sup-card.drag-over{border-top:3px solid var(--neon-blue);border-color:var(--neon-blue);box-shadow:2px 2px 0 var(--neon-blue);}'
     +".sup-name{font-family:'Galmuri11',monospace;font-weight:700;font-size:13px;color:var(--ink);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;}"
+    +'.sup-name .drag-grip{color:#ccc;font-size:12px;cursor:grab;flex-shrink:0;letter-spacing:-1px;line-height:1;}'
     +".pick-btn{padding:3px 8px;font-size:8px;font-weight:400;border:1.5px solid var(--ink);background:#fff;color:var(--ink);border-radius:2px;cursor:pointer;font-family:'Press Start 2P',monospace;letter-spacing:.3px;box-shadow:1.5px 1.5px 0 var(--ink);transition:all .1s;}"
     +'.pick-btn:hover{transform:translate(-1px,-1px);box-shadow:2px 2px 0 var(--ink);background:var(--neon-blue);}'
     +'.pick-btn:active{transform:translate(1px,1px);box-shadow:0 0 0 var(--ink);}'
@@ -18080,12 +18083,27 @@ function renderQuestCard(q,destKey,brands){
 // 자재 zone (원단/부자재/패턴/지시서/기타 각 1개)
 function renderMatZone(typ,label,supsObj){
   var html='<div class="mat-zone"><div class="mat-zone-hd '+typ+'">'+label+'</div><div class="mat-zone-inner">';
-  Object.values(supsObj).forEach(function(s){
+  // 저장된 순서대로 정렬 (드래그 순서 반영)
+  var savedOrder=(S.pickupSupOrder&&S.pickupSupOrder[typ])||[];
+  var supNames=Object.keys(supsObj);
+  supNames.sort(function(a,b){
+    var ai=savedOrder.indexOf(a),bi=savedOrder.indexOf(b);
+    if(ai===-1)ai=9999;if(bi===-1)bi=9999;
+    return ai!==bi?ai-bi:a.localeCompare(b,'ko');
+  });
+  supNames.forEach(function(sn){
+    var s=supsObj[sn];
     var allItemsPicked=s.pickups.length>0&&s.pickups.every(function(p){return p.status==='pickedUp';});
     var allSlotsPicked=(!s.pkgSlots||!s.pkgSlots.length||s.pkgSlots.every(function(ps){return ps.slot.picked;}));
     var allPicked=s.pickups.length>0&&allItemsPicked&&allSlotsPicked;
-    html+='<div class="sup-card">';
-    html+='<div class="sup-name">'+esc(s.name)+(allPicked?'<button class="pick-btn done" disabled>완료</button>':'')+'</div>';
+    var snSafe=esc(sn).replace(/'/g,'&#39;');
+    html+='<div class="sup-card" draggable="true"'
+      +' ondragstart="qbSupDragStart(event,\''+typ+'\',\''+snSafe+'\')"'
+      +' ondragover="qbSupDragOver(event,\''+typ+'\',\''+snSafe+'\')"'
+      +' ondrop="qbSupDrop(event,\''+typ+'\',\''+snSafe+'\')"'
+      +' ondragend="this.classList.remove(\'dragging\')"'
+      +' ondragleave="this.classList.remove(\'drag-over\')">';
+    html+='<div class="sup-name"><span class="drag-grip">⋮⋮</span>'+esc(s.name)+(allPicked?'<button class="pick-btn done" disabled>완료</button>':'')+'</div>';
     if(s.address||s.phone){
       var addrTxt=[s.address,s.phone?'☎ '+s.phone:''].filter(Boolean).join(' · ');
       html+='<div class="sup-addr">'+esc(addrTxt)+(s.address?' <button class="copy" style="background:#fff;border:1.5px solid #111;color:#111;font-size:8px;font-weight:700;padding:1px 5px;border-radius:2px;cursor:pointer;font-family:inherit;margin-left:2px" onclick="qbCopy(\''+esc(s.address).replace(/'/g,"\\'")+'\')">COPY</button>':'')+'</div>';
@@ -18136,6 +18154,37 @@ function renderMatZone(typ,label,supsObj){
   });
   html+='</div></div>';
   return html;
+}
+// ===== 수집처 드래그 앤 드롭 (공급처 카드 순서 변경) =====
+function qbSupDragStart(e,zone,supName){
+  window._qbDragZone=zone;window._qbDragSup=supName;
+  e.dataTransfer.effectAllowed='move';
+  try{e.dataTransfer.setData('text/plain',zone+'|'+supName);}catch(err){}
+  var card=e.currentTarget;
+  setTimeout(function(){if(card)card.classList.add('dragging');},0);
+}
+function qbSupDragOver(e,zone,supName){
+  e.preventDefault();
+  if(window._qbDragZone!==zone)return;
+  e.dataTransfer.dropEffect='move';
+  e.currentTarget.classList.add('drag-over');
+}
+function qbSupDrop(e,zone,targetSup){
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  var dragSup=window._qbDragSup;
+  if(!dragSup||dragSup===targetSup||window._qbDragZone!==zone)return;
+  if(!S.pickupSupOrder)S.pickupSupOrder={};
+  if(!S.pickupSupOrder[zone])S.pickupSupOrder[zone]=[];
+  var order=S.pickupSupOrder[zone];
+  // 없으면 현재 순서 그대로 추가
+  if(order.indexOf(dragSup)===-1)order.push(dragSup);
+  if(order.indexOf(targetSup)===-1)order.push(targetSup);
+  var fi=order.indexOf(dragSup),ti=order.indexOf(targetSup);
+  order.splice(fi,1);order.splice(ti,0,dragSup);
+  window._qbDragSup=null;window._qbDragZone=null;
+  saveData();renderRoutePane();
+  qbToast('✅ 순서 변경됨','#B0DBF0');
 }
 // 픽업 액션 — 슬롯 점등
 function qbPickup(pid,btnEl){
