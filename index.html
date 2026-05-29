@@ -609,7 +609,9 @@ tryInitFirebase();
   <button class="ntab" id="nt-sample" onclick="switchTab('sample')">샘플 발주</button>
   <button class="ntab" id="nt-defect" onclick="switchTab('defect')">불량 관리</button>
   <button class="ntab" id="nt-analytics" onclick="switchTab('analytics')">분석</button>
-  <!-- 공장관리·거래처단가장·잔량관리는 '오더 관리' 서브탭으로 통합됨 -->
+  <button class="ntab" id="nt-vendors" onclick="switchTab('vendors')">🏢 업체관리</button>
+  <!-- 공장관리·브랜드관리는 '업체관리' 탭으로 통합됨 -->
+  <!-- 거래처단가장·잔량관리는 '오더 관리' 서브탭으로 통합됨 -->
   <!-- 원가계산서는 아이템 카드의 💰 원가 버튼으로 통합됨 -->
 </div>
 <!-- 오더 관리 서브탭 (메인탭 바로 아래 위치) -->
@@ -617,7 +619,6 @@ tryInitFirebase();
   <span style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:.5px;margin-right:2px">📂 오더 관리</span>
   <div class="dtabs" style="display:inline-flex;margin:0;padding:4px;gap:2px;width:auto">
     <button class="dtab" id="st-orders" onclick="switchTab('orders')" style="padding:7px 12px;font-size:13px">📋 오더 목록</button>
-    <button class="dtab" id="st-factories" onclick="switchTab('factories')" style="padding:7px 12px;font-size:13px">🏭 공장</button>
     <button class="dtab" id="st-book" onclick="switchTab('book')" style="padding:7px 12px;font-size:13px">💰 단가장</button>
     <button class="dtab" id="st-leftover" onclick="switchTab('leftover')" style="padding:7px 12px;font-size:13px">📦 잔량</button>
   </div>
@@ -687,11 +688,22 @@ tryInitFirebase();
       <div id="if-inner"></div>
     </div>
   </div>
-  <!-- Factories -->
-  <div id="pane-factories" class="panel" style="display:none">
-    <div class="fb" style="margin-bottom:10px"><b>공장/처 관리</b><button class="btn p s" onclick="showFcForm(null)">＋ 추가</button></div>
-    <div class="info-box">봉제공임공장 / 워싱공장 / 자수공장 / 완성공장 / 검품공장 / 나염공장 — 아이템 등록 시 미리 연결하면 오더 생성 시 자동 배정됩니다.</div>
-    <div id="fc-list"></div>
+  <!-- 업체관리 (공장 + 브랜드 통합) -->
+  <div id="pane-vendors" class="panel" style="display:none">
+    <div class="dtabs" style="margin-bottom:14px">
+      <button class="dtab on" id="vnd-t-fc" onclick="vndSwitch('fc')" style="flex:1">🏭 공장 / 처</button>
+      <button class="dtab" id="vnd-t-br" onclick="vndSwitch('br')" style="flex:1">🏷 브랜드</button>
+    </div>
+    <div id="vnd-v-fc">
+      <div class="fb" style="margin-bottom:10px"><b>공장 / 처 관리</b><button class="btn p s" onclick="showFcForm(null)">＋ 추가</button></div>
+      <div class="info-box">봉제공임공장 / 워싱공장 / 자수공장 / 완성공장 / 검품공장 / 나염공장 — 아이템 등록 시 미리 연결하면 오더 생성 시 자동 배정됩니다.</div>
+      <div id="fc-list"></div>
+    </div>
+    <div id="vnd-v-br" style="display:none">
+      <div class="fb" style="margin-bottom:10px"><b>🏷 브랜드 관리</b></div>
+      <div class="info-box" style="margin-bottom:10px;font-size:11px">브랜드는 아이템별로 태그됩니다. 주소·연락처는 동대문 실무 소통 및 NEW GOAL 목적지 자동완성에 쓰여요.</div>
+      <div id="brand-manage-list-v"></div>
+    </div>
   </div>
   <!-- Pickup / Route -->
   <div id="pane-pickup" class="panel" style="display:none">
@@ -2693,12 +2705,12 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','factories','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample'].forEach(n=>{
+  ['dash','items','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
   // 오더 관리 서브탭 처리 (오더목록/공장/단가장/잔량을 '오더 관리' 묶음으로 표시)
-  const orderSubTabs=['orders','factories','book','leftover'];
+  const orderSubTabs=['orders','book','leftover'];
   const subBar=document.getElementById('orders-subtabs');
   if(subBar){
     if(orderSubTabs.indexOf(t)>=0){
@@ -2713,6 +2725,7 @@ function switchTab(t){
   pane.style.display=(t==='orders'||t==='sample')?'flex':'block';
   try{
     if(t==='dash')renderProdDash();else if(t==='orders')renderOrderPane();else if(t==='factories')renderFactories();
+    else if(t==='vendors')renderVendors();
     else if(t==='book')renderBook();else if(t==='costs'){renderCSDropdown();renderCSSummary();}
     else if(t==='pay'){renderPayStats();switchPayTab(curPayTab);}
     else if(t==='track'){renderTrackFilter();renderTrack();}
@@ -2812,6 +2825,19 @@ function renderFactories(){
   if(!fcs.length){el.innerHTML='<div class="empty">공장/처를 등록하세요</div>';return;}
   const byType={};fcs.forEach(f=>{const t=f.type||'기타';if(!byType[t])byType[t]=[];byType[t].push(f);});
   el.innerHTML=Object.entries(byType).map(([type,flist])=>`<div class="sec">${esc(type)}</div>`+flist.map(f=>`<div class="card" style="margin-bottom:6px"><div class="fb"><div><div style="font-weight:600">${esc(f.name)}</div><div class="muted">${[f.contact,f.phone].filter(Boolean).map(esc).join(' · ')}</div><div class="muted">${esc(f.address||'')}</div></div><div class="fr"><button class="btn s" onclick="showFcForm('${f.id}')">✎</button><button class="btn s d" onclick="deleteFc('${f.id}')">🗑</button></div></div></div>`).join('')).join('');
+}
+function renderVendors(){
+  renderFactories();
+  renderBrandManageList();
+}
+function vndSwitch(k){
+  var fc=k==='fc';
+  var vf=document.getElementById('vnd-v-fc'),vb=document.getElementById('vnd-v-br');
+  if(vf)vf.style.display=fc?'block':'none';
+  if(vb)vb.style.display=fc?'none':'block';
+  var tf=document.getElementById('vnd-t-fc'),tb=document.getElementById('vnd-t-br');
+  if(tf)tf.className='dtab'+(fc?' on':'');
+  if(tb)tb.className='dtab'+(fc?'':' on');
 }
 function showFcForm(id){
   editFcId=id;const fc=id?S.factories[id]:null;
@@ -14608,6 +14634,12 @@ function renderBrandManageList(){
           <div style="flex:2"><div style="font-size:10px;color:var(--t2);margin-bottom:3px;font-weight:600">사업자번호</div>
             <input type="text" value="${esc(b.bizNum||'')}" onchange="updateBrandField('${b.id}','bizNum',this.value)" style="width:100%;font-size:12px;padding:4px 7px;border:1px solid var(--bd);border-radius:5px" placeholder="000-00-00000"></div>
         </div>
+        <div style="display:flex;gap:6px;padding:7px 10px;background:#FFF9E8;border-top:1px dashed #e3d98a">
+          <div style="flex:1"><div style="font-size:10px;color:#8a6d00;margin-bottom:3px;font-weight:600">🏢 주소</div>
+            <input type="text" value="${esc(b.address||'')}" onchange="updateBrandField('${b.id}','address',this.value)" style="width:100%;font-size:12px;padding:4px 7px;border:1px solid var(--bd);border-radius:5px" placeholder="동대문 매장/사무실 주소"></div>
+          <div style="flex:1"><div style="font-size:10px;color:#8a6d00;margin-bottom:3px;font-weight:600">📞 연락처</div>
+            <input type="text" value="${esc(b.phone||'')}" onchange="updateBrandField('${b.id}','phone',this.value)" style="width:100%;font-size:12px;padding:4px 7px;border:1px solid var(--bd);border-radius:5px" placeholder="브랜드 담당 연락처"></div>
+        </div>
         ${renderBrandLabelsSection(b)}
       </div>`).join(''):'<div class="muted" style="font-size:12px;padding:8px;text-align:center">브랜드 없음. 아래에서 추가하세요.</div>'}
     </div>
@@ -14616,17 +14648,21 @@ function renderBrandManageList(){
       <button class="btn p" onclick="addBrand()">＋ 추가</button>
     </div>
   `;
-  const el=document.getElementById('brand-manage-list');
-  if(el)el.innerHTML=html;
+  ['brand-manage-list','brand-manage-list-v'].forEach(function(id){
+    const el=document.getElementById(id);
+    if(el)el.innerHTML=html;
+  });
 }
 function addBrand(){
-  const nm=document.getElementById('new-brand-nm')?.value.trim();
+  const inputs=Array.prototype.slice.call(document.querySelectorAll('[id="new-brand-nm"]'));
+  const srcEl=inputs.find(el=>el.value.trim())||inputs[0];
+  const nm=srcEl?srcEl.value.trim():'';
   if(!nm){showToast('브랜드명 입력');return;}
   const brands=getBrands();
   if(brands.some(b=>b.name===nm)){showToast('이미 있는 브랜드');return;}
   const color=BRAND_COLORS[brands.length%BRAND_COLORS.length];
   saveBrand({id:'br_'+uid(),name:nm,color,createdAt:new Date().toISOString()});
-  document.getElementById('new-brand-nm').value='';
+  inputs.forEach(el=>el.value='');
   renderBrandManageList();
   showToast('✅ '+nm+' 추가됨');
 }
@@ -17317,13 +17353,20 @@ function qbOpenGoalModal(){
 }
 function qbGoalModalHTML(){
   var goals=S.goals||[];
+  var fcs=Object.values(S.factories||{});
+  var brs=(typeof getBrands==='function'?getBrands():(S.brands||[]));
+  var destOpts=fcs.map(function(f){return {name:f.name,kind:'공장',address:f.address||'',phone:f.phone||''};})
+    .concat(brs.map(function(b){return {name:b.name,kind:'브랜드',address:b.address||'',phone:b.phone||''};}));
+  window._qbGoalDestOpts=destOpts;
+  var dl='<datalist id="dl-goal-dest">'+destOpts.map(function(o){return '<option value="'+esc(o.name)+'">'+esc(o.kind)+(o.address?' · '+esc(o.address):'')+'</option>';}).join('')+'</datalist>';
   var html='<div class="qb-modal"><div class="qb-modal-bar"><div class="title">＋ NEW GOAL</div><div class="close" onclick="qbCloseGoalModal()">X</div></div>'
     +'<div class="qb-modal-body">'
     +'<div class="qb-goal-box">'
     +'<div class="goal-hd"><span class="pin">📍</span><span class="big">NEW GOAL</span><span class="ko">보낼 곳 등록 · 공장/브랜드/사무실</span></div>'
     +'<div class="goal-inner">'
     +'<div class="goal-add-grid">'
-    +'<input id="goal-name" placeholder="이름 (예: 블루베리, 디오트사무실)" onkeydown="if(event.key===\'Enter\'&&!event.isComposing){event.preventDefault();qbAddGoal();}">'
+    +'<input id="goal-name" list="dl-goal-dest" oninput="qbGoalAutofill()" placeholder="이름 입력 → 공장·브랜드 자동완성 (예: 블루베리)" onkeydown="if(event.key===\'Enter\'&&!event.isComposing){event.preventDefault();qbAddGoal();}">'
+    +dl
     +'<select id="goal-type"><option>공장</option><option>브랜드</option><option>사무실</option><option>협력처</option><option>기타</option></select>'
     +'<input id="goal-addr" class="full2" placeholder="📍 주소 / 위치 (선택)">'
     +'<input id="goal-phone" class="full2" placeholder="☎ 연락처 (선택)">'
@@ -17346,6 +17389,17 @@ function qbGoalModalHTML(){
     +'<div class="qb-modal-acts"><button onclick="qbCloseGoalModal()">닫기</button></div>'
     +'</div></div>';
   return html;
+}
+function qbGoalAutofill(){
+  var i=document.getElementById('goal-name');if(!i)return;
+  var v=(i.value||'').trim();if(!v)return;
+  var opts=window._qbGoalDestOpts||[];
+  var m=opts.find(function(o){return o.name===v;});
+  if(!m)return;
+  var ts=document.getElementById('goal-type');
+  if(ts){for(var k=0;k<ts.options.length;k++){if(ts.options[k].value===m.kind){ts.selectedIndex=k;break;}}}
+  var a=document.getElementById('goal-addr');if(a&&m.address)a.value=m.address;
+  var p=document.getElementById('goal-phone');if(p&&m.phone)p.value=m.phone;
 }
 function qbAddGoal(){
   if(!S.goals)S.goals=[];
