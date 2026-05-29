@@ -178,3 +178,75 @@
 - 단추 로고 PO 텍스트 출력 연결(기존 TODO, 지퍼 sliderLogoText 패턴).
 - 실시간 동기화(Firestore onSnapshot) — 사용자 "나중에".
 - 동선 패키지 슬롯의 우측 PICK 연동은 `sourceSupplier` 있는 슬롯만 노출(없으면 좌측 직접클릭).
+
+---
+
+## 12. 이번 세션 작업 전체 (2026-05-29) ★★최신 — 맥미니 이어가기 핵심★★
+
+> QUEST BOARD(동선 탭)를 "자유도 높은 레트로 게임 대시보드"로 대규모 재빌드. 커밋 `c8a9ab9`→`f69736a`. 모두 `qb*` 함수, `pane-route`/`renderRoutePane()`/`qbStylesHTML()`/`buildQuestBoardHTML()`.
+
+### ⚠️ 0. 절대 잊지 말 것 (반복 실패했던 함정 2개)
+1. **카드 렌더러가 2개다 → 항상 둘 다 고쳐라.**
+   - `renderPackageCard(p,brands)` = `S.packages`(NEW QUEST로 만든 패키지) 기반.
+   - `renderQuestCard(q,destKey,brands)` = `S.pickups`(샘플발주/PO에서 자동생성) 기반.
+   - "내 화면엔 그 기능이 없다" = 십중팔구 한쪽 렌더러에만 넣은 것. **둘 다 grep해서 둘 다 적용**.
+2. **생산 대시보드 마우스 휠 = 세로만.** `pdAttachDragScroll()`(@~9794)에 있던 `wheel→가로 변환`(`wrap.scrollLeft+=e.deltaY`) 블록을 **삭제함**. 절대 되살리지 말 것. 가로 이동은 클릭드래그/트랙패드/스크롤바로만. (문서레벨 `_dragWheelInit`@~2689는 가로 차단 역할 — 유지).
+
+### 1. 데이터 모델 (S.*)
+- **`S.packages[]`** = `{id:'pkg_*',name,itemId,brandId, destGoalId, destFactoryId,destSupplierName,destBrandId, expectedShipDate,plannedShipMethod, shipMethod,sentAt, archived, memo, slots:[]}`. 발송=shipMethod+sentAt 세팅(자동삭제 안 함). 보관=archived=true.
+  - **slot** = `{id:'sl_*', type('fabric'/'trim'/'pattern'/'instruction'/'custom'), customLabel, sourceSupplier, materialName, picked, pickedAt, madeStatus, srcArchived}`.
+- **`S.pickups[]`** = 레거시/자동 픽업. `{id,type(PICKUP_TYPES),supplierName,itemId,brandId,subitemName, directSup,directLoc, deliveryTo:{type,factoryId,factoryName}, expectedDate,expectedTime,status('waiting'/'expected'/'ready'/'pickedUp'/'made'/'delivered'),notes, shipMethod,archived, _sampleId/_fromOrderId}`.
+- **`S.goals[]`** (★신규) = NEW GOAL "보낼 곳" = `{id:'goal_*',name,type('공장'/'브랜드'/'사무실'/'협력처'/'기타'),address,phone}`. dest key = `'goal:'+id`.
+- **`S.pickupSupOrder`** = 수집처 거래처 카드 드래그 순서 `{zone:[supName...]}`.
+
+### 2. 3대 모달 (★전부 배경/Esc 클릭으로 안 닫힘 — X/취소 버튼만. 안전장치)
+- **＋ NEW GOAL** (`qbOpenGoalModal`/`qbGoalModalHTML`/`qbAddGoal`/`qbDeleteGoal`/`qbCloseGoalModal`): 독립 모달. 보낼 곳 등록·목록·삭제. 대시보드 헤더 `📍 ＋ NEW GOAL` 버튼(`.qb-add-goal`). 등록분은 좌측 보드에 **빈 존으로도** 생성(`buildQuestBoardHTML`에서 `S.goals` 병합, goal: 존은 빈 채로 유지).
+- **＋ NEW QUEST** (`qbOpenPackageModal`@~17234): **목적지 입력칸 제거** → 진입한 GOAL 존으로 자동지정 배너(`.qb-dest-banner`). `window._qbForcedDest`에 dest key 고정(`qbOpenPackageModalForDest`/`qbEditPackage`가 세팅). hidden `#qb-pkg-dest`. 슬롯 토글 4개(`qbRefreshSlotBuilder`→`#qb-slot-builder`)+커스텀(`#qb-custom-builder`,`qbAddCustomSlot`/`_qbCustomSlots`). 저장 `qbSavePackage`가 `goal:/fc:/sp:/brand:` 파싱→destGoalId 등.
+- **＋ NEW PICK UP** (`showPickupForm(pid,opts)`@~19586): 대형 Pretendard 타이틀. 섹션마다 헤더바+도트아이콘(🎯 아이템&브랜드 청록 / 🏪 거래처&종류 검정 / ★ 세부내용 3px검정+노랑 / 📦 배송지 점선 / 📝 메모). **스마트검색**: 아이템(`pk-item-input`+hidden `pk-item`, `onPickupItemResolve` 이름→id)·거래처(`pk-supplier` datalist). **직접입력 노란박스**: `pk-sup-direct`(🏢)+`pk-loc-direct`(📍 동/호수). 저장 `savePickupForm`.
+  - **슬롯모드**(`opts.slot`=`{pkgId,slotId,addNew?,pkgName,slotLabel}`+`opts.prefill`): `window._qbSlotPickupCtx`. 저장 시 새 픽업 안 만들고 **슬롯에 거래처·자재명 기록**(addNew면 새 커스텀 슬롯 push). → 우측 SOURCE 존 자동 등장.
+
+### 3. 카드 UI (renderPackageCard + renderQuestCard 둘 다)
+- 헤더: 브랜드 옆 **하늘색 ✏ 미니박스 삭제**. 대신 **`＋ 새 픽업`** 버튼(`.addpk-btn` 네온블루) — pkg=`qbAddPkgPickup`(새 커스텀슬롯), quest=`qbAddQuestPickup`(같은 목적지·아이템 새 픽업). 패키지카드는 이름 클릭=수정(`qbEditPackage`, ✎힌트). `X`=삭제.
+- 슬롯 F/T/P/I+커스텀: 우측 **`✏ 수정`** 버튼(`.slot-pk`, Galmuri11) — pkg=`qbOpenSlotPickup`(슬롯 픽업정보 수정창), quest=`showPickupForm(firstPickupId)`(그 칸 첫 픽업 수정). (옛 이름 ＋PICKUP에서 변경). 발송완료(sent)면 ＋새픽업·✏수정 숨김.
+
+### 4. 우측 SOURCE(수집처) — PICK/MADE → 취소/보관 오버레이
+- `renderMatZone(typ,label,supsObj)`@~18185. 아이템/슬롯 행=`.sup-item`. 평상시: 세로 `[PICK]`(파랑)+`[MADE]`(앰버, `.btn-col`).
+- PICK/MADE 누르면 행이 어둡게(`.sup-item.pending` grayscale)+`.sup-item-overlay`에 **[취소]/[보관]** 대형 라운드초록 버튼.
+  - 픽업: `qbPickup`(→pickedUp)/`qbSetPickupMade`(→made) / 취소 `qbUnPickup`(→waiting,archived=false) / 보관 `qbArchivePickup`(archived=true).
+  - 슬롯: `qbPickSlot`/`qbSetSlotMade` / 취소 `qbCancelSlot` / 보관 `qbArchiveSlot`(srcArchived=true).
+- **MADE 매핑**: slotId 기준이라 원단(F)↔부자재(T) 안 꼬임. madeStatus=true→좌측 패키지 해당 슬롯 `🏠 메이드 확인 필요`(앰버). 그 슬롯 클릭=`qbConfirmMade`→picked(연한 네온그린 DONE).
+- 마이그레이션: 기존 picked 슬롯(srcArchived 미설정)은 자동 보관처리(`buildQuestBoardHTML` 상단).
+
+### 5. 수동 아카이브 (좌/우 대칭)
+- **발송**(`qbSendPackage`/`qbSendQuest`/`qbSend`): shipMethod만 세팅, **status를 delivered로 자동전환 금지**(예전 setTimeout 삭제). 카드는 `.q-card.sent-pending`(opacity .38+grayscale+pointer-events:none, `📦 보관함으로 보내기`(`.qb-archive-btn` 네온그린)+`🔄 되살리기`만 또렷).
+- 보관(`qbArchivePackage`/`qbArchivePickupQuest`)→하단 폴더. 좌 `📁 CLEAR PACKAGES`(`renderDoneQuestsSection`), 우 `📁 TRASH/CLEAR`(`renderDonePickupsSection`). 되살리기 `qbRestorePackage`/`qbRestoreQuest`(shipMethod·archived·슬롯 리셋).
+- 토스트 `qbBigToast`: "발송 시작!" → **`📦 DELIVERY QUEST STARTED!`** / **`🛵 QUICK 발송 퀘스트 장전 완료!`**.
+
+### 6. 주요 CSS 클래스 (qbStylesHTML)
+`.qb-modal`/`.qb-modal-bar`/`.qb-modal-body`/`.qb-modal-acts`, `.qb-goal-box`(.goal-hd 청록헤더), `.qb-dest-banner`, `.qb-layer-row`/`.qb-layer-box(.mission)`, `.qb-slot-box`/`.qb-custom-box`, `.qb-add-goal`/`.qb-add`/`.qb-add-pkg-card`(존 ＋카드), `.fc-zone`(아코디언), `.q-card(.complete/.sent/.sent-pending)`, `.slot(.pending/.on/.made/.excluded + .fabric/.trim/.pattern/.instruction)`, `.slot .slot-pk`(✏수정), `.q-card-hd .addpk-btn`/`.del-btn`/`.nm-edit`, `.sup-item(.pending/.picked/.made-pending)`/`.sup-item-overlay .si-cancel/.si-archive`/`.btn-col .pk/.made-btn`, `.qb-done`(보관함), `.pk-direct`(픽업 직접입력).
+- 색: `--ink #0B0A05` / `--neon-green #A5E6BA` / `--neon-blue #B0DBF0` / 청록 `#2EC4B6`(GOAL/teal) / 노랑 `#FFF6B8`(자유미션/세부내용). 폰트: Press Start 2P(영문라벨)+Galmuri11(제목·버튼)+Pretendard(본문).
+
+### 7. 미해결/다음 후보
+- 단추 로고 PO 텍스트 출력 연결(기존 TODO).
+- 실시간 동기화(Firestore onSnapshot) — "나중에".
+- NEW GOAL과 기존 공장/브랜드 zone이 별개로 뜸(goal: vs fc:/brand:) — 통합 원하면 작업 필요.
+- 미리보기 시안 파일: `~/Downloads/files/mockup-quest-pickup.html`, `mockup-v4.html`(로컬 `python3 -m http.server`로 봄, 깃 미추적).
+
+---
+
+## 13. 맥미니에서 이어가기 (이 문서 + git)
+1. 맥미니에 저장소 클론/풀: `cd ~/Documents && git clone https://github.com/subak805-netizen/fpf-manager.git`(처음) 또는 `cd ~/Documents/fpf-manager && git pull`(이후). → 최신 `index.html` + `CLAUDE.md` 받음.
+2. 작업본 경로: 맥북은 작업본 `~/Downloads/files/index.html`, 깃 저장소 `~/Documents/fpf-manager/`. 맥미니도 동일 구조 권장(또는 저장소에서 바로 작업). **수정→문법검사→`cp`로 저장소 복사→commit→push** 흐름.
+3. Claude Code 새 세션: 저장소 폴더에서 시작하면 `CLAUDE.md` 자동 로드(맥락 복구). 세션 히스토리는 기기별 로컬이라 안 넘어감 → 이 문서로 재구성.
+4. **검증**(네트워크 없이 정적검사). node 없으면 macOS JavaScriptCore:
+   ```bash
+   python3 - <<'PY'
+   import re;h=open('index.html',encoding='utf-8').read()
+   s=re.findall(r'<script\b[^>]*>(.*?)</script>',h,re.S|re.I)
+   open('/tmp/chk.js','w',encoding='utf-8').write("\n;\n".join(x for x in s if x.strip()))
+   PY
+   JSC=/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc
+   "$JSC" -e 'try{new Function(readFile("/tmp/chk.js"));print("SYNTAX OK")}catch(e){print(e instanceof SyntaxError?"ERR:"+e.message:"OK")}'
+   ```
+5. 배포: GitHub Pages `subak805-netizen.github.io/fpf-manager` (push → 1~2분 빌드 → 강력 새로고침).
+6. 깃 인증: 맥미니 첫 push 시 GitHub 토큰/SSH 필요할 수 있음(사용자 직접 로그인).
