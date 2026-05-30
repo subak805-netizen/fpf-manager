@@ -369,8 +369,10 @@ html[data-theme="minimal"] .ise-auto,html[data-theme="minimal"] .ise-flag,html[d
 
 /* ===== 생산 대시보드 (아이템 × 공정 그리드) ===== */
 .pd-topbar{background:#fff;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 1px 2px rgba(0,0,0,.03);}
-.pd-stat{display:flex;align-items:baseline;gap:5px;padding:5px 12px;background:#f3f4f6;border-radius:7px;font-size:11px;color:#6b7280;}
+.pd-stat{display:flex;align-items:baseline;gap:5px;padding:5px 12px;background:#f3f4f6;border-radius:7px;font-size:11px;color:#6b7280;transition:background .12s,color .12s;}
 .pd-stat .n{font-size:15px;font-weight:700;color:#333;}
+.pd-stat.on{background:#1f2937;color:#fff;}
+.pd-stat.on .n{color:#fff;}
 .pd-brand-group{margin-bottom:28px;}
 .pd-brand-hdr{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:0 4px;}
 .pd-brand-hdr .pill{padding:4px 14px;border-radius:100px;font-size:14px;font-weight:800;letter-spacing:-.2px;background:#f3f4f6;color:#4b5563;}
@@ -428,9 +430,11 @@ html[data-theme="minimal"] .ise-auto,html[data-theme="minimal"] .ise-flag,html[d
 .pd-btn:hover{background:#f3f4f6;color:#333;border-color:#d1d5db;}
 .pd-btn.kakao:hover{background:#fee500;color:#3c1e1e;border-color:#fee500;}
 .pd-btn.brand:hover{background:#c8eaff;color:#075985;border-color:#c8eaff;}
-html[data-theme="retro"] .pd-topbar{background:#EFE8D4;border:2.5px solid var(--ink);box-shadow:4px 4px 0 var(--ink);border-radius:0;}
+html[data-theme="retro"] .pd-topbar{background:#fff;border:2.5px solid var(--ink);box-shadow:4px 4px 0 var(--ink);border-radius:0;}
 html[data-theme="retro"] .pd-stat{background:#fff;border:2px solid var(--ink);border-radius:0;box-shadow:2px 2px 0 var(--ink);color:var(--ink);align-items:center;}
 html[data-theme="retro"] .pd-stat .n{font-family:var(--font-pixel);font-size:13px;color:var(--ink);}
+html[data-theme="retro"] .pd-stat.on{background:var(--ink);color:#fff;box-shadow:1px 1px 0 var(--ink);transform:translate(1px,1px);}
+html[data-theme="retro"] .pd-stat.on .n{color:#fff;}
 html[data-theme="retro"] .pd-brand-hdr .pill{border:2px solid var(--ink)!important;border-radius:0;box-shadow:2px 2px 0 var(--ink);font-family:var(--font-display);}
 html[data-theme="retro"] .pd-brand-hdr .count{font-family:var(--font-display);font-weight:800;}
 html[data-theme="retro"] .pd-brand-hdr .send-btn{background:#FFF6B8;border:2px solid var(--ink);border-radius:0;box-shadow:2px 2px 0 var(--ink);font-family:var(--font-display);font-weight:800;color:var(--ink);}
@@ -10077,7 +10081,7 @@ function renderProdDash(){
       const sewingFcId=it.sewingFcId||'';
       const sewSch=sewingFcId?(o.factorySchedules||{})[sewingFcId]:null;
       const isFullyShipped=sewSch&&sewSch.shipDone;
-      if(isFullyShipped)continue;
+      // 출고완료 항목도 행에 포함(숨기지 않음) → '출고 완료' 필터로만 따로 봄
       // 디데이 계산 (출고예정일 기준)
       let dday=null;
       const eta=orderShipETA?orderShipETA(o):(o.shippingDate||'');
@@ -10118,7 +10122,7 @@ function renderProdDash(){
         });
       }
       shipDates.sort((a,b)=>cmpDate(a).localeCompare(cmpDate(b)));
-      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,shipTotal,shipColors,shipSizeGrid,shipDates,brandId:it.brandId||''});
+      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,shipTotal,shipColors,shipSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped});
     }
   }
   if(!rows.length){
@@ -10132,10 +10136,21 @@ function renderProdDash(){
     if(b.dday===null)return -1;
     return a.dday-b.dday;
   });
+  // 보기 모드 (상태 박스 = 필터 탭): 'active'(진행) | 'urgent'(긴급) | 'shipped'(출고완료)
+  const viewMode=window._pdViewMode||'active';
+  const activeRows=rows.filter(r=>!r.shipDone);          // 진행 중 (출고완료 제외)
+  const shippedRows=rows.filter(r=>r.shipDone);           // 출고 완료
+  const urgentRows=activeRows.filter(r=>r.dday!==null&&r.dday<=3);
+  // 통계 (보기 모드와 무관, 항상 전체 기준)
+  const totalItems=activeRows.length;
+  const urgentCount=urgentRows.length;
+  const shippedCount=shippedRows.length;
+  // 현재 보기 모드에 해당하는 행
+  let viewRows=viewMode==='urgent'?urgentRows:(viewMode==='shipped'?shippedRows:activeRows);
   // 브랜드 필터 (선택된 것만 표시)
   const fltBrand=window._pdBrandFilter||'';
-  const allRows=rows.slice();  // 통계용 (필터 전)
-  const filteredRows=fltBrand?rows.filter(r=>r.brandId===fltBrand):rows;
+  const allRows=viewRows.slice();  // 브랜드 탭 산정용 (현재 보기 기준)
+  const filteredRows=fltBrand?viewRows.filter(r=>r.brandId===fltBrand):viewRows;
   // 브랜드별 그룹화 (필터링된 행 기준)
   const byBrand={};
   filteredRows.forEach(r=>{
@@ -10146,14 +10161,11 @@ function renderProdDash(){
   // 전체 브랜드 목록 (필터 탭용)
   const allBrandsSet={};
   allRows.forEach(r=>{const bid=r.brandId||'__none';allBrandsSet[bid]=(allBrandsSet[bid]||0)+1;});
-  // 통계 (필터 전 전체)
-  const totalItems=allRows.length;
-  const urgentCount=allRows.filter(r=>r.dday!==null&&r.dday<=3).length;
-  const shippedCount=allRows.filter(r=>r.shipTotal>=r.orderTotal).length;
+  const stat=(mode,n,lbl)=>`<div class="pd-stat${viewMode===mode?' on':''}" style="cursor:pointer" onclick="pdSetView('${mode}')"><span class="n">${n}</span><span>${lbl}</span></div>`;
   let html=`<div class="pd-topbar" style="position:sticky;top:0;z-index:20">
-    <div class="pd-stat"><span class="n">${totalItems}</span><span>진행 아이템</span></div>
-    <div class="pd-stat"><span class="n">${urgentCount}</span><span>긴급 (D-3 이내)</span></div>
-    <div class="pd-stat"><span class="n">${shippedCount}</span><span>출고 완료</span></div>
+    ${stat('active',totalItems,'진행 아이템')}
+    ${stat('urgent',urgentCount,'긴급 (D-3 이내)')}
+    ${stat('shipped',shippedCount,'출고 완료')}
   </div>`;
   // 브랜드 필터 탭 (sticky)
   const brandList=Object.keys(allBrandsSet);
@@ -10203,9 +10215,18 @@ function renderProdDash(){
       </table></div>
     </div>`;
   }
+  if(!filteredRows.length){
+    const emptyMsg=viewMode==='shipped'?'출고 완료된 아이템이 없어요':(viewMode==='urgent'?'긴급(D-3 이내) 아이템이 없어요':'진행 중인 오더가 없어요');
+    html+='<div class="empty" style="padding:48px 20px;text-align:center;color:#9ca3af">'+esc(emptyMsg)+'</div>';
+  }
   el.innerHTML=html;
   // 마우스 가로 스크롤 활성화: 클릭 드래그 + 일반 휠→가로 변환
   pdAttachDragScroll();
+}
+// 상태 박스(진행/긴급/출고완료) 필터 전환. 같은 박스 다시 누르면 '진행'으로 복귀
+function pdSetView(mode){
+  window._pdViewMode=(window._pdViewMode===mode)?'active':mode;
+  renderProdDash();
 }
 // 생산 대시보드 마우스 스크롤 보조: 빈 영역 클릭-드래그로 좌우 슬라이드, 마우스 휠(세로)을 가로로 변환
 function pdAttachDragScroll(){
@@ -10347,6 +10368,9 @@ function renderProdDashRow(r){
     ddayHtml=`<span class="dday-tag" style="background:#fef3c7;color:#92400e">D-${r.dday}</span>`;
   }else{
     ddayHtml=`<span class="dday-tag" style="background:#f3f4f6;color:#6b7280">D-${r.dday}</span>`;
+  }
+  if(r.shipDone){
+    ddayHtml=`<span class="dday-tag" style="background:#dcfce7;color:#166534">✅ 출고완료</span>`;
   }
   const brandNm=r.brandId&&typeof getBrandName==='function'?(getBrandName(r.brandId)||''):'';
   const code=r.it.code||'';
