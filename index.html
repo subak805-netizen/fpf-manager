@@ -426,6 +426,10 @@ html[data-theme="minimal"] .ise-auto,html[data-theme="minimal"] .ise-flag,html[d
 #dash-body .pd-table{min-width:1040px;}
 #dash-body .pd-table th.pd-itemcol,#dash-body .pd-table td.pd-summary{width:240px;}
 .pd-stage-lbl{font-size:9px;font-weight:800;color:#6b7280;margin-bottom:4px;letter-spacing:.3px;}
+.pd-prep-dday{font-size:9px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:5px;letter-spacing:0;}
+.pd-prep-dday.warn{background:#fef3c7;color:#92400e;}
+.pd-prep-dday.late{background:#fee2e2;color:#b91c1c;}
+html[data-theme="retro"] .pd-prep-dday{border-radius:0;border:1.5px solid var(--ink);font-family:var(--font-display);}
 #dash-body .pd-table tbody tr.pd-row-top>td{border-top:2px solid #d1d5db;border-bottom:1px dashed #e5e7eb;}
 #dash-body .pd-table tbody tr.pd-row-bot>td{border-bottom:none;}
 #dash-body .pd-table tbody tr:hover{background:transparent;}
@@ -10232,9 +10236,10 @@ function renderProdDash(){
       const sewSch=sewingFcId?(o.factorySchedules||{})[sewingFcId]:null;
       const isFullyShipped=sewSch&&sewSch.shipDone;
       // 출고완료 항목도 행에 포함(숨기지 않음) → '출고 완료' 필터로만 따로 봄
-      // 디데이 계산 (출고예정일 기준)
+      // 디데이 계산 (행에 표시되는 출고예정일과 동일 기준 — 봉제/출고공장 일정 → 오더 출고예정일)
+      // ⚠️ orderShipETA(o)는 모든 공정의 '가장 빠른 날짜'를 잡아 중간 공정 날짜로 지연 오판 → 사용 안 함
       let dday=null;
-      const eta=orderShipETA?orderShipETA(o):(o.shippingDate||'');
+      const eta=(sewSch&&(sewSch.shippingDate||sewSch.shipExpectedDate))||o.shippingDate||(typeof orderShipETA==='function'?orderShipETA(o):'');
       if(eta){
         try{
           const etaDate=new Date(eta);
@@ -10571,12 +10576,22 @@ function renderProdDashRow(r){
   const prepCell=(kind,supName,doneLbl,stageLbl)=>{
     const dateField=kind+'Date';
     const doneField=kind+'Done';
-    const dateVal=prep[dateField]||'';
+    const synced=(kind==='fab'||kind==='trim');
+    const dateVal=synced?orderPrepShipDate(r.o,kind):(prep[dateField]||'');
     const isDone=!!prep[doneField];
+    // 입고예정일 임박 알람 (완료 안 됐고 날짜 있을 때) — 아이템 출고 D-day와 별개
+    let alarm='';
+    if(synced&&dateVal&&!isDone){
+      let dd=null;try{dd=Math.ceil((new Date(dateVal)-new Date(todayISO()))/(1000*60*60*24));}catch(e){}
+      if(dd!==null){
+        if(dd<0)alarm=`<span class="pd-prep-dday late">지연 ${-dd}일</span>`;
+        else if(dd<=3)alarm=`<span class="pd-prep-dday warn">D-${dd}</span>`;
+      }
+    }
     return `<td class="pd-proc">
-      <div class="pd-stage-lbl">${esc(stageLbl||'')}</div>
+      <div class="pd-stage-lbl">${esc(stageLbl||'')}${alarm}</div>
       <div class="pd-proc-name">${esc(supName||'—')}</div>
-      <input class="pd-proc-input" type="date" value="${esc(dateVal)}" data-oid="${esc(r.o.id)}" data-prepfield="${esc(dateField)}" onchange="pdSavePrep(this)">
+      <input class="pd-proc-input" type="date" value="${esc(dateVal)}" data-oid="${esc(r.o.id)}" data-prepfield="${esc(dateField)}" data-prepkind="${kind}" onchange="pdSavePrep(this)">
       <div class="pd-spacer"></div>
       <label class="pd-chk ${isDone?'done':''}"><input type="checkbox" ${isDone?'checked':''} data-oid="${esc(r.o.id)}" data-prepfield="${esc(doneField)}" onchange="pdSavePrepDone(this)"> ${esc(doneLbl)}</label>
       <div class="pd-actions">
@@ -10952,13 +10967,28 @@ function pdFilterBrand(bid){
   window._pdBrandFilter=(window._pdBrandFilter===bid)?'':bid;
   if(typeof renderProdDash==='function')renderProdDash();
 }
-// 원·부자재·지시서 날짜 저장 (오더 단위)
+// 원단처/부자재처 출고예정일 = 오더 상세 ③입고 탭과 동일 소스(o.suppliers[*].expectedShipDate)
+function orderPrepShipDate(o,kind){ // kind: 'fab' | 'trim'
+  var mt=kind==='fab'?'fabric':'trim';var dates=[];
+  for(var sn in (o.suppliers||{})){var sup=o.suppliers[sn];
+    if((sup.materials||[]).some(function(m){return m.type===mt;})&&sup.expectedShipDate)dates.push(sup.expectedShipDate);}
+  if(dates.length)return dates.sort()[dates.length-1]; // 가장 늦은 날 (입고탭 자동값과 일치)
+  return (o._prep&&o._prep[kind+'Date'])||''; // 폴백: 옛 _prep 값
+}
+function setOrderPrepShipDate(o,kind,val){
+  var mt=kind==='fab'?'fabric':'trim';
+  for(var sn in (o.suppliers||{})){var sup=o.suppliers[sn];
+    if((sup.materials||[]).some(function(m){return m.type===mt;}))sup.expectedShipDate=val;}
+  if(!o._prep)o._prep={};o._prep[kind+'Date']=val;
+}
+// 원·부자재·지시서 날짜 저장 (오더 단위) — 원/부자재는 ③입고 탭 출고예정일과 양방향 동기화
 function pdSavePrep(el){
-  const oid=el.dataset.oid,field=el.dataset.prepfield;
+  const oid=el.dataset.oid,field=el.dataset.prepfield,kind=el.dataset.prepkind;
   if(!oid||!field)return;
   const o=S.orders[oid];if(!o)return;
   if(!o._prep)o._prep={};
   o._prep[field]=el.value;
+  if(kind==='fab'||kind==='trim')setOrderPrepShipDate(o,kind,el.value);
   saveData();
 }
 function pdSavePrepDone(el){
