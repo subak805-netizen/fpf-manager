@@ -250,3 +250,56 @@
    ```
 5. 배포: GitHub Pages `subak805-netizen.github.io/fpf-manager` (push → 1~2분 빌드 → 강력 새로고침).
 6. 깃 인증: 맥미니 첫 push 시 GitHub 토큰/SSH 필요할 수 있음(사용자 직접 로그인).
+
+---
+
+## 14. 이번 세션 (2026-05-30~31) ★★★ 새 세션 이어가기 핵심 ★★★
+
+> 맥미니에서 진행. 커밋 흐름: `94b6b61 → 8bd6ec7 → f10ac69 → dc902c0 → 5e86e1c → 03d1c08 → bd5a356 → (이번 폼 정리)`. 모든 작업은 **미리보기 먼저**(`/tmp/fpf-preview/_live.html`, `python3 -m http.server 8754 --directory /tmp/fpf-preview`, `.claude/launch.json`의 `fpf-preview`) → 검증 → index.html 이식 → push. **DESIGN_GUIDE.md** 변경 이력(15~) 참고.
+
+### 0. 테마/검증 (이 세션 확정)
+- 부팅 기본 테마 = **retro**. localStorage 키 `fpm_theme`·`fpfTheme`. `applyTheme('retro'|'minimal')`. retro 토큰: `--ink #0B0A05`, `--neon-green #A5E6BA`, `--neon-blue #B0DBF0`, `--paper`, `--font-display`(Galmuri11), `--font-pixel`(Press Start 2P).
+- 검증 = `<script>` 추출 후 JSC `new Function()` SYNTAX OK (§1·§13 스크립트).
+- 미리보기 링크 규칙: 폰 `http://localhost:8754/phone.html`(390 iframe) + 데스크탑 `_live.html` **둘 다** 제시. (메모리 feedback_preview_first.md)
+
+### A. 탭 구조 전면 개편 (03d1c08)
+- **알림 탭 삭제**. nav(`<div class="nav">`@~798) = 할일·동선·아이템·**진행**·불량관리·분석·🏢업체관리.
+- **「진행」 묶음 탭**(`nt-progress`, `switchTab('dash')`): `#progress-subtabs` 서브탭바 = 생산 대시보드(dash)·오더 관리(orders)·샘플 대시보드(board)·샘플 발주(sample)·결제 관리(pay)·**단가장(book)·잔량(leftover)**. `switchTab`(@~2897)에 `progressGroup=['dash','orders','book','leftover','board','sample','pay']` + `pt-*` 버튼 하이라이트. **단가장/잔량은 오더관리에서 빼서 결제 뒤로 이동**.
+- **샘플 진행보드 → 샘플 대시보드** 개명(renderBoardPane @~16725 헤더 텍스트).
+- **모든 서브탭 이모티콘 제거**.
+- **오더 완료탭**: `#orders-subtabs` = 오더 목록 / 완료 (t==='orders'일 때만 표시). `window._orderView`('active'|'done'), `showOrderList(view)`, `isOrderDone(o)`(=oLabel 출고완료/결제완료). renderOrderPane(@~7287)에서 view 필터.
+- **결제 탭**(pane-pay @~927): 서브탭 **「브랜드별 보기」(t-pay-all)+「결제 완료」(t-pay-done)만**. switchPayTab(@~12364) 단순화. renderItemPay(@~12794)가 `opts{onlyDone,groupByMonth}` 받음 — 기본=미결제만(allPaid 숨김), 완료탭=allPaid만 **월별 그룹**(`.pay-month-hdr`). 공장선택pills·결제완료체크박스·영수증AI·일괄결제·전체/공장처/거래처/차트 **삭제**.
+- **생산 대시보드 2줄**(renderProdDash @~10167 / renderProdDashRow @~10446): thead **제거**(각 셀 `.pd-stage-lbl` 자체 라벨). 통계 박스=클릭 필터(`pdSetView`). **샘플 대시보드 통계도 클릭 필터**(`sbSetView`, `window._sbView`).
+- **할 일 빠른추가 재배치**(renderTasksPaneByBrand @~17316): 1줄=버튼(브랜드·어디서 시장/사무실/연락만·오늘/내일 — `qaSetBtn(btn,group,val)`+hidden `new-task-brand`/`new-task-loc`/`new-task-pri`), 2줄=아이템(검색 datalist `dl-task-item`+hidden `new-task-item`, `onQuickTaskItemPick`)+내용+추가, 3줄=업체+픽업위치+샘플생산. `.qa-btn`/`.qa-grp`/`.qa-sep` CSS.
+
+### B. 모바일 (03d1c08)
+- 통계 박스 한 줄(`@media(max-width:720px) .pd-topbar{flex-wrap:nowrap}` 숫자↑·라벨↓). 
+- **「≡ 메뉴 접기/펼치기」**(`#mobile-nav-toggle`, `body.nav-collapsed`) → .nav+#progress-subtabs+#orders-subtabs 동시 접힘.
+- 오더/샘플 목록 **전체폭**: `.split{width:100%!important}`(모바일), `#pane-orders/.sl`·`#pane-sample .sl{width:360px}`은 `@media(min-width:769px)` 데스크탑 한정.
+- 가로스크롤 sticky 떨림 제거(.pd-topbar position:static).
+
+### C. 생산 대시보드 D-day + 원/부자재 동기화 (bd5a356)
+- **D-day 버그**: orderShipETA(전 공정 최소날짜) → "6/5인데 지연" 오판. renderProdDash(@~10236) eta를 `(sewSch&&(sewSch.shippingDate||sewSch.shipExpectedDate))||o.shippingDate` 로 교정(행 표시 출고일과 일치).
+- **원/부자재 입고예정일 동기화**: 생산대시보드 원자재/부자재 칸 ↔ 오더상세 ③입고탭 원단처/부자재처 출고예정일(`o.suppliers[sn].expectedShipDate`). `orderPrepShipDate(o,kind)`/`setOrderPrepShipDate(o,kind,val)`(@~pdSavePrep). prepCell이 fab/trim은 supplier date 읽고 `data-prepkind`로 양방향 저장.
+- **임박 알람**: prepCell에 입고예정일 D-3 이내=노랑 `D-N`, 지남=빨강 `지연 N일` 배지(`.pd-prep-dday`).
+
+### D. 아이템 수정 폼 (원단·부자재 카드) 대정비 (이번 세션 막바지, push 직전/직후)
+- **부자재 사라짐 치명버그 수정**: `colTR()`@~5372·`colFR()`@~5337 — 행을 순서(index) 대신 **행 id 기준**(`+r.id.replace('tr-','')`)으로 수집(라벨류가 #label-trim-rows로 빠져 인덱스 어긋나던 문제). `autofillTrim`@~3325 첫머리 `colTR()` 추가.
+- **trimRowHTML**(@~4973): 특수 타입 조기 return — bias(@~4981)·careLabel(@~5028)·mainLabel(@~5065)·zipper(@~5120)·button(@~5158), 나머지(개수/롤/절/야드/실/레이스/단추고리)는 일반 경로(@~5190).
+- **일반 카드 레이아웃**(사용자 확정): 헤더=타입뱃지+**단위**(롤=rollUnit select/개수=unit, 헤더로 올림)+용도+🗑. 그 아래 ①부자재처/동/호수 ②**부자재명+크기/규격+색상** ③**[불러오는 값] 고정yard(절당/컷당/야드당개수/1절당)+단가** ④점선 구분 ⑤**[직접 입력] 요척+로스**. (벌당수량→**요척** 통일).
+- **원단 카드**(fabRowHTML @~4644): 헤더=타입(야드/KG단가)+용도+🗑. ①원단처/동/호수 ②**원단명+폭+야드단가** ③요척+로스 ④비고 ⑤적용컬러+혼용률.
+- **＋가공비 버튼 = 모든 부자재 카드 하단(우측)**: trimRowHTML 래퍼 IIFE(@~5216 직후)가 결과 끝 `</div>` 앞에 footer 주입. 헤더의 가공비 전부 제거.
+- **특수 타입 공통 통일**(사용자: "공통 부분만"): bias·careLabel·mainLabel·zipper 헤더에 **용도(part)** 추가(이미 있던 일반·단추 포함 전 타입 용도 보유). 타입별 전용칸(지퍼 슬라이더·바이어스 가공처/원단출처·라벨 라벨명 등)은 그대로.
+- **레트로 컬러 보정**: `#pane-items .fab-row`(2.5px ink+그림자), `.tx-extras`(추가옵션 박스 크림+ink), `.trim-add-grid .btn`·가공비 버튼 각진 ink — `html[data-theme="retro"]` 스코프(@~285 부근 CSS).
+- **부자재 추가 버튼줄에서 케어라벨·메인라벨 제거**(완성 부자재 섹션에만). 아이템 탭 **타입변환** 버튼 제거(이전).
+
+### E. 그 외 이번 세션
+- 아이템 리스트(renderItemsList @~4061): **준비 시작일**(`itemStartDateHTML`/`setItemStartDate`, it.startDate||createdAt, `itemStartISO`) + **KC 인증완료 토글칩**(`itemKcHTML`/`toggleItemKc`, it.kcCert/kcCertAt) — 행 오른쪽 `.im-meta`. **정렬 오름/내림 토글**(`toggleItemSort`, window._itemSortDir). 액션칸 고정폭 300px(`.im-row` grid `160px minmax(0,1fr) 300px`)로 정보칸 줄바꿈/ KC토글 reflow 해결. 배지 첫칸(.ib-phase) 검정→흰색.
+- `saveItemForm`(@~5652): 폼 저장 시 리스트 전용 메타(statusManual/hold/qc/costSent/costSentAt/createdAt/startDate/kcCert/kcCertAt) **보존**(oldItem에서 복사) — 안 그러면 초기화되던 버그.
+- 아이템/오더/결제 탭 + 오더상세패널(#o-sr) retro 스킨(dc902c0). 결제 명세서(buildPayReceiptHTML, html2canvas)는 **불변**(업체 전달용).
+
+### F. 미해결/다음 후보
+- 결제 적용컬러 박스 노랑은 의도(레트로 강조색)로 유지 — 톤 변경 요청 시.
+- 특수 타입(지퍼/단추/라벨/바이어스)에 일반 카드의 "상단=불러옴/하단=요척·로스" 분리는 미적용(필드가 달라서). 요청 시 개별 작업.
+- 실시간 동기화(Firestore onSnapshot) — "나중에".
+
