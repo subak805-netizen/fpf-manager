@@ -18986,7 +18986,7 @@ function qbToggleDone(which){
   renderRoutePane();
 }
 // 공장 윈도우 (목적지 1개 = window 1개, 그 안에 packages + 기존 quest들)
-// 아코디언: window._qbOpenFc === info.key일 때만 펼쳐짐, 나머지는 접힘
+// 아코디언: window._qbOpenFcs[info.key]가 true면 펼쳐짐 (여러 개 동시 가능)
 function renderFcZone(d,brands){
   var info=d.info;
   var allSent=(d.packages.length>0||d.quests.length>0)
@@ -18994,12 +18994,12 @@ function renderFcZone(d,brands){
     &&d.quests.every(function(q){return q.pickups.every(function(p){return p.shipMethod;});});
   var allParcel=allSent&&d.packages.every(function(p){return p.shipMethod==='parcel';})&&d.quests.every(function(q){return q.pickups.every(function(p){return p.shipMethod==='parcel';});});
   var totalQuests=d.packages.length+d.quests.length;
-  var isOpen=(window._qbOpenFc===info.key);
+  var isOpen=!!(window._qbOpenFcs&&window._qbOpenFcs[info.key]);
   var cls='fc-zone'+(isOpen?'':' collapsed')+(allParcel&&totalQuests>0?' parcel-bundle':'');
   var typeLbl={factory:'FACTORY',supplier:'PARTNER',brand:'BRAND',office:'OFFICE',etc:'PLACE',self:'BASE'}[info.type]||'BASE';
   var folderIc=isOpen?'📂':'📁';
   var chev=isOpen?'▼':'▶';
-  var html='<div class="'+cls+'">';
+  var html='<div class="'+cls+'" data-fckey="'+esc(info.key)+'">';
   // Mac 윈도우 타이틀바 (클릭 → 아코디언 토글)
   html+='<div class="fc-zone-bar" onclick="qbToggleFc(\''+esc(info.key)+'\')">'
     +'<div class="close"></div>'
@@ -19031,15 +19031,17 @@ function qbOpenPackageModalForDest(destKey){
 }
 // 공장 아코디언 토글 (한 번에 하나만 펼침)
 function qbToggleFc(destKey){
-  if(window._qbOpenFc===destKey)window._qbOpenFc='';
-  else window._qbOpenFc=destKey;
+  // 여러 개 동시에 펼쳐둘 수 있게 (하나 열어도 다른 건 안 닫힘)
+  if(!window._qbOpenFcs)window._qbOpenFcs={};
+  var nowOpen;
+  if(window._qbOpenFcs[destKey]){delete window._qbOpenFcs[destKey];nowOpen=false;}
+  else{window._qbOpenFcs[destKey]=true;nowOpen=true;}
   renderRoutePane();
-  // 토글 후 펼친 zone으로 스크롤 (모바일 편의)
+  // 방금 펼친 zone으로만 스크롤 (모바일 편의)
   setTimeout(function(){
-    if(window._qbOpenFc){
-      var zone=document.querySelector('.fc-zone:not(.collapsed)');
-      if(zone&&zone.scrollIntoView)zone.scrollIntoView({behavior:'smooth',block:'nearest'});
-    }
+    if(!nowOpen)return;
+    var zs=document.querySelectorAll('.fc-zone');
+    for(var i=0;i<zs.length;i++){if(zs[i].getAttribute('data-fckey')===destKey){if(zs[i].scrollIntoView)zs[i].scrollIntoView({behavior:'smooth',block:'nearest'});break;}}
   },80);
 }
 // ===== 패키지 카드 (S.packages 기반) =====
