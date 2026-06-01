@@ -10509,12 +10509,16 @@ function renderProdDash(){
   const activeRows=rows.filter(r=>!r.shipDone);          // 진행 중 (출고완료 제외)
   const shippedRows=rows.filter(r=>r.shipDone);           // 출고 완료
   const urgentRows=activeRows.filter(r=>r.dday!==null&&r.dday<=3);
+  // 원단 컨펌일(confirmDate) 임박: 입고완료 안 된 원단처 중 컨펌예정 D-3 이내(지남 포함)
+  const _confDday=(r)=>{var best=null;var sups=(r.o&&r.o.suppliers)||{};(r.it.fabrics||[]).forEach(function(f){var sn=f.supplier;if(!sn)return;var sp=sups[sn];if(!sp||sp.arrived||!sp.confirmDate)return;var dd=null;try{dd=Math.ceil((new Date(sp.confirmDate)-new Date(todayISO()))/86400000);}catch(e){}if(dd!==null&&(best===null||dd<best))best=dd;});return best;};
+  const confirmRows=activeRows.filter(r=>{var d=_confDday(r);return d!==null&&d<=3;});
   // 통계 (보기 모드와 무관, 항상 전체 기준)
   const totalItems=activeRows.length;
   const urgentCount=urgentRows.length;
   const shippedCount=shippedRows.length;
+  const confirmCount=confirmRows.length;
   // 현재 보기 모드에 해당하는 행
-  let viewRows=viewMode==='urgent'?urgentRows:(viewMode==='shipped'?shippedRows:activeRows);
+  let viewRows=viewMode==='urgent'?urgentRows:(viewMode==='shipped'?shippedRows:(viewMode==='confirm'?confirmRows:activeRows));
   // 브랜드 필터 (선택된 것만 표시)
   const fltBrand=window._pdBrandFilter||'';
   const allRows=viewRows.slice();  // 브랜드 탭 산정용 (현재 보기 기준)
@@ -10533,6 +10537,7 @@ function renderProdDash(){
   let html=`<div class="pd-topbar" style="position:sticky;top:0;z-index:20">
     ${stat('active',totalItems,'진행 아이템')}
     ${stat('urgent',urgentCount,'긴급 (D-3 이내)')}
+    ${stat('confirm',confirmCount,'🎨 컨펌 임박')}
     ${stat('shipped',shippedCount,'출고 완료')}
   </div>`;
   // 브랜드 필터 탭 (sticky)
@@ -10571,7 +10576,7 @@ function renderProdDash(){
     </div>`;
   }
   if(!filteredRows.length){
-    const emptyMsg=viewMode==='shipped'?'출고 완료된 아이템이 없어요':(viewMode==='urgent'?'긴급(D-3 이내) 아이템이 없어요':'진행 중인 오더가 없어요');
+    const emptyMsg=viewMode==='shipped'?'출고 완료된 아이템이 없어요':(viewMode==='urgent'?'긴급(D-3 이내) 아이템이 없어요':(viewMode==='confirm'?'컨펌 임박(D-3 이내) 원단이 없어요':'진행 중인 오더가 없어요'));
     html+='<div class="empty" style="padding:48px 20px;text-align:center;color:#9ca3af">'+esc(emptyMsg)+'</div>';
   }
   el.innerHTML=html;
@@ -10806,6 +10811,8 @@ function renderProdDashRow(r){
       let rows=sups.map(sn=>{
         var sp=(r.o.suppliers||{})[sn]||{};var enc=encodeURIComponent(sn);
         var cd=sp.confirmDate||'',sd=sp.expectedShipDate||'',ar=!!sp.arrived;
+        var cdd=null;if(cd&&!ar){try{cdd=Math.ceil((new Date(cd)-new Date(todayISO()))/86400000);}catch(e){}}
+        var cBadge=(cdd!==null&&cdd<=3)?(cdd<0?'<span class="pd-prep-dday late">지연 '+(-cdd)+'</span>':'<span class="pd-prep-dday warn">D-'+cdd+'</span>'):'';
         var _dlbl='display:inline-block;width:15px;font-size:10px;color:#6b7280;flex-shrink:0';
         var _din='font-size:11px;padding:2px 4px;width:118px;font-family:inherit';
         return `<div class="pd-sup-row" style="padding:5px 0;border-top:1px dashed #ececec">
@@ -10813,7 +10820,7 @@ function renderProdDashRow(r){
             <span style="font-weight:700;font-size:12.5px">${esc(sn||'—')}</span>
             <label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;${ar?'color:#059669;font-weight:700':'color:#6b7280'}"><input type="checkbox" ${ar?'checked':''} data-oid="${esc(r.o.id)}" data-sup="${enc}" data-suparrived onchange="pdSaveSupArrived(this)">완료</label>
           </div>
-          ${kind==='fab'?`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px"><span style="${_dlbl}">컨</span><input type="date" value="${esc(cd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="confirmDate" data-kind="${kind}" onchange="pdSaveSupField(this)" style="${_din}"></div>`:''}
+          ${kind==='fab'?`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px"><span style="${_dlbl}">컨</span><input type="date" value="${esc(cd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="confirmDate" data-kind="${kind}" onchange="pdSaveSupField(this)" style="${_din}">${cBadge}</div>`:''}
           <div style="display:flex;align-items:center;gap:5px"><span style="${_dlbl}">입</span><input type="date" value="${esc(sd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="expectedShipDate" data-kind="${kind}" onchange="pdSaveSupField(this)" style="${_din}"></div>
         </div>`;
       }).join('');
