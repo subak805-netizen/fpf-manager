@@ -18249,9 +18249,10 @@ function qbOpenPackageModal(){
   var forcedDest=window._qbForcedDest||'';
   var forcedLabel='';
   if(forcedDest){var _fo=destOpts.find(function(o){return o.key===forcedDest;});forcedLabel=_fo?_fo.label:forcedDest;}
-  // 모달 열 때마다 슬롯 상태 초기화 — 기본 4개 모두 ON
-  window._qbDefaultSlots={fabric:true,instruction:true,trim:true,pattern:true};
+  // 모달 열 때마다 슬롯 상태 초기화 — 기본 모두 OFF (필요한 것만 눌러서 켜기)
+  window._qbDefaultSlots={fabric:false,instruction:false,trim:false,pattern:false};
   window._qbCustomSlots=[];
+  window._qbEditingPkgId=null;
   var itemOpts=[];
   items.forEach(function(it){
     var br=it.brandId?(brands.find(function(b){return b.id===it.brandId;})||{}).name:'';
@@ -18507,6 +18508,17 @@ function qbSavePackage(){
       existing.name=name;existing.itemId=itemId;existing.brandId=brandId;
       existing.destFactoryId=destFactoryId;existing.destSupplierName=destSupplierName;existing.destBrandId=destBrandId;existing.destGoalId=destGoalId;
       existing.expectedShipDate=date;existing.plannedShipMethod=ship;existing.memo=memo;
+      // 슬롯도 반영 — 기존 상태(picked/made/거래처 등) 보존하며 토글/커스텀·세부내용 갱신
+      var oldSlots=existing.slots||[];var merged=[];
+      ['fabric','instruction','trim','pattern'].forEach(function(tp){
+        if(def[tp]){var old=oldSlots.find(function(s){return s.type===tp;});merged.push(old||{id:'sl_'+uid(),type:tp,sourceSupplier:'',materialName:'',picked:false,pickedAt:''});}
+      });
+      (window._qbCustomSlots||[]).forEach(function(cs){
+        var old=oldSlots.find(function(s){return s.type==='custom'&&(s.customLabel||'')===cs.label;});
+        if(old){old.materialName=cs.detail||old.materialName||'';merged.push(old);}
+        else merged.push({id:'sl_'+uid(),type:'custom',customLabel:cs.label,sourceSupplier:'',materialName:cs.detail||'',picked:false,pickedAt:''});
+      });
+      if(merged.length)existing.slots=merged;
     }
   }else{
     S.packages.push(pkg);
