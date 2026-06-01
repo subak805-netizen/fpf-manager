@@ -317,3 +317,8 @@
 - saveToPB(trim): 기존(size/yardsPerRoll/rollUnit/width/composition/미니멈/지퍼·단추세부/sizeRates)에 더해 **part·threadQty·threadMin·yardsPerJeol·loopPerYard·packUnit·biasSpec·fabricSource·labelName·labelPart·manufactureYM** 추가 저장. **부자재처 동/호수→pbSup.building/room** 저장(원단처럼).
 - autofillTrim: 고정필드 루프에 yardsPerJeol·threadQty·threadMin·loopPerYard·biasSpec·fabricSource·labelName·manufactureYM(이름변경시 덮어씀=1) + part·labelPart(빈칸만=0) 추가. **부자재처 위치(동/호수) 단가장에서 자동(빈칸만)**. packUnit은 _ft 메모리 반영.
 - 단가장 표(renderBookList): **크기/규격·롤당yard 칸 추가**(노란배경). 원단=폭/—, 부자재=size/yardsPerRoll. `updatePBSpec(encSup,encKey,field,val)` 신규(size/width=문자열, yardsPerRoll=숫자, lastUpdated 갱신+savePB). → 예전에 비어있던 항목 직접 백필 가능.
+
+### I. ★버그픽스: packages·goals 영속화 (614fb71 이후)
+- 증상: NEW GOAL을 만들어도 좌측 DEST 존이 안 생기는 것처럼 보임(+ 패키지도 새로고침하면 사라짐).
+- 원인: **S.packages·S.goals가 저장/로드 스키마 어디에도 없었음** → 메모리에만 존재, 동기화·새로고침·업체전환 때 소실. (보드 머지 코드 18816은 정상이었음.)
+- 수정: 모든 영속 지점에 `packages`/`goals` 추가 — loadCoData(2368 S 재구성), saveData(2345), lsSet(1417), 클라우드 coData(1640), 클라우드 병합 S(2247)·로컬캐시(2259), allCoData 두 분기(2586 현재=S.* / 2599 그외=d.*). 옛 백업 d.data 복원(2663)은 pickups 등도 생략하는 레거시라 미변경.
