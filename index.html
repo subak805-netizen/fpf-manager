@@ -4256,23 +4256,18 @@ function renderItemsList(){
   const sortBtn=document.getElementById('item-sort-btn');if(sortBtn)sortBtn.textContent=(window._itemSortDir==='asc')?'↑ 오름차순':'↓ 내림차순';
   const el=document.getElementById('i-list');if(!el)return;
   if(!items.length){if(!allItems.length){el.innerHTML='<div class="empty" style="line-height:1.9"><div style="font-size:15px;font-weight:700;margin-bottom:8px">👋 첫 아이템을 등록해보세요</div><div style="font-size:12px;color:var(--t2)">① 공장/처 등록 → ② 아이템 추가(원단·부자재 포함) → ③ 오더 생성<br>오른쪽 위 <b>＋ 아이템 추가</b> 또는 <b>📋 작지 가져오기</b>로 시작하세요!</div><div style="margin-top:12px"><button class="btn s" onclick="switchTab(\'factories\')">🏭 공장/처 먼저 등록</button> <button class="btn p s" onclick="showItemForm(null)">＋ 아이템 추가</button></div></div>';}else{el.innerHTML='<div class="empty">조건에 맞는 아이템 없음</div>';}return;}
-  let _html='', _curSeason='\0';
-  items.forEach(it=>{
-    // 시즌 그룹 헤더 (시즌이 바뀔 때마다)
-    const sKey=it.season||'시즌 미지정';
-    if(sKey!==_curSeason){_curSeason=sKey;_html+='<div class="season-h">'+esc(sKey)+'</div>';}
+  // 한 아이템 행 HTML
+  function itemRowHTML(it){
     const fcName=it.sewingFcId&&S.factories[it.sewingFcId]?S.factories[it.sewingFcId].name:'';
     const brandNm=it.brandId?getBrandName(it.brandId):'';
     const colors=(it.colors||[]).filter(Boolean);
     const sizes=(it.sizes||[]).filter(Boolean);
     const fabSup=(it.fabrics||[]).map(f=>f.supplier).filter(Boolean)[0]||'';
-    // 정보 줄 순서: 원단처 · 색상 · 사이즈 · 봉제 · 공임 · (거래처) · (취급)  / 규격·시즌 제외
     const parts=[];
     if(fabSup)parts.push('<span><span class="im-lbl">원단처</span>'+esc(fabSup)+'</span>');
     if(colors.length)parts.push('<span><span class="im-lbl">색상</span>'+colors.map(esc).join(' / ')+'</span>');
     if(sizes.length)parts.push('<span><span class="im-lbl">사이즈</span>'+sizes.map(esc).join(' / ')+'</span>');
     if(fcName)parts.push('<span><span class="im-lbl">봉제</span>'+esc(fcName)+'</span>');
-    // 공임 (인라인 편집 유지)
     parts.push(itemLaborInline(it));
     if(it.client)parts.push('<span><span class="im-lbl">거래처</span>'+esc(it.client)+'</span>');
     if(it.careInstructions)parts.push('<span><span class="im-lbl">취급</span>'+esc(it.careInstructions.substring(0,20))+'</span>');
@@ -4281,7 +4276,7 @@ function renderItemsList(){
     const seasonCol='<span class="im-season'+(it.season?'':' blank')+'">'+esc(it.season||'—')+'</span>';
     const codeCol='<span class="im-code'+(it.code?'':' im-code-blank')+'">'+esc(it.code||'—')+'</span>';
     const editorOpen=window._itemEditOpen&&window._itemEditOpen[it.id];
-    _html+=`<div class="im-row">
+    return `<div class="im-row">
       <div class="im-head">${seasonCol}${codeCol}<div class="im-badge-row">${itemBadgeHTML(it)}</div></div>
       <div class="im-info">
         <div class="im-name">${brandMark}${esc(it.name)}</div>
@@ -4289,7 +4284,7 @@ function renderItemsList(){
       </div>
       <div class="im-actions">
         <span class="im-stat">원단 ${(it.fabrics||[]).length} · 부자재 ${(it.trims||[]).length}</span>
-        <div class="im-meta">${itemStartDateHTML(it)}${itemKcHTML(it)}</div>
+        <div class="im-meta">${itemStartDateHTML(it)}${itemInstrHTML(it)}${itemKcHTML(it)}</div>
         <button class="im-btn" onclick="showItemForm('${it.id}')" title="수정">수정</button>
         <button class="im-btn" onclick="showItemCost('${it.id}')" title="원가계산서">원가</button>
         <button class="im-btn" onclick="toggleCostSent('${it.id}')" title="${it.costSent?('원가 업체 전달 완료'+(it.costSentAt?' · '+esc(it.costSentAt):'')+' — 눌러서 해제'):'원가를 업체에 전달했으면 눌러 체크'}" style="${it.costSent?'background:#dcfce7;border-color:#86efac;color:#166534':'color:#9ca3af'}">${it.costSent?'✅ 전달':'📤 미전달'}</button>
@@ -4298,9 +4293,87 @@ function renderItemsList(){
       </div>
       ${editorOpen?('<div class="im-editor">'+itemStatusEditorHTML(it)+'</div>'):''}
     </div>`;
+  }
+  // ===== 필터 상태(영속) =====
+  if(!window._il)window._il=lsGet('fpm_itemFilter')||{};
+  var IL=window._il;
+  if(IL.phS===undefined)IL.phS=true; if(IL.phM===undefined)IL.phM=true;
+  if(IL.showHold===undefined)IL.showHold=false; if(!IL.seasonOff)IL.seasonOff={}; if(!IL.closed)IL.closed={};
+  // 단계(deriveItemBadge)·보류·시즌칩 필터
+  var wb=items.map(function(it){return {it:it,b:(typeof deriveItemBadge==='function'?deriveItemBadge(it):{phase:'sample'})};});
+  var holdCnt=wb.filter(function(x){return x.b.hold;}).length;
+  var filtered=wb.filter(function(x){
+    var isS=x.b.phase==='sample', isM=(x.b.phase==='main'||x.b.phase==='reorder');
+    if(isS&&!IL.phS)return false;
+    if(isM&&!IL.phM)return false;
+    if(x.b.hold&&!IL.showHold)return false;
+    if(IL.seasonOff[x.it.season||'시즌 미지정'])return false;
+    return true;
   });
-  el.innerHTML=_html;
+  // 시즌·과거 판단
+  var seasonsAll=sortSeasonsDesc([...new Set(allItems.map(function(i){return i.season||'시즌 미지정';}))]);
+  var maxKey=Math.max.apply(null,seasonsAll.map(function(s){return seasonKey(s);}).concat([-1]));
+  var isPast=function(s){return seasonKey(s)>=0&&seasonKey(s)<maxKey;};
+  var isClosed=function(s){return IL.closed[s]!==undefined?IL.closed[s]:isPast(s);};
+  var sq=function(s){return String(s).replace(/'/g,"\\'");};
+  // 필터 바 스타일+버튼
+  var STY='<style>'
+    +'.il-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 8px;}'
+    +'.il-bar .il-lbl{font-size:11px;font-weight:700;color:var(--t2);}'
+    +'.il-chip{font-size:12px;font-weight:700;padding:5px 11px;border:2px solid var(--ink,#0b0a05);background:#fff;cursor:pointer;border-radius:0;box-shadow:2px 2px 0 var(--ink,#0b0a05);}'
+    +'.il-chip.on{background:var(--neon-green,#A5E6BA);}.il-chip.hold.on{background:#FFD9B0;}'
+    +'.il-szchip{font-size:11px;font-weight:700;padding:4px 9px;border:2px solid var(--ink,#0b0a05);background:#fff;cursor:pointer;border-radius:0;}'
+    +'.il-szchip.on{background:var(--neon-blue,#B0DBF0);}.il-sep{flex:1;}'
+    +'.il-pin{border:2.5px solid #c0392b;background:#fff5f3;box-shadow:4px 4px 0 #c0392b;padding:8px 11px;margin:0 0 14px;}'
+    +'.il-pin-h{font-weight:800;font-size:13px;color:#c0392b;margin-bottom:6px;}'
+    +'.il-subh{font-size:11px;font-weight:800;color:var(--t2);margin:7px 2px 4px;}'
+    +'.il-dot{display:inline-block;width:8px;height:8px;border:1.5px solid var(--ink,#0b0a05);margin-right:5px;vertical-align:middle;}'
+    +'.il-dot.s{background:#FFF6B8;}.il-dot.m{background:#A5E6BA;}'
+    +'.season-h .sh-chev{margin-right:6px;font-size:11px;}.season-h .sh-cnt{font-size:11px;font-weight:600;color:var(--t2);}'
+    +'.season-h{cursor:pointer;}'
+    +'</style>';
+  var bar='<div class="il-bar"><span class="il-lbl">단계</span>'
+    +'<button class="il-chip'+(IL.phS?' on':'')+'" onclick="ilTogglePhase(\'s\')">샘플중</button>'
+    +'<button class="il-chip'+(IL.phM?' on':'')+'" onclick="ilTogglePhase(\'m\')">메인중</button>'
+    +'<button class="il-chip hold'+(IL.showHold?' on':'')+'" onclick="ilToggleHold()">⏸ 보류'+(holdCnt?' '+holdCnt:'')+(IL.showHold?'':' (숨김)')+'</button>'
+    +'<span class="il-sep"></span>'
+    +'<button class="il-chip" onclick="ilToggleAllPast()">지난시즌 펼치기/접기</button>'
+    +'</div>';
+  bar+='<div class="il-bar"><span class="il-lbl">시즌</span>'+seasonsAll.map(function(s){return '<button class="il-szchip'+(IL.seasonOff[s]?'':' on')+'" onclick="ilToggleSeasonChip(\''+sq(s)+'\')">'+esc(s)+'</button>';}).join('')+'</div>';
+  // KC 대기(메인 준비) 상단 — 메인/리오더인데 KC 미완료
+  var kcPend=filtered.filter(function(x){return (x.b.phase==='main'||x.b.phase==='reorder')&&!x.it.kcCert;});
+  var topHtml=kcPend.length?('<div class="il-pin"><div class="il-pin-h">🛡 KC 인증 대기 · 메인 준비 ('+kcPend.length+')</div>'+kcPend.map(function(x){return itemRowHTML(x.it);}).join('')+'</div>'):'';
+  // 시즌 그룹 + 샘플/메인 소그룹
+  var bySeason={};var sOrder=[];
+  filtered.forEach(function(x){var s=x.it.season||'시즌 미지정';if(!bySeason[s]){bySeason[s]=[];sOrder.push(s);}bySeason[s].push(x);});
+  var groupHtml='';
+  sOrder.forEach(function(s){
+    var arr=bySeason[s];var cl=isClosed(s);var past=isPast(s);
+    groupHtml+='<div class="season-h'+(past?' past':'')+'" onclick="ilToggleSeasonCollapse(\''+sq(s)+'\')"><span class="sh-chev">'+(cl?'▶':'▼')+'</span>'+esc(s)+(past?' <span class="sh-cnt">· 지난</span>':'')+' <span class="sh-cnt">('+arr.length+')</span></div>';
+    if(cl)return;
+    var smp=arr.filter(function(x){return x.b.phase==='sample';}), mn=arr.filter(function(x){return x.b.phase!=='sample';});
+    groupHtml+='<div class="season-body">';
+    if(smp.length)groupHtml+='<div class="il-subh"><span class="il-dot s"></span>샘플중 ('+smp.length+')</div>'+smp.map(function(x){return itemRowHTML(x.it);}).join('');
+    if(mn.length)groupHtml+='<div class="il-subh"><span class="il-dot m"></span>메인중 ('+mn.length+')</div>'+mn.map(function(x){return itemRowHTML(x.it);}).join('');
+    groupHtml+='</div>';
+  });
+  el.innerHTML=STY+bar+topHtml+(groupHtml||'<div class="empty">조건에 맞는 아이템 없음 (필터를 확인하세요)</div>');
 }
+// 지시서 완료 토글 (KC 버튼과 동일 패턴)
+function itemInstrHTML(it){
+  var on=!!(it&&it.instrDone);
+  var t=on?('지시서 완료'+(it.instrDoneAt?' · '+esc(it.instrDoneAt):'')+' — 눌러서 해제'):'지시서 미완료 — 눌러서 완료 표시';
+  return '<button type="button" class="im-kc'+(on?' on':'')+'" onclick="event.stopPropagation();toggleItemInstr(\''+it.id+'\')" title="'+t+'">'+(on?'📋 지시서완료':'📋 지시서')+'</button>';
+}
+function toggleItemInstr(id){var it=S.items[id];if(!it)return;it.instrDone=!it.instrDone;it.instrDoneAt=it.instrDone?(typeof todayISO==='function'?todayISO():''):'';saveData();renderItemsList();showToast(it.instrDone?'📋 지시서 완료로 표시했어요':'지시서 미완료로 되돌렸어요');}
+// 아이템 리스트 필터(영속) 토글들
+function _ilSave(){lsSet('fpm_itemFilter',window._il||{});}
+function ilTogglePhase(k){if(!window._il)window._il={};if(k==='s')window._il.phS=!window._il.phS;else window._il.phM=!window._il.phM;_ilSave();renderItemsList();}
+function ilToggleHold(){if(!window._il)window._il={};window._il.showHold=!window._il.showHold;_ilSave();renderItemsList();}
+function ilToggleSeasonChip(s){if(!window._il)window._il={};if(!window._il.seasonOff)window._il.seasonOff={};window._il.seasonOff[s]=!window._il.seasonOff[s];_ilSave();renderItemsList();}
+function _ilPastSeasons(){var ss=[...new Set(Object.values(S.items||{}).map(function(i){return i.season||'시즌 미지정';}))];var mx=Math.max.apply(null,ss.map(seasonKey).concat([-1]));return {all:ss,max:mx,past:ss.filter(function(s){return seasonKey(s)>=0&&seasonKey(s)<mx;})};}
+function ilToggleSeasonCollapse(s){if(!window._il)window._il={};if(!window._il.closed)window._il.closed={};var p=_ilPastSeasons();var past=p.past.indexOf(s)>=0;var eff=(window._il.closed[s]!==undefined)?window._il.closed[s]:past;window._il.closed[s]=!eff;_ilSave();renderItemsList();}
+function ilToggleAllPast(){if(!window._il)window._il={};if(!window._il.closed)window._il.closed={};var p=_ilPastSeasons();var anyOpen=p.past.some(function(s){var eff=(window._il.closed[s]!==undefined)?window._il.closed[s]:true;return !eff;});p.past.forEach(function(s){window._il.closed[s]=anyOpen;});_ilSave();renderItemsList();}
 /* ===== 아이템 상태 배지 (샘플/메인/리오더 + 단계) ===== */
 // 오더·샘플 데이터에서 상태 자동 산출 (수동 설정 시 it.statusManual 우선)
 function deriveItemBadge(it){
@@ -17688,6 +17761,8 @@ function renderTasksPaneByCategory(){
 
 function renderRoutePane(){
   var el=document.getElementById('route-body');if(!el)return;
+  // 열어둔 목적지 존 상태 복원 (새로고침해도 유지)
+  if(window._qbOpenFcs===undefined)window._qbOpenFcs=lsGet('fpm_qbOpenFcs')||{};
   el.innerHTML=qbStylesHTML()+buildQuestBoardHTML();
 }
 // ===== 게임형 동선 퀘스트 보드 =====
@@ -18187,6 +18262,7 @@ function qbAddGoal(){
   // 방금 만든 목적지 존을 자동으로 펼쳐서 바로 보이게
   if(!window._qbOpenFcs)window._qbOpenFcs={};
   window._qbOpenFcs['goal:'+newId]=true;
+  lsSet('fpm_qbOpenFcs',window._qbOpenFcs);
   var bd=document.getElementById('qb-goal-modal');if(bd)bd.innerHTML=qbGoalModalHTML();
   setTimeout(function(){var i=document.getElementById('goal-name');if(i)i.focus();},30);
   renderRoutePane();
@@ -19193,6 +19269,7 @@ function qbToggleFc(destKey){
   var nowOpen;
   if(window._qbOpenFcs[destKey]){delete window._qbOpenFcs[destKey];nowOpen=false;}
   else{window._qbOpenFcs[destKey]=true;nowOpen=true;}
+  lsSet('fpm_qbOpenFcs',window._qbOpenFcs);
   renderRoutePane();
   // 방금 펼친 zone으로만 스크롤 (모바일 편의)
   setTimeout(function(){

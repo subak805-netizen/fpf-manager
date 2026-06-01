@@ -330,3 +330,8 @@
 - **제목 컴팩형 통일**: 재단예정·봉제완료·완성완료·검품완료·출고예정. 공장진행표 헤더(봉제완료예정→봉제완료, 검품완료예정→검품완료). 카톡 메시지 본문 문장·결제명세서는 미변경.
 - **재단 모달 미리채움**(pdOpenQtyModal): 회차 없으면 cuttingGrid→오더수량 순 prefillGrid로 칸 채움.
 - **사이즈 띄어쓰기**: sizeStr·pdMiniGridHTML `S 231 · M 362` (라벨·숫자 공백, · 양옆 공백).
+
+### K. 아이템 리스트 재구성 + 동선 아코디언 영속화
+- **동선 목적지 존 열림 영속**: window._qbOpenFcs → lsSet('fpm_qbOpenFcs')(qbToggleFc/qbAddGoal 저장, renderRoutePane에서 복원). 새로고침해도 열어둔 존 유지.
+- **renderItemsList 재구성**: 한 행=itemRowHTML(it) 함수로 추출. 상단 필터바(`.il-bar`): 단계 칩 **다중**(샘플중 phS/메인중 phM 각각 토글), **보류 칩**(showHold, 기본 숨김 — deriveItemBadge.hold), 시즌 칩(seasonOff 다중 숨김), 지난시즌 일괄 접기. **KC 대기 상단 고정**(`.il-pin`: 메인/리오더인데 !kcCert). 시즌 그룹 헤더 클릭→접기(`ilToggleSeasonCollapse`, 지난 시즌 기본 닫힘 isPast/isClosed), 시즌 안 **샘플중→메인중 소그룹**(`.il-subh`). 필터/접힘 상태 전부 `window._il`→`lsSet('fpm_itemFilter')` 영속(ilTogglePhase/ilToggleHold/ilToggleSeasonChip/ilToggleSeasonCollapse/ilToggleAllPast/_ilSave).
+- **지시서 완료 토글**: itemInstrHTML/toggleItemInstr(it.instrDone/instrDoneAt) — KC 버튼과 동일(.im-kc), im-meta에 KC 앞 배치.
