@@ -6680,6 +6680,8 @@ function genPoText(order,sn){
   const onlyLabels=sup.materials.length>0&&sup.materials.every(function(m){return m.orderType==='mainLabel'||m.orderType==='careLabel';});
   // 오더명에서 날짜 단축 (2026. 05. 17. → 5/17)
   const shortName=(name)=>name.replace(/\d{4}\.\s*(\d{1,2})\.\s*(\d{1,2})\./g,(_,m,d)=>`${+m}/${+d}`);
+  // 혼용률 숫자를 뒤로 ("100% cotton" → "cotton 100", "60% rayon" → "rayon 60")
+  const reorderComp=(comp)=>String(comp).split(/[\n,]/).map(s=>s.trim()).filter(Boolean).map(p=>{var m=p.match(/^(\d+(?:\.\d+)?)\s*%?\s*(.+)$/);if(m)return m[2].trim()+' '+m[1];var m2=p.match(/^(.+?)\s*(\d+(?:\.\d+)?)\s*%?$/);if(m2)return m2[1].trim()+' '+m2[2];return p;}).join(' ');
   if(!onlyLabels){
     // 일반 거래처(원단/부자재): 상호 + 품명 헤더 표시
     if(headerNm)L.push('상호 '+headerNm);
@@ -6695,16 +6697,7 @@ function genPoText(order,sn){
   }
   // 원단: 아이템별로 섹션 구분
   if(fabs.length){
-    // 업체명 + 동/호수 (있으면)
-    var supHdr=sn;
-    var firstFab=fabs[0];
-    var locParts=[];
-    // 첫 fab의 itemId/name으로 priceBook에서 building/floorRoom 가져옴 (또는 fab 자체에 있으면 사용)
-    var pbEntry=S.priceBook[sn]&&S.priceBook[sn].materials&&S.priceBook[sn].materials[firstFab.name];
-    if(pbEntry&&pbEntry.building)locParts.push(pbEntry.building);
-    if(pbEntry&&pbEntry.floorRoom)locParts.push(pbEntry.floorRoom);
-    if(locParts.length)supHdr+=' ('+locParts.join(' ')+')';
-    L.push(supHdr);
+    // 업체명·동/호수는 발주서에 표시하지 않음 (거래처에 직접 전달하므로)
     // 아이템별로 그룹핑
     const byItem={};const itemOrder=[];
     for(const f of fabs){const iid=f.itemId||'';if(!byItem[iid]){byItem[iid]={itemName:f.itemName||'',fabs:[]};itemOrder.push(iid);}byItem[iid].fabs.push(f);}
@@ -6716,22 +6709,23 @@ function genPoText(order,sn){
       for(const f of itGroup.fabs){const k=f.fabId||f.name;if(!grpMap[k]){grpMap[k]={...f,colors:[]};grpOrder.push(k);}grpMap[k].colors.push(f);}
     for(const k of grpOrder){
       const g=grpMap[k];
-      let line=g.part?`(${g.part}) ${g.name}`:`${g.name}`; // 용도 있으면 (스트링감) 원단명
-      // 가산 항목(워싱 등) 이름을 품명에 표기 — 단가는 발주서에 안 적음
+      // 1줄: (용도) *우리컬러명 — 몸판 뒤에 *컬러를 함께
+      var colorLabels=g.colors.map(function(c){return c.colorName;}).filter(Boolean).map(function(c){return '*'+c;});
+      var headLine=g.part?`(${g.part})`:'';
+      if(colorLabels.length)headLine=(headLine?headLine+' ':'')+colorLabels.join(' ');
+      if(headLine)L.push(headLine);
+      // 2줄: 원단명 + 가산항목 + 폭 + 혼용률(숫자 뒤로)
+      let line=g.name;
       var fabAddNames=[];
       g.colors.forEach(function(c){(c.appliedAdditions||[]).forEach(function(a){if(a.name&&fabAddNames.indexOf(a.name)<0)fabAddNames.push(a.name);});});
       if(fabAddNames.length)line+=' '+fabAddNames.join(' ');
       if(g.width)line+=` ${g.width}"`;
-      if(g.composition)line+=` ${String(g.composition).replace(/\n/g,' ')}`;
+      if(g.composition)line+=' '+reorderComp(g.composition);
       // 단가는 발주서에 표기하지 않음 (협상가/가산 모두 숨김)
       L.push(line);
+      L.push(''); // 원단명과 컬러수량 사이 한 줄
       g.colors.forEach((cl,idx)=>{
-        // 첫 줄: *우리 컬러명 (거래처에 우리 부르는 이름을 인지시키는 라벨)
-        if(cl.colorName){
-          L.push('*'+cl.colorName);
-        }
-        // 둘째 줄: #원단처 컬러명 - 야드수량
-        // 원단처 컬러명이 없으면 우리 컬러명을 그대로 사용
+        // #원단처 컬러명 - 야드수량 (원단처 컬러명 없으면 우리 컬러명)
         const fabClr=cl.fabricColor||cl.colorName||'';
         let qtyLine='#'+fabClr;
         const displayY=cl.actualOrderedQty!==undefined&&cl.actualOrderedQty!==''?+cl.actualOrderedQty:cl.totalYards;
@@ -6755,8 +6749,8 @@ function genPoText(order,sn){
   }
   // 부자재 (원단과 동일한 구조, 컬러별 그룹핑)
   if(trims.length){
-    if(!fabs.length)L.push(sn);
-    
+    // 업체명·호수는 발주서에 표시하지 않음
+
     // === 케어라벨/메인라벨/바이어스재단 먼저 별도 출력 (전체 trim에서 분리) ===
     const careLabels=trims.filter(function(t){return t.orderType==='careLabel';});
     const mainLabels=trims.filter(function(t){return t.orderType==='mainLabel';});
@@ -6824,7 +6818,7 @@ function genPoText(order,sn){
             L.push('혼용률');
             comp.split(/[\n,\/]/).forEach(function(p){
               const tp=p.trim();
-              if(tp)L.push(tp);
+              if(tp)L.push(reorderComp(tp));
             });
             L.push('');
           }
