@@ -18134,6 +18134,8 @@ function qbAddGoal(){
   var phone=((document.getElementById('goal-phone')||{}).value||'').trim();
   var newId='goal_'+uid();
   S.goals.push({id:newId,name:name,type:type,address:addr,phone:phone});
+  // 업체관리에도 자동 등록 (중복 이름이면 스킵) — 공장류→공장관리 / 거래처류→단가장 / 브랜드→브랜드
+  var regMsg=qbRegisterGoalAsVendor(name,type,addr,phone);
   saveData();
   // 방금 만든 목적지 존을 자동으로 펼쳐서 바로 보이게
   if(!window._qbOpenFcs)window._qbOpenFcs={};
@@ -18141,7 +18143,33 @@ function qbAddGoal(){
   var bd=document.getElementById('qb-goal-modal');if(bd)bd.innerHTML=qbGoalModalHTML();
   setTimeout(function(){var i=document.getElementById('goal-name');if(i)i.focus();},30);
   renderRoutePane();
-  showToast('✅ "'+name+'" 목적지 추가됨 — 좌측 보드에 펼쳐졌어요');
+  showToast('✅ "'+name+'" 목적지 추가됨'+(regMsg?' · '+regMsg:'')+' — 좌측 보드에 펼쳐졌어요');
+}
+// NEW GOAL을 업체관리(공장/단가장/브랜드)에도 등록 — 같은 이름 있으면 안 만듦
+function qbRegisterGoalAsVendor(name,type,addr,phone){
+  var fcTypeMap={'공장':'봉제','완성집':'완성','검품소':'검품','자수·나염':'자수/나염','패턴실':'패턴'};
+  if(fcTypeMap[type]){
+    var exists=Object.values(S.factories||{}).some(function(f){return (f.name||'').trim()===name;});
+    if(exists)return '공장관리에 이미 있음';
+    var id=uid();
+    if(!S.factories)S.factories={};
+    S.factories[id]={id:id,name:name,type:fcTypeMap[type],contact:'',address:addr||'',phone:phone||'',email:'',bank:''};
+    return '🏢 공장관리에도 등록';
+  }
+  if(type==='협력처'||type==='거래처'){
+    if(!S.priceBook)S.priceBook={};
+    if(S.priceBook[name])return '단가장에 이미 있음';
+    S.priceBook[name]={email:'',phone:phone||'',kakaoId:'',bank:'',materials:{},locationMemo:addr||''};
+    return '📒 단가장(거래처)에도 등록';
+  }
+  if(type==='브랜드'){
+    if(!S.brands)S.brands=[];
+    var be=S.brands.some(function(b){return (b.name||'').trim()===name;});
+    if(be)return '브랜드에 이미 있음';
+    S.brands.push({id:uid(),name:name});
+    return '🏷 브랜드에도 등록';
+  }
+  return ''; // 사무실/기타는 자동 등록 안 함
 }
 function qbDeleteGoal(id){
   if(!S.goals)return;
