@@ -4284,7 +4284,7 @@ function renderItemsList(){
       </div>
       <div class="im-actions">
         <span class="im-stat">원단 ${(it.fabrics||[]).length} · 부자재 ${(it.trims||[]).length}</span>
-        <div class="im-meta">${itemStartDateHTML(it)}${itemInstrHTML(it)}${itemKcHTML(it)}</div>
+        <div class="im-meta">${itemStartDateHTML(it)}${itemInstrHTML(it)}${itemNeedsKc(it)?itemKcHTML(it):''}</div>
         <button class="im-btn" onclick="showItemForm('${it.id}')" title="수정">수정</button>
         <button class="im-btn" onclick="showItemCost('${it.id}')" title="원가계산서">원가</button>
         <button class="im-btn" onclick="toggleCostSent('${it.id}')" title="${it.costSent?('원가 업체 전달 완료'+(it.costSentAt?' · '+esc(it.costSentAt):'')+' — 눌러서 해제'):'원가를 업체에 전달했으면 눌러 체크'}" style="${it.costSent?'background:#dcfce7;border-color:#86efac;color:#166534':'color:#9ca3af'}">${it.costSent?'✅ 전달':'📤 미전달'}</button>
@@ -4340,9 +4340,14 @@ function renderItemsList(){
     +'<button class="il-chip" onclick="ilToggleAllPast()">지난시즌 펼치기/접기</button>'
     +'</div>';
   bar+='<div class="il-bar"><span class="il-lbl">시즌</span>'+seasonsAll.map(function(s){return '<button class="il-szchip'+(IL.seasonOff[s]?'':' on')+'" onclick="ilToggleSeasonChip(\''+sq(s)+'\')">'+esc(s)+'</button>';}).join('')+'</div>';
-  // KC 대기(메인 준비) 상단 — 메인/리오더인데 KC 미완료
-  var kcPend=filtered.filter(function(x){return (x.b.phase==='main'||x.b.phase==='reorder')&&!x.it.kcCert;});
-  var topHtml=kcPend.length?('<div class="il-pin"><div class="il-pin-h">🛡 KC 인증 대기 · 메인 준비 ('+kcPend.length+')</div>'+kcPend.map(function(x){return itemRowHTML(x.it);}).join('')+'</div>'):'';
+  // 메인 준비 상단 — 메인/리오더인데 (KC 미완료(프루토만) 또는 지시서 미완료)
+  var kcPend=filtered.filter(function(x){
+    if(!(x.b.phase==='main'||x.b.phase==='reorder'))return false;
+    var kcMiss=itemNeedsKc(x.it)&&!x.it.kcCert;
+    var insMiss=!x.it.instrDone;
+    return kcMiss||insMiss;
+  });
+  var topHtml=kcPend.length?('<div class="il-pin"><div class="il-pin-h">🛡 메인 준비 — KC·지시서 대기 ('+kcPend.length+')</div>'+kcPend.map(function(x){return itemRowHTML(x.it);}).join('')+'</div>'):'';
   // 시즌 그룹 + 샘플/메인 소그룹
   var bySeason={};var sOrder=[];
   filtered.forEach(function(x){var s=x.it.season||'시즌 미지정';if(!bySeason[s]){bySeason[s]=[];sOrder.push(s);}bySeason[s].push(x);});
@@ -4358,6 +4363,12 @@ function renderItemsList(){
     groupHtml+='</div>';
   });
   el.innerHTML=STY+bar+topHtml+(groupHtml||'<div class="empty">조건에 맞는 아이템 없음 (필터를 확인하세요)</div>');
+}
+// KC 인증은 더프루토 브랜드만 필요 (아루드·리틀그로브 등은 KC 버튼 숨김)
+function itemNeedsKc(it){
+  if(!it||!it.brandId)return false;
+  var nm=(typeof getBrandName==='function'?(getBrandName(it.brandId)||''):'');
+  return nm.indexOf('프루토')>=0;
 }
 // 지시서 완료 토글 (KC 버튼과 동일 패턴)
 function itemInstrHTML(it){
