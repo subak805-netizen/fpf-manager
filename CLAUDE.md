@@ -322,3 +322,11 @@
 - 증상: NEW GOAL을 만들어도 좌측 DEST 존이 안 생기는 것처럼 보임(+ 패키지도 새로고침하면 사라짐).
 - 원인: **S.packages·S.goals가 저장/로드 스키마 어디에도 없었음** → 메모리에만 존재, 동기화·새로고침·업체전환 때 소실. (보드 머지 코드 18816은 정상이었음.)
 - 수정: 모든 영속 지점에 `packages`/`goals` 추가 — loadCoData(2368 S 재구성), saveData(2345), lsSet(1417), 클라우드 coData(1640), 클라우드 병합 S(2247)·로컬캐시(2259), allCoData 두 분기(2586 현재=S.* / 2599 그외=d.*). 옛 백업 d.data 복원(2663)은 pickups 등도 생략하는 레거시라 미변경.
+
+### J. 일정 SSOT 통일 + 오더상세 읽기전용 미러 (466ee00 이후)
+- 대시보드 일정 매핑(=SSOT): 재단·봉제·출고=봉제공장(it.sewingFcId).cuttingDate/sewingCompleteDate/shipExpectedDate, 완성=완성공장(finishingFcId).shippingDate, 검품=검품공장(inspectionFcId).inspectionDate.
+- **오더상세 일정 = 읽기전용 미러**(renderOrderPane 공장카드 9093 블록 교체): 그 공장이 맡은 역할(ownsSew/Fin/Insp, fcId===item fcId)만 disabled date로 표시 + `📊 대시보드에서 수정`(switchTab('dash')). 부가세율은 그대로 편집 가능. → 입력은 대시보드에서만.
+- **마이그레이션(migrateData)**: 공장카드마다 흩어졌던 cuttingDate/sewingCompleteDate/shipExpectedDate→봉제공장, inspectionDate→검품공장으로 1회 통합(target 빈칸일 때만 pull). S.packages/S.goals 초기화도 여기서.
+- **제목 컴팩형 통일**: 재단예정·봉제완료·완성완료·검품완료·출고예정. 공장진행표 헤더(봉제완료예정→봉제완료, 검품완료예정→검품완료). 카톡 메시지 본문 문장·결제명세서는 미변경.
+- **재단 모달 미리채움**(pdOpenQtyModal): 회차 없으면 cuttingGrid→오더수량 순 prefillGrid로 칸 채움.
+- **사이즈 띄어쓰기**: sizeStr·pdMiniGridHTML `S 231 · M 362` (라벨·숫자 공백, · 양옆 공백).

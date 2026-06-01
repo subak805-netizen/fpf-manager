@@ -2374,6 +2374,23 @@ function loadCoData(id){
 function migrateData(){
   // Pickups (새 기능)
   if(!S.pickups)S.pickups=[];
+  if(!S.packages)S.packages=[];
+  if(!S.goals)S.goals=[];
+  // SSOT 일정 통합(1회성): 오더상세 공장카드마다 흩어져 있던 예정일을 역할 공장 스케줄로 모음
+  // (대시보드 기준: 재단·봉제·출고=봉제공장 / 완성=완성공장 / 검품=검품공장)
+  try{
+    Object.values(S.orders||{}).forEach(function(o){
+      var fss=o.factorySchedules; if(!fss)return;
+      var ensure=function(id){if(id&&!fss[id])fss[id]=(typeof mkFcSch==='function'?mkFcSch():{});};
+      var pull=function(id,field){ if(!id||!fss[id]||fss[id][field])return;
+        for(var k in fss){ if(k!==id&&fss[k]&&fss[k][field]){fss[id][field]=fss[k][field];return;} } };
+      (o.orderItems||[]).forEach(function(oi){
+        var it=S.items[oi.itemId]; if(!it)return;
+        if(it.sewingFcId){ensure(it.sewingFcId);pull(it.sewingFcId,'cuttingDate');pull(it.sewingFcId,'sewingCompleteDate');pull(it.sewingFcId,'shipExpectedDate');}
+        if(it.inspectionFcId){ensure(it.inspectionFcId);pull(it.inspectionFcId,'inspectionDate');}
+      });
+    });
+  }catch(e){console.warn('일정 SSOT 마이그레이션 스킵:',e);}
   // 시장명 통합 (옛 이름 → 동대문시장/동화시장/기타)
   var _mktMap={'동대문종합시장':'동대문시장','평화시장':'기타','광장시장':'기타','신평화패션타운':'기타','청평화패션타운':'기타','동화상가':'동화시장'};
   for(const _pb of Object.values(S.priceBook||{})){
@@ -9090,12 +9107,27 @@ function renderProdTab(o){
         <div class="fr"><span class="badge ${totalShipped>0?'b3':sch.cuttingDate?'b2':'b0'}">${totalShipped>0?'총 '+totalShipped+'pcs 출고':'생산중'}</span><button class="btn s d g" onclick="removeFcFromOrder('${fcId}')">✕</button></div>
       </div>
       <div class="sc-b">
-        <div class="g3" style="margin-bottom:8px">
-          <div class="fg"><label>재단 예정일</label><input type="date" value="${sch.cuttingDate||''}" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].cuttingDate=this.value;saveData();renderOrderPane()"></div>
-          <div class="fg"><label>봉제 완료 예정</label><input type="date" value="${sch.sewingCompleteDate||''}" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].sewingCompleteDate=this.value;saveData()"></div>
-          <div class="fg"><label>검품 완료 예정 <span class="muted" style="font-size:9px">(출고예정 = 검품완료+1일)</span></label><input type="date" value="${sch.inspectionDate||''}" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].inspectionDate=this.value;saveData();renderDash&&renderDash()"></div>
-          <div class="fg"><label>부가세율 (%)</label><input type="number" value="${sch.vatRate||10}" min="0" max="100" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].vatRate=+this.value;saveData()"></div>
-        </div>
+        ${(function(){
+          var its=(o.orderItems||[]).map(function(x){return S.items[x.itemId];}).filter(Boolean);
+          var ownsSew=its.some(function(it){return it.sewingFcId===fcId;});
+          var ownsFin=its.some(function(it){return it.finishingFcId===fcId;});
+          var ownsInsp=its.some(function(it){return it.inspectionFcId===fcId;});
+          if(!ownsSew&&!ownsFin&&!ownsInsp)ownsSew=true; // 역할 미지정 공장은 봉제로 간주
+          var ro=function(label,val){return '<div class="fg"><label>'+label+'</label><input type="date" value="'+(val||'')+'" disabled style="background:#f3f4f6;color:#374151;cursor:not-allowed"></div>';};
+          var rows='';
+          if(ownsSew){rows+=ro('재단예정',sch.cuttingDate)+ro('봉제완료',sch.sewingCompleteDate);}
+          if(ownsFin)rows+=ro('완성완료',sch.shippingDate);
+          if(ownsInsp)rows+=ro('검품완료',sch.inspectionDate);
+          if(ownsSew)rows+=ro('출고예정',sch.shipExpectedDate);
+          return '<div style="margin-bottom:8px">'
+            +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px;flex-wrap:wrap">'
+            +'<span style="font-size:11px;font-weight:600;color:var(--t2)">📅 생산 일정 <span style="font-weight:400">(입력은 생산 대시보드에서)</span></span>'
+            +'<button class="btn s" style="font-size:11px;padding:4px 9px;background:#B0DBF0;border:1px solid #0b0a05;font-weight:700" onclick="switchTab(\'dash\')">📊 대시보드에서 수정</button>'
+            +'</div>'
+            +'<div class="g3">'+rows
+            +'<div class="fg"><label>부가세율 (%)</label><input type="number" value="'+(sch.vatRate||10)+'" min="0" max="100" onchange="S.orders[\''+o.id+'\'].factorySchedules[\''+fcId+'\'].vatRate=+this.value;saveData()"></div>'
+            +'</div></div>';
+        })()}
         <details class="info-box" style="margin-bottom:8px">
           <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#854f0b;user-select:none">💡 선결제 (재단 후) <span style="font-weight:400;color:var(--t2)">· 현재 ${sch.advanceRate>0?sch.advanceRate+'%':'없음 (출고 후 일괄)'}</span></summary>
           <div style="margin-top:6px;font-size:11px;color:var(--t2)">재단 완료 후 일부 금액 선지급 — 출고 후 잔금 정산하는 방식이 일반적입니다.</div>
@@ -10578,8 +10610,8 @@ function pdShipSizeGrid(sch,itemId,isSingleOrder){
 function pdMiniGridHTML(grid){
   const rows=[];
   Object.entries(grid||{}).forEach(([c,szs])=>{
-    const parts=Object.entries(szs||{}).filter(([sz,v])=>+v>0).map(([sz,v])=>`<span class="sz">${esc(sz)}${v}</span>`);
-    if(parts.length)rows.push(`<div class="row"><span class="c">${esc(c||'-')}</span>${parts.join('·')}</div>`);
+    const parts=Object.entries(szs||{}).filter(([sz,v])=>+v>0).map(([sz,v])=>`<span class="sz">${esc(sz)} ${v}</span>`);
+    if(parts.length)rows.push(`<div class="row"><span class="c">${esc(c||'-')}</span>${parts.join(' · ')}</div>`);
   });
   return rows.length?`<div class="pd-cs-mini">${rows.join('')}</div>`:'';
 }
@@ -10600,8 +10632,8 @@ function renderProdDashRow(r){
   const sizeStr=(grid)=>{
     const parts=[];
     Object.entries(grid||{}).forEach(([c,szs])=>{
-      const szParts=Object.entries(szs||{}).filter(([sz,v])=>+v>0).map(([sz,v])=>`<span class="sz">${esc(sz)}${v}</span>`);
-      if(szParts.length)parts.push(`<span class="sg"><span class="c">${esc(c||'-')}</span>${szParts.join('·')}</span>`);
+      const szParts=Object.entries(szs||{}).filter(([sz,v])=>+v>0).map(([sz,v])=>`<span class="sz">${esc(sz)} ${v}</span>`);
+      if(szParts.length)parts.push(`<span class="sg"><span class="c">${esc(c||'-')}</span>${szParts.join(' · ')}</span>`);
     });
     return parts.join('');
   };
@@ -10804,6 +10836,13 @@ function pdOpenQtyModal(oid,itemId,role,fcId){
       if(r.date&&!curDate)curDate=r.date;
     });
     if(!curDate)curDate=(isCut?sch.cuttingDate:sch.shipExpectedDate)||todayISO();
+    // 재단: 입력한 회차 없으면 cuttingGrid → 오더수량 순으로 미리채움 (칸이 비어있지 않게)
+    var prefillGrid=curGrid;
+    if(isCut&&curTotal===0){
+      var _cg=sch.cuttingGrid&&sch.cuttingGrid[itemId];
+      if(_cg&&Object.keys(_cg).length)prefillGrid=_cg;
+      else if(oi&&oi.qtyGrid&&Object.keys(oi.qtyGrid).length)prefillGrid=oi.qtyGrid;
+    }
     // 저장 모드별 텍스트
     const saveMode=window._pdQtyCtx.saveMode;
     const dateLabel=isCut?'재단일':'출고일';
@@ -10816,10 +10855,10 @@ function pdOpenQtyModal(oid,itemId,role,fcId){
     // 컬러별 행 (cut 모드는 기존 값 prefill, ship 모드는 빈칸)
     const rowsHtml=colors.map(c=>{
       const cells=sizes.map(sz=>{
-        const v=isCut?(curGrid[c]?.[sz]||0):0;
+        const v=isCut?(prefillGrid[c]?.[sz]||0):0;
         return `<td style="padding:5px;border:1px solid #e5e7eb;background:#fff"><input class="pd-grid-in" type="number" inputmode="numeric" min="0" value="${v||''}" data-color="${esc(c)}" data-size="${esc(sz)}" placeholder="0" oninput="pdGridRecalc()" onfocus="this.select()" style="width:100%;padding:11px 8px;border:2px solid #fbbf24;border-radius:7px;font-size:18px;font-weight:700;text-align:center;color:#1f2937;background:#fff;font-family:inherit;outline:none"></td>`;
       }).join('');
-      const rowTot=isCut?sizes.reduce((s,sz)=>s+(+curGrid[c]?.[sz]||0),0):0;
+      const rowTot=isCut?sizes.reduce((s,sz)=>s+(+prefillGrid[c]?.[sz]||0),0):0;
       return `<tr><td style="padding:8px 10px;font-size:13px;font-weight:600;color:#374151;border:1px solid #e5e7eb;background:#f9fafb;white-space:nowrap">${esc(c||'-')}</td>${cells}<td id="pd-grid-rowtot-${esc(c).replace(/[^a-zA-Z0-9]/g,'_')}" style="padding:8px 10px;text-align:center;font-weight:700;color:#1f2937;border:1px solid #e5e7eb;background:#fafbfc;font-size:14px">${rowTot||''}</td></tr>`;
     }).join('');
     // 사이즈별 합계 행
@@ -11329,8 +11368,8 @@ function renderDashFactory(){
       +'<th style="text-align:left;padding:8px 10px">오더</th>'
       +'<th style="text-align:left;padding:8px 8px">공장</th>'
       +'<th style="padding:8px 6px">재단예정</th>'
-      +'<th style="padding:8px 6px">봉제완료예정</th>'
-      +'<th style="padding:8px 6px">검품완료예정</th>'
+      +'<th style="padding:8px 6px">봉제완료</th>'
+      +'<th style="padding:8px 6px">검품완료</th>'
       +'<th style="padding:8px 6px">출고예정</th>'
       +'<th style="padding:8px 6px">출고</th>'
       +'<th style="padding:8px 6px">결제</th>'
