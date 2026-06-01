@@ -311,3 +311,9 @@
 - 용도 칸 폭 1/3(flex:.4 max160), 🗑 삭제버튼 모든 카드 우측끝(order:99;margin-left:auto), 컬러별 단가칸 폭 확대(62→~200px).
 - **레트로 카드 재디자인**(디자인가이드 §2): 적용컬러 박스=연두 #E8F6EE, 슬라이더/추가옵션=paper2/cream, 카드 2.5px ink+그림자, 입력·셀렉트 각진 ink·흰배경. `.tx-colors`/`.tx-slider`/`.tx-extras` 클래스 + `html[data-theme="retro"] #pane-items` 스코프.
 - **나브: 「진행」 탭을 맨 앞으로** (진행·할일·동선·아이템·불량관리·분석·업체관리). 부팅 기본 activeTab='dash'(진행)라 첫 화면도 진행.
+
+### H. 단가장 자동저장·자동불러오기 전면화 (8203475 이후)
+- 원칙: **요척(consumptionPerPiece/qtyPerPiece/loopPerPiece)·로스(buffer)만 직접입력**, 그 외 규격은 전부 단가장 저장+자동불러오기.
+- saveToPB(trim): 기존(size/yardsPerRoll/rollUnit/width/composition/미니멈/지퍼·단추세부/sizeRates)에 더해 **part·threadQty·threadMin·yardsPerJeol·loopPerYard·packUnit·biasSpec·fabricSource·labelName·labelPart·manufactureYM** 추가 저장. **부자재처 동/호수→pbSup.building/room** 저장(원단처럼).
+- autofillTrim: 고정필드 루프에 yardsPerJeol·threadQty·threadMin·loopPerYard·biasSpec·fabricSource·labelName·manufactureYM(이름변경시 덮어씀=1) + part·labelPart(빈칸만=0) 추가. **부자재처 위치(동/호수) 단가장에서 자동(빈칸만)**. packUnit은 _ft 메모리 반영.
+- 단가장 표(renderBookList): **크기/규격·롤당yard 칸 추가**(노란배경). 원단=폭/—, 부자재=size/yardsPerRoll. `updatePBSpec(encSup,encKey,field,val)` 신규(size/width=문자열, yardsPerRoll=숫자, lastUpdated 갱신+savePB). → 예전에 비어있던 항목 직접 백필 가능.

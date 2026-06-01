@@ -3155,7 +3155,10 @@ function saveToPB(item){
       lastUpdated:today()
     };
   }
-  for(const t of item.trims||[]){if(!t.supplier||!t.name)continue;const key=pbKey(t.name,t.color||'');const existing=getPB(t.supplier).materials[key]||{};
+  for(const t of item.trims||[]){if(!t.supplier||!t.name)continue;
+    // 부자재처(거래처) 동/호수 → 단가장 거래처 위치정보에 저장 (입력값 있을 때만)
+    const pbSupT=getPB(t.supplier);if(t.building)pbSupT.building=t.building;if(t.floorRoom)pbSupT.room=t.floorRoom;
+    const key=pbKey(t.name,t.color||'');const existing=getPB(t.supplier).materials[key]||{};
     // 단가 보호: 새 단가가 0이면 기존 단가 유지
     const newTP=+t.unitPrice||0;
     const finalTP=newTP>0?newTP:(existing.unitPrice||0);
@@ -3167,6 +3170,17 @@ function saveToPB(item){
       rollUnit:t.rollUnit||existing.rollUnit||'',
       width:t.width||existing.width||'',
       composition:t.composition||existing.composition||'',
+      part:t.part||existing.part||'',
+      threadQty:(t.threadQty!=null&&t.threadQty!==''?+t.threadQty:(existing.threadQty!=null?existing.threadQty:null)),
+      threadMin:(t.threadMin!=null&&t.threadMin!==''?+t.threadMin:(existing.threadMin!=null?existing.threadMin:null)),
+      yardsPerJeol:(t.yardsPerJeol!=null&&t.yardsPerJeol!==''&&+t.yardsPerJeol>0?+t.yardsPerJeol:(existing.yardsPerJeol!=null?existing.yardsPerJeol:null)),
+      loopPerYard:(t.loopPerYard!=null&&t.loopPerYard!==''&&+t.loopPerYard>0?+t.loopPerYard:(existing.loopPerYard!=null?existing.loopPerYard:null)),
+      packUnit:t.packUnit||existing.packUnit||'',
+      biasSpec:t.biasSpec||existing.biasSpec||'',
+      fabricSource:t.fabricSource||existing.fabricSource||'',
+      labelName:t.labelName||existing.labelName||'',
+      labelPart:t.labelPart||existing.labelPart||'',
+      manufactureYM:t.manufactureYM||existing.manufactureYM||'',
       lastUpdated:today()};
     if(t.isCommonUse)pbEntry.isCommonUse=true;
     if(t.orderType==='zipper'){
@@ -3364,6 +3378,9 @@ function autofillTrim(r){
     }
   }
   if(!sup||!nm)return;
+  // 부자재처 위치(동/호수) 자동 — 단가장에 저장된 거래처 위치에서 (빈 칸만)
+  var _pbs=S.priceBook[sup];
+  if(_pbs){var _bE=r.querySelector('[data-f=building]');if(_bE&&!_bE.value&&_pbs.building)_bE.value=_pbs.building;var _rE=r.querySelector('[data-f=floorRoom]');if(_rE&&!_rE.value&&_pbs.room)_rE.value=_pbs.room;}
   const mats=S.priceBook[sup]?.materials;
   if(!mats)return;
   var e=mats[pbKey(nm,cl)];
@@ -3388,7 +3405,7 @@ function autofillTrim(r){
   // 안 바뀌는 고정값 함께 불러오기 (폭·요척·벌당개수·요척개수·혼용률 등) — 빈 칸만 채움
   var _flash=function(el){if(el){el.classList.add('autofill');setTimeout(function(){el.classList.remove('autofill');},1200);}};
   // 고정값(폭·혼용률·절당yard 등)은 이름 바꾸면 따라오게(fixed=1), 요척(수량)은 직접 입력이라 빈 칸만(fixed=0)
-  [['width',e.width,1],['composition',e.composition,1],['yardsPerRoll',e.yardsPerRoll,1],['consumptionPerPiece',e.consumptionPerPiece,0],['qtyPerPiece',e.qtyPerPiece,0]].forEach(function(pair){
+  [['width',e.width,1],['composition',e.composition,1],['yardsPerRoll',e.yardsPerRoll,1],['yardsPerJeol',e.yardsPerJeol,1],['threadQty',e.threadQty,1],['threadMin',e.threadMin,1],['loopPerYard',e.loopPerYard,1],['biasSpec',e.biasSpec,1],['fabricSource',e.fabricSource,1],['labelName',e.labelName,1],['manufactureYM',e.manufactureYM,1],['part',e.part,0],['labelPart',e.labelPart,0],['consumptionPerPiece',e.consumptionPerPiece,0],['qtyPerPiece',e.qtyPerPiece,0]].forEach(function(pair){
     var inp=r.querySelector('[data-f='+pair[0]+']');
     var allow=pair[2]?(!inp||!inp.value||_nameChanged):(!inp||!inp.value);
     if(inp&&allow&&pair[1]!=null&&pair[1]!==''){inp.value=pair[1];_flash(inp);}
@@ -3401,6 +3418,7 @@ function autofillTrim(r){
     if(e.rollUnit&&!_ft.rollUnit){_ft.rollUnit=e.rollUnit;_ch=true;}
     if(e.composition&&!_ft.composition){_ft.composition=e.composition;}
     if(e.width&&!_ft.width){_ft.width=e.width;}
+    if(e.packUnit&&!_ft.packUnit){_ft.packUnit=e.packUnit;_ch=true;}
     // 사이즈별 단가표: 저장돼 있으면 불러오기(이름 바뀌거나 비었을 때) → 크기 선택 시 단가 자동매칭
     if(e.sizeRates&&e.sizeRates.length&&(_nameChanged||!(_ft.sizeRates&&_ft.sizeRates.length))){_ft.sizeRates=JSON.parse(JSON.stringify(e.sizeRates));_ch=true;showToast('💡 사이즈별 단가표 불러옴');}
     // 단가·크기도 메모리에 반영(재렌더 대비)
@@ -3589,11 +3607,13 @@ function renderBookList(){
     </div>
     ${mats.length?`<div>
       <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:5px">단가 수정 <span class="muted" style="font-weight:400">매장단가는 원가계산 / 네고가는 결제에 사용</span></div>
-      <table class="tbl"><thead><tr><th>품목</th><th>색상</th><th>유형</th><th>매장단가 <span class="muted" style="font-weight:400;font-size:10px">(고정)</span></th><th>네고가 <span class="muted" style="font-weight:400;font-size:10px">(유동)</span></th><th>갱신일</th><th style="width:32px"></th></tr></thead><tbody>
+      <table class="tbl"><thead><tr><th>품목</th><th>색상</th><th>유형</th><th style="background:#FBF7EC">크기/규격</th><th style="background:#FBF7EC">롤당yard</th><th>매장단가 <span class="muted" style="font-weight:400;font-size:10px">(고정)</span></th><th>네고가 <span class="muted" style="font-weight:400;font-size:10px">(유동)</span></th><th>갱신일</th><th style="width:32px"></th></tr></thead><tbody>
       ${mats.map(([key,m])=>{const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return`<tr>
         <td><input type="text" value="${esc(nm)}" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'name')" style="font-size:12px;width:100%;border:none;background:transparent;padding:3px 5px;border-radius:4px" onfocus="this.style.background='#fff8e1';this.style.border='1px solid #fde68a'" onblur="this.style.background='transparent';this.style.border='none'"></td>
         <td>${isFab?'<span class="muted" style="font-size:10px">-</span>':`<input type="text" value="${esc(cl)}" placeholder="색상" list="dl-clr" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'color')" style="font-size:11px;width:70px;padding:3px 5px">`}</td>
         <td>${isFab?(isKg?'<span class="badge b2">KG</span>':'<span class="badge b1">YARD</span>'):`<select onchange="updatePBOrderType('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value)" style="font-size:11px;padding:3px 5px"><option value="count"${m.orderType==='count'||!m.orderType?' selected':''}>개수</option><option value="yard"${m.orderType==='yard'?' selected':''}>야드</option><option value="roll"${m.orderType==='roll'?' selected':''}>롤</option><option value="thread"${m.orderType==='thread'?' selected':''}>실</option><option value="zipper"${m.orderType==='zipper'?' selected':''}>지퍼</option><option value="button"${m.orderType==='button'?' selected':''}>단추</option></select>`}</td>
+        <td style="background:#FBF7EC">${isFab?`<input type="text" value="${esc(m.width||'')}" placeholder="폭" style="width:70px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','width',this.value)">`:`<input type="text" value="${esc(m.size||'')}" placeholder="크기" style="width:70px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','size',this.value)">`}</td>
+        <td style="background:#FBF7EC">${isFab?'<span class="muted" style="font-size:10px">—</span>':`<input type="number" value="${m.yardsPerRoll!=null&&m.yardsPerRoll!==''?m.yardsPerRoll:''}" placeholder="야드" min="0" style="width:58px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','yardsPerRoll',this.value)">`}</td>
         <td><div class="fr" style="gap:4px;align-items:center">
           <input type="number" value="${storeP}" min="0" style="width:80px;font-size:12px"
             onchange="updatePBPrice('${encodeURIComponent(s)}','${encodeURIComponent(nm)}','${isKg?'kg':'unit'}',+this.value)">
@@ -3727,6 +3747,18 @@ function deletePbMaterial(encSup,encKey){
   showToast('🗑 "'+display+'" 단가장에서 삭제');
 }
 
+// 단가장 표에서 규격(크기/폭/롤당야드) 직접 수정 → 다음 자동완성에 반영
+function updatePBSpec(encSup,encKey,field,val){
+  var s=decodeURIComponent(encSup);var k=decodeURIComponent(encKey);
+  var pb=S.priceBook[s];if(!pb||!pb.materials[k])return;
+  var m=pb.materials[k];
+  val=(val==null?'':val).toString().trim();
+  if(field==='yardsPerRoll'){m.yardsPerRoll=val===''?null:(+val||null);}
+  else{m[field]=val;}
+  m.lastUpdated=today();savePB();
+  var el=document.getElementById('pb-updated-'+encodeURIComponent(s)+'-'+encodeURIComponent(m.name||k));if(el)el.textContent=m.lastUpdated;
+  showToast('💾 '+(m.name||'')+' '+(field==='width'?'폭':field==='yardsPerRoll'?'롤당야드':'크기')+' 저장');
+}
 function updatePBPrice(encSup,encNm,priceType,val){
   const s=decodeURIComponent(encSup);const nm=decodeURIComponent(encNm);
   const pb=S.priceBook[s];if(!pb||!pb.materials[nm])return;
