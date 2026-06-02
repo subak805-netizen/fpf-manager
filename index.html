@@ -11358,12 +11358,47 @@ function pdQtyLine(colorQtys,label){
   const total=entries.reduce((s,[,v])=>s+(+v||0),0);
   return `${parts.join(' ')} 총${total}장 (${label})`;
 }
+// ===== 컬러×사이즈 그리드 (메시지에 사이즈별 수량 표시용) =====
+function pdOrderCSGrid(it,o){
+  const res={};if(!o||!o.orderItems)return res;
+  const oi=o.orderItems.find(x=>x.itemId===it.id);if(!oi)return res;
+  const colors=(it.colors&&it.colors.length)?it.colors:[''];
+  const sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+  colors.forEach(c=>{var g={},t=0;sizes.forEach(sz=>{var q=+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0;if(q>0){g[sz]=q;t+=q;}});if(t>0)res[c]=g;});
+  return res;
+}
+function pdCutCSGrid(it,o){
+  const res={};const sewFcId=it.sewingFcId||'';const sch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;if(!sch)return res;
+  const single=o.orderItems&&o.orderItems.length===1;
+  if(Array.isArray(sch.cuttingShipments)){sch.cuttingShipments.forEach(r=>{if(!r)return;var match=r.itemId?(r.itemId===it.id):single;if(!match)return;var c=r.color||'',sz=r.size||'',q=+r.qty||0;if(q>0){if(!res[c])res[c]={};res[c][sz]=(res[c][sz]||0)+q;}});}
+  if(!Object.keys(res).length&&sch.cuttingGrid&&sch.cuttingGrid[it.id]){Object.entries(sch.cuttingGrid[it.id]).forEach(([c,sg])=>{Object.entries(sg||{}).forEach(([sz,v])=>{var q=+v||0;if(q>0){if(!res[c])res[c]={};res[c][sz]=(res[c][sz]||0)+q;}});});}
+  return res;
+}
+function pdShipCSGrid(it,o){
+  const res={};const sewFcId=it.sewingFcId||'';const sch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;if(!sch||!Array.isArray(sch.shipments))return res;
+  const single=o.orderItems&&o.orderItems.length===1;
+  sch.shipments.forEach(r=>{if(!r)return;var match=r.itemId?(r.itemId===it.id):single;if(!match)return;var c=r.color||'',sz=r.size||'',q=+r.qty||0;if(q>0){if(!res[c])res[c]={};res[c][sz]=(res[c][sz]||0)+q;}});
+  return res;
+}
+// "데님 2:30 3:40 4:40 총110장 (오더장수)" — 컬러별 사이즈 분해 한 줄(컬러 여러개면 줄바꿈)
+function pdQtyLineCS(grid,label,sizes){
+  const colors=Object.keys(grid).filter(c=>Object.values(grid[c]||{}).some(v=>+v>0));
+  if(!colors.length)return `0장 (${label})`;
+  const lines=colors.map(c=>{
+    var g=grid[c],ct=0;
+    var ord=(sizes&&sizes.length?sizes:Object.keys(g));
+    var szStr=ord.filter(sz=>+g[sz]>0).map(sz=>{ct+=+g[sz];return ((sz==='free'||sz==='')?'':sz+':')+g[sz];}).join(' ');
+    return `${c||'-'} ${szStr} 총${ct}장`;
+  });
+  return lines.join('\n')+` (${label})`;
+}
 function pdBuildFactoryMsg(role,it,o,sch,fcName){
   const itName=it.name||'';
   const sd=pdShortDate(o);
   const head=`${itName}${sd?' ('+sd+')':''}`;
-  const orderLine=pdQtyLine(pdOrderColorQtys(it,o),'오더장수');
-  const cutLine=pdQtyLine(pdCutColorQtys(it,o),'재단장수');
+  const sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+  const orderLine=pdQtyLineCS(pdOrderCSGrid(it,o),'오더장수',sizes);
+  const cutLine=pdQtyLineCS(pdCutCSGrid(it,o),'재단장수',sizes);
   const fmt=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
   switch(role){
     case 'fab':return `${head}\n${orderLine}\n\n원단 입고 예정 ${fmt(o._prep?.fabDate)||'미정'}\n수령 확인 부탁드립니다.`;
@@ -11382,9 +11417,10 @@ function pdBuildBrandMsg(role,it,o,sch){
   const itName=it.name||'';
   const sd=pdShortDate(o);
   const head=`${itName}${sd?' ('+sd+')':''}`;
-  const orderLine=pdQtyLine(pdOrderColorQtys(it,o),'오더장수');
-  const cutLine=pdQtyLine(pdCutColorQtys(it,o),'재단장수');
-  const shipLine=pdQtyLine(pdShipColorQtys(it,o),'출고장수');
+  const sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+  const orderLine=pdQtyLineCS(pdOrderCSGrid(it,o),'오더장수',sizes);
+  const cutLine=pdQtyLineCS(pdCutCSGrid(it,o),'재단장수',sizes);
+  const shipLine=pdQtyLineCS(pdShipCSGrid(it,o),'출고장수',sizes);
   const fmt=d=>d?(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d):'';
   const sewFcId=it.sewingFcId||'';
   const sewSch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;
