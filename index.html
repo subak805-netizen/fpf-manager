@@ -466,6 +466,9 @@ html[data-theme="retro"] #dash-body .pd-table thead th{border-bottom-width:1px;}
 .pd-summary .line .colors{color:#4b5563;}
 .pd-summary .line .slash{color:#9ca3af;margin:0 4px;}
 .pd-summary .line .total{color:#333;font-weight:600;margin-left:4px;}
+.pd-summary .line.ship{font-weight:700;color:#0f172a;}
+.pd-summary .line.ship .lbl{color:#0f766e;font-weight:800;}
+.pd-summary .line.ship .total{color:#0f172a;font-weight:800;}
 .pd-summary .subline{font-size:12px;color:#6b7280;padding-left:18px;line-height:1.6;margin:-2px 0 2px;letter-spacing:-.1px;}
 .pd-summary .subline .sg{display:inline-block;margin-right:10px;white-space:nowrap;}
 .pd-summary .subline .sg .c{color:#4b5563;font-weight:600;margin-right:3px;}
@@ -8264,7 +8267,7 @@ function renderPoTab(o){
         <div style="font-size:10px;color:var(--t2);margin-top:4px;padding:5px 8px;background:#fef3c7;border-radius:4px;border:1px solid #fbbf24">💡 합포장·픽업 조율할 땐 "이름만" 사용 (주소까지 보내면 거래처가 바로 발송할 수 있어요)</div>
         </div>
       </details>
-      <button type="button" onclick="onConfirmPickupToggle('${o.id}','${sn}',${sup.confirmPickupCreated?'false':'true'})" style="width:100%;margin-bottom:10px;padding:9px;border:2px solid var(--blue);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;background:${sup.confirmPickupCreated?'var(--blue);color:#fff':'#fff;color:var(--blue)'}">📍 컨펌용 픽업 ${sup.confirmPickupCreated?'생성됨 ✓ (눌러 해제)':'생성'}</button>
+      ${(function(){var has=(S.pickups||[]).some(function(p){return p.source==='order_confirm'&&p.orderId===o.id&&p.supplierName===sn;});return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:700;padding:9px 11px;border:2px solid var(--blue);border-radius:6px;margin-bottom:10px;background:'+(has?'#eff6ff':'#fff')+';color:var(--blue)"><input type="checkbox" '+(has?'checked':'')+' onchange="onConfirmPickupToggle(\''+o.id+'\',\''+sn+'\',this.checked)" style="width:16px;height:16px;accent-color:var(--blue)">📍 컨펌용 픽업 생성'+(has?' <span style="font-size:11px;color:#16a34a;font-weight:700">✓ 생성됨</span>':'')+'</label>';})()}
       <div class="mono" style="margin-bottom:10px;font-size:12px;min-height:220px;max-height:400px;overflow-y:auto">${esc(poText)}</div>
       <div class="fr" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
         <button class="btn s" style="background:#FEE500;color:#3C1E1E;border-color:#F0D900;font-weight:700" onclick="sharePoKakao('${o.id}','${sn}')">💬 카카오톡 전송</button>
@@ -10750,11 +10753,11 @@ function renderProdDashRow(r){
     const dateStr=uniqueDates.map(d=>typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d).join(' · ');
     const csStr=colorStr(r.shipColors);
     const shipSizeHtml=sizeStr(r.shipSizeGrid);
-    shipLineHtml=`<div class="line"><span class="bullet">*</span><span class="lbl">출고일</span><span>${esc(dateStr)}</span>${csStr?'<span class="colors">'+esc(csStr)+'</span>':''}<span class="slash">/</span><span class="total">총${r.shipTotal}장</span></div>${shipSizeHtml?'<div class="subline">'+shipSizeHtml+'</div>':''}`;
+    shipLineHtml=`<div class="line ship"><span class="bullet">*</span><span class="lbl">출고일</span><span>${esc(dateStr)}</span>${csStr?'<span class="colors">'+esc(csStr)+'</span>':''}<span class="slash">/</span><span class="total">총${r.shipTotal}장</span></div>${shipSizeHtml?'<div class="subline">'+shipSizeHtml+'</div>':''}`;
   }else{
     const eta=r.sewSch?(r.sewSch.shipExpectedDate||r.sewSch.shippingDate):'';
     if(eta){
-      shipLineHtml=`<div class="line"><span class="bullet">*</span><span class="lbl">출고일</span><span style="color:#9ca3af">${esc(typeof fmtKoDate==='function'?fmtKoDate(toISO(eta)):eta)} 예정</span></div>`;
+      shipLineHtml=`<div class="line ship"><span class="bullet">*</span><span class="lbl">출고일</span><span style="color:#334155;font-weight:700">${esc(typeof fmtKoDate==='function'?fmtKoDate(toISO(eta)):eta)} 예정</span></div>`;
     }
   }
   // 각 공정 셀
@@ -15538,7 +15541,9 @@ function onConfirmPickupToggle(orderId,supplierName,checked){
   if(!o.suppliers[supplierName])return;
   var sup=o.suppliers[supplierName];
   if(checked){
-    if(sup.confirmPickupId){showToast('이미 픽업이 생성됐어요');return;}
+    // 중복 방지: 이 오더+거래처 컨펌용 픽업이 이미 있으면 새로 안 만듦 (flag 유실돼도 안전)
+    var existP=(S.pickups||[]).find(function(p){return p.source==='order_confirm'&&p.orderId===orderId&&p.supplierName===supplierName;});
+    if(existP){sup.confirmPickupId=existP.id;sup.confirmPickupCreated=true;saveData();renderOTab();showToast('이미 컨펌용 픽업이 있어요');return;}
     var itemId=(o.orderItems||[])[0]&&o.orderItems[0].itemId||'';
     var it=S.items[itemId];
     var brandId=it&&it.brandId||'';
@@ -15551,12 +15556,13 @@ function onConfirmPickupToggle(orderId,supplierName,checked){
     S.tasks.push(newTask);
     saveData();renderOTab();showToast('✅ 컨펌용 픽업 + 업무 생성!');
   }else{
-    if(sup.confirmPickupId){
-      S.pickups=(S.pickups||[]).filter(function(p){return p.id!==sup.confirmPickupId;});
-      S.tasks=(S.tasks||[]).filter(function(t){return!(t.link&&t.link.id===sup.confirmPickupId);});
-    }
+    // 이 오더+거래처 컨펌용 픽업 전부 삭제 (중복 쌓인 것까지 청소)
+    var ids=(S.pickups||[]).filter(function(p){return p.source==='order_confirm'&&p.orderId===orderId&&p.supplierName===supplierName;}).map(function(p){return p.id;});
+    if(sup.confirmPickupId&&ids.indexOf(sup.confirmPickupId)<0)ids.push(sup.confirmPickupId);
+    S.pickups=(S.pickups||[]).filter(function(p){return ids.indexOf(p.id)<0;});
+    S.tasks=(S.tasks||[]).filter(function(t){return!(t.link&&ids.indexOf(t.link.id)>=0);});
     sup.confirmPickupCreated=false;sup.confirmPickupId='';
-    saveData();renderOTab();showToast('픽업 예약 취소됨');
+    saveData();renderOTab();showToast(ids.length>1?('픽업 예약 '+ids.length+'건 모두 취소됨'):'픽업 예약 취소됨');
   }
 }
 
