@@ -10486,6 +10486,13 @@ function renderProdDash(){
         if(cTot>0){orderColors[c]=cTot;orderTotal+=cTot;orderSizeGrid[c]=szs;}
       });
       if(!orderTotal)continue;
+      // 변동(원단부족 등) 효과 수량 — 컬러별 ratio 적용된 실제 발주수량
+      let effTotal=null,effColors=null,effSizeGrid=null;
+      try{var _bd=(typeof getEffectivePcsBreakdown==='function')?getEffectivePcsBreakdown(o,oi):null;
+        if(_bd&&_bd.effGrid&&_bd.diff!==0){effTotal=0;effColors={};effSizeGrid={};
+          colors.forEach(c=>{let cT=0;const szs={};sizes.forEach(sz=>{const q=+(_bd.effGrid[c]&&_bd.effGrid[c][sz])||0;if(q>0){szs[sz]=q;cT+=q;}});if(cT>0){effColors[c]=cT;effTotal+=cT;effSizeGrid[c]=szs;}});
+        }
+      }catch(e){}
       // 출고 수량 (컬러 합계 + 컬러×사이즈 그리드)
       let shipTotal=0;const shipColors={};const shipDates=[];const shipSizeGrid={};
       if(sewSch&&sewSch.shipments){
@@ -10503,7 +10510,7 @@ function renderProdDash(){
         });
       }
       shipDates.sort((a,b)=>cmpDate(a).localeCompare(cmpDate(b)));
-      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,shipTotal,shipColors,shipSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped});
+      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,effTotal,effColors,effSizeGrid,shipTotal,shipColors,shipSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped});
     }
   }
   if(!rows.length){
@@ -10874,8 +10881,8 @@ function renderProdDashRow(r){
   return `<tr class="pd-row-top">
     <td class="pd-summary" rowspan="2">
       <div class="title">${ddayHtml}<span class="brand">${esc(brandNm)}</span>${code?'<span class="code">'+esc(code)+'</span>':''}<span>${esc(r.it.name)}</span></div>
-      <div class="line"><span class="bullet">*</span><span class="lbl">오더일</span><span>${esc(orderDateStr)}</span><span class="colors">${esc(colorStr(r.orderColors))}</span><span class="slash">/</span><span class="total">총${r.orderTotal}장</span></div>
-      ${(function(){const s=sizeStr(r.orderSizeGrid);return s?'<div class="subline">'+s+'</div>':'';})()}
+      <div class="line"><span class="bullet">*</span><span class="lbl">오더일</span><span>${esc(orderDateStr)}</span><span class="colors">${esc(colorStr((r.effColors&&r.effTotal!=null)?r.effColors:r.orderColors))}</span><span class="slash">/</span><span class="total">총${r.orderTotal}장${(r.effTotal!=null&&r.effTotal!==r.orderTotal)?' <span style="color:#dc2626;font-weight:800">→ '+r.effTotal+'장</span>':''}</span></div>
+      ${(function(){const g=(r.effSizeGrid&&r.effTotal!=null)?r.effSizeGrid:r.orderSizeGrid;const s=sizeStr(g);return s?'<div class="subline">'+s+(r.effTotal!=null&&r.effTotal!==r.orderTotal?' <span style="color:#dc2626;font-size:10px">(원단부족 등 조정)</span>':'')+'</div>':'';})()}
       ${shipLineHtml}
     </td>
     ${prepCell('fab',fabSup,'입고완료','원자재')}
