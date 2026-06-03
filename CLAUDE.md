@@ -335,3 +335,35 @@
 - **동선 목적지 존 열림 영속**: window._qbOpenFcs → lsSet('fpm_qbOpenFcs')(qbToggleFc/qbAddGoal 저장, renderRoutePane에서 복원). 새로고침해도 열어둔 존 유지.
 - **renderItemsList 재구성**: 한 행=itemRowHTML(it) 함수로 추출. 상단 필터바(`.il-bar`): 단계 칩 **다중**(샘플중 phS/메인중 phM 각각 토글), **보류 칩**(showHold, 기본 숨김 — deriveItemBadge.hold), 시즌 칩(seasonOff 다중 숨김), 지난시즌 일괄 접기. **KC 대기 상단 고정**(`.il-pin`: 메인/리오더인데 !kcCert). 시즌 그룹 헤더 클릭→접기(`ilToggleSeasonCollapse`, 지난 시즌 기본 닫힘 isPast/isClosed), 시즌 안 **샘플중→메인중 소그룹**(`.il-subh`). 필터/접힘 상태 전부 `window._il`→`lsSet('fpm_itemFilter')` 영속(ilTogglePhase/ilToggleHold/ilToggleSeasonChip/ilToggleSeasonCollapse/ilToggleAllPast/_ilSave).
 - **지시서 완료 토글**: itemInstrHTML/toggleItemInstr(it.instrDone/instrDoneAt) — KC 버튼과 동일(.im-kc), im-meta에 KC 앞 배치.
+
+---
+
+## 15. 작업지시서(Tech Pack) 기능 — 2026-06-03 신규 ★최신★
+
+> 아이템(품번)별 작업지시서. **이 화면만 레트로 아님 — 깔끔한 엑셀격자(사용자 명시).** 모든 함수 `tp*` 접두사, 모든 CSS `#tp-modal` 스코프(앱 테마 영향 0). 진입 = 아이템 리스트 행의 **`📋 작지`** 버튼 = `tpOpen(itemId)`.
+
+### 구조
+- 풀스크린 모달 `#tp-modal`(z 100000) + 동적 `<style id="tp-page-rule">`(A4 세로/가로). 본문 `#tp-doc`(`.land`=가로 2단). 컨트롤바: 세로/가로 토글(`tpOrient`)·`🖨 A4 인쇄`(`tpPrint`)·닫기(`tpClose`).
+- 렌더 = `tpRender()`가 head(제목+메타표)+tabs+panels 통째 innerHTML. 탭 전환은 `tpTab(id)`(클래스 토글, 재렌더 X). `_tpItemId/_tpTab/_tpOrient` 전역.
+- 탭: `cut/sew/pack` 항상 + `emb`(it.embroideryFcId 있을 때)·`prt`(it.printingFcId 있을 때, 조건부 점선탭).
+
+### 데이터
+- 저장 위치 = **`it.techpack`**(객체). saveData가 S.items 통째 저장하므로 자동 영속. **`saveItemForm`에 `item.techpack=oldItem.techpack` 보존 추가**(안 하면 수정 시 날아감 — csQtyOvr 옆 라인).
+- 입력 위젯 `tpInp/tpInpL/tpMemo/tpFieldI`는 `data-tp="경로"`+`onchange="tpSet(this.dataset.tp,this.value)"`. `tpGet/tpSet(dot경로)`이 중첩 객체/배열(숫자 세그먼트=배열) 생성. 동적행 `tpAddRow/tpDelRow`(sew.legend, sew.spec).
+- 자동연동(읽기전용, 초록 태그): 원단 `tpFabricTableHTML`(it.fabrics part/name/composition/width/consumption), 부자재 `tpTrimTableHTML`(it.trims name/part/size/color), 택 `tpTagChips`(라벨류+finishCosts), 수량 `tpQtyBreakdown(it)`=**전 오더 qtyGrid 합산**→컬러×사이즈표(`tpQtyTableHTML`), 공장명 `tpFcName(id)`, 컬러 스와치 `tpColorHex(name)`(이름→대략색 맵). 골방향 경고 `tpHasCord`(코듀로이/골덴/벨벳).
+- 자수/나염 사양 = ①사이즈별 위치·크기(`tpPosHTML`, emb.pos.{size}/emb.size.{size}) ②컬러별 자수실/나염컬러(`tpColorSpecHTML`, emb.color.{color}) ③공통(emb.kind/density, prt.kind/base).
+
+### 이미지 (Firebase Storage)
+- SDK 추가: `firebase-storage-compat.js`(652줄대) + init `window.fbStorage=firebase.storage()`(fbDB 옆). 버킷은 이미 `fpf-manager.firebasestorage.app`.
+- 흐름: `tpPickImage(slot)`→hidden `#tp-file`→`tpOnFile`→`tpCompress`(canvas 1600px·JPEG0.82)→`tpUpload`(`techpack/{curCoId}/{itemId}/{slot}_{ts}.jpg`, ref.put→getDownloadURL)→**URL만 `it.techpack.images[slot]` 저장**(localStorage/Firestore 비대화 방지 — 원칙 §데이터). 실패(`!fbUser`/오프라인)=1100px dataURL 폴백+경고토스트.
+- slot 키: cutSketch(공통 썸네일)·sewSketch(봉제 큰 도식화)·labelMain/labelCare/labelTrim·packTag/packPoly·embDesign/embPlace·prtDesign/prtPlace.
+- ⚠️ **Storage 보안규칙**: 로그인 사용자만 쓰기 가능하도록 콘솔에서 규칙 설정 필요(미설정 시 업로드 거부→dataURL 폴백). 첫 사용 전 확인.
+
+### 인쇄
+- `tpPrint`=`body.tp-printing` 추가→`@media print`로 `body.tp-printing>*` 숨기고 `#tp-modal`만 노출, 패널마다 `page-break-before`로 공정별 A4 1장. `afterprint`에 클래스 해제. 세로/가로는 `tpOrient`가 `#tp-page-rule` 텍스트(`@page size`) 교체.
+
+### 미해결/다음 후보
+- 두 번째 예시 시안(mockup-techpack-examples.html)은 마리떼로 만듦 — **아루드(AR)가 실제 브랜드**라 요청 시 교체.
+- Storage 보안규칙 콘솔 설정(위).
+- 자수/나염 위치 이미지에 좌표 핀 찍기·도식화 위 라벨 위치 표기(고급) 미구현.
+- 인쇄 시 dataURL 폴백 이미지가 많으면 용량↑ — 가능하면 로그인 후 Storage 사용 권장.

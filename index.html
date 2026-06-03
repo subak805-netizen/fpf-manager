@@ -652,6 +652,7 @@ html[data-theme="retro"] .pay-month-hdr{font-family:var(--font-display);backgrou
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 <script>
 
 // === 로스율 고정 정책 ===
@@ -688,6 +689,7 @@ function tryInitFirebase(attempts){
     firebase.initializeApp(firebaseConfig);
     window.fbAuth = firebase.auth();
     window.fbDB = firebase.firestore();
+    try{ window.fbStorage = firebase.storage(); }catch(e){ console.warn('Storage init 실패', e); }
     window.fbReady = true;
     fbAuth.onAuthStateChanged(function(user){
       window.fbUser = user;
@@ -1096,6 +1098,125 @@ tryInitFirebase();
     <div id="defect-history-body"></div>
   </div>
 </div>
+<!-- ===== 작업지시서(Tech Pack) 모달 ===== -->
+<div id="tp-modal" style="display:none">
+  <div class="tp-ctrl">
+    <span class="tp-ctrl-t">📋 작업지시서</span>
+    <span class="tp-seg"><button id="tp-bP" class="on" onclick="tpOrient('portrait')">세로</button><button id="tp-bL" onclick="tpOrient('landscape')">가로</button></span>
+    <button class="tp-print" onclick="tpPrint()">🖨 A4 인쇄</button>
+    <button class="tp-x" onclick="tpClose()">✕ 닫기</button>
+  </div>
+  <div class="tp-doc" id="tp-doc"></div>
+</div>
+<style id="tp-page-rule">@page{size:A4 portrait;margin:10mm;}</style>
+<style>
+#tp-modal{position:fixed;inset:0;z-index:100000;background:#e9e8e2;overflow:auto;font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',sans-serif;color:#161616;-webkit-font-smoothing:antialiased;}
+#tp-modal *{box-sizing:border-box;}
+.tp-ctrl{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;background:#fff;border-bottom:2px solid #3a3a3a;padding:10px 14px;flex-wrap:wrap;}
+.tp-ctrl-t{font-size:15px;font-weight:800;}
+.tp-seg{display:inline-flex;border:1.5px solid #3a3a3a;}
+.tp-seg button{border:none;background:#fff;font-size:13px;font-weight:700;padding:7px 14px;cursor:pointer;color:#6b7280;}
+.tp-seg button+button{border-left:1.5px solid #3a3a3a;}
+.tp-seg button.on{background:#161616;color:#fff;}
+.tp-print{font-size:13px;font-weight:700;padding:7px 14px;border:1.5px solid #3a3a3a;background:#e6effc;cursor:pointer;}
+.tp-x{margin-left:auto;font-size:13px;font-weight:700;padding:7px 14px;border:1.5px solid #3a3a3a;background:#fff;cursor:pointer;}
+.tp-doc{max-width:820px;margin:0 auto;padding:16px;}
+.tp-doc.land{max-width:1100px;}
+/* 제목/메타 */
+.tp-sheet{background:#fff;border:2px solid #3a3a3a;}
+.tp-thead{display:flex;align-items:flex-end;justify-content:space-between;padding:9px 12px;border-bottom:2px solid #3a3a3a;}
+.tp-thead .tt{font-size:19px;font-weight:800;letter-spacing:-.3px;}
+.tp-thead .tt span{font-size:11px;font-weight:600;color:#6b7280;margin-left:6px;}
+.tp-thead .co{font-size:12px;font-weight:700;color:#6b7280;}
+.tp-meta{width:100%;border-collapse:collapse;}
+.tp-meta th,.tp-meta td{border:1px solid #b9bdc2;padding:7px 9px;font-size:14px;}
+.tp-meta th{background:#e9e8e2;font-weight:700;width:70px;text-align:center;white-space:nowrap;}
+.tp-meta td{font-weight:800;}
+/* 탭 */
+.tp-tabs{display:flex;border:2px solid #3a3a3a;border-top:none;flex-wrap:wrap;}
+.tp-tab{font-size:14px;font-weight:700;padding:10px 18px;background:#f4f3ee;color:#6b7280;cursor:pointer;border-right:1.5px solid #b9bdc2;}
+.tp-tab.on{background:#161616;color:#fff;}
+.tp-tab.cond{color:#9aa0a8;font-style:italic;}
+.tp-tab.cond.on{background:#2563eb;color:#fff;font-style:normal;}
+/* 패널 */
+.tp-panel{display:none;margin-top:12px;}
+.tp-panel.on{display:block;}
+.tp-doc.land .tp-panel.on{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;}
+.tp-doc.land .tp-span2{grid-column:1 / -1;}
+/* 공통 정보 바 */
+.tp-cbar{display:flex;border:2px solid #3a3a3a;background:#fff;margin-bottom:12px;}
+.tp-cbar .tp-thumb{flex:0 0 120px;border-right:1.5px solid #3a3a3a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#9aa0a8;font-size:11px;background:#fbfbf8;padding:6px;text-align:center;cursor:pointer;overflow:hidden;}
+.tp-cbar .tp-thumb img{max-width:100%;max-height:120px;object-fit:contain;}
+.tp-cbar .tp-cmain{flex:1;padding:9px 11px;min-width:0;}
+.tp-cbar .tp-ch{font-size:12px;font-weight:800;color:#444;margin-bottom:7px;display:flex;align-items:center;gap:6px;}
+.tp-sws{margin-bottom:8px;}
+.tp-sw{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;margin-right:14px;}
+.tp-sw i{width:22px;height:22px;border:1px solid #3a3a3a;display:inline-block;}
+/* 섹션 */
+.tp-sec{border:2px solid #3a3a3a;background:#fff;margin-bottom:-2px;}
+.tp-sec-h{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:800;padding:8px 11px;background:#e9e8e2;border-bottom:1.5px solid #3a3a3a;}
+.tp-sb{padding:11px;}
+.tp-tag{margin-left:auto;font-size:10px;font-weight:700;padding:2px 8px;border:1px solid currentColor;}
+.tp-tag.a{color:#15803d;background:#dcf2e6;}
+.tp-tag.m{color:#6b7280;background:#f1f1ec;}
+/* 표 */
+.tp-tbl{width:100%;border-collapse:collapse;font-size:15px;}
+.tp-tbl th,.tp-tbl td{border:1px solid #b9bdc2;padding:8px;text-align:center;}
+.tp-tbl th{background:#e9e8e2;font-size:12px;font-weight:700;color:#444;}
+.tp-tbl td.l{text-align:left;}
+.tp-tbl tr.tot td{font-weight:800;font-size:16px;background:#faf9f4;}
+.tp-tbl.mini{font-size:14px;}
+.tp-tbl.mini th,.tp-tbl.mini td{padding:5px 7px;}
+.tp-num{font-weight:800;font-size:21px;}
+.tp-tbl.mini .tp-num{font-size:18px;}
+.tp-tbl .rl{background:#e9e8e2;font-weight:700;text-align:left;width:104px;}
+.tp-cell{width:100%;border:none;background:transparent;font:inherit;font-size:15px;text-align:center;color:#161616;padding:2px;}
+.tp-cell:focus{background:#fff6d6;outline:none;}
+.tp-cell::placeholder{color:#aeb2ba;}
+/* 이미지 */
+.tp-iz{border:1.5px dashed #b9bdc2;background:#fbfbf8;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#9aa0a8;font-size:13px;cursor:pointer;text-align:center;padding:10px;position:relative;overflow:hidden;}
+.tp-iz:hover{border-color:#2563eb;color:#2563eb;background:#e6effc;}
+.tp-iz .plus{font-size:24px;}
+.tp-iz.big{min-height:330px;}
+.tp-iz.mid{min-height:150px;}
+.tp-iz img{max-width:100%;max-height:100%;object-fit:contain;}
+.tp-iz .tp-del{position:absolute;top:4px;right:4px;background:#dc2626;color:#fff;border:none;width:24px;height:24px;border-radius:50%;font-weight:800;cursor:pointer;font-size:13px;display:none;}
+.tp-iz.has img+.tp-del,.tp-iz.has .tp-del{display:block;}
+.tp-iz.up{color:#2563eb;}
+.tp-cap{font-size:12px;font-weight:700;color:#444;text-align:center;padding:5px;background:#e9e8e2;border:1px solid #b9bdc2;border-top:none;}
+.tp-memo{width:100%;border:1.5px solid #b9bdc2;background:#fff;font:inherit;font-size:14px;padding:9px 11px;min-height:54px;resize:vertical;color:#161616;}
+.tp-memo::placeholder{color:#aeb2ba;}
+.tp-field{width:100%;border:1.5px solid #b9bdc2;padding:9px 11px;font:inherit;font-size:15px;font-weight:700;}
+.tp-warn{background:#fdecec;border:2px solid #d11;color:#d11;font-size:15px;font-weight:800;padding:12px 13px;display:flex;gap:9px;align-items:flex-start;line-height:1.5;margin-bottom:-2px;}
+.tp-warn small{display:block;font-weight:600;color:#e07a7a;margin-top:3px;font-size:11px;}
+.tp-info{background:#e6effc;border:2px solid #2563eb;color:#2563eb;font-size:14px;font-weight:700;padding:11px 13px;display:flex;gap:8px;align-items:center;line-height:1.45;margin-bottom:12px;}
+.tp-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;}
+.tp-grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.tp-chip{display:inline-block;font-size:14px;font-weight:700;border:1.5px solid #b9bdc2;padding:7px 13px;margin:3px 4px 0 0;background:#fff;}
+.tp-subt{font-size:13px;font-weight:800;color:#333;margin:0 0 6px;}
+.tp-subt small{font-weight:600;color:#6b7280;font-size:11px;}
+.tp-hint{color:#6b7280;font-size:12px;display:block;margin-top:7px;}
+.tp-up-ovl{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:100001;color:#fff;font-size:15px;font-weight:700;}
+.tp-rmrow{background:#fff;border:1px solid #d11;color:#d11;width:24px;height:24px;border-radius:4px;cursor:pointer;font-weight:800;line-height:1;}
+.tp-addrow{margin-top:8px;font-size:12px;font-weight:700;padding:6px 12px;border:1.5px solid #b9bdc2;background:#fff;cursor:pointer;border-radius:4px;}
+.tp-rl,.tp-tbl td.rl{background:#e9e8e2;font-weight:700;}
+@media(max-width:560px){.tp-doc,.tp-doc.land{padding:10px;}.tp-doc.land .tp-panel.on{display:block;}}
+@media print{
+  body.tp-printing>*{display:none!important;}
+  body.tp-printing #tp-modal{display:block!important;position:static;background:#fff;overflow:visible;}
+  body.tp-printing #tp-page-rule{display:none;}
+  #tp-modal .tp-ctrl{display:none!important;}
+  #tp-modal .tp-doc{max-width:none;width:100%;padding:0;}
+  #tp-modal .tp-panel{display:block!important;margin-top:0;}
+  #tp-modal .tp-panel+.tp-panel{page-break-before:always;}
+  #tp-modal .tp-tabs{display:none!important;}
+  #tp-modal .tp-tbl{font-size:12pt;} #tp-modal .tp-num{font-size:19pt;} #tp-modal .tp-warn{font-size:12pt;}
+  #tp-modal .tp-iz.big{min-height:115mm;} #tp-modal .tp-iz.mid{min-height:44mm;}
+  #tp-modal .tp-iz .tp-del{display:none!important;}
+  #tp-modal .tp-doc.land .tp-panel{display:grid!important;grid-template-columns:1fr 1fr;gap:6mm;}
+}
+</style>
+
 <!-- 브랜드 관리 모달 -->
 <div class="overlay" id="brand-manage-modal" style="display:none" onclick="if(event.target===this)closeModal('brand-manage-modal')">
   <div class="modal" style="max-width:480px">
@@ -4298,6 +4419,7 @@ function renderItemsList(){
         <span class="im-stat">원단 ${(it.fabrics||[]).length} · 부자재 ${(it.trims||[]).length}</span>
         <div class="im-meta">${itemStartDateHTML(it)}${itemInstrHTML(it)}${itemNeedsKc(it)?itemKcHTML(it):''}</div>
         <button class="im-btn" onclick="showItemForm('${it.id}')" title="수정">수정</button>
+        <button class="im-btn" onclick="tpOpen('${it.id}')" title="작업지시서 작성·인쇄" style="background:#eef4ff">📋 작지</button>
         <button class="im-btn" onclick="showItemCost('${it.id}')" title="원가계산서">원가</button>
         <button class="im-btn" onclick="toggleCostSent('${it.id}')" title="${it.costSent?('원가 업체 전달 완료'+(it.costSentAt?' · '+esc(it.costSentAt):'')+' — 눌러서 해제'):'원가를 업체에 전달했으면 눌러 체크'}" style="${it.costSent?'background:#dcfce7;border-color:#86efac;color:#166534':'color:#9ca3af'}">${it.costSent?'✅ 전달':'📤 미전달'}</button>
         <button class="im-btn" onclick="dupItem('${it.id}')" title="복제">복제</button>
@@ -5991,6 +6113,7 @@ function saveItemForm(){
   if(editItemId&&S.items[editItemId]){
     var oldItem=S.items[editItemId];
     item.csQtyOvr=oldItem.csQtyOvr;item.csPriceOvr=oldItem.csPriceOvr;
+    item.techpack=oldItem.techpack; // 작업지시서 데이터 보존
     // 폼 저장 시 리스트에서만 다루는 메타가 초기화되지 않도록 보존
     item.createdAt=oldItem.createdAt;item.startDate=oldItem.startDate;
     item.kcCert=oldItem.kcCert;item.kcCertAt=oldItem.kcCertAt;
@@ -21435,6 +21558,125 @@ function runAlertCheck() {
 setTimeout(() => { runAlertCheck(); setInterval(runAlertCheck, 30 * 60 * 1000); }, 2000);
 
 initApp();
+</script>
+<script>
+/* ===================== 작업지시서 (Tech Pack) ===================== */
+var _tpItemId=null, _tpTab='cut', _tpOrient='portrait', _tpUpKey=null;
+
+function tpItem(){ return _tpItemId?S.items[_tpItemId]:null; }
+function tpData(){ var it=tpItem(); if(!it)return null; if(!it.techpack)it.techpack={}; return it.techpack; }
+function tpGet(path,dflt){ var o=tpData(); if(!o)return dflt; var s=path.split('.'); for(var i=0;i<s.length;i++){ if(o==null)return dflt; o=o[s[i]]; } return (o===undefined||o===null)?dflt:o; }
+function tpSet(path,val){ var d=tpData(); if(!d)return; var s=path.split('.'),o=d; for(var i=0;i<s.length-1;i++){ var k=s[i],nn=/^\d+$/.test(s[i+1]); if(o[k]==null)o[k]=nn?[]:{}; o=o[k]; } o[s[s.length-1]]=val; try{saveData();}catch(e){} }
+
+function tpEsc(v){ return (typeof esc==='function')?esc(v==null?'':String(v)):(v==null?'':String(v)); }
+function tpBrandName(it){ if(!it)return ''; var bs=S.brands; if(Array.isArray(bs)){ var b=bs.find(function(x){return x&&x.id===it.brandId;}); if(b)return b.name||b.label||''; } else if(bs&&typeof bs==='object'&&bs[it.brandId]){ var v=bs[it.brandId]; return v.name||v; } return it.brand||it.brandName||''; }
+function tpFcName(id){ return (id&&S.factories&&S.factories[id]&&S.factories[id].name)||''; }
+function tpColorHex(name){ name=(name||'').toString().toLowerCase(); var m={'블랙':'#1a1a1a','black':'#1a1a1a','먹색':'#33352f','차콜':'#3a3a3a','네이비':'#1f2a44','블루':'#3b6fb0','소라':'#bcd6ea','스카이':'#bcd6ea','화이트':'#fafafa','white':'#fafafa','아이보리':'#f3eee0','ivr':'#f3eee0','크림':'#f2ebd8','핑크':'#f2c6d2','베이지':'#e3d4ba','카멜':'#b98a55','cml':'#b98a55','브라운':'#6b4a2b','그레이':'#9aa0a6','회색':'#9aa0a6','회아이':'#cfcabb','연두':'#cfe8c0','카키':'#6f6a3a','레드':'#c0392b','red':'#c0392b','옐로우':'#f4d35e'}; for(var k in m){ if(name.indexOf(k)>=0)return m[k]; } return '#d9d6cc'; }
+
+function tpQtyBreakdown(it){
+  var colors=(it.colors&&it.colors.length)?it.colors:[''];
+  var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE'];
+  var grid={}; colors.forEach(function(c){grid[c]={}; sizes.forEach(function(s){grid[c][s]=0;});});
+  Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; (o.orderItems||[]).forEach(function(oi){ if(oi.itemId!==it.id||!oi.qtyGrid)return; colors.forEach(function(c){ sizes.forEach(function(s){ grid[c][s]+=(+(oi.qtyGrid[c]&&oi.qtyGrid[c][s])||0); }); }); }); });
+  var colorTotals={},sizeTotals={},total=0;
+  colors.forEach(function(c){colorTotals[c]=0;}); sizes.forEach(function(s){sizeTotals[s]=0;});
+  colors.forEach(function(c){ sizes.forEach(function(s){ var q=grid[c][s]; colorTotals[c]+=q; sizeTotals[s]+=q; total+=q; }); });
+  return {colors:colors,sizes:sizes,grid:grid,colorTotals:colorTotals,sizeTotals:sizeTotals,total:total};
+}
+
+/* 입력 위젯 */
+function tpInp(path,ph){ return '<input class="tp-cell" data-tp="'+path+'" value="'+tpEsc(tpGet(path,''))+'" placeholder="'+tpEsc(ph)+'" onchange="tpSet(this.dataset.tp,this.value)">'; }
+function tpInpL(path,ph){ return '<input class="tp-cell" style="text-align:left" data-tp="'+path+'" value="'+tpEsc(tpGet(path,''))+'" placeholder="'+tpEsc(ph)+'" onchange="tpSet(this.dataset.tp,this.value)">'; }
+function tpMemo(path,ph){ return '<textarea class="tp-memo" data-tp="'+path+'" placeholder="'+tpEsc(ph)+'" onchange="tpSet(this.dataset.tp,this.value)">'+tpEsc(tpGet(path,''))+'</textarea>'; }
+function tpFieldI(path,dflt){ return '<input class="tp-field" data-tp="'+path+'" value="'+tpEsc(tpGet(path,dflt))+'" onchange="tpSet(this.dataset.tp,this.value)">'; }
+
+/* 이미지 */
+function tpImgZone(slotKey,ph,cls){ var url=tpGet('images.'+slotKey,''); if(url){ return '<div class="tp-iz '+cls+' has" onclick="tpPickImage(\''+slotKey+'\')"><img src="'+tpEsc(url)+'"><button class="tp-del" onclick="event.stopPropagation();tpDelImage(\''+slotKey+'\')">×</button></div>'; } return '<div class="tp-iz '+cls+'" onclick="tpPickImage(\''+slotKey+'\')"><span class="plus">＋</span>'+tpEsc(ph)+'</div>'; }
+function tpEnsureFileInput(){ if(document.getElementById('tp-file'))return; var i=document.createElement('input'); i.type='file'; i.id='tp-file'; i.accept='image/*'; i.style.display='none'; i.onchange=function(){tpOnFile(this);}; document.getElementById('tp-modal').appendChild(i); }
+function tpPickImage(slotKey){ _tpUpKey=slotKey; tpEnsureFileInput(); var inp=document.getElementById('tp-file'); inp.value=''; inp.click(); }
+function tpDelImage(slotKey){ tpSet('images.'+slotKey,''); tpRender(); }
+function tpCompress(file,maxDim,q){ return new Promise(function(res,rej){ var rd=new FileReader(); rd.onload=function(){ var img=new Image(); img.onload=function(){ var w=img.width,h=img.height,sc=Math.min(1,maxDim/Math.max(w,h)); var cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc)); var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch; cv.getContext('2d').drawImage(img,0,0,cw,ch); cv.toBlob(function(b){ res({blob:b,dataUrl:cv.toDataURL('image/jpeg',q)}); },'image/jpeg',q); }; img.onerror=rej; img.src=rd.result; }; rd.onerror=rej; rd.readAsDataURL(file); }); }
+function tpUpload(blob,itemId,slotKey){ var co=(typeof curCoId!=='undefined'&&curCoId)?curCoId:'default'; var path='techpack/'+co+'/'+itemId+'/'+slotKey+'_'+Date.now()+'.jpg'; var ref=window.fbStorage.ref().child(path); return ref.put(blob).then(function(){ return ref.getDownloadURL(); }); }
+function tpShowUp(msg){ var o=document.createElement('div'); o.className='tp-up-ovl'; o.textContent=msg; document.body.appendChild(o); return o; }
+function tpHideUp(o){ if(o&&o.parentNode)o.parentNode.removeChild(o); }
+function tpOnFile(input){ var f=input.files&&input.files[0]; if(!f||!_tpUpKey)return; var slot=_tpUpKey; var ovl=tpShowUp('사진 업로드 중…'); tpCompress(f,1600,0.82).then(function(c){
+    function fallback(){ return tpCompress(f,1100,0.7).then(function(c2){ if(typeof showToast==='function')showToast('⚠ 클라우드 업로드 실패 — 이 기기에만 저장됐어요 (로그인/네트워크 확인)'); return c2.dataUrl; }); }
+    if(window.fbStorage&&window.fbUser){ return tpUpload(c.blob,_tpItemId,slot).catch(function(e){ console.warn('storage fail',e); return fallback(); }); }
+    return fallback();
+  }).then(function(url){ tpSet('images.'+slot,url); tpRender(); }).catch(function(e){ console.warn(e); if(typeof showToast==='function')showToast('사진 처리 실패'); }).then(function(){ tpHideUp(ovl); _tpUpKey=null; }); }
+
+/* 동적 행 */
+function tpAddRow(path,empty){ var arr=tpGet(path,[]); if(!Array.isArray(arr))arr=[]; arr=arr.slice(); arr.push(empty||{}); tpSet(path,arr); tpRender(); }
+function tpDelRow(path,i){ var arr=tpGet(path,[]); if(!Array.isArray(arr))return; arr=arr.slice(); arr.splice(i,1); tpSet(path,arr); tpRender(); }
+
+/* 자동연동 표 */
+function tpFabricTableHTML(it){ var fabs=it.fabrics||[]; if(!fabs.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 원단 없음</div>'; var h='<table class="tp-tbl"><tr><th>부위</th><th>원단명</th><th>혼용률</th><th>폭</th><th>요척</th></tr>'; fabs.forEach(function(f){ h+='<tr><td>'+tpEsc(f.part||'-')+'</td><td class="l">'+tpEsc(f.name||'')+'</td><td>'+tpEsc((f.composition||'').replace(/\n/g,' '))+'</td><td>'+tpEsc(f.width||'')+(f.width?'"':'')+'</td><td>'+tpEsc(f.consumption||'')+(f.consumption?'Y':'')+'</td></tr>'; }); return h+'</table>'; }
+function tpHasCord(it){ return /코듀로이|골덴|벨벳|corduroy|velvet/i.test(JSON.stringify(it.fabrics||[])); }
+function tpTrimTableHTML(it){ var tr=it.trims||[]; if(!tr.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 부자재 없음</div>'; var h='<table class="tp-tbl"><tr><th>부자재</th><th>위치 / 규격</th><th>컬러</th></tr>'; tr.forEach(function(t){ var spec=[t.part,t.size].filter(Boolean).join(' · '); h+='<tr><td class="l">'+tpEsc(t.name||t.labelName||'')+'</td><td>'+tpEsc(spec||'-')+'</td><td>'+tpEsc(t.color||'-')+'</td></tr>'; }); return h+'</table>'; }
+function tpTagChips(it){ var names=[]; (it.trims||[]).forEach(function(t){ if(['careLabel','mainLabel','care','label'].indexOf(t.orderType)>=0||/라벨|택|tag|label/i.test(t.name||'')) names.push(t.name||t.labelName||'라벨'); }); (it.finishCosts||[]).forEach(function(f){ if(f&&f.name)names.push(f.name); }); names=names.filter(function(v,i,a){return v&&a.indexOf(v)===i;}); if(!names.length)return '<span style="color:#9aa0a8;font-size:13px">자동 인식된 택/라벨 없음 — 아래 메모에 적어주세요</span>'; return names.map(function(n){return '<span class="tp-chip">'+tpEsc(n)+'</span>';}).join(''); }
+
+function tpQtyTableHTML(qb,cls){ var h='<table class="tp-tbl '+(cls||'')+'"><tr><th>COLOR</th>'; qb.sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';}); h+='<th>합계</th></tr>'; qb.colors.forEach(function(c){ h+='<tr><td>'+(tpEsc(c)||'-')+'</td>'; qb.sizes.forEach(function(s){h+='<td>'+(qb.grid[c][s]||0)+'</td>';}); h+='<td><b class="tp-num">'+(qb.colorTotals[c]||0)+'</b></td></tr>'; }); h+='<tr class="tot"><td>TOTAL</td>'; qb.sizes.forEach(function(s){h+='<td>'+(qb.sizeTotals[s]||0)+'</td>';}); h+='<td><b class="tp-num">'+qb.total+'</b></td></tr>'; return h+'</table>'; }
+function tpSwatchHTML(qb){ return qb.colors.map(function(c){ return '<span class="tp-sw"><i style="background:'+tpColorHex(c)+'"></i>'+(tpEsc(c)||'-')+'</span>'; }).join(''); }
+function tpCbarHTML(it,qb,withThumb){ var thumb=''; if(withThumb){ var simg=tpGet('images.sewSketch','')||tpGet('images.cutSketch',''); thumb='<div class="tp-thumb" onclick="tpPickImage(\'cutSketch\')">'+(simg?'<img src="'+tpEsc(simg)+'">':'<span class="plus">＋</span>도식화<br>(작게)')+'</div>'; } return '<div class="tp-cbar tp-span2">'+thumb+'<div class="tp-cmain"><div class="tp-ch">컬러 · 사이즈 · 수량<span class="tp-tag a">자동</span></div><div class="tp-sws">'+tpSwatchHTML(qb)+'</div>'+tpQtyTableHTML(qb,'mini')+'</div></div>'; }
+
+/* 수동 표 (봉제) */
+function tpLegendHTML(){ var arr=tpGet('sew.legend',[]); if(!Array.isArray(arr)||!arr.length)arr=[{},{}]; var h='<table class="tp-tbl"><tr><th style="width:48px">기호</th><th>봉제 내용</th><th style="width:60px">땀수</th><th style="width:34px"></th></tr>'; arr.forEach(function(r,i){ h+='<tr><td>'+tpInp('sew.legend.'+i+'.sym','★')+'</td><td class="l">'+tpInpL('sew.legend.'+i+'.desc','1/8\" 1줄 ST')+'</td><td>'+tpInp('sew.legend.'+i+'.stitch','3')+'</td><td><button class="tp-rmrow" onclick="tpDelRow(\'sew.legend\','+i+')">×</button></td></tr>'; }); return h+'</table><button class="tp-addrow" onclick="tpAddRow(\'sew.legend\',{})">＋ 줄 추가</button>'; }
+function tpSpecHTML(it){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE']; var arr=tpGet('sew.spec',[]); if(!Array.isArray(arr)||!arr.length)arr=[{},{},{}]; var h='<table class="tp-tbl"><tr><th>측정부위</th>'; sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';}); h+='<th>편차</th><th style="width:34px"></th></tr>'; arr.forEach(function(r,i){ h+='<tr><td class="rl">'+tpInpL('sew.spec.'+i+'.part','총장')+'</td>'; sizes.forEach(function(s){h+='<td>'+tpInp('sew.spec.'+i+'.v.'+s,'')+'</td>';}); h+='<td>'+tpInp('sew.spec.'+i+'.dev','±1')+'</td><td><button class="tp-rmrow" onclick="tpDelRow(\'sew.spec\','+i+')">×</button></td></tr>'; }); return h+'</table><button class="tp-addrow" onclick="tpAddRow(\'sew.spec\',{})">＋ 부위 추가</button>'; }
+
+/* 자수·나염 표 */
+function tpPosHTML(it,pfx){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE']; var h='<table class="tp-tbl"><tr><th style="width:110px">항목</th>'; sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';}); h+='</tr><tr><td class="rl">위치(기준점)</td>'; sizes.forEach(function(s){h+='<td>'+tpInp(pfx+'.pos.'+s,'')+'</td>';}); h+='</tr><tr><td class="rl">크기(가로×세로)</td>'; sizes.forEach(function(s){h+='<td>'+tpInp(pfx+'.size.'+s,'')+'</td>';}); return h+'</tr></table>'; }
+function tpColorSpecHTML(it,pfx,label,ph){ var colors=(it.colors&&it.colors.length)?it.colors:['']; var h='<table class="tp-tbl"><tr><th style="width:130px">옷 컬러</th><th>'+tpEsc(label)+'</th></tr>'; colors.forEach(function(c){ h+='<tr><td><span class="tp-sw"><i style="background:'+tpColorHex(c)+'"></i>'+(tpEsc(c)||'-')+'</span></td><td class="l">'+tpInpL(pfx+'.color.'+c,ph)+'</td></tr>'; }); return h+'</table>'; }
+
+function tpRender(){
+  var it=tpItem(); if(!it)return; var qb=tpQtyBreakdown(it);
+  var hasEmb=!!it.embroideryFcId, hasPrt=!!it.printingFcId;
+  var active=_tpTab; if((active==='emb'&&!hasEmb)||(active==='prt'&&!hasPrt))active=_tpTab='cut';
+  var brand=tpBrandName(it), sewFc=tpFcName(it.sewingFcId), embFc=tpFcName(it.embroideryFcId), prtFc=tpFcName(it.printingFcId);
+  function on(t){return active===t?' on':'';}
+  var head='<div class="tp-sheet"><div class="tp-thead"><div class="tt">작업지시서 <span>WORK ORDER</span></div><div class="co">'+tpEsc(brand)+'</div></div><table class="tp-meta"><tr><th>브랜드</th><td>'+tpEsc(brand)+'</td><th>시즌</th><td>'+tpEsc(it.season||'')+'</td><th>품번</th><td>'+tpEsc(it.code||'')+'</td></tr><tr><th>품명</th><td colspan="3">'+tpEsc(it.name||'')+'</td><th>봉제</th><td>'+tpEsc(sewFc)+'</td></tr></table></div>';
+  var tabs='<div class="tp-tabs"><div class="tp-tab'+on('cut')+'" data-tab="cut" onclick="tpTab(\'cut\')">✂️ 재단</div><div class="tp-tab'+on('sew')+'" data-tab="sew" onclick="tpTab(\'sew\')">🪡 봉제</div><div class="tp-tab'+on('pack')+'" data-tab="pack" onclick="tpTab(\'pack\')">📦 포장</div>'+(hasEmb?'<div class="tp-tab cond'+on('emb')+'" data-tab="emb" onclick="tpTab(\'emb\')">🧵 자수</div>':'')+(hasPrt?'<div class="tp-tab cond'+on('prt')+'" data-tab="prt" onclick="tpTab(\'prt\')">🎨 나염</div>':'')+'</div>';
+  // 재단
+  var cut='<div class="tp-panel'+on('cut')+'" data-panel="cut">'+tpCbarHTML(it,qb,true)
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">🧵 원단 정보<span class="tp-tag a">자동</span></div>'+tpFabricTableHTML(it)+'</div>'
+    +(tpHasCord(it)?'<div class="tp-warn tp-span2"><span>⚠️</span><div>골(식서) 방향 주의 — 코듀로이·골덴은 결방향 틀리면 색·광택이 달라집니다. 전 부위 결방향 동일하게.<small>원단이 골덴/코듀로이/벨벳일 때 자동 표시</small></div></div>':'')
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">✍️ 재단 메모<span class="tp-tag m">직접입력</span></div><div class="tp-sb">'+tpMemo('cut.memo','시접, 노치 위치, 부위별 원단 매칭 등')+'</div></div>'
+    +'</div>';
+  // 봉제
+  var sew='<div class="tp-panel'+on('sew')+'" data-panel="sew">'+tpCbarHTML(it,qb,false)
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">📷 도식화<span class="tp-tag m">업로드</span></div><div class="tp-sb" style="padding:0">'+tpImgZone('sewSketch','도식화 이미지 (앞뒤 한 장 크게)','big')+'</div></div>'
+    +'<div class="tp-sec"><div class="tp-sec-h">🪡 봉제 범례 (스티치)<span class="tp-tag m">직접입력</span></div><div class="tp-sb">'+tpLegendHTML()+'</div></div>'
+    +'<div class="tp-sec"><div class="tp-sec-h">🔩 부자재 부착<span class="tp-tag a">자동</span></div>'+tpTrimTableHTML(it)+'</div>'
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">🖼 라벨 · 부자재 실물 사진<span class="tp-tag m">업로드</span></div><div class="tp-sb"><div class="tp-grid3"><div>'+tpImgZone('labelMain','','mid')+'<div class="tp-cap">메인라벨</div></div><div>'+tpImgZone('labelCare','','mid')+'<div class="tp-cap">케어라벨</div></div><div>'+tpImgZone('labelTrim','','mid')+'<div class="tp-cap">스냅 / 단추</div></div></div></div></div>'
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">📏 완성 치수 (Size Spec)<span class="tp-tag m">직접입력</span></div><div class="tp-sb">'+tpSpecHTML(it)+'</div></div>'
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">🧼 워싱 / 후가공<span class="tp-tag m">직접입력</span></div><div class="tp-sb">'+tpFieldI('sew.wash','워싱: 노말')+'</div></div>'
+    +'</div>';
+  // 포장
+  var pack='<div class="tp-panel'+on('pack')+'" data-panel="pack">'+tpCbarHTML(it,qb,true)
+    +'<div class="tp-sec"><div class="tp-sec-h">🏷 택 SET 구성<span class="tp-tag a">자동</span></div><div class="tp-sb">'+tpTagChips(it)+'</div></div>'
+    +'<div class="tp-sec"><div class="tp-sec-h">📍 패킹 / 검품 메모<span class="tp-tag m">직접입력</span></div><div class="tp-sb">'+tpMemo('pack.memo','택 위치, 폴리백 접는 법, 낱장/세트, 검품 포인트')+'</div></div>'
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">🖼 택 부착 · 패킹 예시 사진<span class="tp-tag m">업로드</span></div><div class="tp-sb"><div class="tp-grid2"><div>'+tpImgZone('packTag','','mid')+'<div class="tp-cap">택 부착 위치</div></div><div>'+tpImgZone('packPoly','','mid')+'<div class="tp-cap">폴리백 패킹</div></div></div></div></div>'
+    +'</div>';
+  // 자수
+  var emb=''; if(hasEmb){ emb='<div class="tp-panel'+on('emb')+'" data-panel="emb"><div class="tp-info tp-span2"><span>🧵</span><div>자수 공장 지정 품목 · 자수공장 <b>'+tpEsc(embFc||'-')+'</b></div></div>'+tpCbarHTML(it,qb,true)
+    +'<div class="tp-sec"><div class="tp-sec-h">📷 자수 도안<span class="tp-tag m">업로드</span></div><div class="tp-sb" style="padding:0">'+tpImgZone('embDesign','자수 시안','mid')+'</div></div>'
+    +'<div class="tp-sec"><div class="tp-sec-h">📍 위치 표시<span class="tp-tag m">업로드</span></div><div class="tp-sb" style="padding:0">'+tpImgZone('embPlace','위치 이미지','mid')+'</div></div>'
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">📐 자수 사양 (사이즈·컬러별)<span class="tp-tag m">직접입력</span></div><div class="tp-sb"><div class="tp-subt">① 사이즈별 위치 · 크기 <small>같으면 동일</small></div>'+tpPosHTML(it,'emb')+'<div class="tp-subt" style="margin-top:13px">② 컬러별 자수 실컬러</div>'+tpColorSpecHTML(it,'emb','자수 실컬러 (팬톤/번호)','예: 카멜 #1755')+'<div class="tp-subt" style="margin-top:13px">③ 공통</div><table class="tp-tbl"><tr><td class="rl">기법</td><td class="l">'+tpInpL('emb.kind','직자수 / 런닝자수 · 1도')+'</td></tr><tr><td class="rl">밀도·백킹</td><td class="l">'+tpInpL('emb.density','땀밀도 / 심지')+'</td></tr></table></div></div></div>'; }
+  // 나염
+  var prt=''; if(hasPrt){ prt='<div class="tp-panel'+on('prt')+'" data-panel="prt"><div class="tp-info tp-span2"><span>🎨</span><div>나염 공장 지정 품목 · 나염공장 <b>'+tpEsc(prtFc||'-')+'</b></div></div>'+tpCbarHTML(it,qb,true)
+    +'<div class="tp-sec"><div class="tp-sec-h">📷 나염 시안<span class="tp-tag m">업로드</span></div><div class="tp-sb" style="padding:0">'+tpImgZone('prtDesign','나염 시안','mid')+'</div></div>'
+    +'<div class="tp-sec"><div class="tp-sec-h">📍 위치 표시<span class="tp-tag m">업로드</span></div><div class="tp-sb" style="padding:0">'+tpImgZone('prtPlace','위치 이미지','mid')+'</div></div>'
+    +'<div class="tp-sec tp-span2"><div class="tp-sec-h">📐 나염 사양 (사이즈·컬러별)<span class="tp-tag m">직접입력</span></div><div class="tp-sb"><div class="tp-subt">① 사이즈별 위치 · 크기 <small>같으면 동일</small></div>'+tpPosHTML(it,'prt')+'<div class="tp-subt" style="margin-top:13px">② 컬러별 나염 컬러 (도수)</div>'+tpColorSpecHTML(it,'prt','나염 컬러 / 도수','예: 블랙 1도 / 백색받침')+'<div class="tp-subt" style="margin-top:13px">③ 공통</div><table class="tp-tbl"><tr><td class="rl">종류</td><td class="l">'+tpInpL('prt.kind','실크 / 전사 / 발포 / DTG')+'</td></tr><tr><td class="rl">바탕 받침</td><td class="l">'+tpInpL('prt.base','어두운 바탕 백색 받침 등')+'</td></tr></table></div></div></div>'; }
+
+  var doc=document.getElementById('tp-doc');
+  doc.innerHTML=head+tabs+cut+sew+pack+emb+prt;
+  doc.classList.toggle('land',_tpOrient==='landscape');
+}
+
+function tpTab(id){ _tpTab=id; var els=document.querySelectorAll('#tp-modal .tp-tab'); for(var i=0;i<els.length;i++)els[i].classList.toggle('on',els[i].dataset.tab===id); var ps=document.querySelectorAll('#tp-modal .tp-panel'); for(var j=0;j<ps.length;j++)ps[j].classList.toggle('on',ps[j].dataset.panel===id); }
+function tpOrient(o){ _tpOrient=o; var d=document.getElementById('tp-doc'); if(d)d.classList.toggle('land',o==='landscape'); var pr=document.getElementById('tp-page-rule'); if(pr)pr.textContent='@page{size:A4 '+o+';margin:10mm;}'; var bl=document.getElementById('tp-bL'),bp=document.getElementById('tp-bP'); if(bl)bl.classList.toggle('on',o==='landscape'); if(bp)bp.classList.toggle('on',o!=='landscape'); }
+function tpPrint(){ document.body.classList.add('tp-printing'); var clean=function(){ document.body.classList.remove('tp-printing'); window.removeEventListener('afterprint',clean); }; window.addEventListener('afterprint',clean); setTimeout(function(){ try{window.print();}catch(e){clean();} },80); }
+function tpOpen(id){ var it=S.items&&S.items[id]; if(!it){ if(typeof showToast==='function')showToast('아이템을 찾을 수 없어요'); return; } _tpItemId=id; _tpTab='cut'; tpEnsureFileInput(); tpRender(); tpOrient(_tpOrient||'portrait'); var m=document.getElementById('tp-modal'); m.style.display='block'; m.scrollTop=0; document.body.style.overflow='hidden'; }
+function tpClose(){ document.getElementById('tp-modal').style.display='none'; document.body.style.overflow=''; }
 </script>
 </body>
 </html>
