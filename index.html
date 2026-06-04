@@ -8332,7 +8332,7 @@ function refreshOrderSuppliers(o){
   const meta={};
   for(const sn in o.suppliers){
     const s=o.suppliers[sn];
-    meta[sn]={status:s.status,orderDate:s.orderDate,sentAt:s.sentAt,poOpts:s.poOpts,recipient:s.recipient,deliveryFcId:s.deliveryFcId,confirmDate:s.confirmDate,expectedShipDate:s.expectedShipDate,arrived:s.arrived,arrivedDate:s.arrivedDate,arrivalDate:s.arrivalDate,fabricReadyColors:s.fabricReadyColors,trimReadyItems:s.trimReadyItems,invoiceReceived:s.invoiceReceived,actualShipDate:s.actualShipDate};
+    meta[sn]={status:s.status,orderDate:s.orderDate,sentAt:s.sentAt,poOpts:s.poOpts,recipient:s.recipient,deliveryFcId:s.deliveryFcId,confirmDate:s.confirmDate,confirmDone:s.confirmDone,confirmDoneDate:s.confirmDoneDate,expectedShipDate:s.expectedShipDate,arrived:s.arrived,arrivedDate:s.arrivedDate,arrivalDate:s.arrivalDate,fabricReadyColors:s.fabricReadyColors,trimReadyItems:s.trimReadyItems,invoiceReceived:s.invoiceReceived,actualShipDate:s.actualShipDate};
   }
   // 3) 재계산 (최신 아이템 정의 반영)
   let fresh;
@@ -10661,7 +10661,7 @@ function renderProdDash(){
   const shippedRows=rows.filter(r=>r.shipDone);           // 출고 완료
   const urgentRows=activeRows.filter(r=>r.dday!==null&&r.dday<=3);
   // 원단 컨펌일(confirmDate) 임박: 입고완료 안 된 원단처 중 컨펌예정 D-3 이내(지남 포함)
-  const _confDday=(r)=>{var best=null;var sups=(r.o&&r.o.suppliers)||{};(r.it.fabrics||[]).forEach(function(f){var sn=f.supplier;if(!sn)return;var sp=sups[sn];if(!sp||sp.arrived||!sp.confirmDate)return;var dd=null;try{dd=Math.ceil((new Date(sp.confirmDate)-new Date(todayISO()))/86400000);}catch(e){}if(dd!==null&&(best===null||dd<best))best=dd;});return best;};
+  const _confDday=(r)=>{var best=null;var sups=(r.o&&r.o.suppliers)||{};var pc=(r.o&&r.o._prepConfirmed)||{};var pa=(r.o&&r.o._prepArrived)||{};(r.it.fabrics||[]).forEach(function(f){var sn=f.supplier;if(!sn)return;var sp=sups[sn];if(!sp||sp.arrived||pa[sn]||sp.confirmDone||pc[sn]||!sp.confirmDate)return;var dd=null;try{dd=Math.ceil((new Date(sp.confirmDate)-new Date(todayISO()))/86400000);}catch(e){}if(dd!==null&&(best===null||dd<best))best=dd;});return best;};
   const confirmRows=activeRows.filter(r=>{var d=_confDday(r);return d!==null&&d<=3;});
   // 통계 (보기 모드와 무관, 항상 전체 기준)
   const totalItems=activeRows.length;
@@ -10962,17 +10962,16 @@ function renderProdDashRow(r){
       let rows=sups.map(sn=>{
         var sp=(r.o.suppliers||{})[sn]||{};var enc=encodeURIComponent(sn);
         var cd=sp.confirmDate||'',sd=sp.expectedShipDate||'',ar=!!((r.o._prepArrived&&r.o._prepArrived[sn])||sp.arrived);
-        var cdd=null;if(cd&&!ar){try{cdd=Math.ceil((new Date(cd)-new Date(todayISO()))/86400000);}catch(e){}}
+        var cdone=!!((r.o._prepConfirmed&&r.o._prepConfirmed[sn])||sp.confirmDone);
+        var cdd=null;if(cd&&!cdone&&!ar){try{cdd=Math.ceil((new Date(cd)-new Date(todayISO()))/86400000);}catch(e){}}
         var cBadge=(cdd!==null&&cdd<=3)?(cdd<0?'<span class="pd-prep-dday late">지연 '+(-cdd)+'</span>':'<span class="pd-prep-dday warn">D-'+cdd+'</span>'):'';
         var _dlbl='display:inline-block;width:15px;font-size:10px;color:#6b7280;flex-shrink:0';
-        var _din='font-size:11px;padding:2px 4px;width:118px;font-family:inherit';
+        var _din='font-size:11px;padding:2px 4px;width:104px;font-family:inherit';
+        var _chk=function(attr,fn,on){return '<label style="display:inline-flex;align-items:center;gap:3px;font-size:10px;flex-shrink:0;'+(on?'color:#059669;font-weight:700':'color:#6b7280')+'"><input type="checkbox" '+(on?'checked':'')+' data-oid="'+esc(r.o.id)+'" data-sup="'+enc+'" '+attr+' onchange="'+fn+'(this)">완료</label>';};
         return `<div class="pd-sup-row" style="padding:5px 0;border-top:1px dashed #ececec">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-            <span style="font-weight:700;font-size:12.5px">${esc(sn||'—')}</span>
-            <label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;${ar?'color:#059669;font-weight:700':'color:#6b7280'}"><input type="checkbox" ${ar?'checked':''} data-oid="${esc(r.o.id)}" data-sup="${enc}" data-suparrived onchange="pdSaveSupArrived(this)">완료</label>
-          </div>
-          ${kind==='fab'?`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px"><span style="${_dlbl}">컨</span><input type="date" value="${esc(cd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="confirmDate" data-kind="${kind}" onchange="pdSaveSupField(this)" style="${_din}">${cBadge}</div>`:''}
-          <div style="display:flex;align-items:center;gap:5px"><span style="${_dlbl}">입</span><input type="date" value="${esc(sd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="expectedShipDate" data-kind="${kind}" onchange="pdSaveSupField(this)" style="${_din}"></div>
+          <div style="font-weight:700;font-size:12.5px;margin-bottom:4px">${esc(sn||'—')}</div>
+          ${kind==='fab'?`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;flex-wrap:wrap"><span style="${_dlbl}">컨</span><input type="date" value="${esc(cd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="confirmDate" data-kind="${kind}" onchange="pdSaveSupField(this)" style="${_din}">${cBadge}${_chk('data-supconfirmed','pdSaveSupConfirmed',cdone)}</div>`:''}
+          <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap"><span style="${_dlbl}">입</span><input type="date" value="${esc(sd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="expectedShipDate" data-kind="${kind}" onchange="pdSaveSupField(this)" style="${_din}">${_chk('data-suparrived','pdSaveSupArrived',ar)}</div>
         </div>`;
       }).join('');
       return `<td class="pd-proc">
@@ -11423,6 +11422,17 @@ function pdSaveSupArrived(el){
   o.suppliers[sn].arrivedDate=el.checked?todayISO():'';
   // order-level에도 저장 — 공급사 객체가 재계산돼도 완료 상태 유지(안 풀림)
   if(!o._prepArrived)o._prepArrived={};o._prepArrived[sn]=el.checked;
+  saveData();renderProdDash&&renderProdDash();
+}
+function pdSaveSupConfirmed(el){
+  var oid=el.dataset.oid,sn=decodeURIComponent(el.dataset.sup||'');
+  var o=S.orders[oid];if(!o)return;
+  if(!o.suppliers)o.suppliers={};
+  if(!o.suppliers[sn])o.suppliers[sn]=(typeof mkSup==='function'?mkSup():{});
+  o.suppliers[sn].confirmDone=el.checked;
+  o.suppliers[sn].confirmDoneDate=el.checked?todayISO():'';
+  // order-level에도 저장 — 공급사 객체가 재계산돼도 컨펌 완료 상태 유지(안 풀림)
+  if(!o._prepConfirmed)o._prepConfirmed={};o._prepConfirmed[sn]=el.checked;
   saveData();renderProdDash&&renderProdDash();
 }
 function pdSavePrepDone(el){
