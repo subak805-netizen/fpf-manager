@@ -7526,16 +7526,14 @@ function genPoText(order,sn){
       L.push('> '+fc.name);
     }
   }
-  // ➕ 재단 초과분 추가 발주 (이 거래처분) — 발주서에도 표기
-  var _exLines=[];
+  // ➕ 추가 발주 (이 거래처분) — 추가수량으로 별도 표기
   (order.extraOrders||[]).forEach(function(ex){
     var g=ex.bySupplier&&ex.bySupplier[sn];if(!g||!g.lines)return;
-    g.lines.forEach(function(l){if((+l.qty||0)<=0)return;_exLines.push('· '+l.name+' '+num(l.qty)+((l.unit||'').replace(/yard|야드/,'y'))+' (추가+'+ex.qty+'장)');});
+    var lns=g.lines.filter(function(l){return (+l.qty||0)>0;});if(!lns.length)return;
+    var sum=(typeof _exGridSum==='function')?_exGridSum(ex.addGrid):'';
+    L.push('');L.push('━━━━━━━━━━');L.push('➕ 추가 발주'+(ex.date?' ('+ex.date+')':'')+' +'+ex.qty+'장'+(sum?' — '+sum:''));
+    lns.forEach(function(l){L.push('· '+l.name+' +'+num(l.qty)+((l.unit||'').replace(/yard|야드/,'y')));});
   });
-  if(_exLines.length){
-    L.push('');L.push('━━━━━━━━━━');L.push('➕ 추가 발주 (재단 초과분)');
-    _exLines.forEach(function(x){L.push(x);});
-  }
   return L.join('\n').trimEnd();
 }
 
@@ -9502,6 +9500,7 @@ function renderProdTab(o){
       <div class="muted" style="font-size:11px;margin-top:4px">결제는 결제 관리 탭에서 확인하세요</div>
     </div></div>`;
   }).join('')}
+  <div style="margin-top:16px;border-top:2px solid var(--bd);padding-top:12px"><button class="btn s" onclick="openExtraOrderFromTab('${o.id}')" style="background:#e6f6ee;border-color:#15803d;color:#15803d;font-weight:700">➕ 추가 발주 만들기</button> <span class="muted" style="font-size:11px">메인 수량은 그대로, 추가분만 별도 발주서</span></div>
   ${extraOrdersSectionHTML(o)}
   <div style="margin-top:18px;border-top:2px solid var(--bd);padding-top:14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">📋 생산 추적 <span style="font-weight:400;color:var(--t2);font-size:11px">(컬러·수량·요척·원가·불량)</span></div><div id="prod-track-wrap"></div></div>
   <div style="margin-top:18px;border-top:2px solid var(--bd);padding-top:14px"><div style="font-size:13px;font-weight:700;margin-bottom:3px">🧵 부자재 잔량 · 회수</div><div class="muted" style="font-size:11px;margin-bottom:8px">공장에 보낸 자재 중 "남아야 할 양"을 자동 계산해 회수 근거로 쓰세요</div><div id="trim-recov-${o.id}">${trimRecoveryHTML(o)}</div></div>`;
@@ -9535,9 +9534,15 @@ function extraTrimNeed(t,baseQty,extraQty){
 }
 function openExtraOrder(oid,itemId,extraDefault){
   window._extraOrderCtx={oid:oid,itemId:itemId};
-  renderExtraOrder(extraDefault);
+  window._extraAddGrid={};
+  renderExtraOrder();
   var m=document.getElementById('extra-order-modal');if(m)m.style.display='flex';
 }
+function openExtraOrderFromTab(oid){var o=S.orders[oid];if(!o||!o.orderItems||!o.orderItems.length){showToast('아이템이 없어요');return;}openExtraOrder(oid,o.orderItems[0].itemId);}
+function extraGridTotal(){var g=window._extraAddGrid||{},t=0;Object.keys(g).forEach(function(c){Object.keys(g[c]).forEach(function(z){t+=+g[c][z]||0;});});return t;}
+function extraGridChange(){var g={};document.querySelectorAll('#extra-order-body input[data-exg]').forEach(function(inp){var ps=inp.dataset.exg.split('|'),v=+inp.value||0;if(v>0){if(!g[ps[0]])g[ps[0]]={};g[ps[0]][ps[1]]=v;}});window._extraAddGrid=g;renderExtraOrder();}
+function _exGridSum(g){var parts=[];Object.keys(g||{}).forEach(function(c){var zs=Object.keys(g[c]).filter(function(z){return +g[c][z]>0;});if(!zs.length)return;parts.push((c&&c!==''?c+' ':'')+zs.map(function(z){return (z&&z!=='free'?z:'')+g[c][z];}).join('·'));});return parts.join(' / ');}
+function extraGridSummary(){return _exGridSum(window._extraAddGrid);}
 function extraOrderBySupplier(oid,itemId,extraQty){
   var o=S.orders[oid];var it=S.items[itemId];if(!o||!it)return {};
   var baseQty=extraOrderBaseQty(o,itemId);var bySup={};
@@ -9548,44 +9553,73 @@ function extraOrderBySupplier(oid,itemId,extraQty){
     bySup[sup].lines.push({name:trimLabel(t),qty:n.qty,unit:n.unit,amount:n.amount,trimId:t.id,up:(n.qty?Math.round(n.amount/n.qty):(t.unitPrice||0))});
     bySup[sup].total+=n.amount;
   });
+  // 원단 증분 (요척 × 추가수량 × (1+로스)) — 야드 발주
+  (it.fabrics||[]).forEach(function(f){
+    var per=+f.consumption||0;if(per<=0)return;
+    var loss=(f.buffer!=null?+f.buffer:0)/100;
+    var fy=Math.ceil(per*extraQty*(1+loss)*10)/10;if(fy<=0)return;
+    var sup=f.supplier||'미지정';if(!bySup[sup])bySup[sup]={lines:[],total:0};
+    var up=+f.unitPrice||0;var amt=Math.round(fy*up);
+    bySup[sup].lines.push({name:(f.part?f.part+' ':'')+(f.name||'원단'),qty:fy,unit:'y',amount:amt,fabId:f.id,up:up});
+    bySup[sup].total+=amt;
+  });
   return bySup;
 }
-function renderExtraOrder(extraQty){
+function renderExtraOrder(){
   var ctx=window._extraOrderCtx;if(!ctx)return;
   var it=S.items[ctx.itemId];if(!it)return;
-  extraQty=Math.max(0,Math.round(+extraQty||0));
+  if(!window._extraAddGrid)window._extraAddGrid={};
+  var g=window._extraAddGrid;
+  var colors=it.colors&&it.colors.length?it.colors:[''];
+  var sizes=it.sizes&&it.sizes.length?it.sizes:[''];
+  var realSizes=sizes.filter(function(z){return z&&z!=='free';});
+  var hasC=colors.length>1||(colors[0]&&colors[0]!=='');
+  var sCols=realSizes.length?realSizes:['수량'];
+  var extraQty=extraGridTotal();
+  var summary=extraGridSummary();
   var bySup=extraOrderBySupplier(ctx.oid,ctx.itemId,extraQty);
   var brand=getBrandName(it.brandId)||'';
   var html='<div class="fb" style="margin-bottom:10px"><b>➕ 추가 발주 — '+esc(it.name)+'</b><button class="btn s" onclick="closeModal(\'extra-order-modal\')">✕</button></div>';
-  html+='<div style="font-size:12px;color:var(--t2);margin-bottom:8px">재단이 오더보다 더 나온 만큼 부자재·라벨을 추가로 발주해요. <b>이미 넉넉히 발주한 자재(메인라벨·롤 등)는 0으로 잡혀요.</b></div>';
-  html+='<div class="fg"><label>추가 발주 수량 (장)</label><input type="number" id="extra-qty-input" value="'+extraQty+'" min="0" onchange="renderExtraOrder(this.value)" style="font-size:14px;font-weight:600"></div>';
+  html+='<div style="font-size:12px;color:var(--t2);margin-bottom:8px">메인 수량은 그대로 두고 <b>추가된 수량만</b> 입력하세요. 거래처별 <b>독립 추가 발주서</b>가 생겨 그것만 복사/카톡으로 보냅니다.</div>';
+  html+='<table class="qty-grid" style="margin-bottom:8px"><thead><tr>'+(hasC?'<th>컴러</th>':'')+sCols.map(function(z){return '<th>'+esc(z)+'</th>';}).join('')+'<th>추가합계</th></tr></thead><tbody>';
+  colors.forEach(function(c){
+    var ct=0;
+    var cells=sCols.map(function(z){
+      var key=realSizes.length?z:(sizes[0]||'free');
+      var v=(g[c]&&g[c][key])||'';ct+=+v||0;
+      return '<td><input type="number" min="0" data-exg="'+esc(c)+'|'+esc(key)+'" value="'+v+'" onchange="extraGridChange()" style="width:50px;text-align:center;padding:3px;font-size:13px"></td>';
+    }).join('');
+    html+='<tr>'+(hasC?'<td class="clr-lbl">'+esc(c||'기본')+'</td>':'')+cells+'<td class="tot">'+(ct||'')+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  html+='<div style="text-align:right;font-size:12px;margin-bottom:8px">추가 합계: <b style="color:var(--blue)">'+extraQty+'장</b>'+(summary?' <span style="color:var(--t2);font-size:11px">('+esc(summary)+')</span>':'')+'</div>';
   var sups=Object.keys(bySup);
-  if(!extraQty||!sups.length){html+='<div class="muted" style="padding:14px;text-align:center;font-size:12px">'+(extraQty?'추가로 발주할 부자재가 없어요 (이미 충분)':'추가 수량을 입력하세요')+'</div>';}
+  if(!extraQty){html+='<div class="muted" style="padding:12px;text-align:center;font-size:12px">추가 수량을 입력하세요</div>';}
+  else if(!sups.length){html+='<div class="muted" style="padding:12px;text-align:center;font-size:12px">추가로 발주할 자재가 없어요 (이미 충분)</div>';}
   else{
-    var grand=0;sups.forEach(function(s){grand+=bySup[s].total;});
-    html+='<div style="font-size:11px;font-weight:700;color:var(--t2);margin:6px 0 4px">거래처별 추가 발주 <span style="color:var(--blue)">· 합계 '+num(grand)+'원</span></div>';
+    var grand=0;sups.forEach(function(x){grand+=bySup[x].total;});
+    html+='<div style="font-size:11px;font-weight:700;color:var(--t2);margin:6px 0 4px">거래처별 독립 추가 발주서 <span style="color:var(--blue)">· 합계 '+num(grand)+'원</span></div>';
     sups.forEach(function(sup){
-      var g=bySup[sup];
-      var txt='[추가 발주] '+(brand?brand+' ':'')+it.name+' (+'+extraQty+'장)\n'+g.lines.map(function(l){return '· '+l.name+' '+num(l.qty)+l.unit;}).join('\n');
-      html+='<div class="card" style="padding:10px;margin-bottom:8px"><div class="fb"><b style="font-size:12px">🔩 '+esc(sup)+'</b><b style="font-size:11px;color:var(--blue)">'+num(g.total)+'원</b></div>';
-      html+=g.lines.map(function(l){return '<div style="font-size:12px;display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--bd)"><span>'+esc(l.name)+'</span><span><b>'+num(l.qty)+esc(l.unit)+'</b> <span style="color:var(--t2);font-size:10px">'+num(l.amount)+'원</span></span></div>';}).join('');
+      var gg=bySup[sup];
+      var txt='[추가발주] '+(brand?brand+' ':'')+it.name+' ('+todayISO()+')'+(summary?'\n'+summary:'')+'\n'+gg.lines.map(function(l){return '· '+l.name+' +'+num(l.qty)+(l.unit||'');}).join('\n');
+      html+='<div class="card" style="padding:10px;margin-bottom:8px"><div class="fb"><b style="font-size:12px">'+esc(sup)+' <span style="font-size:10px;color:#15803d">추가발주</span></b><b style="font-size:11px;color:var(--blue)">'+num(gg.total)+'원</b></div>';
+      html+=gg.lines.map(function(l){return '<div style="font-size:12px;display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--bd)"><span>'+esc(l.name)+'</span><span><b>+'+num(l.qty)+esc(l.unit||'')+'</b> <span style="color:var(--t2);font-size:10px">'+num(l.amount)+'원</span></span></div>';}).join('');
       html+='<div class="fr" style="gap:5px;margin-top:8px"><button class="btn s" style="background:#FEE500;color:#3C1E1E;font-weight:700" onclick=\'sharePaySheet('+JSON.stringify(txt)+',"")\'>💬 카톡</button><button class="btn s" onclick=\'navigator.clipboard.writeText('+JSON.stringify(txt)+').then(function(){showToast("📋 복사됨")})\'>📋 복사</button></div></div>';
     });
-    html+='<button class="btn p" style="width:100%;margin-top:6px;padding:11px" onclick="confirmExtraOrder()">✓ 발주 확정 (발주서·결제에 추가)</button>';
-    html+='<div style="font-size:10px;color:var(--t2);text-align:center;margin-top:5px">확정하면 발주서 하단·결제 명세서에 추가분이 기록되고, 입고 체크도 생겨요</div>';
+    html+='<button class="btn p" style="width:100%;margin-top:6px;padding:11px" onclick="confirmExtraOrder()">✓ 추가 발주 확정 (발주서·결제에 반영)</button>';
   }
   var b=document.getElementById('extra-order-body');if(b)b.innerHTML=html;
 }
 function confirmExtraOrder(){
   var ctx=window._extraOrderCtx;if(!ctx)return;
   var o=S.orders[ctx.oid];var it=S.items[ctx.itemId];if(!o||!it)return;
-  var extraQty=Math.max(0,Math.round(+(document.getElementById('extra-qty-input')?document.getElementById('extra-qty-input').value:0)||0));
+  var extraQty=extraGridTotal();
   if(!extraQty){showToast('추가 수량을 입력하세요');return;}
   var bySup=extraOrderBySupplier(ctx.oid,ctx.itemId,extraQty);
-  if(!Object.keys(bySup).length){showToast('추가로 발주할 부자재가 없어요');return;}
+  if(!Object.keys(bySup).length){showToast('추가로 발주할 자재가 없어요');return;}
   Object.keys(bySup).forEach(function(s){bySup[s].arrived=false;bySup[s].arrivedDate='';});
   if(!o.extraOrders)o.extraOrders=[];
-  o.extraOrders.push({id:'ex_'+Date.now(),itemId:ctx.itemId,itemName:it.name,qty:extraQty,date:todayISO(),bySupplier:bySup});
+  o.extraOrders.push({id:'ex_'+Date.now(),itemId:ctx.itemId,itemName:it.name,qty:extraQty,addGrid:JSON.parse(JSON.stringify(window._extraAddGrid||{})),date:todayISO(),bySupplier:bySup});
   saveData();closeModal('extra-order-modal');renderOTab();showToast('✅ 추가 발주 확정 — 발주서·결제에 반영됐어요');
 }
 function toggleExtraArrived(oid,exId,sup){
