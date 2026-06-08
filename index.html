@@ -3367,9 +3367,10 @@ function saveToPB(item){
       pbEntry.buttonStyle=t.buttonStyle||'';
       pbEntry.hasButtonLogo=!!t.hasButtonLogo;
       pbEntry.buttonLogoText=t.buttonLogoText||'';
+      pbEntry.buttonLogoStyle=t.buttonLogoStyle||'';
     }
-    // 사이즈-단가 표 보존 (지퍼·단추 공용)
-    if((t.orderType==='zipper'||t.orderType==='button')&&t.sizeRates&&t.sizeRates.length>0){
+    // 사이즈-단가 표 보존 (지퍼·단추 + 롤·야드 심지류 절당yard 포함)
+    if((t.orderType==='zipper'||t.orderType==='button'||t.orderType==='roll'||t.orderType==='yard')&&t.sizeRates&&t.sizeRates.length>0){
       pbEntry.sizeRates=t.sizeRates;
     }
     getPB(t.supplier).materials[key]=pbEntry;
@@ -3615,18 +3616,19 @@ function autofillTrim(r){
       if(input&&!input.value&&pair[1])input.value=pair[1];
     });
     var trIdxB=(r.id||'').replace('tr-','');
-    if(formTrims[trIdxB]&&!formTrims[trIdxB].hasButtonLogo&&(e.hasButtonLogo||e.buttonLogoText)){
+    if(formTrims[trIdxB]&&!formTrims[trIdxB].hasButtonLogo&&(e.hasButtonLogo||e.buttonLogoText||e.buttonLogoStyle)){
       formTrims[trIdxB].hasButtonLogo=!!e.hasButtonLogo;
       formTrims[trIdxB].buttonLogoText=e.buttonLogoText||'';
+      formTrims[trIdxB].buttonLogoStyle=e.buttonLogoStyle||'';
     }
   }
   // 사이즈-단가 표 자동 채우기 (메모리에만 — 다음 렌더 시 표시)
-  if((e.orderType==='zipper'||e.orderType==='button')&&e.sizeRates&&e.sizeRates.length>0){
+  if((e.orderType==='zipper'||e.orderType==='button'||e.orderType==='roll'||e.orderType==='yard')&&e.sizeRates&&e.sizeRates.length>0){
     // 현재 폼의 인덱스 찾아서 sizeRates 주입
     var trId=r.id||'';
     var trIdx=trId.replace('tr-','');
     if(formTrims[trIdx]&&(!formTrims[trIdx].sizeRates||formTrims[trIdx].sizeRates.length===0)){
-      formTrims[trIdx].sizeRates=e.sizeRates.map(function(sr){return {size:sr.size||'',price:+sr.price||0};});
+      formTrims[trIdx].sizeRates=e.sizeRates.map(function(sr){return {size:sr.size||'',price:+sr.price||0,yardsPerRoll:+sr.yardsPerRoll||0};});
       // 다시 렌더해서 사이즈 단가표가 보이게
       setTimeout(function(){renderTrimRows();showToast('💡 사이즈-단가표도 자동 불러옴');},100);
     }
@@ -4292,7 +4294,7 @@ function importJobSheet(txt){
     // 부자재
     var trims=(d.trims||[]).map(function(t){
       var ot=t.orderType||'count';var base;
-      if(ot==='button')base={id:uid(),supplier:'',name:'단추',orderType:'button',buttonSize:'',buttonStyle:'',hasButtonLogo:false,buttonLogoText:'',unitPrice:0,qtyPerPiece:1,buffer:TL,sizeRates:[],colorLinks:[]};
+      if(ot==='button')base={id:uid(),supplier:'',name:'단추',orderType:'button',buttonSize:'',buttonStyle:'',hasButtonLogo:false,buttonLogoText:'',buttonLogoStyle:'',unitPrice:0,qtyPerPiece:1,buffer:TL,sizeRates:[],colorLinks:[]};
       else if(ot==='loop'||ot==='buttonloop')base={id:uid(),supplier:'',name:'단추고리',orderType:'yard',isButtonLoop:true,loopPerPiece:(+t.loopPerPiece||1),loopPerYard:(+t.loopPerYard||0),consumptionPerPiece:0,unitPrice:0,buffer:0,sizeRates:[],colorLinks:[]};
       else if(ot==='yard')base={id:uid(),supplier:'',name:'심지',orderType:'yard',consumptionPerPiece:0.5,unitPrice:0,buffer:TL,sizeRates:[],colorLinks:[]};
       else if(ot==='roll')base={id:uid(),supplier:'',name:'',orderType:'roll',consumptionPerPiece:0,yardsPerRoll:100,unitPrice:0,buffer:TL,sizeRates:[],colorLinks:[]};
@@ -5150,7 +5152,13 @@ function mkColorSec(idx,prefix,colorLinks,showPrice){
     const linked=hasLinks?colorLinks.find(l=>l.itemColor===c):null;
     const on=!!linked;
     const supName=linked?(linked.colorName||''):'';
-    const clPrice=linked&&linked.price!==undefined&&linked.price!==''?linked.price:'';
+    let clPrice=linked&&linked.price!==undefined&&linked.price!==''?linked.price:'';
+    // 컬러별 단가 완전 자동: 체크된 컬러인데 단가 비어있으면 단가장(colorPrices)에서 발주명 기준 자동 채움 (카드 열 때/체크 시)
+    if(showPrice&&on&&(clPrice===''||clPrice===undefined||clPrice===null)&&prefix==='trim'&&formTrims[idx]){
+      const _ct=formTrims[idx];
+      const _pbp=getTrimColorPriceFromPB(_ct.supplier,_ct.name,_ct.size||_ct.buttonSize,(linked.colorName||c));
+      if(_pbp!==undefined){clPrice=_pbp;linked.price=_pbp;}
+    }
     const priceCell=showPrice?`<span style="color:#854f0b;flex-shrink:0;font-size:11px">·</span>
       <input type="number" data-clprice="${encodeURIComponent(c)}" data-prefix="${prefix}" data-idx="${idx}" value="${clPrice}" placeholder="단가" min="0" ${on?'':'disabled'} style="flex:.8;min-width:100px;padding:4px 8px;font-size:12px;text-align:right;${on?'':'background:var(--bg2);opacity:.5'}" oninput="setClrPrice('${prefix}',${idx},'${encodeURIComponent(c)}',this.value)" title="컬러별 단가 (비우면 기본 단가)"><span style="font-size:10px;color:var(--t3);flex-shrink:0">원</span>`:'';
     return`<div style="display:flex;align-items:center;gap:7px;padding:4px 6px;background:${on?'var(--bg)':'transparent'};border-radius:5px;margin-bottom:3px">
@@ -5252,6 +5260,7 @@ function mkSizeRatesSec(i,t,sizeLabel,sizeExample){
   const _empty=rates.length===0;
   let html='<div style="margin-top:6px;padding:'+(_empty?'4px 9px':'8px 10px')+';background:#f5f3ff;border:1px solid #c4b5fd;border-radius:6px">';
   html+='<div style="font-size:11px;font-weight:600;color:#6d28d9;'+(_empty?'':'margin-bottom:6px;')+'display:flex;justify-content:space-between;align-items:center;gap:6px"><span>💰 사이즈별 단가표'+(_empty?' <span class="muted" style="font-weight:400;font-size:9px">사이즈마다 단가 다르면 추가</span>':'')+'</span><button class="btn s" type="button" onclick="addSizeRate('+i+')" style="font-size:10px;padding:2px 8px;white-space:nowrap">+ 행 추가</button></div>';
+  var _showYpr=(t.orderType==='roll'||t.orderType==='yard');
   if(!_empty){
     html+='<div style="display:flex;flex-direction:column;gap:4px">';
     rates.forEach(function(r,idx){
@@ -5259,11 +5268,12 @@ function mkSizeRatesSec(i,t,sizeLabel,sizeExample){
         +'<input data-sr-size="'+idx+'" value="'+esc(r.size||'')+'" placeholder="'+esc(sizeLabel)+'" style="flex:1;font-size:11px;padding:3px 6px">'
         +'<input data-sr-price="'+idx+'" type="number" value="'+(r.price||0)+'" placeholder="단가" style="flex:1;font-size:11px;padding:3px 6px">'
         +'<span style="font-size:10px;color:var(--t2)">원</span>'
+        +(_showYpr?'<input data-sr-ypr="'+idx+'" type="number" value="'+(r.yardsPerRoll||'')+'" placeholder="절당y" style="flex:.8;min-width:60px;font-size:11px;padding:3px 6px" title="이 사이즈의 1롤/1절당 야드수"><span style="font-size:10px;color:var(--t2)">y</span>':'')
         +'<button class="btn s d g" type="button" onclick="rmSizeRate('+i+','+idx+')" style="padding:2px 6px;font-size:10px">🗑</button>'
         +'</div>';
     });
     html+='</div>';
-    html+='<div style="font-size:9px;color:var(--t2);margin-top:5px">💡 위에 현재 사이즈와 단가를 입력하면 표에서 자동 매칭돼요</div>';
+    html+='<div style="font-size:9px;color:var(--t2);margin-top:5px">💡 위에 현재 사이즈를 입력하면 단가'+(_showYpr?'·절당yard가':'가')+' 표에서 자동 매칭돼요</div>';
   }
   html+='</div>';
   return html;
@@ -5290,9 +5300,12 @@ function onTrimSizeChange(i,val){
   if(!formTrims[i])return;
   formTrims[i].size=val;
   const matched=applySizeRateMatch(formTrims[i],val);
-  if(matched!==null&&matched>0){
-    formTrims[i].unitPrice=matched;
-    showToast('💡 '+val+' 단가 자동 적용: '+num(matched)+'원');
+  const matchedRow=applySizeRateRow(formTrims[i],val);
+  const yprApplied=applyRowYardsPerRoll(formTrims[i],matchedRow);
+  if((matched!==null&&matched>0)||yprApplied){
+    if(matched!==null&&matched>0)formTrims[i].unitPrice=matched;
+    var _msg='💡 '+val+(matched>0?' 단가 '+num(matched)+'원':'')+(yprApplied?' · 절당yard '+(+matchedRow.yardsPerRoll)+'y':'')+' 자동 적용';
+    showToast(_msg);
     renderTrimRows();
   }
 }
@@ -5327,6 +5340,19 @@ function applySizeRateMatch(t,curSize){
   const norm=function(s){return (s||'').toString().trim().toLowerCase();};
   const m=t.sizeRates.find(function(r){return norm(r.size)===norm(curSize);});
   return m?(+m.price||0):null;
+}
+// 매칭되는 사이즈 행 전체 반환 (절당yard 등 동반 자동 적용용)
+function applySizeRateRow(t,curSize){
+  if(!t.sizeRates||!t.sizeRates.length||!curSize)return null;
+  const norm=function(s){return (s||'').toString().trim().toLowerCase();};
+  return t.sizeRates.find(function(r){return norm(r.size)===norm(curSize);})||null;
+}
+// 사이즈 행의 절당yard를 타입에 맞는 필드에 적용 (roll=yardsPerRoll, yard+절=yardsPerJeol)
+function applyRowYardsPerRoll(t,row){
+  if(!row||!(+row.yardsPerRoll>0))return false;
+  if(t.orderType==='roll'){t.yardsPerRoll=+row.yardsPerRoll;return true;}
+  if(t.orderType==='yard'){t.yardsPerJeol=+row.yardsPerRoll;return true;}
+  return false;
 }
 
 function trimRowHTML(t,i){
@@ -5556,13 +5582,13 @@ function trimRowHTML(t,i){
       +'<div style="flex:1;min-width:80px"><label>색상</label><input data-f="color" value="'+esc(t.color||'')+'" placeholder="색상" list="dl-clr"></div>'
       +'<div style="flex:.8;min-width:80px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
       +'<label style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;cursor:pointer;margin:0;padding:9px 16px;border:2px solid #6d28d9;border-radius:8px;background:'+(t.hasButtonLogo?'#ddd6fe':'#fff')+';color:#6d28d9;white-space:nowrap;align-self:flex-end"><input type="checkbox" data-f="hasButtonLogo" '+(t.hasButtonLogo?'checked':'')+' onchange="colTR();renderTrimRows()" style="width:17px;height:17px">🔵 로고 인쇄</label>'
-      +(t.hasButtonLogo?'<div style="flex:1.3;min-width:120px"><label style="font-size:10px">로고 내용 <span style="color:#9ca3af">(브랜드별 저장)</span></label><input data-f="buttonLogoText" value="'+esc(t.buttonLogoText||brandButtonLogo())+'" placeholder="예: 12시 THE / 6시 FRUTO"></div>':'')
+      +(t.hasButtonLogo?'<div style="flex:1.3;min-width:120px"><label style="font-size:10px">로고 내용 <span style="color:#9ca3af">(브랜드별 저장)</span></label><input data-f="buttonLogoText" value="'+esc(t.buttonLogoText||brandButtonLogo())+'" placeholder="예: 12시 THE / 6시 FRUTO"></div><div style="flex:1.1;min-width:110px"><label style="font-size:10px">로고 스타일 <span style="color:#9ca3af">(브랜드별 저장)</span></label><input data-f="buttonLogoStyle" value="'+esc(t.buttonLogoStyle||brandButtonLogoStyle())+'" placeholder="예: 음각/양각, 무광"></div>':'')
       +'</div>'
       // (점선) 직접 입력: 요척(=벌당 개수) / 로스 / 미리보기
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;padding-top:7px;border-top:1px dashed var(--bd,#e5e7eb)">'
       +'<div style="flex:.8;min-width:70px"><label>요척</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece||1)+'" step="0.01"></div>'
       +'<div style="flex:.5;min-width:55px"><label>로스%</label><input data-f="buffer" type="number" value="'+(t.buffer??2)+'" min="0" max="50" step="0.5" title="부자재 기본 2% (필요 시 수정 가능)"></div>'
-      +'<div style="flex:1.5;min-width:120px;font-size:10px;color:var(--t2);align-self:center;padding:5px 8px;background:#f5f3ff;border-radius:5px;line-height:1.3">📐 발주 미리보기<br>'+esc(t.buttonSize||'?')+' '+esc(t.buttonStyle||'')+(t.color?' #'+esc(t.color):'')+'<br>벌당 '+(t.qtyPerPiece||1)+'개 × '+num(t.unitPrice||0)+'원=<b style="color:#6d28d9">'+num(Math.round((t.qtyPerPiece||1)*(t.unitPrice||0)))+'원/pcs</b>'+(t.hasButtonLogo&&t.buttonLogoText?'<br>🔵 로고: '+esc(t.buttonLogoText):'')+'</div>'
+      +'<div style="flex:1.5;min-width:120px;font-size:10px;color:var(--t2);align-self:center;padding:5px 8px;background:#f5f3ff;border-radius:5px;line-height:1.3">📐 발주 미리보기<br>'+esc(t.buttonSize||'?')+' '+esc(t.buttonStyle||'')+(t.color?' #'+esc(t.color):'')+'<br>벌당 '+(t.qtyPerPiece||1)+'개 × '+num(t.unitPrice||0)+'원=<b style="color:#6d28d9">'+num(Math.round((t.qtyPerPiece||1)*(t.unitPrice||0)))+'원/pcs</b>'+(t.hasButtonLogo&&t.buttonLogoText?'<br>🔵 로고: '+esc(t.buttonLogoText):'')+(t.hasButtonLogo&&t.buttonLogoStyle?' ('+esc(t.buttonLogoStyle)+')':'')+'</div>'
       +'</div>'
       +mkTrimSizeSec(i,t)
       +mkSizeRatesSec(i,t,'예: 15mm','11mm:50, 15mm:80, 20mm:120')
@@ -5861,6 +5887,7 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
     var blCb=r.querySelector('[data-f=hasButtonLogo]');
     formTrims[i].hasButtonLogo=!!(blCb&&blCb.checked);
     formTrims[i].buttonLogoText=g('buttonLogoText')||'';
+    formTrims[i].buttonLogoStyle=g('buttonLogoStyle')||'';
     formTrims[i].qtyPerPiece=+g('qtyPerPiece')||1;
     formTrims[i].unitPrice=+g('unitPrice')||0;
     formTrims[i].buffer=+(g('buffer'))||0;
@@ -5902,13 +5929,15 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
   // 사이즈-단가 표 수집 (모든 부자재 타입 공용)
   const srInputs=r.querySelectorAll('[data-sr-size]');
   const prInputs=r.querySelectorAll('[data-sr-price]');
+  const yprInputs=r.querySelectorAll('[data-sr-ypr]');
   if(srInputs.length>0||prInputs.length>0){
     const newRates=[];
     const cnt=Math.max(srInputs.length,prInputs.length);
     for(let k=0;k<cnt;k++){
       const sz=srInputs[k]?srInputs[k].value:'';
       const pr=prInputs[k]?+prInputs[k].value:0;
-      newRates.push({size:sz||'',price:pr||0});
+      const yp=yprInputs[k]?+yprInputs[k].value:0;
+      newRates.push({size:sz||'',price:pr||0,yardsPerRoll:yp||0});
     }
     formTrims[i].sizeRates=newRates;
     // 현재 사이즈와 매칭되는 단가가 표에 있으면 자동 적용
@@ -5922,6 +5951,12 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
       formTrims[i].unitPrice=matched;
       const upEl=r.querySelector('[data-f=unitPrice]');
       if(upEl)upEl.value=matched;
+    }
+    // 절당yard도 매칭 행에서 자동 적용 (roll=yardsPerRoll, yard=yardsPerJeol)
+    const matchedRow=applySizeRateRow(formTrims[i],curSz);
+    if(applyRowYardsPerRoll(formTrims[i],matchedRow)){
+      const yprEl=r.querySelector('[data-f=yardsPerRoll]')||r.querySelector('[data-f=yardsPerJeol]');
+      if(yprEl)yprEl.value=+matchedRow.yardsPerRoll;
     }
   }
   // colorName 수집 (setClrName에서도 업데이트되지만 저장 시 한 번 더)
@@ -6258,8 +6293,8 @@ function saveItemForm(){
   S.items[id]=item;
   // 브랜드 저장
   item.brandId=document.getElementById('f-brand')?.value||'';
-  // 단추 로고 내용을 브랜드별로 저장 (다음에 같은 브랜드 단추 로고 자동 불러옴)
-  if(item.brandId){var _btnLogo=(item.trims||[]).find(function(t){return t.orderType==='button'&&t.hasButtonLogo&&(t.buttonLogoText||'').trim();});if(_btnLogo){if(!S.brandConfig)S.brandConfig={};if(!S.brandConfig[item.brandId])S.brandConfig[item.brandId]={};S.brandConfig[item.brandId].buttonLogo=_btnLogo.buttonLogoText.trim();}}
+  // 단추 로고 내용·스타일을 브랜드별로 저장 (다음에 같은 브랜드 단추 로고 자동 불러옴)
+  if(item.brandId){var _btnLogo=(item.trims||[]).find(function(t){return t.orderType==='button'&&t.hasButtonLogo&&((t.buttonLogoText||'').trim()||(t.buttonLogoStyle||'').trim());});if(_btnLogo){if(!S.brandConfig)S.brandConfig={};if(!S.brandConfig[item.brandId])S.brandConfig[item.brandId]={};if((_btnLogo.buttonLogoText||'').trim())S.brandConfig[item.brandId].buttonLogo=_btnLogo.buttonLogoText.trim();if((_btnLogo.buttonLogoStyle||'').trim())S.brandConfig[item.brandId].buttonLogoStyle=_btnLogo.buttonLogoStyle.trim();}}
   // === 새 아이템 등록 시 샘플 자동 생성은 제거됨 (사용자가 필요할 때 샘플 탭에서 추가) ===
   var isNewItem=!editItemId;
   saveToPB(item);saveData();renderItemsList();renderCSDropdown();
@@ -6616,7 +6651,7 @@ function calcSups(orderItems,opts){
       // 도미노 적용: effTotalQty 사용 (effective pcs가 origPcs보다 작아진 경우 자동 축소된 값)
       if(t.isCommonUse){
         const calc=calcTrimNeed(t,effTotalQty);
-        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',isCommonUse:true,commonForColors:colors.filter(function(c){return effColorQtys[c]>0;}),effectivePcsApplied:effectivePcsForTrim,calc});
+        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',isCommonUse:true,commonForColors:colors.filter(function(c){return effColorQtys[c]>0;}),effectivePcsApplied:effectivePcsForTrim,calc});
         continue;
       }
       const hasLinks=t.colorLinks&&t.colorLinks.length>0;
@@ -6643,12 +6678,12 @@ function calcSups(orderItems,opts){
           const _colorPriceVal=(_G.price!==undefined)?_G.price:undefined;
           // 컬러별 단가: 묶음 그룹의 colorLinks price 우선, 없으면 기본 단가
           const clPrice=(_G.price!==undefined)?_G.price:(t.unitPrice||0);
-          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,itemColorName:_icName,itemColors:_icArr,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:clPrice,colorPrice:_colorPriceVal,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+          sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:clNm,itemColorName:_icName,itemColors:_icArr,displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:clPrice,colorPrice:_colorPriceVal,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
         }
       }else{
         // 단일 — 도미노 적용 effTotalQty
         const calc=calcTrimNeed(t,effTotalQty);
-        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+        sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
       }
     }
   }return sups;
@@ -7377,9 +7412,12 @@ function genPoText(order,sn){
         const bNego=b.colors?b.colors.reduce((p,c)=>p||(c.negotiatedPrice!==undefined&&+c.negotiatedPrice>0?+c.negotiatedPrice:0),0):(b.negotiatedPrice||0);
         if(bNego>0)bhdr+=' '+num(bNego)+'원/개';
         L.push(bhdr);
-        // 로고
+        // 로고 (내용 + 스타일)
         if(b.hasButtonLogo&&b.buttonLogoText){
           L.push(b.buttonLogoText);
+        }
+        if(b.hasButtonLogo&&b.buttonLogoStyle){
+          L.push('('+b.buttonLogoStyle+')');
         }
         // 컬러별 수량 — 사이즈별 다르게 모드면 사이즈별로 분배 출력
         let bTotQty=0;
@@ -15243,6 +15281,7 @@ function getBrandConfig(){
 }
 // 현재 폼 브랜드에 저장된 단추 로고 내용 (브랜드별 자동 불러오기용)
 function brandButtonLogo(){var bid=(document.getElementById('f-brand')||{}).value||'';return ((getBrandConfig()[bid]||{}).buttonLogo)||'';}
+function brandButtonLogoStyle(){var bid=(document.getElementById('f-brand')||{}).value||'';return ((getBrandConfig()[bid]||{}).buttonLogoStyle)||'';}
 function setBrandConfig(brandId,field,val){
   if(!S.brandConfig)S.brandConfig={};
   if(!S.brandConfig[brandId])S.brandConfig[brandId]={};
