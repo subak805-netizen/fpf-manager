@@ -1655,6 +1655,32 @@ async function cloudSet(key,value){
   }catch(e){console.error('cloudSet '+key+':',e);return false;}
 }
 
+// 클라우드 저장용: 작업지시서 dataURL 사진은 문서를 1MB 넘겨 동기화를 깨므로 제외 (URL은 유지). 로컬엔 원본 보존.
+function tpStripDataUrls(items){
+  var out={}, stripped=0;
+  Object.keys(items||{}).forEach(function(id){
+    var it=items[id];
+    if(it&&it.techpack&&it.techpack.images){
+      var imgs=it.techpack.images, clean={}, had=false;
+      Object.keys(imgs).forEach(function(k){var v=imgs[k];if(typeof v==='string'&&v.indexOf('data:')===0){had=true;stripped++;}else{clean[k]=v;}});
+      if(had){var c=Object.assign({},it);c.techpack=Object.assign({},it.techpack,{images:clean});out[id]=c;return;}
+    }
+    out[id]=it;
+  });
+  window._tpStrippedCount=stripped;
+  return out;
+}
+// 원격(클라우드)에서 받은 items에, 로컬에만 있던 dataURL 사진을 다시 합침 (원격 적용 시 로컬 사진 보존)
+function tpMergeLocalImages(newItems,oldItems){
+  Object.keys(newItems||{}).forEach(function(id){
+    var oi=oldItems&&oldItems[id]; var ni=newItems[id];
+    if(oi&&oi.techpack&&oi.techpack.images&&ni){
+      if(!ni.techpack)ni.techpack={}; if(!ni.techpack.images)ni.techpack.images={};
+      Object.keys(oi.techpack.images).forEach(function(k){var ov=oi.techpack.images[k];if(typeof ov==='string'&&ov.indexOf('data:')===0&&!ni.techpack.images[k])ni.techpack.images[k]=ov;});
+    }
+  });
+  return newItems;
+}
 /* ===== 실시간 동기화 (Firestore onSnapshot) ===== */
 var _rtUnsub=null, _rtPending=null, _rtAppliedTs={};
 function isEditingNow(){
@@ -1668,7 +1694,8 @@ function isEditingNow(){
 }
 function applyRemoteCoData(data){
   if(!data)return;
-  S.items=data.items||{};S.orders=data.orders||{};S.brands=data.brands||[];
+  var _oldItems=S.items||{};
+  S.items=tpMergeLocalImages(data.items||{},_oldItems);S.orders=data.orders||{};S.brands=data.brands||[];
   S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=data.tasks||[];
   S.brandConfig=data.brandConfig||{};S.deductions=data.deductions||[];
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
@@ -1887,9 +1914,9 @@ async function cloudSyncSave(){
       }
     }
     
-    // 회사별 데이터 전체
+    // 회사별 데이터 전체 (작업지시서 dataURL 사진은 클라우드 문서에서 제외 — 1MB 초과로 동기화 깨짐 방지)
     var coData={
-      items:S.items||{},
+      items:tpStripDataUrls(S.items||{}),
       orders:S.orders||{},
       brands:S.brands||[],
       sampleOrders:S.sampleOrders||[],
@@ -1900,12 +1927,20 @@ async function cloudSyncSave(){
       brandConfig:S.brandConfig||{},
       deductions:S.deductions||[]
     };
-    await Promise.all([
+    // 문서 크기 사전 점검 (Firestore 1MB 한도)
+    var _coSize=0;try{_coSize=JSON.stringify(coData).length;}catch(e){}
+    var _coRes=await Promise.all([
       cloudSet('fpm_cos',companies),
       cloudSet('fpm_'+curCoId,coData),
       cloudSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook})
     ]);
-    setCloudInd('ok');
+    if(_coRes.indexOf(false)>=0){
+      setCloudInd('err');
+      if(typeof showToast==='function')showToast('⚠ 동기화 실패 — 데이터가 너무 큼('+Math.round(_coSize/1024)+'KB)'+(_coSize>900000?' · 사진 많음':''));
+      console.error('[cloudSyncSave] cloudSet 실패. coData 크기≈'+_coSize+'B');
+    }else{
+      setCloudInd('ok');
+    }
   }catch(e){
     console.error('[cloudSyncSave] 실패:',e);
     setCloudInd('err');
