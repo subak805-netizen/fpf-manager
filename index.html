@@ -1270,8 +1270,16 @@ tryInitFirebase();
 #tp-modal{background:#dcdee1!important;font-family:'IBM Plex Sans KR','Pretendard',sans-serif!important;color:#1f2937!important;font-size:11px;}
 #tp-modal *{font-family:'IBM Plex Sans KR','Pretendard',sans-serif!important;}
 #tp-modal .tp-doc{max-width:none!important;padding:14px!important;}
-#tp-modal .tp-wrap{width:200mm;min-height:285mm;margin:0 auto;background:#fff;border:1px solid #9ca3af;display:flex;flex-direction:column;}
-#tp-modal .tp-doc.land .tp-wrap{width:287mm;min-height:200mm;}
+/* A4 세로 210×297mm (인쇄여백 5mm → 내용 200×287mm) 고정 — 내용 늘어나도 자동 축소로 절대 안 넘침 */
+#tp-modal .tp-wrap{width:200mm;height:287mm;margin:0 auto;background:#fff;border:1px solid #9ca3af;display:flex;flex-direction:column;overflow:hidden;}
+#tp-modal .tp-doc.land .tp-wrap{width:287mm;height:200mm;}
+#tp-modal .tp-wrap .tp-fit{flex:1;display:flex;flex-direction:column;width:100%;min-height:0;}
+/* 함축 원자재표: 글씨 줄이고 한 줄 강제(2줄로 행 안 늘어나게) */
+#tp-modal .tp-wrap table.mat td,#tp-modal .tp-wrap table.mat th{font-size:10px;white-space:nowrap;padding:1px 4px;}
+#tp-modal .tp-wrap table.mat td.l{white-space:nowrap;}
+/* 스와치·사진칸 폭 균등 (정렬 규칙) */
+#tp-modal .tp-wrap table.tpeq{table-layout:fixed;}
+#tp-modal .tp-wrap table.tpeq th,#tp-modal .tp-wrap table.tpeq td{overflow:hidden;text-overflow:ellipsis;}
 #tp-modal .tp-wrap table{border-collapse:collapse;width:100%;}
 #tp-modal .tp-wrap td,#tp-modal .tp-wrap th{border:1px solid #9ca3af;padding:2px 5px;font-size:11px;text-align:center;vertical-align:middle;color:#1f2937;}
 #tp-modal .tp-wrap th{background:#f3f4f6;font-weight:700;}
@@ -1321,7 +1329,8 @@ tryInitFirebase();
   #tp-modal *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #tp-modal .tp-ctrl{display:none!important;}
   #tp-modal .tp-doc{padding:0!important;margin:0!important;max-width:none!important;}
-  #tp-modal .tp-wrap{width:100%!important;max-width:100%!important;min-height:auto!important;border:1.2px solid #000;margin:0!important;}
+  #tp-modal .tp-wrap{width:100%!important;max-width:100%!important;height:auto!important;min-height:auto!important;overflow:visible!important;border:1.2px solid #000;margin:0!important;}
+  #tp-modal .tp-wrap .tp-fit{overflow:visible!important;}
   #tp-modal .tp-wrap .panel{display:none!important;}
   #tp-modal .tp-wrap .panel.on{display:flex!important;}
   #tp-modal .tp-wrap .tabs{display:none!important;}
@@ -22309,23 +22318,33 @@ function tpSwatchBox(name,size,radius){ size=size||22; radius=(radius==null?0:ra
 
 function tpQtyBreakdown(it){
   var colors=(it.colors&&it.colors.length)?it.colors:[''];
-  var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE'];
-  var grid={}; colors.forEach(function(c){grid[c]={}; sizes.forEach(function(s){grid[c][s]=0;});});
   // 메인오더 1건만 (리오더 누적 X) = 이 아이템을 포함한 가장 먼저 만든 오더
   var cand=[];
   Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; if((o.orderItems||[]).some(function(oi){return oi.itemId===it.id&&oi.qtyGrid;})) cand.push(o); });
   cand.sort(function(a,b){ return cmpDate(a.createdAt).localeCompare(cmpDate(b.createdAt)); });
-  var mainO=cand[0];
+  var mainO=cand[0], useGrid=null;
   if(mainO){ var moi=(mainO.orderItems||[]).find(function(x){return x.itemId===it.id;});
-    if(moi&&moi.qtyGrid){
-      // 수량 조정 반영: 수기 수량수정(qtyGrid 실시간) + 원단부족 조정(effGrid)
-      var useGrid=moi.qtyGrid;
+    if(moi&&moi.qtyGrid){ useGrid=moi.qtyGrid;
+      // 수량 조정 반영: 수기 수량수정(qtyGrid) + 원단부족 조정(effGrid)
       try{ var _bd=(typeof getEffectivePcsBreakdown==='function')?getEffectivePcsBreakdown(mainO,moi):null; if(_bd&&_bd.effGrid&&_bd.diff!==0)useGrid=_bd.effGrid; }catch(e){}
-      colors.forEach(function(c){ sizes.forEach(function(s){ grid[c][s]=+(useGrid[c]&&useGrid[c][s])||0; }); });
     } }
-  var colorTotals={},sizeTotals={},total=0;
-  colors.forEach(function(c){colorTotals[c]=0;}); sizes.forEach(function(s){sizeTotals[s]=0;});
-  colors.forEach(function(c){ sizes.forEach(function(s){ var q=grid[c][s]; colorTotals[c]+=q; sizeTotals[s]+=q; total+=q; }); });
+  // 사이즈: 아이템 지정 우선 → 없으면 오더 그리드에서 추론(free 등) → 그래도 없으면 FREE
+  var sizes=(it.sizes&&it.sizes.length)?it.sizes.slice():[];
+  if(!sizes.length&&useGrid){ var ss=[]; Object.keys(useGrid).forEach(function(c){ var row=useGrid[c]; if(row&&typeof row==='object')Object.keys(row).forEach(function(s){ if(ss.indexOf(s)<0)ss.push(s); }); }); sizes=ss; }
+  if(!sizes.length)sizes=['FREE'];
+  // 컬러·사이즈 키 대소문자/공백 무시 매칭 (오더는 'free' 소문자로 저장됨)
+  function gval(c,s){
+    if(!useGrid)return 0;
+    var row=useGrid[c];
+    if(row==null){ var ck=Object.keys(useGrid).find(function(k){return String(k).trim().toLowerCase()===String(c).trim().toLowerCase();}); if(ck)row=useGrid[ck]; }
+    if(row==null||typeof row!=='object')return 0;
+    if(row[s]!=null)return +row[s]||0;
+    var sk=Object.keys(row).find(function(k){return String(k).trim().toLowerCase()===String(s).trim().toLowerCase();});
+    return sk!=null?(+row[sk]||0):0;
+  }
+  var grid={},colorTotals={},sizeTotals={},total=0;
+  sizes.forEach(function(s){sizeTotals[s]=0;});
+  colors.forEach(function(c){ grid[c]={}; colorTotals[c]=0; sizes.forEach(function(s){ var q=gval(c,s); grid[c][s]=q; colorTotals[c]+=q; sizeTotals[s]+=q; total+=q; }); });
   return {colors:colors,sizes:sizes,grid:grid,colorTotals:colorTotals,sizeTotals:sizeTotals,total:total};
 }
 
@@ -22356,22 +22375,88 @@ function tpDelRow(path,i){ var arr=tpGet(path,[]); if(!Array.isArray(arr))return
 
 /* 자동연동 표 */
 function tpIsLabelTrim(t){ return /careLabel|mainLabel|care|label/i.test(t.orderType||'')||/라벨|택|tag/i.test((t.name||'')+(t.labelName||'')); }
-function tpFabColors(f){ var cs=(f.colorLinks||[]).map(function(l){return l.colorName||l.itemColor;}).filter(Boolean); if(cs.length)return cs.join(', '); return f.color||''; }
-function tpComp(s){ s=(s||'').replace(/\n/g,' ').trim(); if(!s)return ''; return s.split(/[\s,]+/).filter(Boolean).map(function(p){var m=p.match(/^(\d+(?:\.\d+)?)%?(.+)$/);if(m)return m[2].trim()+m[1];var m2=p.match(/^(.+?)(\d+(?:\.\d+)?)%?$/);if(m2)return m2[1].trim()+m2[2];return p.replace('%','');}).join(' '); }
+// 원단 컬러 = 이 아이템의 실제 컬러웨이(itemColors)만 (옛 컬러웨이 잔여 colorLink 제외)
+function tpFabColors(f,itemColors){
+  var names=(f.colorLinks||[]).map(function(l){return l.itemColor||l.colorName;}).filter(Boolean);
+  if(itemColors&&itemColors.length){
+    var set={}; itemColors.forEach(function(c){set[String(c).trim()]=1;});
+    var filt=names.filter(function(n){return set[String(n).trim()];});
+    if(filt.length)names=filt;
+  }
+  names=names.filter(function(v,i,a){return a.indexOf(v)===i;});
+  if(names.length)return names.join(', ');
+  return f.color||'';
+}
+// 부자재 컬러 = colorLinks의 colorName (이 아이템 컬러웨이 우선, 없으면 전체) dedup
+function tpTrimColor(t,itemColors){
+  var links=t.colorLinks||[];
+  if(!links.length)return t.color||'';
+  var matched=[];
+  if(itemColors&&itemColors.length){
+    var set={}; itemColors.forEach(function(c){set[String(c).trim()]=1;});
+    links.forEach(function(l){ if(set[String(l.itemColor).trim()]&&l.colorName)matched.push(l.colorName); });
+  }
+  var arr=matched.length?matched:links.map(function(l){return l.colorName;}).filter(Boolean);
+  arr=arr.filter(function(v,i,a){return a.indexOf(v)===i;});
+  return arr.join(', ')||(t.color||'');
+}
+// 섬유 약어 (혼용률 함축용)
+function tpFiberAbbr(name){
+  name=String(name||'').trim(); if(!name)return '';
+  var map={tencel:'T',cotton:'C',cot:'C',linen:'L',poly:'P',polyester:'P',pe:'P',nylon:'N',ny:'N',rayon:'R',wool:'W',spandex:'SP',span:'SP',acrylic:'AC',modal:'MD',cupra:'CU',silk:'SK','텐셀':'T','면':'C','린넨':'L','마':'L','폴리':'P','폴리에스터':'P','나일론':'N','레이온':'R','울':'W','스판':'SP','스판덱스':'SP','아크릴':'AC','모달':'MD','실크':'SK','견':'SK'};
+  var low=name.toLowerCase();
+  if(map[low])return map[low]; if(map[name])return map[name];
+  return name.charAt(0).toUpperCase();
+}
+// 혼용률 함축: "60% tencel 40% linen" → "T60 L40" (% 제거, 약어+숫자)
+function tpComp(s){
+  s=String(s||'').replace(/\n/g,' ').trim(); if(!s)return '';
+  var out=[], re=/(\d+(?:\.\d+)?)\s*%?\s*([A-Za-z가-힣]+)|([A-Za-z가-힣]+)\s*(\d+(?:\.\d+)?)\s*%?/g, m;
+  while((m=re.exec(s))!==null){
+    var num,name;
+    if(m[1]!=null){num=m[1];name=m[2];}else{num=m[4];name=m[3];}
+    if(num==null||!name)continue;
+    out.push(tpFiberAbbr(name)+num);
+  }
+  return out.length?out.join(' '):s.replace(/%/g,'');
+}
+// 완성 부자재 = 라벨/택 trims의 include 플래그로 선택된 것만 (없으면 기본셋)
+function tpFinishItems(it){
+  var flags=[['includeTag','메인택'],['includeTagLoop','행택끈'],['includeHanger','행거'],['includePoly','폴리백'],['includeFoldingPoly','접는폴리'],['includeDenimSizeTab','사이즈탭'],['includeDenimCareLabel','데님케어']];
+  var sel=[];
+  (it.trims||[]).forEach(function(t){ flags.forEach(function(f){ if(t[f[0]]&&sel.indexOf(f[1])<0)sel.push(f[1]); }); });
+  return sel;
+}
 function tpMaterialTableHTML(it){
-  var rows=[];
-  (it.fabrics||[]).forEach(function(f){ rows.push({part:f.part,sup:f.supplier,name:f.name,comp:tpComp(f.composition),color:tpFabColors(f),spec:(f.width?f.width+'"':''),yo:f.consumption}); });
-  (it.trims||[]).forEach(function(t){ if(tpIsLabelTrim(t))return; var spec=t.size||t.buttonSize||t.zipperLength||t.midSize||''; var yo=(t.consumptionPerPiece!=null&&t.consumptionPerPiece!=='')?t.consumptionPerPiece:((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?t.qtyPerPiece:''); rows.push({part:t.part,sup:t.supplier,name:t.name||t.labelName,comp:'',color:t.color,spec:spec,yo:yo}); });
+  var rows=[]; var ic=(it.colors&&it.colors.length)?it.colors:[];
+  (it.fabrics||[]).forEach(function(f){ rows.push({part:f.part,sup:f.supplier,name:f.name,comp:tpComp(f.composition),color:tpFabColors(f,ic),spec:(f.width?f.width+'"':''),yo:f.consumption}); });
+  (it.trims||[]).forEach(function(t){ if(tpIsLabelTrim(t))return;
+    var spec=t.size||t.buttonSize||t.zipperLength||t.midSize||'';
+    if(!spec&&(t.threadMin!=null&&t.threadMin!==''))spec=t.threadMin+'수';
+    if(!spec&&t.width)spec=t.width+'"';
+    if(t.buttonStyle)spec=(spec?spec+' ':'')+t.buttonStyle;
+    var yo=(t.consumptionPerPiece!=null&&t.consumptionPerPiece!=='')?t.consumptionPerPiece
+          :((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?t.qtyPerPiece
+          :((t.threadQty!=null&&t.threadQty!=='')?t.threadQty:''));
+    rows.push({part:t.part,sup:t.supplier,name:t.name||t.labelName,comp:'',color:tpTrimColor(t,ic),spec:spec,yo:yo}); });
   if(!rows.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 자재 없음</div>';
-  var h='<table class="tp-tbl"><tr><th style="width:42px">부위</th><th style="width:48px">업체</th><th>제품명</th><th>혼용률</th><th style="width:48px">컬러</th><th style="width:40px">규격</th><th style="width:34px">요척</th><th style="width:34px">수량</th></tr>';
-  rows.forEach(function(r){ h+='<tr><td>'+tpEsc(r.part||'-')+'</td><td>'+tpEsc(r.sup||'')+'</td><td>'+tpEsc(r.name||'')+'</td><td>'+tpEsc(r.comp||'')+'</td><td>'+tpEsc(r.color||'')+'</td><td>'+tpEsc(r.spec||'')+'</td><td class="yc">'+tpEsc(r.yo||'')+'</td><td></td></tr>'; });
+  var h='<table class="tp-tbl mat"><tr><th style="width:38px">부위</th><th style="width:46px">업체</th><th>제품명</th><th style="width:62px">혼용률</th><th>컬러</th><th style="width:40px">규격</th><th style="width:34px">요척</th><th style="width:34px">수량</th></tr>';
+  rows.forEach(function(r){ h+='<tr><td>'+tpEsc(r.part||'-')+'</td><td>'+tpEsc(r.sup||'')+'</td><td class="l">'+tpEsc(r.name||'')+'</td><td>'+tpEsc(r.comp||'')+'</td><td>'+tpEsc(r.color||'')+'</td><td>'+tpEsc(r.spec||'')+'</td><td class="yc">'+tpEsc(r.yo||'')+'</td><td></td></tr>'; });
   return h+'</table>';
+}
+function tpLabelName(t){
+  if(t.orderType==='mainLabel')return t.name||'메인라벨';
+  if(t.orderType==='careLabel')return t.labelName||t.name||'케어라벨';
+  return t.labelName||t.name||'라벨';
 }
 function tpLabelTableHTML(it){
   var labs=(it.trims||[]).filter(tpIsLabelTrim);
-  if(!labs.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 라벨 없음</div>';
-  var h='<table class="tp-tbl"><tr><th style="width:44%">라벨</th><th>위치 / 개수</th></tr>';
-  labs.forEach(function(t){ h+='<tr><td>'+tpEsc(t.labelName||t.name||'')+'</td><td>'+tpInpL('labelPos.'+(t.id||''),'위치·개수 입력')+'</td></tr>'; });
+  // 같은 이름(예: 메인라벨=중간라벨) 중복 제거
+  var seen={},rows=[];
+  labs.forEach(function(t){ var nm=tpLabelName(t); var key=nm.trim(); if(seen[key])return; seen[key]=1; rows.push({t:t,nm:nm}); });
+  if(!rows.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 라벨 없음</div>';
+  var h='<table class="tp-tbl"><tr><th style="width:44%">라벨</th><th>위치</th></tr>';
+  rows.forEach(function(r){ h+='<tr><td class="l">'+tpEsc(r.nm)+'</td><td>'+tpInpL('labelPos.'+(r.t.id||''),'위치 입력')+'</td></tr>'; });
   return h+'</table>';
 }
 function tpFabricTableHTML(it){ var fabs=it.fabrics||[]; if(!fabs.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 원단 없음</div>'; var h='<table class="tp-tbl"><tr><th>부위</th><th>원단명</th><th>혼용률</th><th>폭</th><th>요척</th></tr>'; fabs.forEach(function(f){ h+='<tr><td>'+tpEsc(f.part||'-')+'</td><td class="l">'+tpEsc(f.name||'')+'</td><td>'+tpEsc((f.composition||'').replace(/\n/g,' '))+'</td><td>'+tpEsc(f.width||'')+(f.width?'"':'')+'</td><td>'+tpEsc(f.consumption||'')+(f.consumption?'Y':'')+'</td></tr>'; }); return h+'</table>'; }
@@ -22379,10 +22464,11 @@ function tpHasCord(it){ return /코듀로이|골덴|벨벳|corduroy|velvet/i.tes
 function tpTrimTableHTML(it){ var tr=it.trims||[]; if(!tr.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 부자재 없음</div>'; var h='<table class="tp-tbl"><tr><th>부자재</th><th>위치 / 규격</th><th>컬러</th></tr>'; tr.forEach(function(t){ var spec=[t.part,t.size].filter(Boolean).join(' · '); h+='<tr><td class="l">'+tpEsc(t.name||t.labelName||'')+'</td><td>'+tpEsc(spec||'-')+'</td><td>'+tpEsc(t.color||'-')+'</td></tr>'; }); return h+'</table>'; }
 function tpTagChips(it){ var names=[]; (it.trims||[]).forEach(function(t){ if(['careLabel','mainLabel','care','label'].indexOf(t.orderType)>=0||/라벨|택|tag|label/i.test(t.name||'')) names.push(t.name||t.labelName||'라벨'); }); (it.finishCosts||[]).forEach(function(f){ if(f&&f.name)names.push(f.name); }); names=names.filter(function(v,i,a){return v&&a.indexOf(v)===i;}); if(!names.length)return '<span style="color:#9aa0a8;font-size:13px">자동 인식된 택/라벨 없음 — 아래 메모에 적어주세요</span>'; return names.map(function(n){return '<span class="tp-chip">'+tpEsc(n)+'</span>';}).join(''); }
 
-function tpQtyTableHTML(qb,cls){ var h='<table class="tp-tbl '+(cls||'')+'"><tr><th>COLOR</th>'; qb.sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';}); h+='<th>합계</th></tr>'; qb.colors.forEach(function(c){ h+='<tr><td>'+(tpEsc(c)||'-')+'</td>'; qb.sizes.forEach(function(s){h+='<td>'+(qb.grid[c][s]||0)+'</td>';}); h+='<td><b class="tp-num">'+(qb.colorTotals[c]||0)+'</b></td></tr>'; }); h+='<tr class="tot"><td>TOTAL</td>'; qb.sizes.forEach(function(s){h+='<td>'+(qb.sizeTotals[s]||0)+'</td>';}); h+='<td><b class="tp-num">'+qb.total+'</b></td></tr>'; return h+'</table>'; }
+function tpSizeLbl(s){ return /^free$/i.test(String(s))?'FREE':s; }
+function tpQtyTableHTML(qb,cls){ var h='<table class="tp-tbl '+(cls||'')+'"><tr><th>COLOR</th>'; qb.sizes.forEach(function(s){h+='<th>'+tpEsc(tpSizeLbl(s))+'</th>';}); h+='<th>합계</th></tr>'; qb.colors.forEach(function(c){ h+='<tr><td>'+(tpEsc(c)||'-')+'</td>'; qb.sizes.forEach(function(s){h+='<td>'+(qb.grid[c][s]||0)+'</td>';}); h+='<td><b class="tp-num">'+(qb.colorTotals[c]||0)+'</b></td></tr>'; }); h+='<tr class="tot"><td>TOTAL</td>'; qb.sizes.forEach(function(s){h+='<td>'+(qb.sizeTotals[s]||0)+'</td>';}); h+='<td><b class="tp-num">'+qb.total+'</b></td></tr>'; return h+'</table>'; }
 function tpSwatchHTML(qb){ return qb.colors.map(function(c){ return '<span class="tp-sw">'+tpSwatchBox(c)+(tpEsc(c)||'-')+'</span>'; }).join(''); }
 function tpSwatchLine(qb){ if(!qb||!qb.colors||!qb.colors.length)return ''; return '<div class="tp-sec tp-span2"><div class="tp-sec-h">스와치 전달 (선택 컬러)</div><div class="tp-sb" style="font-size:13px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">📎 '+qb.colors.map(function(c){ return '<span class="tp-sw">'+tpSwatchBox(c,16)+(tpEsc(c)||'-')+'</span>'; }).join('<span style="color:#9aa0a8">·</span>')+'<span style="color:#6b7280;margin-left:4px">— 실물 스와치 동봉</span></div></div>'; }
-function tpSwatchAttachHTML(qb){ if(!qb||!qb.colors||!qb.colors.length)return '<div class="tp-sb" style="color:#9aa0a8">컬러 없음</div>'; var cols=qb.colors; return '<table class="tp-tbl"><tr>'+cols.map(function(c){return '<th>'+tpSwatchBox(c,14)+' '+(tpEsc(c)||'-')+'</th>';}).join('')+'</tr><tr style="height:115px">'+cols.map(function(c){var slot='sw_'+(''+c).replace(/[^0-9a-zA-Z가-힣]/g,'_');var u=tpGet('images.'+slot,'');return '<td style="cursor:pointer;color:#c4c8cf;font-size:15px;position:relative;overflow:hidden" onclick="tpPickImage(\''+slot+'\')">'+(u?'<img src="'+tpEsc(u)+'" style="max-width:100%;max-height:108px;object-fit:contain"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>':'＋')+'</td>';}).join('')+'</tr></table>'; }
+function tpSwatchAttachHTML(qb){ if(!qb||!qb.colors||!qb.colors.length)return '<div class="tp-sb" style="color:#9aa0a8">컬러 없음</div>'; var cols=qb.colors; return '<table class="tp-tbl tpeq"><tr>'+cols.map(function(c){return '<th>'+tpSwatchBox(c,14)+' '+(tpEsc(c)||'-')+'</th>';}).join('')+'</tr><tr style="height:115px">'+cols.map(function(c){var slot='sw_'+(''+c).replace(/[^0-9a-zA-Z가-힣]/g,'_');var u=tpGet('images.'+slot,'');return '<td style="cursor:pointer;color:#c4c8cf;font-size:15px;position:relative;overflow:hidden" onclick="tpPickImage(\''+slot+'\')">'+(u?'<img src="'+tpEsc(u)+'" style="max-width:100%;max-height:108px;object-fit:contain"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>':'＋')+'</td>';}).join('')+'</tr></table>'; }
 function tpCbarHTML(it,qb,withThumb){ var thumb=''; if(withThumb){ var simg=tpGet('images.sewSketch','')||tpGet('images.cutSketch',''); thumb='<div class="tp-thumb" onclick="tpPickImage(\'cutSketch\')">'+(simg?'<img src="'+tpEsc(simg)+'">':'<span class="plus">＋</span>도식화<br>(작게)')+'</div>'; } return '<div class="tp-cbar tp-span2">'+thumb+'<div class="tp-cmain"><div class="tp-ch">컬러 · 사이즈 · 수량</div><div class="tp-sws">'+tpSwatchHTML(qb)+'</div>'+tpQtyTableHTML(qb,'mini')+'</div></div>'; }
 
 /* 수동 표 (봉제) */
@@ -22440,7 +22526,7 @@ function tpRender(){
     +'<table><tr><th style="width:52px">브랜드</th><td style="width:78px">'+tpEsc(brand)+'</td><th style="width:42px">품명</th><td>'+tpEsc(it.name||'')+'</td><th style="width:42px">품번</th><td style="width:68px">'+tpEsc(it.code||'')+'</td><th style="width:52px">'+makerLbl+'</th><td style="width:78px">'+tpEsc(makerVal)+'</td></tr>'
     +(_route.length?'<tr><th>작업경로</th><td colspan="7" class="l">'+tpEsc(_route.join(' → '))+'</td></tr>':'')+'</table>';
   var T=function(id,lbl){return '<div class="tab'+on(id)+'" data-tab="'+id+'" onclick="tpTab(\''+id+'\')">'+lbl+'</div>';};
-  var tabs='<div class="tabs">'+(isPromo?(T('cs','재단·봉제')+T('pack','포장')):(T('cut','재단')+T('sew','봉제')+T('pack','포장')))+(hasEmb?T('emb','자수'):'')+(hasPrt?T('prt','나염'):'')+'</div>';
+  var tabs='<div class="tabs">'+(isPromo?(T('cs','재단·봉제')+T('pack','완성')):(T('cut','재단')+T('sew','봉제')+T('pack','완성')))+(hasEmb?T('emb','자수'):'')+(hasPrt?T('prt','나염'):'')+'</div>';
   var _sk=function(ph){var u=tpGet('images.sewSketch','');return '<div class="sketch" onclick="tpPickImage(\'sewSketch\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\'sewSketch\')">×</button>'):('＋ '+tpEsc(ph)))+'</div>';};
   var _iz=function(slot,ph){var u=tpGet('images.'+slot,'');return '<div class="iz" onclick="tpPickImage(\''+slot+'\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'):('＋ '+tpEsc(ph)))+'</div>';};
   var noteCut='<div class="topnote"><b>● 재단 전</b> 패턴·원단·스와치·<b>원단불량</b> 확인 후 재단　<b>● 재단 후</b> <b>재단 장수</b> 알려주세요</div>';
@@ -22456,9 +22542,10 @@ function tpRender(){
     +'</div></div></div>';
   var sew='<div class="panel'+on('sew')+'" data-panel="sew">'+noteSew+'<div class="row">'
     +'<div class="colL"><div class="sec">도식화 (앞/뒤)</div>'+_sk('도식화')
-      +'<div class="sec">라벨·부자재 실물 사진</div><table><tr><th>메인라벨</th><th>케어라벨</th><th>완성부자재</th><th>단추/스냅</th></tr><tr><td>'+_iz('labelMain','＋')+'</td><td>'+_iz('labelCare','＋')+'</td><td>'+_iz('labelTrim','＋')+'</td><td>'+_iz('labelBtn','＋')+'</td></tr></table>'
+      +'<div class="sec">라벨·부자재 실물 사진</div><table class="tpeq"><tr><th>메인라벨</th><th>케어라벨</th><th>완성부자재</th><th>단추/스냅</th></tr><tr><td>'+_iz('labelMain','＋')+'</td><td>'+_iz('labelCare','＋')+'</td><td>'+_iz('labelTrim','＋')+'</td><td>'+_iz('labelBtn','＋')+'</td></tr></table>'
       +swatch+'</div>'
     +'<div class="colR"><div class="sec">원자재</div>'+tpMaterialTableHTML(it)
+      +'<div class="sec">컬러 · 사이즈 · 수량</div>'+tpQtyTableHTML(qb)
       +'<div class="sec">라벨</div>'+tpLabelTableHTML(it)
       +'<div class="sec">완성 치수 (패턴·편차·완성)</div>'+tpSpecHTML(it)
       +'<div class="sec">견본 / 워싱</div><table><tr><th style="width:58px">견본</th><td>'+tpInpL('sew.sample','견본 M')+'</td><th style="width:48px">워싱</th><td>'+tpInpL('sew.wash','노말')+'</td></tr></table>'
@@ -22472,12 +22559,15 @@ function tpRender(){
       +tpSpecSecHTML(it)+warn
       +'<div class="sec">재단·봉제 메모</div>'+tpMemo('cut.memo','재단·봉제 주의')
     +'</div></div></div>';
+  var FIN_SLOT={'메인택':'packTag','QR택':'packQr','사이즈택':'packSize','행택끈':'packString','폴리백':'packPoly','행거':'packHanger','접는폴리':'packFold','사이즈탭':'packSizeTab','데님케어':'packDenimCare'};
+  var finSel=tpFinishItems(it); if(!finSel.length)finSel=['메인택','QR택','사이즈택','행택끈','폴리백'];
+  var finTbl='<table class="tpeq"><tr>'+finSel.map(function(n){return '<th>'+tpEsc(n)+'</th>';}).join('')+'</tr><tr>'+finSel.map(function(n){var slot=FIN_SLOT[n]||('pack_'+(''+n).replace(/[^0-9a-zA-Z가-힣]/g,'_'));return '<td>'+_iz(slot,'＋')+'</td>';}).join('')+'</tr></table>';
   var pack='<div class="panel'+on('pack')+'" data-panel="pack"><div class="row">'
     +'<div class="colL"><div class="sec">도식화 (작게)</div>'+_sk('도식화')+'</div>'
     +'<div class="colR"><div class="sec">택 SET 구성</div><div style="padding:5px 8px;font-size:11px">'+tpTagChips(it)+'</div>'
-      +'<div class="sec">완성 부자재 실물 사진</div><table><tr><th>메인택</th><th>QR택</th><th>사이즈택</th><th>행택끈</th><th>폴리백</th></tr><tr><td>'+_iz('packTag','＋')+'</td><td>'+_iz('packQr','＋')+'</td><td>'+_iz('packSize','＋')+'</td><td>'+_iz('packString','＋')+'</td><td>'+_iz('packPoly','＋')+'</td></tr></table>'
+      +'<div class="sec">완성 부자재 실물 사진 <span style="font-weight:400;color:#9aa0a8">— 선택된 항목만</span></div>'+finTbl
       +'<div class="sec">출고 분류 수량</div>'+tpQtyTableHTML(qb)
-      +'<div class="sec">검품 포인트 / 포장 메모</div>'+tpMemo('pack.memo','검품·포장 메모')
+      +'<div class="sec">검품 포인트 / 완성 메모</div>'+tpMemo('pack.memo','검품·완성 메모')
     +'</div></div></div>';
   var emb=''; if(hasEmb){ emb='<div class="panel'+on('emb')+'" data-panel="emb"><div class="row">'
     +'<div class="colL"><div class="sec">자수 도안 / 위치</div><div style="display:flex;flex-direction:column;flex:1;gap:5px;padding:5px">'+_iz('embDesign','자수 도안')+_iz('embPlace','자수 위치')+'</div></div>'
@@ -22495,12 +22585,27 @@ function tpRender(){
     +'</div></div></div>'; }
 
   var doc=document.getElementById('tp-doc');
-  doc.innerHTML='<div class="tp-wrap">'+head+tabs+(isPromo?cs:(cut+sew))+pack+emb+prt+'</div>';
+  doc.innerHTML='<div class="tp-wrap"><div class="tp-fit">'+head+tabs+(isPromo?cs:(cut+sew))+pack+emb+prt+'</div></div>';
   doc.classList.toggle('land',_tpOrient==='landscape');
+  tpFit();
+}
+// A4 한 장 안에 무조건 맞추기: 내용이 길어지면 비율 유지하며 자동 축소
+function tpFit(){
+  var doc=document.getElementById('tp-doc'); if(!doc)return;
+  var wrap=doc.querySelector('.tp-wrap'), fit=doc.querySelector('.tp-fit'); if(!wrap||!fit)return;
+  var land=doc.classList.contains('land');
+  fit.style.transform=''; fit.style.width='100%';
+  // 자연 높이 측정 (A4 고정 높이를 잠시 풀고)
+  var prevH=wrap.style.height; wrap.style.height='auto';
+  var natural=fit.scrollHeight;
+  wrap.style.height=prevH||((land?200:287)+'mm');
+  var MM=96/25.4, avail=(land?200:287)*MM;
+  var sc=natural>avail?(avail/natural):1;
+  if(sc<1){ fit.style.transformOrigin='top left'; fit.style.transform='scale('+sc+')'; fit.style.width=(100/sc)+'%'; }
 }
 
-function tpTab(id){ _tpTab=id; var els=document.querySelectorAll('#tp-modal .tp-wrap .tab'); for(var i=0;i<els.length;i++)els[i].classList.toggle('on',els[i].dataset.tab===id); var ps=document.querySelectorAll('#tp-modal .tp-wrap .panel'); for(var j=0;j<ps.length;j++)ps[j].classList.toggle('on',ps[j].dataset.panel===id); }
-function tpOrient(o){ _tpOrient=o; var d=document.getElementById('tp-doc'); if(d)d.classList.toggle('land',o==='landscape'); var pr=document.getElementById('tp-page-rule'); if(pr)pr.textContent='@page{size:A4 '+o+';margin:5mm;}'; var bl=document.getElementById('tp-bL'),bp=document.getElementById('tp-bP'); if(bl)bl.classList.toggle('on',o==='landscape'); if(bp)bp.classList.toggle('on',o!=='landscape'); }
+function tpTab(id){ _tpTab=id; var els=document.querySelectorAll('#tp-modal .tp-wrap .tab'); for(var i=0;i<els.length;i++)els[i].classList.toggle('on',els[i].dataset.tab===id); var ps=document.querySelectorAll('#tp-modal .tp-wrap .panel'); for(var j=0;j<ps.length;j++)ps[j].classList.toggle('on',ps[j].dataset.panel===id); if(typeof tpFit==='function')tpFit(); }
+function tpOrient(o){ _tpOrient=o; var d=document.getElementById('tp-doc'); if(d)d.classList.toggle('land',o==='landscape'); var pr=document.getElementById('tp-page-rule'); if(pr)pr.textContent='@page{size:A4 '+o+';margin:5mm;}'; var bl=document.getElementById('tp-bL'),bp=document.getElementById('tp-bP'); if(bl)bl.classList.toggle('on',o==='landscape'); if(bp)bp.classList.toggle('on',o!=='landscape'); if(typeof tpFit==='function')tpFit(); }
 function tpPrint(){ document.body.classList.add('tp-printing'); var clean=function(){ document.body.classList.remove('tp-printing'); window.removeEventListener('afterprint',clean); }; window.addEventListener('afterprint',clean); setTimeout(function(){ try{window.print();}catch(e){clean();} },80); }
 function tpInitDefaults(){ var d=tpData(); if(!d)return; if(!d.sew)d.sew={}; if(!Array.isArray(d.sew.legend)||!d.sew.legend.length)d.sew.legend=[{sym:'★',desc:'',stitch:''},{sym:'☆',desc:'',stitch:''}]; if(!Array.isArray(d.sew.spec)||!d.sew.spec.length)d.sew.spec=[{part:'총장'},{part:'어깨'},{part:'가슴단면'},{part:'소매길이'}]; try{saveData();}catch(e){} }
 function tpOpen(id){ var it=S.items&&S.items[id]; if(!it){ if(typeof showToast==='function')showToast('아이템을 찾을 수 없어요'); return; } _tpItemId=id; _tpTab='cut';
