@@ -1286,6 +1286,8 @@ tryInitFirebase();
 #tp-modal .tp-wrap table.tp-sub.num td{color:#2563eb;font-weight:600;}
 /* topnote 좌측 정렬 (요청) */
 #tp-modal .tp-wrap .topnote{text-align:left;}
+/* 이미지 캡처 중엔 편집버튼(상의/팬츠/스커트/+부위/×) 숨김 */
+body.tp-capturing #tp-modal .tp-editonly{display:none!important;}
 /* 탭을 작지 바깥 최상단 버튼으로 (이미지/인쇄엔 안 나옴) */
 #tp-modal .tp-tabsbar{display:flex;justify-content:center;margin:0 auto 7px;}
 #tp-modal .tp-tabsbar .tabs{border:1px solid #9ca3af;border-radius:5px;overflow:hidden;}
@@ -1329,7 +1331,7 @@ tryInitFirebase();
 #tp-modal .tp-wrap .colL>table,#tp-modal .tp-wrap .colR>table,#tp-modal .tp-wrap .panel>table,#tp-modal .tp-wrap .colL>textarea,#tp-modal .tp-wrap .colR>textarea{margin:0!important;}
 #tp-modal .tp-wrap .sec+table,#tp-modal .tp-wrap .sec+textarea,#tp-modal .tp-wrap .sec+div{margin-top:0!important;}
 #tp-modal .tp-wrap .colL .sec:first-child,#tp-modal .tp-wrap .colR .sec:first-child{border-top:none;}
-#tp-modal .tp-wrap .sketch{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#bbb;border:1px dashed #9ca3af;margin:2px;min-height:55mm;cursor:pointer;overflow:hidden;text-align:center;font-size:10px;position:relative;}
+#tp-modal .tp-wrap .sketch{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#bbb;border:1px dashed #9ca3af;margin:2px;min-height:32mm;cursor:pointer;overflow:hidden;text-align:center;font-size:10px;position:relative;}
 #tp-modal .tp-wrap .sketch:hover{border-color:#2563eb;color:#2563eb;}
 #tp-modal .tp-wrap .sketch img{max-width:100%;max-height:100%;object-fit:contain;}
 #tp-modal .tp-wrap .iz{border:1px dashed #9ca3af;min-height:18mm;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:10px;cursor:pointer;overflow:hidden;position:relative;}
@@ -1359,7 +1361,7 @@ tryInitFirebase();
   #tp-modal .tp-wrap .tp-fit{overflow:visible!important;}
   #tp-modal .tp-wrap .panel{display:none!important;}
   #tp-modal .tp-wrap .panel.on{display:flex!important;}
-  #tp-modal .tp-wrap .tabs,#tp-modal .tp-tabsbar{display:none!important;}
+  #tp-modal .tp-wrap .tabs,#tp-modal .tp-tabsbar,#tp-modal .tp-editonly{display:none!important;}
   #tp-modal .tp-wrap .row{page-break-inside:avoid;}
   #tp-modal .tp-wrap table,#tp-modal .tp-wrap .sec,#tp-modal .tp-wrap tr{page-break-inside:avoid;}
   #tp-modal .tp-wrap td,#tp-modal .tp-wrap th,#tp-modal .tp-wrap .sec,#tp-modal .tp-wrap .warn,#tp-modal .htop,#tp-modal .htop>div{border-color:#000!important;}
@@ -5671,6 +5673,20 @@ function onTrimSizeChange(i,val){
   }
 }
 
+// 절당yard·단가 입력 시 현재 사이즈를 단가표에 자동 저장 → 다음에 그 사이즈 고르면 자동 호출
+function upsertTrimSizeRate(i){
+  var t=formTrims[i]; if(!t)return;
+  var sz=String(t.size||t.buttonSize||'').trim(); if(!sz)return;
+  var ypr=+t.yardsPerRoll||0, pr=+t.unitPrice||0;
+  if(!ypr&&!pr)return;
+  if(!Array.isArray(t.sizeRates))t.sizeRates=[];
+  var r=t.sizeRates.find(function(x){return String(x.size).trim()===sz;});
+  if(!r){r={size:sz};t.sizeRates.push(r);}
+  if(ypr)r.yardsPerRoll=ypr; if(pr)r.price=pr;
+  try{if(typeof saveToPB==='function')saveToPB(t);}catch(e){}
+  renderTrimRows();
+  if(typeof showToast==='function')showToast('💾 '+sz+' 단가표에 저장됨 (다음에 자동 호출)');
+}
 function onTrimSizePick(i,val){
   if(val==='__custom__'){
     var cur=(formTrims[i]&&formTrims[i].size)||'';
@@ -5993,8 +6009,8 @@ function trimRowHTML(t,i){
   </div>
   ${isThread?`<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-top:2px;padding-top:7px;border-top:1px dashed var(--bd,#e5e7eb)"><div style="flex:1;min-width:80px"><label>컬러당 개수</label><input data-f="threadQty" type="number" value="${t.threadQty||10}" placeholder="10"></div><div style="flex:1;min-width:80px"><label>미니멈(장)</label><input data-f="threadMin" type="number" value="${t.threadMin||30}" placeholder="30"></div><div style="flex:1.3;min-width:100px;font-size:9px;color:var(--t2);align-self:center;padding:4px 6px;background:var(--bg2);border-radius:5px;line-height:1.3">기본 ${t.threadQty||10}개×${num(t.unitPrice||0)}원 ÷${(t.threadMin||30)}장=<b style="color:var(--blue)">${Math.round(((t.threadQty||10)*(t.unitPrice||0))/(t.threadMin||30))}원/pcs</b></div></div>`:`
   <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
-    ${isR?`<div style="flex:1;min-width:90px"><label>${t.isLace?'컷당yard':((t.rollUnit||'롤')+'당yard')}</label><input data-f="yardsPerRoll" type="number" value="${t.yardsPerRoll||100}"></div>`:isLoop?`<div style="flex:1;min-width:90px"><label>${t.packUnit||'야드'}당 개수</label><input data-f="loopPerYard" type="number" value="${t.loopPerYard||''}" min="1" placeholder="${t.packUnit?'예: 100':'예: 65'}" title="1${t.packUnit||'야드'}에 몇 개 — 이름으로 자동 저장"></div>`:(isYard&&!t.plainYard)?`<div style="flex:1;min-width:90px"><label>1절당yard <span class="muted" style="font-size:9px">선택</span></label><input data-f="yardsPerJeol" type="number" value="${t.yardsPerJeol||''}" placeholder="없으면 야드발주"></div>`:''}
-    <div style="flex:1;min-width:90px"><label>${isR?(t.isLace?'단가(원/컷)':('단가(원/'+(t.rollUnit||'롤')+')')):isYard?'단가(원/yard)':isLoop?((t.packUnit||'야드')+'당 단가'):'단가(원)'}</label><input data-f="unitPrice" type="number" value="${t.unitPrice||0}" min="0"></div>
+    ${isR?`<div style="flex:1;min-width:90px"><label>${t.isLace?'컷당yard':((t.rollUnit||'롤')+'당yard')}</label><input data-f="yardsPerRoll" type="number" value="${t.yardsPerRoll||100}" onchange="colTR();upsertTrimSizeRate(${i})"></div>`:isLoop?`<div style="flex:1;min-width:90px"><label>${t.packUnit||'야드'}당 개수</label><input data-f="loopPerYard" type="number" value="${t.loopPerYard||''}" min="1" placeholder="${t.packUnit?'예: 100':'예: 65'}" title="1${t.packUnit||'야드'}에 몇 개 — 이름으로 자동 저장"></div>`:(isYard&&!t.plainYard)?`<div style="flex:1;min-width:90px"><label>1절당yard <span class="muted" style="font-size:9px">선택</span></label><input data-f="yardsPerJeol" type="number" value="${t.yardsPerJeol||''}" placeholder="없으면 야드발주"></div>`:''}
+    <div style="flex:1;min-width:90px"><label>${isR?(t.isLace?'단가(원/컷)':('단가(원/'+(t.rollUnit||'롤')+')')):isYard?'단가(원/yard)':isLoop?((t.packUnit||'야드')+'당 단가'):'단가(원)'}</label><input data-f="unitPrice" type="number" value="${t.unitPrice||0}" min="0" onchange="colTR();upsertTrimSizeRate(${i})"></div>
   </div>
   <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;padding-top:7px;border-top:1px dashed var(--bd,#e5e7eb)">
     <div style="flex:1;min-width:90px"><label>요척${isLoop?' <span class="muted" style="font-size:9px">벌당 개수</span>':((isR||isYard)?'(yard)':'')}</label><input data-f="${isLoop?'loopPerPiece':((isR||isYard)?'consumptionPerPiece':'qtyPerPiece')}" type="number" value="${isLoop?(t.loopPerPiece||0):((isR||isYard)?(t.consumptionPerPiece||(isYard?0.5:0)):(t.qtyPerPiece||1))}" step="0.01"></div>
@@ -22436,9 +22452,10 @@ function tpCaptureExpand(){
   var sv={ft:fit?fit.style.transform:'',fw:fit?fit.style.width:'',wt:wrap.style.transform,wmb:wrap.style.marginBottom,wh:wrap.style.height,wov:wrap.style.overflow};
   if(fit){fit.style.transform='';fit.style.width='100%';}
   wrap.style.transform=''; wrap.style.marginBottom=''; wrap.style.height='auto'; wrap.style.overflow='visible';
+  document.body.classList.add('tp-capturing');
   return {wrap:wrap,fit:fit,sv:sv};
 }
-function tpCaptureRestore(ctx){ if(!ctx)return; var w=ctx.wrap,f=ctx.fit,sv=ctx.sv; if(f){f.style.transform=sv.ft;f.style.width=sv.fw;} w.style.transform=sv.wt;w.style.marginBottom=sv.wmb;w.style.height=sv.wh;w.style.overflow=sv.wov; if(typeof tpFit==='function')tpFit(); }
+function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); if(!ctx)return; var w=ctx.wrap,f=ctx.fit,sv=ctx.sv; if(f){f.style.transform=sv.ft;f.style.width=sv.fw;} w.style.transform=sv.wt;w.style.marginBottom=sv.wmb;w.style.height=sv.wh;w.style.overflow=sv.wov; if(typeof tpFit==='function')tpFit(); }
 function tpSaveImg(){
   var doc=document.getElementById('tp-doc'); if(!doc)return;
   window._tpCapturing=true; var ctx=tpCaptureExpand();
@@ -22654,15 +22671,15 @@ function tpLegendHTML(){ var arr=tpGet('sew.legend',[]); if(!Array.isArray(arr)|
 function tpGradeCell(path,kind,sz){ return '<input class="tp-cell tpg" data-tp="'+path+'" data-gk="'+kind+'" data-sz="'+tpEsc(sz)+'" value="'+tpEsc(tpGet(path,''))+'" oninput="tpGrade(this)" onchange="tpSet(this.dataset.tp,this.value)">'; }
 var TP_SPEC_TOP=['네크단면','네크깊이','뒷목깊이','어깨단면','암홀','상동단면','밑단단면','소매장','소매부리','옆총장','뒷총장'];
 function tpSpecHTML(it){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE']; var arr=tpGet('sew.spec',[]); if(!Array.isArray(arr)||!arr.length)arr=TP_SPEC_TOP.map(function(p){return {part:p};}); var nS=sizes.length;
-  var h='<table class="tp-tbl tp-spec"><tr><th rowspan="2">측정부위</th><th colspan="'+nS+'">패턴</th><th rowspan="2" style="width:38px">편차</th><th colspan="'+nS+'">완성</th><th rowspan="2" style="width:22px"></th></tr><tr>';
+  var h='<table class="tp-tbl tp-spec"><tr><th rowspan="2">측정부위</th><th colspan="'+nS+'">패턴</th><th rowspan="2" style="width:38px">편차</th><th colspan="'+nS+'">완성</th><th rowspan="2" class="tp-editonly" style="width:22px"></th></tr><tr>';
   sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';}); sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';}); h+='</tr>';
   arr.forEach(function(r,i){ h+='<tr><td>'+tpInp('sew.spec.'+i+'.part','총장')+'</td>';
     sizes.forEach(function(s){h+='<td>'+tpGradeCell('sew.spec.'+i+'.pat.'+s,'p',s)+'</td>';});
     h+='<td class="d">'+tpGradeCell('sew.spec.'+i+'.grade','d','')+'</td>';
     sizes.forEach(function(s){h+='<td>'+tpGradeCell('sew.spec.'+i+'.v.'+s,'f',s)+'</td>';});
-    h+='<td><span onclick="tpDelRow(\'sew.spec\','+i+')" style="cursor:pointer;color:#dc2626;font-weight:700">×</span></td></tr>'; });
+    h+='<td class="tp-editonly"><span onclick="tpDelRow(\'sew.spec\','+i+')" style="cursor:pointer;color:#dc2626;font-weight:700">×</span></td></tr>'; });
   return h+'</table><div style="font-size:9px;color:#9aa0a8;padding:2px 4px">패턴 S·M 넣으면 편차·L 자동, 완성도 패턴 편차대로 자동</div>'; }
-function tpSpecSecHTML(it){ return '<div class="sec">치수 (패턴·편차·완성) cm<span style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'pants\')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\')">스커트</button><button class="gbtn" onclick="tpSpecAdd()">＋부위</button></span></div>'+tpSpecHTML(it); }
+function tpSpecSecHTML(it){ return '<div class="sec">치수 (패턴·편차·완성) cm<span class="tp-editonly" style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'pants\')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\')">스커트</button><button class="gbtn" onclick="tpSpecAdd()">＋부위</button></span></div>'+tpSpecHTML(it); }
 function tpSpecAdd(){ var a=tpGet('sew.spec',[]); if(!Array.isArray(a))a=[]; a=a.slice(); a.push({}); tpSet('sew.spec',a); tpRender(); }
 function tpSpecPreset(t){
   var PANTS=['오비단면','힙단면','허벅지단면','앞시리 오비O','뒷시리 오비O','밑단단면','와끼총장','인심'];
@@ -22729,10 +22746,10 @@ function tpRender(){
   var warn=tpHasCord(it)?'<div class="warn">⚠ 골(식서) 방향 전 부위 동일</div>':'';
   var swatch='<div class="sec">스와치 — 실물 부착 (컬러웨이)</div>'+tpSwatchAttachHTML(qb);
   var cut='<div class="panel'+on('cut')+'" data-panel="cut"><div class="row">'
-    +'<div class="colL">'+noteCut+'<div class="sec">도식화</div>'+_sk('도식화 (앞/뒤 · 주석 포함)')+swatch+'</div>'
+    +'<div class="colL">'+noteCut+'<div class="sec">도식화</div>'+_sk('도식화 (앞/뒤 · 주석 포함)')+tpSpecSecHTML(it)+warn+'</div>'
     +'<div class="colR"><div class="sec">원자재</div>'+tpMaterialTableHTML(it)
       +'<div class="sec">컬러 · 사이즈 · 수량</div>'+tpQtyTableHTML(qb)
-      +tpSpecSecHTML(it)+warn
+      +swatch
       +'<div class="sec">재단 메모</div>'+tpMemo('cut.memo','시접·노치·매칭 메모')
     +'</div></div></div>';
   var sew='<div class="panel'+on('sew')+'" data-panel="sew"><div class="row">'
@@ -22747,11 +22764,11 @@ function tpRender(){
       +'<div class="sec">봉제 메모</div>'+tpMemo('sew.memo','봉제 주의·디테일')
     +'</div></div></div>';
   var cs='<div class="panel'+on('cs')+'" data-panel="cs"><div class="row">'
-    +'<div class="colL"><div class="topnote blue">애매한 작업은 <b>디자이너와 상의 후</b> 작업　<b>검품·출고예정일</b>은 디자이너에게 꼭 전달해 주세요</div><div class="sec">도식화</div>'+_sk('도식화 (앞/뒤)')+swatch+'</div>'
+    +'<div class="colL"><div class="topnote blue">애매한 작업은 <b>디자이너와 상의 후</b> 작업　<b>검품·출고예정일</b>은 디자이너에게 꼭 전달해 주세요</div><div class="sec">도식화</div>'+_sk('도식화 (앞/뒤)')+tpSpecSecHTML(it)+warn+'</div>'
     +'<div class="colR"><div class="sec">원자재</div>'+tpMaterialTableHTML(it)
       +'<div class="sec">컬러 · 사이즈 · 수량</div>'+tpQtyTableHTML(qb)
       +'<div class="sec">라벨</div>'+tpLabelTableHTML(it)
-      +tpSpecSecHTML(it)+warn
+      +swatch
       +'<div class="sec">재단·봉제 메모</div>'+tpMemo('cut.memo','재단·봉제 주의')
     +'</div></div></div>';
   var FIN_SLOT={'메인택':'packTag','QR택':'packQr','사이즈택':'packSize','행택끈':'packString','폴리백':'packPoly','행거':'packHanger','접는폴리':'packFold','사이즈탭':'packSizeTab','데님케어':'packDenimCare'};
