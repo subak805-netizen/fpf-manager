@@ -7905,7 +7905,7 @@ function renderOrderDetail(){
       ${o.clientName?`<span class="muted">거래처: ${esc(o.clientName)}</span>`:''}
       <span class="muted" style="font-size:10px">차수·날짜 수정 가능</span>
     </div>
-    <div class="fr" style="gap:5px;flex-wrap:wrap;margin-bottom:10px"><button class="btn s" onclick="openQtyEdit('${o.id}')" title="오더수량 수정">수량</button><button class="btn s em" onclick="syncOrderFromUI('${o.id}')" title="아이템 변경 가져오기">동기화</button><button class="btn s" onclick="cloneOrder('${o.id}')" title="리오더 / 복사">복사</button><button class="btn s d" onclick="deleteOrder('${o.id}')" title="오더 삭제">삭제</button></div>
+    <div class="fr" style="gap:5px;flex-wrap:wrap;margin-bottom:10px"><button class="btn s" onclick="openQtyEdit('${o.id}')" title="오더수량 수정">수량</button><button class="btn s em" onclick="syncOrderFromUI('${o.id}')" title="아이템 변경 가져오기">동기화</button><button class="btn s" onclick="cloneOrder('${o.id}')" title="리오더 / 복사">복사</button><button class="btn s" onclick="openInspectionFromOrder('${o.id}')" title="검사 신청서 (검품공장 전달)" style="background:#eff6ff;border-color:#3b82f6;color:#1d4ed8;font-weight:700">📋 검사신청서</button><button class="btn s d" onclick="deleteOrder('${o.id}')" title="오더 삭제">삭제</button></div>
     ${renderQtyStrip(o)}
     ${renderShortageNotice(o)}
     <div id="od-tab"></div>
@@ -9620,6 +9620,100 @@ function extraTrimNeed(t,baseQty,extraQty){
   if(dq<=0&&amt<=0)return null;
   return {qty:dq,unit:unit,amount:Math.max(0,amt)};
 }
+// ===== 검사 신청서 (검품공장 전달용 · 이미지 저장) =====
+function inspectionCutGrid(o,oi){
+  var it=S.items[oi.itemId]||{};
+  var colors=it.colors&&it.colors.length?it.colors:[''];
+  var sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
+  var grid={};var total=0;var hasCut=false;
+  colors.forEach(function(c){grid[c]={};sizes.forEach(function(s){grid[c][s]=0;});});
+  var sch=it.sewingFcId&&o.factorySchedules&&o.factorySchedules[it.sewingFcId];
+  var cg=sch&&sch.cuttingGrid&&sch.cuttingGrid[oi.itemId];
+  if(cg){colors.forEach(function(c){sizes.forEach(function(s){var v=+(cg[c]&&cg[c][s])||0;grid[c][s]=v;total+=v;if(v)hasCut=true;});});}
+  if(!hasCut&&sch&&Array.isArray(sch.cuttingShipments)){sch.cuttingShipments.forEach(function(r){if(!r)return;if(r.itemId&&r.itemId!==oi.itemId)return;var c=(r.color in grid)?r.color:colors[0],s=r.size||sizes[0],q=+r.qty||0;if(grid[c]&&grid[c][s]!=null){grid[c][s]+=q;total+=q;if(q)hasCut=true;}});}
+  if(!hasCut){colors.forEach(function(c){sizes.forEach(function(s){var v=+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][s])||0;grid[c][s]=v;total+=v;});});}
+  return {grid:grid,total:total,colors:colors,sizes:sizes,fromCut:hasCut};
+}
+function buildInspectionFormHTML(o,oi){
+  var it=S.items[oi.itemId]||{};
+  var brand=(typeof getBrandName==='function'?getBrandName(it.brandId):'')||'';
+  var sewNm=(it.sewingFcId&&S.factories[it.sewingFcId]&&S.factories[it.sewingFcId].name)||'-';
+  var inspNm=(it.inspectionFcId&&S.factories[it.inspectionFcId]&&S.factories[it.inspectionFcId].name)||'(검품공장 미지정)';
+  var sewSch=it.sewingFcId&&o.factorySchedules&&o.factorySchedules[it.sewingFcId];
+  var shipETA=(sewSch&&(sewSch.shipExpectedDate||sewSch.shippingDate))||o.shippingDate||'';
+  var cg=inspectionCutGrid(o,oi);
+  var realSizes=cg.sizes.filter(function(s){return s&&s!=='free';});
+  var single=!realSizes.length;var cols=single?['_']:realSizes;
+  var hasC=cg.colors.length>1||(cg.colors[0]&&cg.colors[0]!=='');
+  var keyOf=function(s){return single?(cg.sizes[0]||'free'):s;};
+  var ordCols=cg.colors.filter(function(c){return Object.keys(cg.grid[c]).reduce(function(a,s){return a+(+cg.grid[c][s]||0);},0)>0;});
+  if(!ordCols.length)ordCols=cg.colors;
+  var LN='#9ca3af',HD='#f3f4f6';
+  var td='border:1px solid '+LN+';padding:5px 7px;font-size:12px;text-align:center;vertical-align:middle';
+  var th='border:1px solid '+LN+';padding:5px 7px;font-size:12px;font-weight:700;background:'+HD+';text-align:center';
+  var sec='background:'+HD+';font-weight:700;padding:4px 8px;border:1px solid '+LN+';border-bottom:none;font-size:12px;margin-top:12px';
+  var chip=function(c){return (typeof qsColorChip==='function'?qsColorChip(c):'');};
+  var h='';
+  h+='<div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #1f2937;padding-bottom:8px">'
+    +'<div style="min-width:90px;height:40px;border:1px solid '+LN+';display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:10px;text-align:center">＋ 브랜드<br>로고</div>'
+    +'<div style="flex:1;font-size:25px;font-weight:700;letter-spacing:7px;text-align:center">검 사 신 청 서</div>'
+    +'<div style="text-align:right;font-size:11px;color:#6b7280;line-height:1.7;min-width:120px">신청일 <b style="color:#1d4ed8">'+fmtKoDate(todayISO())+'</b><br>품번 <b>'+esc(it.code||'')+'</b></div>'
+    +'</div>';
+  h+='<div style="'+sec+'">신청 정보</div>';
+  h+='<table style="border-collapse:collapse;width:100%"><tr>'
+    +'<th style="'+th+';width:70px">수신(검품)</th><td style="'+td+';color:#1d4ed8;font-weight:600">'+esc(inspNm)+'</td>'
+    +'<th style="'+th+';width:55px">브랜드</th><td style="'+td+'">'+esc(brand)+'</td>'
+    +'<th style="'+th+';width:45px">시즌</th><td style="'+td+'">'+esc(it.season||'')+'</td></tr>'
+    +'<tr><th style="'+th+'">품명</th><td style="'+td+';text-align:left" colspan="3">'+esc(it.name||'')+'</td><th style="'+th+'">봉제</th><td style="'+td+'">'+esc(sewNm)+'</td></tr>'
+    +'<tr><th style="'+th+'">출고예정</th><td style="'+td+'">'+(shipETA?fmtKoDate(shipETA):'-')+'</td><th style="'+th+'">납품처</th><td style="'+td+'">'+esc(brand||o.clientName||'')+'</td><th style="'+th+'">검사방식</th><td style="'+td+';font-weight:700">전수검사</td></tr>'
+    +'</table>';
+  h+='<div style="'+sec+'">검사 항목</div>';
+  h+='<div style="border:1px solid '+LN+';padding:7px 10px;font-size:12px">☑ 치수(스펙)　☑ 봉제 상태　☑ 오염·이염　☑ 부자재 부착　☑ 라벨·택　☐ 워싱</div>';
+  h+='<div style="'+sec+'">검사 수량 (= 재단 장수 · 전수)</div>';
+  h+='<table style="border-collapse:collapse;width:100%"><tr>'+(hasC?'<th style="'+th+'">컬러</th>':'')+(single?'<th style="'+th+'">수량</th>':realSizes.map(function(s){return '<th style="'+th+'">'+esc(s)+'</th>';}).join(''))+'<th style="'+th+'">합계</th></tr>';
+  var gTot=0;
+  ordCols.forEach(function(c){
+    var rowTot=cols.reduce(function(a,s){return a+(+cg.grid[c][keyOf(s)]||0);},0);gTot+=rowTot;
+    h+='<tr>'+(hasC?'<td style="'+td+';text-align:left">'+chip(c)+esc(c||'-')+'</td>':'')
+      +cols.map(function(s){return '<td style="'+td+'">'+((+cg.grid[c][keyOf(s)]||0)||'')+'</td>';}).join('')
+      +'<td style="'+td+';font-weight:700">'+rowTot+'</td></tr>';
+  });
+  if(hasC){h+='<tr><th style="'+th+'">TOTAL</th>'+cols.map(function(s){var t=ordCols.reduce(function(a,c){return a+(+cg.grid[c][keyOf(s)]||0);},0);return '<td style="'+td+';font-weight:700">'+t+'</td>';}).join('')+'<td style="'+td+';font-weight:700;background:#eef2f7">'+gTot+'</td></tr>';}
+  h+='</table>';
+  h+='<div style="'+sec+'">검사 포인트 / 특이사항</div>';
+  h+='<textarea id="inspection-note" style="width:100%;border:1px solid '+LN+';border-top:none;font:inherit;font-size:12px;padding:6px 8px;resize:none;min-height:20mm;box-sizing:border-box" placeholder="중점 검사 부위, 합격 기준, 불량 처리 등"></textarea>';
+  h+='<div style="'+sec+'">검사 결과 (검품소 작성)</div>';
+  h+='<table style="border-collapse:collapse;width:100%"><tr><th style="'+th+';width:80px">검사일</th><td style="'+td+'"></td><th style="'+th+';width:80px">검사자</th><td style="'+td+'"></td></tr>'
+    +'<tr><th style="'+th+'">합격</th><td style="'+td+'"></td><th style="'+th+'">불량</th><td style="'+td+'"></td></tr></table>';
+  return h;
+}
+function openInspectionForm(oid,itemId){
+  var o=S.orders[oid];if(!o)return;
+  var oi=(o.orderItems||[]).find(function(x){return x.itemId===itemId;})||(o.orderItems||[])[0];
+  if(!oi){showToast('아이템이 없어요');return;}
+  var modal=document.getElementById('inspection-modal');
+  if(!modal){modal=document.createElement('div');modal.id='inspection-modal';modal.style.cssText='position:fixed;inset:0;z-index:100050;background:rgba(0,0,0,.5);overflow:auto;padding:18px';document.body.appendChild(modal);}
+  modal.innerHTML='<div style="max-width:740px;margin:0 auto">'
+    +'<div style="display:flex;gap:6px;justify-content:flex-end;margin-bottom:8px">'
+    +'<button class="btn s" style="background:#fff;font-weight:600" onclick="inspectionSaveImg()">📷 이미지 저장</button>'
+    +'<button class="btn s" style="background:#fff" onclick="window.print()">🖨 인쇄</button>'
+    +'<button class="btn s d" onclick="closeInspection()">✕ 닫기</button>'
+    +'</div>'
+    +'<div id="inspection-sheet" style="background:#fff;padding:20px;border-radius:8px;font-family:\'IBM Plex Sans KR\',sans-serif;color:#1f2937">'+buildInspectionFormHTML(o,oi)+'</div>'
+    +'</div>';
+  modal.style.display='block';document.body.style.overflow='hidden';
+}
+function closeInspection(){var m=document.getElementById('inspection-modal');if(m)m.style.display='none';document.body.style.overflow='';}
+function inspectionSaveImg(){
+  var el=document.getElementById('inspection-sheet');if(!el)return;
+  var go=function(){html2canvas(el,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){var a=document.createElement('a');a.download='검사신청서.png';a.href=c.toDataURL('image/png');a.click();if(typeof showToast==='function')showToast('📷 이미지 저장됨');}).catch(function(){if(typeof showToast==='function')showToast('이미지 저장 실패');});};
+  if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){if(typeof showToast==='function')showToast('라이브러리 로드 실패');};document.head.appendChild(s);}else go();
+}
+function openInspectionFromOrder(oid){
+  var o=S.orders[oid];if(!o||!o.orderItems||!o.orderItems.length){showToast('아이템이 없어요');return;}
+  var withInsp=(o.orderItems||[]).filter(function(x){return S.items[x.itemId]&&S.items[x.itemId].inspectionFcId;});
+  openInspectionForm(oid,(withInsp[0]||o.orderItems[0]).itemId);
+}
 function openExtraOrder(oid,itemId,extraDefault){
   window._extraOrderCtx={oid:oid,itemId:itemId};
   window._extraAddGrid={};
@@ -9650,6 +9744,14 @@ function extraPartMaterial(it){
   return null;
 }
 function extraPartTotal(){var g=window._extraPartGrid||{},t=0;Object.keys(g).forEach(function(c){Object.keys(g[c]).forEach(function(z){t+=+g[c][z]||0;});});return t;}
+function extraPartUnit(sel){
+  if(!sel||!sel.m)return '개';
+  if(sel.kind==='fab')return 'y';
+  var m=sel.m;
+  if(m.orderType==='roll')return (m.rollUnit||'롤');
+  if(m.orderType==='yard')return ((+m.yardsPerJeol>0)?'절':(m.packUnit||'y'));
+  return (m.unit||'개');
+}
 function extraPartBySupplier(oid,itemId){
   var it=S.items[itemId];if(!it)return {};
   var sel=extraPartMaterial(it);if(!sel||!sel.m)return {};
@@ -9666,7 +9768,7 @@ function extraPartBySupplier(oid,itemId){
   });
   if(total<=0)return {};
   var up=+m.unitPrice||0;
-  var unit=(sel.kind==='fab')?'y':(m.unit||'개');
+  var unit=extraPartUnit(sel);
   var name=(sel.kind==='fab')?((m.part?m.part+' ':'')+(m.name||'원단')):trimLabel(m);
   var amount=Math.round(total*up);
   var sup=m.supplier||'미지정';var bySup={};
@@ -9765,7 +9867,7 @@ function extraPartialBodyHTML(it,brand,ctx){
   var single=(sel.kind==='fab')||!realSizes.length;
   var hasC=colors.length>1||(colors[0]&&colors[0]!=='');
   var cols=single?['_']:realSizes;
-  var unitLbl=(sel.kind==='fab')?'y':'개';
+  var unitLbl=extraPartUnit(sel);
   var g=window._extraPartGrid||{};
   html+='<table class="qty-grid" style="margin-bottom:8px"><thead><tr>'+(hasC?'<th>컬러</th>':'')+(single?'<th>수량('+unitLbl+')</th>':realSizes.map(function(z){return '<th>'+esc(z)+'</th>';}).join(''))+'<th>합계</th></tr></thead><tbody>';
   colors.forEach(function(c){
