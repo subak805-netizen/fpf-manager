@@ -2035,7 +2035,28 @@ async function openRecoveryTool(){
   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0;font-size:16px">🚑 데이터 복구 도구</h3><button onclick="document.getElementById(\'recovery-overlay\').remove()" style="background:none;border:none;font-size:18px;cursor:pointer">✕</button></div>';
   
   html+='<div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px">✅ <b>안전망 작동</b>: 현재 상태가 다운로드 폴더에 저장되었어요. 무슨 일이 일어나도 그 파일에서 복구할 수 있어요.</div>';
-  
+
+  // === ⭐ 옵션 0: 자동 백업에서 복구 (가장 먼저, 가장 쉬움) ===
+  try{
+    var abkList=[];try{abkList=JSON.parse(localStorage.getItem('fpm_abk_'+curCoId))||[];}catch(e){abkList=[];}
+    if(abkList.length>0){
+      html+='<div style="border:2px solid #34d399;background:#ecfdf5;border-radius:8px;padding:12px;margin-bottom:14px">';
+      html+='<div style="font-weight:700;color:#065f46;font-size:13px;margin-bottom:4px">⭐ 옵션 0: 자동 백업에서 되돌리기 (추천)</div>';
+      html+='<div style="font-size:11px;color:#065f46;margin-bottom:8px">앱이 저장할 때마다 자동으로 보관한 스냅샷이에요. 내용이 지워지기 <b>직전</b> 시점을 골라 되돌리세요. 아이템 개수가 많은(↑) 시점이 보통 정상본이에요.</div>';
+      html+='<div style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:5px">';
+      for(var ai=abkList.length-1;ai>=0;ai--){
+        var bk=abkList[ai];
+        var bd=new Date(bk.ts);var bp=function(x){return String(x).padStart(2,'0');};
+        var tstr=(bd.getMonth()+1)+'/'+bd.getDate()+' '+bp(bd.getHours())+':'+bp(bd.getMinutes());
+        html+='<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #a7f3d0;border-radius:6px;padding:6px 10px">';
+        html+='<span style="font-size:12px;color:#065f46"><b>'+tstr+'</b> · 아이템 '+bk.n+'개</span>';
+        html+='<button onclick="recoverFromAutoBackup('+ai+')" style="background:#059669;color:#fff;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600">이 시점으로 되돌리기</button>';
+        html+='</div>';
+      }
+      html+='</div></div>';
+    }
+  }catch(e){}
+
   // === 데이터 관리 (백업/복원/수동복원) — 헤더에서 통합 이동 ===
   html+='<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:14px">';
   html+='<div style="font-weight:700;margin-bottom:8px;font-size:13px">💾 데이터 백업 / 복원</div>';
@@ -2216,6 +2237,38 @@ function recoverFromLocal(key){
   }catch(e){
     alert('복구 실패: '+e.message);
     console.error('[복구] 실패:',e);
+  }
+}
+
+function recoverFromAutoBackup(idx){
+  try{
+    var list=[];try{list=JSON.parse(localStorage.getItem('fpm_abk_'+curCoId))||[];}catch(e){list=[];}
+    var bk=list[idx];
+    if(!bk||!bk.data){alert('복구 실패: 백업을 찾을 수 없어요');return;}
+    var d=bk.data;
+    var newItems=d.items||{};
+    // 자동백업은 dataURL 이미지를 빼고 저장하므로, 현재 메모리에 남은 로컬 이미지가 있으면 다시 붙임
+    if(typeof tpMergeLocalImages==='function'){
+      try{newItems=tpMergeLocalImages(newItems,S.items||{});}catch(e){}
+    }
+    S.items=newItems;
+    S.orders=d.orders||{};
+    S.brands=d.brands||[];
+    S.sampleOrders=d.sampleOrders||[];
+    S.pickups=d.pickups||[];
+    S.packages=d.packages||[];
+    S.goals=d.goals||[];
+    S.tasks=d.tasks||[];
+    S.brandConfig=d.brandConfig||{};
+    S.deductions=d.deductions||[];
+    saveData();
+    renderCoSel();render();
+    var overlay=document.getElementById('recovery-overlay');
+    if(overlay)overlay.remove();
+    showToast('✅ 자동 백업 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000);
+  }catch(e){
+    alert('복구 실패: '+e.message);
+    console.error('[자동백업 복구] 실패:',e);
   }
 }
 
@@ -2644,8 +2697,41 @@ function updateCloudModal(){
 }
 
 // 공장/단가장은 전체 공유, 아이템/오더/픽업/태스크/브랜드는 업체별
+// ===== 자동 롤링 백업 (데이터 손실 방지 안전장치) =====
+// 저장할 때마다 내용이 있는 스냅샷을 localStorage에 최대 12개 보관.
+// 동기화 덮어쓰기나 실수로 지워져도 직전 정상본으로 되돌릴 수 있음.
+function autoLocalBackup(){
+  try{
+    if(!curCoId||!_ls)return;
+    var items=S.items||{};
+    var n=Object.keys(items).length;
+    if(n===0)return; // 빈 상태는 백업하지 않음 (덮어쓰기 방지)
+    var key='fpm_abk_'+curCoId;
+    var list=[];try{list=JSON.parse(localStorage.getItem(key))||[];}catch(e){list=[];}
+    var now=Date.now();
+    var last=list[list.length-1];
+    // 마지막 백업 이후 90초 지났거나, 아이템 개수가 바뀌었을 때만 새 백업
+    if(last&&(now-last.ts)<90000&&last.n===n)return;
+    var snap={
+      ts:now,n:n,
+      data:{
+        items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,
+        orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],
+        packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],
+        brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]
+      }
+    };
+    list.push(snap);
+    while(list.length>12)list.shift();
+    try{localStorage.setItem(key,JSON.stringify(list));}
+    catch(e){ // 용량 초과 시 오래된 것부터 버리며 재시도
+      while(list.length>3){list.shift();try{localStorage.setItem(key,JSON.stringify(list));return;}catch(e2){}}
+    }
+  }catch(e){}
+}
 function saveData(){
   if(!curCoId)return;
+  autoLocalBackup();
   lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
