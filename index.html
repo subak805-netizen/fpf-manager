@@ -1703,13 +1703,16 @@ function isEditingNow(){
 }
 function tpPreserveLocalContent(inc,old){
   inc=inc||{};old=old||{};
+  var FC=['promotionFcId','sewingFcId','inspectionFcId','embroideryFcId','printingFcId','finishingFcId','washingFcId'];
   Object.keys(old).forEach(function(id){
     var oi=old[id];if(!oi)return;
     var oldHas=((oi.fabrics&&oi.fabrics.length)||(oi.trims&&oi.trims.length)||(oi.colors&&oi.colors.length));
     var ni=inc[id];
     if(!ni){ if(oldHas){inc[id]=oi;console.warn('[sync] 원격에 없는 아이템 로컬 유지:',oi.name||id);} return; }
     var newHas=((ni.fabrics&&ni.fabrics.length)||(ni.trims&&ni.trims.length)||(ni.colors&&ni.colors.length));
-    if(oldHas&&!newHas){ inc[id]=oi; console.warn('[sync] 원격이 비운 아이템 로컬 유지:',oi.name||id); }
+    if(oldHas&&!newHas){ inc[id]=oi; console.warn('[sync] 원격이 비운 아이템 로컬 유지:',oi.name||id); return; }
+    // 공장 배정(프로모션·봉제·검품 등)이 원격에서 비어있는데 로컬에 있으면 로컬 값 보존 (동기화 덮어쓰기로 사라지는 것 방지)
+    FC.forEach(function(k){ if((ni[k]==null||ni[k]==='')&&oi[k]){ ni[k]=oi[k]; console.warn('[sync] '+k+' 로컬 보존:',oi.name||id); } });
   });
   return tpMergeLocalImages(inc,old);
 }
@@ -2066,6 +2069,25 @@ async function openRecoveryTool(){
     }
   }catch(e){}
 
+  // === ⏰ 옵션 0b: 매시간 백업에서 되돌리기 (오늘/어제 시간대) ===
+  try{
+    var hbkList=[];try{hbkList=JSON.parse(localStorage.getItem('fpm_hbk_'+curCoId))||[];}catch(e){hbkList=[];}
+    if(hbkList.length>0){
+      html+='<div style="border:2px solid #60a5fa;background:#eff6ff;border-radius:8px;padding:12px;margin-bottom:14px">';
+      html+='<div style="font-weight:700;color:#1e40af;font-size:13px;margin-bottom:4px">⏰ 옵션 0b: 매시간 백업에서 되돌리기</div>';
+      html+='<div style="font-size:11px;color:#1e40af;margin-bottom:8px">매 정시(아침 7시~밤)에 보관한 시간대별 스냅샷. 오전에 작업한 시점을 골라 되돌릴 수 있어요.</div>';
+      html+='<div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:5px">';
+      for(var hi=hbkList.length-1;hi>=0;hi--){
+        var hb=hbkList[hi];
+        html+='<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #bfdbfe;border-radius:6px;padding:6px 10px">';
+        html+='<span style="font-size:12px;color:#1e40af"><b>'+esc(hb.date||'')+' '+esc(String(hb.hr))+'시</b> · 아이템 '+hb.n+'개</span>';
+        html+='<button onclick="recoverFromHourlyBackup('+hi+')" style="background:#2563eb;color:#fff;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600">이 시점으로 되돌리기</button>';
+        html+='</div>';
+      }
+      html+='</div></div>';
+    }
+  }catch(e){}
+
   // === 데이터 관리 (백업/복원/수동복원) — 헤더에서 통합 이동 ===
   html+='<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:14px">';
   html+='<div style="font-weight:700;margin-bottom:8px;font-size:13px">💾 데이터 백업 / 복원</div>';
@@ -2278,6 +2300,27 @@ function recoverFromAutoBackup(idx){
   }catch(e){
     alert('복구 실패: '+e.message);
     console.error('[자동백업 복구] 실패:',e);
+  }
+}
+
+function recoverFromHourlyBackup(idx){
+  try{
+    var list=[];try{list=JSON.parse(localStorage.getItem('fpm_hbk_'+curCoId))||[];}catch(e){list=[];}
+    var bk=list[idx];
+    if(!bk||!bk.data){alert('복구 실패: 백업을 찾을 수 없어요');return;}
+    var d=bk.data;
+    var newItems=d.items||{};
+    if(typeof tpMergeLocalImages==='function'){ try{newItems=tpMergeLocalImages(newItems,S.items||{});}catch(e){} }
+    S.items=newItems;
+    S.orders=d.orders||{}; S.brands=d.brands||[]; S.sampleOrders=d.sampleOrders||[];
+    S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.tasks=d.tasks||[];
+    S.brandConfig=d.brandConfig||{}; S.deductions=d.deductions||[];
+    saveData(); renderCoSel(); render();
+    var overlay=document.getElementById('recovery-overlay'); if(overlay)overlay.remove();
+    showToast('✅ '+(bk.date||'')+' '+bk.hr+'시 백업 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000);
+  }catch(e){
+    alert('복구 실패: '+e.message);
+    console.error('[매시간백업 복구] 실패:',e);
   }
 }
 
@@ -2605,7 +2648,7 @@ async function cloudSyncLoad(id){
     if(coData||sharedData){
       // 모든 필드를 복원한다 (이전엔 items, orders만 받고 brands 등을 통째로 날려버렸음)
       S={
-        items:d.items||S.items||{},
+        items:(typeof tpPreserveLocalContent==='function')?tpPreserveLocalContent(d.items||{},S.items||{}):(d.items||S.items||{}),
         orders:d.orders||S.orders||{},
         brands:d.brands||S.brands||[],
         sampleOrders:d.sampleOrders||S.sampleOrders||[],
@@ -2738,9 +2781,30 @@ function autoLocalBackup(){
     }
   }catch(e){}
 }
+// ===== 매시간 자동 백업 (요청) — 정시마다 1개, 새벽(0~6시) 제외, 약 2.5일 보관 =====
+function autoHourlyBackup(){
+  try{
+    if(!curCoId||!_ls)return;
+    var items=S.items||{}; if(!Object.keys(items).length)return;
+    var now=new Date(), hr=now.getHours();
+    if(hr<7)return; // 새벽 시간엔 안 함
+    var pad=function(x){return String(x).padStart(2,'0');};
+    var stamp=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())+'_'+pad(hr);
+    var key='fpm_hbk_'+curCoId;
+    var list=[];try{list=JSON.parse(localStorage.getItem(key))||[];}catch(e){list=[];}
+    if(list.length&&list[list.length-1].stamp===stamp)return; // 이번 시간 이미 저장됨
+    var snap={stamp:stamp,ts:Date.now(),hr:hr,date:(now.getMonth()+1)+'/'+now.getDate(),n:Object.keys(items).length,
+      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
+    list.push(snap); while(list.length>40)list.shift();
+    try{localStorage.setItem(key,JSON.stringify(list));}
+    catch(e){while(list.length>10){list.shift();try{localStorage.setItem(key,JSON.stringify(list));return;}catch(e2){}}}
+  }catch(e){}
+}
 function saveData(){
   if(!curCoId)return;
   autoLocalBackup();
+  autoHourlyBackup();
+  if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
