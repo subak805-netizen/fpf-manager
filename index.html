@@ -16363,16 +16363,24 @@ function showBrandManageModal(){
 function renderBrandLabelsSection(b){
   const mainLabels=b.mainLabels||[];
   const careLabels=b.careLabels||[];
+  const finishMats=b.finishMaterials||[];
   function labelRows(kind,list){
     return list.map(function(lb,idx){
+      var u=lb.img||'';
       return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:4px">'
+        +'<label title="사진 추가 (작업지시서에 자동 표시)" style="width:34px;height:34px;flex-shrink:0;border:1px dashed var(--bd);border-radius:5px;overflow:hidden;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center">'
+          +(u?'<img src="'+esc(u)+'" style="max-width:100%;max-height:100%;object-fit:contain">':'<span style="font-size:14px;color:#9ca3af">＋</span>')
+          +'<input type="file" accept="image/*" onchange="brandLabelImgUpload(\''+b.id+'\',\''+kind+'\','+idx+',this)" style="display:none">'
+        +'</label>'
         +'<input type="text" value="'+esc(lb.name||'')+'" onchange="updateBrandLabel(\''+b.id+'\',\''+kind+'\','+idx+',\'name\',this.value)" placeholder="라벨명" style="flex:1.4;font-size:11px;padding:4px 6px;border:1px solid var(--bd);border-radius:4px">'
-        +'<input type="number" value="'+(lb.price||0)+'" onchange="updateBrandLabel(\''+b.id+'\',\''+kind+'\','+idx+',\'price\',+this.value)" placeholder="단가" min="0" style="width:70px;font-size:11px;padding:4px 6px;border:1px solid var(--bd);border-radius:4px"><span style="font-size:10px;color:var(--t2)">원</span>'
+        +'<input type="number" value="'+(lb.price||0)+'" onchange="updateBrandLabel(\''+b.id+'\',\''+kind+'\','+idx+',\'price\',+this.value)" placeholder="단가" min="0" style="width:62px;font-size:11px;padding:4px 6px;border:1px solid var(--bd);border-radius:4px"><span style="font-size:10px;color:var(--t2)">원</span>'
+        +(u?'<button class="btn s g" title="사진 삭제" onclick="if(confirm(\'사진을 삭제할까요?\'))setBrandLabelImg(\''+b.id+'\',\''+kind+'\','+idx+','+"''"+')" style="padding:2px 5px;font-size:10px">🖼✕</button>':'')
         +'<button class="btn s d" onclick="deleteBrandLabel(\''+b.id+'\',\''+kind+'\','+idx+')" style="padding:2px 6px;font-size:10px">×</button>'
         +'</div>';
     }).join('');
   }
   return '<div style="padding:7px 10px;border-top:1px dashed var(--bd)">'
+    +'<div style="font-size:10px;color:var(--t2);font-weight:700;margin-bottom:6px">📎 라벨·완성부자재 목록 — 각 항목 ＋칸에 사진 추가 시 작업지시서에 자동 표시</div>'
     // 메인라벨
     +'<div style="font-size:10px;color:#854d0e;font-weight:700;margin-bottom:4px">🎫 메인라벨 목록</div>'
     +(mainLabels.length?labelRows('main',mainLabels):'<div style="font-size:10px;color:var(--t3);margin-bottom:4px">등록된 라벨 없음</div>')
@@ -16380,12 +16388,39 @@ function renderBrandLabelsSection(b){
     // 케어라벨
     +'<div style="font-size:10px;color:#166534;font-weight:700;margin-bottom:4px">🏷️ 케어라벨 목록</div>'
     +(careLabels.length?labelRows('care',careLabels):'<div style="font-size:10px;color:var(--t3);margin-bottom:4px">등록된 라벨 없음</div>')
-    +'<button class="btn s" onclick="addBrandLabel(\''+b.id+'\',\'care\')" style="font-size:10px;padding:3px 8px;background:#dcfce7;border-color:#86efac">＋ 케어라벨 추가</button>'
+    +'<button class="btn s" onclick="addBrandLabel(\''+b.id+'\',\'care\')" style="font-size:10px;padding:3px 8px;margin-bottom:8px;background:#dcfce7;border-color:#86efac">＋ 케어라벨 추가</button>'
+    // 완성부자재
+    +'<div style="font-size:10px;color:#1d4ed8;font-weight:700;margin-bottom:4px">📦 완성부자재 목록 (택·고무줄·포장 등)</div>'
+    +(finishMats.length?labelRows('finish',finishMats):'<div style="font-size:10px;color:var(--t3);margin-bottom:4px">등록된 완성부자재 없음</div>')
+    +'<button class="btn s" onclick="addBrandLabel(\''+b.id+'\',\'finish\')" style="font-size:10px;padding:3px 8px;background:#dbeafe;border-color:#93c5fd">＋ 완성부자재 추가</button>'
     +'</div>';
 }
 function _brandLabelArr(b,kind){
   if(kind==='main'){if(!b.mainLabels)b.mainLabels=[];return b.mainLabels;}
+  if(kind==='finish'){if(!b.finishMaterials)b.finishMaterials=[];return b.finishMaterials;}
   if(!b.careLabels)b.careLabels=[];return b.careLabels;
+}
+// 라벨/완성부자재 항목별 사진
+function setBrandLabelImg(brandId,kind,idx,url){
+  var b=getBrands().find(function(x){return x.id===brandId;}); if(!b)return;
+  var arr=_brandLabelArr(b,kind); if(!arr[idx])return;
+  if(url)arr[idx].img=url; else delete arr[idx].img;
+  saveData(); renderBrandManageList();
+}
+function brandLabelImgUpload(brandId,kind,idx,input){
+  var file=input&&input.files&&input.files[0]; if(!file)return;
+  if(typeof tpCompress!=='function'){showToast('이미지 처리 불가');return;}
+  showToast('🖼 이미지 처리 중…');
+  tpCompress(file,900,0.82).then(function(r){
+    if(window.fbStorage&&window.fbUser&&curCoId){
+      var ref=window.fbStorage.ref().child('brandlabels/'+curCoId+'/'+brandId+'_'+kind+idx+'_'+Date.now()+'.jpg');
+      ref.put(r.blob).then(function(){return ref.getDownloadURL();}).then(function(url){
+        setBrandLabelImg(brandId,kind,idx,url); showToast('🖼 업로드 완료');
+      }).catch(function(){ setBrandLabelImg(brandId,kind,idx,r.dataUrl); showToast('⚠ 스토리지 실패 — 임시 저장(로그인 권장)'); });
+    }else{
+      setBrandLabelImg(brandId,kind,idx,r.dataUrl); showToast('🖼 저장(임시) — 로그인하면 정식 저장');
+    }
+  }).catch(function(){showToast('이미지 처리 실패');});
 }
 // 브랜드 라벨·완성부자재 참조이미지 업로드 UI (작업지시서 봉제탭 사진칸에 자동 표시)
 function renderBrandRefImagesSection(b){
@@ -16534,7 +16569,6 @@ function renderBrandManageList(){
             ${b.logo?`<button class="btn s g" onclick="if(confirm('로고를 삭제할까요?'))updateBrandField('${b.id}','logo','')" style="padding:2px 7px;font-size:10px;margin-left:4px">삭제</button>`:''}
           </div>
         </div>
-        ${renderBrandRefImagesSection(b)}
         ${renderBrandLabelsSection(b)}
       </div>`).join(''):'<div class="muted" style="font-size:12px;padding:8px;text-align:center">브랜드 없음. 아래에서 추가하세요.</div>'}
     </div>
@@ -22512,8 +22546,14 @@ function tpEsc(v){ return (typeof esc==='function')?esc(v==null?'':String(v)):(v
 function tpBrandName(it){ if(!it)return ''; var bs=S.brands; if(Array.isArray(bs)){ var b=bs.find(function(x){return x&&x.id===it.brandId;}); if(b)return b.name||b.label||''; } else if(bs&&typeof bs==='object'&&bs[it.brandId]){ var v=bs[it.brandId]; return v.name||v; } return it.brand||it.brandName||''; }
 function tpBrandObj(it){ if(!it)return null; var bs=S.brands; if(Array.isArray(bs))return bs.find(function(x){return x&&x.id===it.brandId;})||null; if(bs&&typeof bs==='object'&&bs[it.brandId]&&typeof bs[it.brandId]==='object')return bs[it.brandId]; return null; }
 function tpBrandLogo(it){ var b=tpBrandObj(it); return (b&&(b.logo||b.logoUrl))||''; }
-// 브랜드 탭에 등록한 라벨·완성부자재 참조이미지 (아이템에 개별 이미지 없을 때 폴백)
-function tpBrandRefImg(it,slot){ var b=tpBrandObj(it); return (b&&b.refImages&&b.refImages[slot])||''; }
+// 브랜드 탭 라벨·완성부자재 목록의 항목별 사진 (아이템에 개별 이미지 없을 때 폴백 — 카테고리별 첫 사진)
+function tpBrandFirstImg(list){ if(!Array.isArray(list))return ''; for(var i=0;i<list.length;i++){ if(list[i]&&list[i].img)return list[i].img; } return ''; }
+function tpBrandRefImg(it,slot){ var b=tpBrandObj(it); if(!b)return '';
+  if(slot==='labelMain')return tpBrandFirstImg(b.mainLabels)||((b.refImages&&b.refImages.labelMain)||'');
+  if(slot==='labelCare')return tpBrandFirstImg(b.careLabels)||((b.refImages&&b.refImages.labelCare)||'');
+  if(slot==='labelTrim')return tpBrandFirstImg(b.finishMaterials)||((b.refImages&&b.refImages.labelTrim)||'');
+  return (b.refImages&&b.refImages[slot])||'';
+}
 function tpFcName(id){ return (id&&S.factories&&S.factories[id]&&S.factories[id].name)||''; }
 function tpIsPromo(it){ if(!it)return false; if(it.promotionFcId)return true; if(+it.promotionCost>0)return true; return /프로모션|판촉|promo/i.test(tpBrandName(it)||''); }
 // 캡처 전: 화면축소·내용축소·overflow 해제하고 시트를 내용 전체 높이로 펴기 (안 잘리게)
