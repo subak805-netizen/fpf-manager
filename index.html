@@ -22452,18 +22452,21 @@ function tpIsPromo(it){ if(!it)return false; if(it.promotionFcId)return true; if
 function tpCaptureExpand(){
   var doc=document.getElementById('tp-doc'); if(!doc)return null;
   var wrap=doc.querySelector('.tp-wrap'), fit=doc.querySelector('.tp-fit'); if(!wrap)return null;
-  var sv={ft:fit?fit.style.transform:'',fw:fit?fit.style.width:'',wt:wrap.style.transform,wmb:wrap.style.marginBottom,wh:wrap.style.height,wov:wrap.style.overflow};
-  if(fit){fit.style.transform='';fit.style.width='100%';}
-  wrap.style.transform=''; wrap.style.marginBottom=''; wrap.style.height='auto'; wrap.style.overflow='visible';
+  var sv={wt:wrap.style.transform,wmb:wrap.style.marginBottom};
   document.body.classList.add('tp-capturing');
-  return {wrap:wrap,fit:fit,sv:sv};
+  // window._tpCapturing 는 호출부에서 이미 true → tpFit이 내용을 A4 박스에 맞춰 축소(content-fit)만 적용, 화면 스케일은 스킵
+  if(typeof tpFit==='function')tpFit();
+  // 화면 확대/축소만 제거 → wrap은 A4 원본 크기(가로면 가로 비율) 그대로, overflow:hidden 유지(내용은 fit으로 축소돼 안 잘림)
+  wrap.style.transform=''; wrap.style.marginBottom='';
+  var r=wrap.getBoundingClientRect();
+  return {wrap:wrap,fit:fit,sv:sv,w:Math.max(1,Math.round(r.width)),h:Math.max(1,Math.round(r.height))};
 }
-function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); if(!ctx)return; var w=ctx.wrap,f=ctx.fit,sv=ctx.sv; if(f){f.style.transform=sv.ft;f.style.width=sv.fw;} w.style.transform=sv.wt;w.style.marginBottom=sv.wmb;w.style.height=sv.wh;w.style.overflow=sv.wov; if(typeof tpFit==='function')tpFit(); }
+function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); if(!ctx)return; var w=ctx.wrap,sv=ctx.sv; w.style.transform=sv.wt;w.style.marginBottom=sv.wmb; if(typeof tpFit==='function')tpFit(); }
 function tpSaveImg(){
   var doc=document.getElementById('tp-doc'); if(!doc)return;
   window._tpCapturing=true; var ctx=tpCaptureExpand();
   var done=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
-  var go=function(){ html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,windowHeight:ctx.wrap.scrollHeight+40}).then(function(c){ done(); var it=tpItem(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+((it&&it.code)||'')+'.png'; a.href=c.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('📷 이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
+  var go=function(){ html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(1000,ctx.h+40)}).then(function(c){ done(); var it=tpItem(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+((it&&it.code)||'')+'.png'; a.href=c.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('📷 이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
   if(typeof html2canvas==='undefined'){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload=go; s.onerror=function(){done();if(typeof showToast==='function')showToast('라이브러리 로드 실패');}; document.head.appendChild(s); } else go();
 }
 function tpSavePDF(){
@@ -22472,7 +22475,7 @@ function tpSavePDF(){
   var restore=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
   if(typeof showToast==='function')showToast('📄 PDF 만드는 중…');
   var run=function(){
-    html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,windowHeight:ctx.wrap.scrollHeight+40}).then(function(canvas){
+    html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(1000,ctx.h+40)}).then(function(canvas){
       restore();
       var img=canvas.toDataURL('image/jpeg',0.92);
       var land=(_tpOrient==='landscape');
