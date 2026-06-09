@@ -1287,8 +1287,9 @@ tryInitFirebase();
 #tp-modal .tp-wrap table.tp-sub.num td{color:#2563eb;font-weight:600;}
 /* topnote 좌측 정렬 (요청) */
 #tp-modal .tp-wrap .topnote{text-align:left;}
-/* 이미지 캡처 중엔 편집버튼(상의/팬츠/스커트/+부위/×) 숨김 */
+/* 이미지 캡처 중엔 편집버튼(상의/팬츠/스커트/+부위/×)·이미지 삭제(×)·드롭존 ＋ 안내 숨김 */
 body.tp-capturing #tp-modal .tp-editonly{display:none!important;}
+body.tp-capturing #tp-modal .izdel{display:none!important;}
 /* 치수표 셀 높이 축소 — 도식화가 더 넓게 차지하도록 */
 #tp-modal .tp-wrap table.tp-spec td,#tp-modal .tp-wrap table.tp-spec th{padding:0 3px!important;font-size:10px;line-height:1.1;}
 #tp-modal .tp-wrap table.tp-spec .tp-cell,#tp-modal .tp-wrap table.tp-spec input{padding:0!important;font-size:10px;height:auto;line-height:1.1;}
@@ -22586,21 +22587,33 @@ function tpIsPromo(it){ if(!it)return false; if(it.promotionFcId)return true; if
 function tpCaptureExpand(){
   var doc=document.getElementById('tp-doc'); if(!doc)return null;
   var wrap=doc.querySelector('.tp-wrap'), fit=doc.querySelector('.tp-fit'); if(!wrap)return null;
-  var sv={wt:wrap.style.transform,wmb:wrap.style.marginBottom};
+  var sv={ft:fit?fit.style.transform:'',fw:fit?fit.style.width:'',wt:wrap.style.transform,wmb:wrap.style.marginBottom,wh:wrap.style.height,wmh:wrap.style.minHeight,wov:wrap.style.overflow};
   document.body.classList.add('tp-capturing');
-  // window._tpCapturing 는 호출부에서 이미 true → tpFit이 내용을 A4 박스에 맞춰 축소(content-fit)만 적용, 화면 스케일은 스킵
-  if(typeof tpFit==='function')tpFit();
-  // 화면 확대/축소만 제거 → wrap은 A4 원본 크기(가로면 가로 비율) 그대로, overflow:hidden 유지(내용은 fit으로 축소돼 안 잘림)
+  // content-fit·화면스케일 모두 해제 → 콘텐츠 자연 크기로 렌더(이미지·표·헤더 정확). 캡처 후 비트맵을 A4에 맞춤(transform 렌더 버그 회피)
+  var a4w=Math.max(1,wrap.offsetWidth), a4h=Math.max(1,wrap.offsetHeight); // offset=레이아웃 실측(화면 transform 영향 X)
+  if(fit){fit.style.transform='';fit.style.width='100%';}
+  // min-height=A4 + height:auto → 내용 적으면 도식화(flex)가 A4 채움, 많으면 늘어나 안 잘림(이후 비트맵을 A4로 축소)
   wrap.style.transform=''; wrap.style.marginBottom='';
-  var r=wrap.getBoundingClientRect();
-  return {wrap:wrap,fit:fit,sv:sv,w:Math.max(1,Math.round(r.width)),h:Math.max(1,Math.round(r.height))};
+  wrap.style.minHeight=a4h+'px'; wrap.style.height='auto'; wrap.style.overflow='visible';
+  var natH=Math.max(a4h, wrap.scrollHeight);
+  return {wrap:wrap,fit:fit,sv:sv,w:a4w,h:natH,a4w:a4w,a4h:a4h};
 }
-function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); if(!ctx)return; var w=ctx.wrap,sv=ctx.sv; w.style.transform=sv.wt;w.style.marginBottom=sv.wmb; if(typeof tpFit==='function')tpFit(); }
+function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); if(!ctx)return; var w=ctx.wrap,f=ctx.fit,sv=ctx.sv; if(f){f.style.transform=sv.ft;f.style.width=sv.fw;} w.style.transform=sv.wt;w.style.marginBottom=sv.wmb;w.style.height=sv.wh;w.style.minHeight=sv.wmh;w.style.overflow=sv.wov; if(typeof tpFit==='function')tpFit(); }
+// 자연 크기 캡처본을 A4 비율 캔버스에 contain-fit (이미지/표 정확 + 한 장, 내용 넘치면 비율 유지 축소)
+function tpFitCanvasToA4(src,a4w,a4h,scale){
+  scale=scale||2;
+  var out=document.createElement('canvas'); out.width=Math.round(a4w*scale); out.height=Math.round(a4h*scale);
+  var cx=out.getContext('2d'); cx.fillStyle='#ffffff'; cx.fillRect(0,0,out.width,out.height);
+  var s=Math.min(out.width/src.width, out.height/src.height);
+  var dw=Math.round(src.width*s), dh=Math.round(src.height*s), dx=Math.round((out.width-dw)/2), dy=0;
+  cx.drawImage(src,0,0,src.width,src.height,dx,dy,dw,dh);
+  return out;
+}
 function tpSaveImg(){
   var doc=document.getElementById('tp-doc'); if(!doc)return;
   window._tpCapturing=true; var ctx=tpCaptureExpand();
   var done=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
-  var go=function(){ html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(1000,ctx.h+40)}).then(function(c){ done(); var it=tpItem(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+((it&&it.code)||'')+'.png'; a.href=c.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('📷 이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
+  var go=function(){ html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1000)}).then(function(c){ done(); var a4=tpFitCanvasToA4(c,ctx.a4w,ctx.a4h,2); var it=tpItem(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+((it&&it.code)||'')+'.png'; a.href=a4.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('📷 이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
   if(typeof html2canvas==='undefined'){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload=go; s.onerror=function(){done();if(typeof showToast==='function')showToast('라이브러리 로드 실패');}; document.head.appendChild(s); } else go();
 }
 function tpSavePDF(){
@@ -22609,15 +22622,14 @@ function tpSavePDF(){
   var restore=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
   if(typeof showToast==='function')showToast('📄 PDF 만드는 중…');
   var run=function(){
-    html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(1000,ctx.h+40)}).then(function(canvas){
+    html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1000)}).then(function(canvas){
       restore();
-      var img=canvas.toDataURL('image/jpeg',0.92);
       var land=(_tpOrient==='landscape');
+      var a4=tpFitCanvasToA4(canvas,ctx.a4w,ctx.a4h,2);
+      var img=a4.toDataURL('image/jpeg',0.92);
       var pdf=new window.jspdf.jsPDF({orientation:land?'l':'p',unit:'mm',format:'a4'});
       var pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
-      var iw=pw, ih=canvas.height*pw/canvas.width;
-      if(ih<=ph){ pdf.addImage(img,'JPEG',0,0,iw,ih); }
-      else { var pos=0,rem=ih; while(rem>0){ pdf.addImage(img,'JPEG',0,pos,iw,ih); rem-=ph; if(rem>0){ pdf.addPage(); pos-=ph; } } }
+      pdf.addImage(img,'JPEG',0,0,pw,ph);  // A4 한 장 꽉 채움 (다중페이지 방지)
       var it=tpItem(); pdf.save('작업지시서_'+((it&&it.code)||(it&&it.name)||'')+'.pdf');
       if(typeof showToast==='function')showToast('📄 PDF 저장됨');
     }).catch(function(){ restore(); if(typeof showToast==='function')showToast('PDF 저장 실패'); });
@@ -22836,7 +22848,7 @@ function tpSpecHTML(it){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE']
     h+='<td class="d">'+tpGradeCell('sew.spec.'+i+'.grade','d','')+'</td>';
     sizes.forEach(function(s){h+='<td>'+tpGradeCell('sew.spec.'+i+'.v.'+s,'f',s)+'</td>';});
     h+='<td class="tp-editonly"><span onclick="tpDelRow(\'sew.spec\','+i+')" style="cursor:pointer;color:#dc2626;font-weight:700">×</span></td></tr>'; });
-  return h+'</table><div style="font-size:9px;color:#9aa0a8;padding:2px 4px">패턴 S·M 넣으면 편차·L 자동, 완성도 패턴 편차대로 자동</div>'; }
+  return h+'</table><div class="tp-editonly" style="font-size:9px;color:#9aa0a8;padding:2px 4px">패턴 S·M 넣으면 편차·L 자동, 완성도 패턴 편차대로 자동</div>'; }
 function tpSpecSecHTML(it){ return '<div class="sec">치수 (패턴·편차·완성) cm<span class="tp-editonly" style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'pants\')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\')">스커트</button><button class="gbtn" onclick="tpSpecAdd()">＋부위</button></span></div>'+tpSpecHTML(it); }
 function tpSpecAdd(){ var a=tpGet('sew.spec',[]); if(!Array.isArray(a))a=[]; a=a.slice(); a.push({}); tpSet('sew.spec',a); tpRender(); }
 function tpSpecPreset(t){
