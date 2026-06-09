@@ -1361,6 +1361,9 @@ body.tp-capturing #tp-modal .iz-brand{display:none!important;}
 /* 세로형: 재단·봉제 주의사항 글씨 줄여 1줄 유지 (좁은 좌측 컬럼) */
 #tp-modal .tp-doc:not(.land) .tp-wrap .topnote{font-size:10.5px;line-height:1.35;padding:3px 9px;}
 #tp-modal .tp-wrap textarea{width:100%!important;border:none!important;font:inherit;font-size:11px;padding:3px 5px!important;resize:none;min-height:11mm;color:#1f2937;background:#fff;}
+/* 지시사항 = 공장 사장님 핵심 — 폰트 +3pt·검정 강조 */
+#tp-modal .tp-wrap textarea.tp-instr{font-size:14px;color:#000;font-weight:600;line-height:1.4;}
+#tp-modal .tp-wrap textarea.tp-instr::placeholder{font-weight:400;}
 /* 메모칸이 남는 공간을 채워 시트 하단 빈공간 제거 (목업처럼 꽉 차게) */
 #tp-modal .tp-wrap .colR>textarea.tp-memo:last-child,#tp-modal .tp-wrap .colL>textarea.tp-memo:last-child{flex:1 1 auto;}
 #tp-modal .tp-wrap .tp-cell,#tp-modal .tp-wrap input{width:100%!important;border:none!important;background:transparent!important;font:inherit;font-size:11px;text-align:center;color:#1f2937;padding:1px!important;}
@@ -22601,6 +22604,14 @@ function tpCaptureExpand(){
   return {wrap:wrap,fit:fit,sv:sv,w:a4w,h:natH,a4w:a4w,a4h:a4h};
 }
 function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); if(!ctx)return; var w=ctx.wrap,f=ctx.fit,sv=ctx.sv; if(f){f.style.transform=sv.ft;f.style.width=sv.fw;} w.style.transform=sv.wt;w.style.marginBottom=sv.wmb;w.style.height=sv.wh;w.style.minHeight=sv.wmh;w.style.overflow=sv.wov; if(typeof tpFit==='function')tpFit(); }
+// 캡처 전 모든 이미지 로드 완료 대기 (도식화·스와치 누락 방지)
+function tpWaitImages(el){
+  var imgs=[].slice.call(el.querySelectorAll('img'));
+  return Promise.all(imgs.map(function(im){
+    if(im.complete&&im.naturalWidth>0)return Promise.resolve();
+    return new Promise(function(res){ var done=function(){res();}; im.addEventListener('load',done,{once:true}); im.addEventListener('error',done,{once:true}); setTimeout(done,4000); });
+  })).then(function(){ return new Promise(function(r){ setTimeout(r,60); }); });
+}
 // 자연 크기 캡처본을 A4 비율 캔버스에 contain-fit (이미지/표 정확 + 한 장, 내용 넘치면 비율 유지 축소)
 function tpFitCanvasToA4(src,a4w,a4h,scale){
   scale=scale||2;
@@ -22615,7 +22626,7 @@ function tpSaveImg(){
   var doc=document.getElementById('tp-doc'); if(!doc)return;
   window._tpCapturing=true; var ctx=tpCaptureExpand();
   var done=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
-  var go=function(){ html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1000)}).then(function(c){ done(); var a4=tpFitCanvasToA4(c,ctx.a4w,ctx.a4h,2); var it=tpItem(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+((it&&it.code)||'')+'.png'; a.href=a4.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('📷 이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
+  var go=function(){ tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1000)}); }).then(function(c){ done(); var a4=tpFitCanvasToA4(c,ctx.a4w,ctx.a4h,2); var it=tpItem(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+((it&&it.code)||'')+'.png'; a.href=a4.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('📷 이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
   if(typeof html2canvas==='undefined'){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload=go; s.onerror=function(){done();if(typeof showToast==='function')showToast('라이브러리 로드 실패');}; document.head.appendChild(s); } else go();
 }
 function tpSavePDF(){
@@ -22624,7 +22635,7 @@ function tpSavePDF(){
   var restore=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
   if(typeof showToast==='function')showToast('📄 PDF 만드는 중…');
   var run=function(){
-    html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1000)}).then(function(canvas){
+    tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1000)}); }).then(function(canvas){
       restore();
       var land=(_tpOrient==='landscape');
       var a4=tpFitCanvasToA4(canvas,ctx.a4w,ctx.a4h,2);
@@ -22682,7 +22693,7 @@ function tpQtyBreakdown(it){
 function tpInp(path,ph){ return '<input class="tp-cell" data-tp="'+path+'" value="'+tpEsc(tpGet(path,''))+'" placeholder="'+tpEsc(ph)+'" onchange="tpSet(this.dataset.tp,this.value)">'; }
 function tpInpL(path,ph){ return '<input class="tp-cell" style="text-align:left" data-tp="'+path+'" value="'+tpEsc(tpGet(path,''))+'" placeholder="'+tpEsc(ph)+'" onchange="tpSet(this.dataset.tp,this.value)">'; }
 function tpInpDate(path){ var v=tpGet(path,''); if(!/^\d{4}-\d{2}-\d{2}$/.test(v))v=''; return '<input type="date" class="tp-cell tp-hdate" data-tp="'+path+'" value="'+tpEsc(v)+'" onchange="tpSet(this.dataset.tp,this.value)">'; }
-function tpMemo(path,ph){ return '<textarea class="tp-memo" data-tp="'+path+'" placeholder="'+tpEsc(ph)+'" onchange="tpSet(this.dataset.tp,this.value)">'+tpEsc(tpGet(path,''))+'</textarea>'; }
+function tpMemo(path,ph,cls){ return '<textarea class="tp-memo'+(cls?' '+cls:'')+'" data-tp="'+path+'" placeholder="'+tpEsc(ph)+'" onchange="tpSet(this.dataset.tp,this.value)">'+tpEsc(tpGet(path,''))+'</textarea>'; }
 function tpFieldI(path,dflt){ return '<input class="tp-field" data-tp="'+path+'" value="'+tpEsc(tpGet(path,dflt))+'" onchange="tpSet(this.dataset.tp,this.value)">'; }
 
 /* 이미지 */
@@ -22939,9 +22950,9 @@ function tpRender(){
   var labelBlock='<div class="sec">라벨</div>'+tpLabelTableHTML(it);
   var sampleWashBlock='<div class="sec">견본 / 워싱</div><table><tr><th style="width:58px">견본</th><td>'+tpInpL('sew.sample','')+'</td><th style="width:48px">워싱</th><td>'+tpInpL('sew.wash','워싱없음')+'</td></tr></table>';
   // 지시사항 — 세로형은 좌측(넓게), 가로형은 우측(좁게)
-  var cutMemoBlock='<div class="sec">지시사항</div>'+tpMemo('cut.memo','예: 총장 -2cm · 시접·노치·매칭 등 핵심 지시');
-  var sewMemoBlock='<div class="sec">지시사항</div>'+tpMemo('sew.memo','봉제 주의·디테일·핵심 지시');
-  var csMemoBlock='<div class="sec">지시사항</div>'+tpMemo('cut.memo','재단·봉제 핵심 지시');
+  var cutMemoBlock='<div class="sec">지시사항</div>'+tpMemo('cut.memo','예: 총장 -2cm · 시접·노치·매칭 등 핵심 지시','tp-instr');
+  var sewMemoBlock='<div class="sec">지시사항</div>'+tpMemo('sew.memo','봉제 주의·디테일·핵심 지시','tp-instr');
+  var csMemoBlock='<div class="sec">지시사항</div>'+tpMemo('cut.memo','재단·봉제 핵심 지시','tp-instr');
   // 라벨·견본워싱·지시사항은 세로·가로 공통으로 좌측 컬럼에 배치
   var cut='<div class="panel'+on('cut')+'" data-panel="cut"><div class="row">'
     +'<div class="colL">'+noteCut+'<div class="sec">도식화</div>'+_sk('도식화 (앞/뒤 · 주석 포함)')
