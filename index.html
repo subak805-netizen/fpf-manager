@@ -2150,6 +2150,7 @@ setTimeout(function(){ try{ if(_imgPendingCount()>0)_scheduleImgRetry(); }catch(
 async function openRecoveryTool(){
   // 데이터 복구 도구 — 사용자가 콘솔 명령 안 치고도 진단/복구할 수 있게
   
+  try{ if(typeof idbBkEnsureLoaded==='function')await idbBkEnsureLoaded(); }catch(e){} // 백업(IndexedDB) 캐시 로드/이사
   // 1) 일단 현재 상태를 자동 다운로드 (안전망)
   try{
     var snapshot={
@@ -2258,7 +2259,7 @@ async function openRecoveryTool(){
 
   // === ⭐ 옵션 0: 자동 백업에서 복구 (가장 먼저, 가장 쉬움) ===
   try{
-    var abkList=[];try{abkList=JSON.parse(localStorage.getItem('fpm_abk_'+curCoId))||[];}catch(e){abkList=[];}
+    var abkList=window._abkCache||[];
     if(abkList.length>0){
       html+='<div style="border:2px solid #34d399;background:#ecfdf5;border-radius:8px;padding:12px;margin-bottom:14px">';
       html+='<div style="font-weight:700;color:#065f46;font-size:13px;margin-bottom:4px">⭐ 옵션 0: 자동 백업에서 되돌리기 (추천)</div>';
@@ -2279,7 +2280,7 @@ async function openRecoveryTool(){
 
   // === ⏰ 옵션 0b: 매시간 백업에서 되돌리기 (오늘/어제 시간대) ===
   try{
-    var hbkList=[];try{hbkList=JSON.parse(localStorage.getItem('fpm_hbk_'+curCoId))||[];}catch(e){hbkList=[];}
+    var hbkList=window._hbkCache||[];
     if(hbkList.length>0){
       html+='<div style="border:2px solid #60a5fa;background:#eff6ff;border-radius:8px;padding:12px;margin-bottom:14px">';
       html+='<div style="font-weight:700;color:#1e40af;font-size:13px;margin-bottom:4px">⏰ 옵션 0b: 매시간 백업에서 되돌리기</div>';
@@ -2481,7 +2482,7 @@ function recoverFromLocal(key){
 
 function recoverFromAutoBackup(idx){
   try{
-    var list=[];try{list=JSON.parse(localStorage.getItem('fpm_abk_'+curCoId))||[];}catch(e){list=[];}
+    var list=window._abkCache||[];
     var bk=list[idx];
     if(!bk||!bk.data){alert('복구 실패: 백업을 찾을 수 없어요');return;}
     var d=bk.data;
@@ -2523,7 +2524,7 @@ function _downloadBackupNow(){
 
 function recoverFromHourlyBackup(idx){
   try{
-    var list=[];try{list=JSON.parse(localStorage.getItem('fpm_hbk_'+curCoId))||[];}catch(e){list=[];}
+    var list=window._hbkCache||[];
     var bk=list[idx];
     if(!bk||!bk.data){alert('복구 실패: 백업을 찾을 수 없어요');return;}
     var d=bk.data;
@@ -2984,16 +2985,49 @@ function updateCloudModal(){
 // ===== 자동 롤링 백업 (데이터 손실 방지 안전장치) =====
 // 저장할 때마다 내용이 있는 스냅샷을 localStorage에 최대 12개 보관.
 // 동기화 덮어쓰기나 실수로 지워져도 직전 정상본으로 되돌릴 수 있음.
+// ===== 백업 저장소: IndexedDB (localStorage 용량 확보 — 백업만 큰 창고로 분리) =====
+// 백업(abk/hbk)이 localStorage(5MB)의 90%를 먹어 꽉 채움 → IndexedDB로 옮긴다.
+// 읽기는 메모리 캐시(_abkCache/_hbkCache)에서 동기로, 쓰기만 IndexedDB에 비동기로 한다(읽기 타이밍 사고 방지).
+window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; window._bkCacheCoId=(typeof window._bkCacheCoId!=='undefined')?window._bkCacheCoId:null;
+function _idbBkDB(){ return new Promise(function(res,rej){ try{ var rq=indexedDB.open('fpmBackups',1); rq.onupgradeneeded=function(){ var db=rq.result; if(!db.objectStoreNames.contains('kv'))db.createObjectStore('kv'); }; rq.onsuccess=function(){res(rq.result);}; rq.onerror=function(){rej(rq.error);}; }catch(e){rej(e);} }); }
+function idbBkGet(key){ return _idbBkDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('kv','readonly'),r=tx.objectStore('kv').get(key); r.onsuccess=function(){res(r.result);}; r.onerror=function(){rej(r.error);}; }); }).catch(function(){ return undefined; }); }
+function idbBkSet(key,val){ return _idbBkDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('kv','readwrite'); tx.objectStore('kv').put(val,key); tx.oncomplete=function(){res(true);}; tx.onerror=function(){rej(tx.error);}; tx.onabort=function(){rej(tx.error);}; }); }); }
+function idbBkDel(key){ return _idbBkDB().then(function(db){ return new Promise(function(res){ var tx=db.transaction('kv','readwrite'); tx.objectStore('kv').delete(key); tx.oncomplete=function(){res(true);}; tx.onerror=function(){res(false);}; }); }).catch(function(){}); }
+// 현재 회사 백업을 IDB→캐시 로드. IDB에 없고 localStorage에 있으면 1회 이사(IDB 저장 성공 후에만 localStorage 삭제 — 유실 방지, 이때 용량 확보).
+async function idbBkEnsureLoaded(){
+  if(!curCoId)return;
+  if(window._bkCacheCoId===curCoId)return;
+  if(window._bkLoadingPromise&&window._bkLoadingFor===curCoId)return window._bkLoadingPromise;
+  var co=curCoId; window._bkLoadingFor=co;
+  window._bkLoadingPromise=(async function(){
+    try{
+      var defs=[['fpm_abk_'+co,'_abkCache'],['fpm_hbk_'+co,'_hbkCache']], out={};
+      for(var i=0;i<defs.length;i++){
+        var key=defs[i][0], v=await idbBkGet(key);
+        if(v==null){ // IDB에 없음 → localStorage에서 이사
+          var ls=null; try{ls=localStorage.getItem(key);}catch(e){}
+          if(ls){ var parsed=[]; try{parsed=JSON.parse(ls)||[];}catch(e){parsed=[];}
+            try{ await idbBkSet(key,parsed); try{localStorage.removeItem(key);}catch(e){} }catch(e){}
+            v=parsed;
+          } else v=[];
+        }
+        out[defs[i][1]]=Array.isArray(v)?v:[];
+      }
+      if(co===curCoId){ window._abkCache=out['_abkCache']; window._hbkCache=out['_hbkCache']; window._bkCacheCoId=co; }
+    }catch(e){}
+    finally{ window._bkLoadingPromise=null; }
+  })();
+  return window._bkLoadingPromise;
+}
 function autoLocalBackup(){
   try{
-    if(!curCoId||!_ls)return;
+    if(!curCoId)return;
     var items=S.items||{};
     var n=Object.keys(items).length;
     if(n===0)return; // 빈 상태는 백업하지 않음 (덮어쓰기 방지)
-    var key='fpm_abk_'+curCoId;
-    var ABK_MAX=5; // 자동백업 보관 개수 (12→5: 저장소 용량 확보)
-    var list=[];try{list=JSON.parse(localStorage.getItem(key))||[];}catch(e){list=[];}
-    if(list.length>ABK_MAX){list=list.slice(-ABK_MAX);try{localStorage.setItem(key,JSON.stringify(list));}catch(e){}} // 기존에 많이 쌓였으면 즉시 정리
+    var ABK_MAX=5; // 저장백업 보관 개수
+    if(window._bkCacheCoId!==curCoId){ idbBkEnsureLoaded(); return; } // 캐시 로드 전이면 이번 틱 건너뜀(곧 로드됨)
+    var list=window._abkCache;
     var now=Date.now();
     var last=list[list.length-1];
     // 마지막 백업 이후 90초 지났거나, 아이템 개수가 바뀌었을 때만 새 백업
@@ -3009,10 +3043,7 @@ function autoLocalBackup(){
     };
     list.push(snap);
     while(list.length>ABK_MAX)list.shift();
-    try{localStorage.setItem(key,JSON.stringify(list));}
-    catch(e){ // 용량 초과 시 오래된 것부터 버리며 재시도
-      while(list.length>2){list.shift();try{localStorage.setItem(key,JSON.stringify(list));return;}catch(e2){}}
-    }
+    idbBkSet('fpm_abk_'+curCoId,list).catch(function(){}); // IndexedDB에 비동기 저장
   }catch(e){}
 }
 // ===== 매시간 자동 백업 (요청) — 정시마다 1개, 새벽(0~6시) 제외, 약 2.5일 보관 =====
@@ -3024,16 +3055,14 @@ function autoHourlyBackup(){
     if(hr<7)return; // 새벽 시간엔 안 함
     var pad=function(x){return String(x).padStart(2,'0');};
     var stamp=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())+'_'+pad(hr);
-    var key='fpm_hbk_'+curCoId;
-    var HBK_MAX=12; // 매시간 백업 보관 개수 (40→12: 저장소 용량 확보)
-    var list=[];try{list=JSON.parse(localStorage.getItem(key))||[];}catch(e){list=[];}
-    if(list.length>HBK_MAX){list=list.slice(-HBK_MAX);try{localStorage.setItem(key,JSON.stringify(list));}catch(e){}} // 기존에 많이 쌓였으면 즉시 정리
+    var HBK_MAX=12; // 매시간 백업 보관 개수
+    if(window._bkCacheCoId!==curCoId){ idbBkEnsureLoaded(); return; } // 캐시 로드 전이면 이번 틱 건너뜀
+    var list=window._hbkCache;
     if(list.length&&list[list.length-1].stamp===stamp)return; // 이번 시간 이미 저장됨
     var snap={stamp:stamp,ts:Date.now(),hr:hr,date:(now.getMonth()+1)+'/'+now.getDate(),n:Object.keys(items).length,
       data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
     list.push(snap); while(list.length>HBK_MAX)list.shift();
-    try{localStorage.setItem(key,JSON.stringify(list));}
-    catch(e){while(list.length>5){list.shift();try{localStorage.setItem(key,JSON.stringify(list));return;}catch(e2){}}}
+    idbBkSet('fpm_hbk_'+curCoId,list).catch(function(){}); // IndexedDB에 비동기 저장
   }catch(e){}
 }
 function saveData(){
@@ -3074,6 +3103,7 @@ function loadCoData(id){
   S={items:d.items||{},orders:d.orders||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[]};
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
+  try{ window._bkCacheCoId=null; if(typeof idbBkEnsureLoaded==='function')idbBkEnsureLoaded(); }catch(e){} // 백업 IndexedDB 로드/이사(회사 전환 시 캐시 갱신)
 }
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
