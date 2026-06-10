@@ -1973,6 +1973,11 @@ async function onFirebaseLogin(){
 async function cloudSyncSave(){
   if(!isCloudOn())return;
   if(!curCoId)return; // 회사 없는 상태에서는 푸시 안 함
+  // 🖼 자동 사진 정리: 본문에 인라인(dataURL) 사진이 있으면 Storage로 옮겨 용량 줄임 (매번 수동으로 안 눌러도 됨)
+  // 업로드가 막혀(CORS/규칙) 실패한 적 있으면 _tpMigrateBlocked로 반복 시도 차단
+  if(window.fbStorage&&window.fbUser&&!window._tpMigrating&&!window._tpMigrateBlocked){
+    try{ if(typeof countInlineImages==='function'&&countInlineImages().count>0){ await migrateImagesToCloud({silent:true,noResync:true}); } }catch(e){console.warn('[autoMigrate]',e);}
+  }
   setCloudInd('sync');
   try{
     // === 안전장치 1: "빈 메모리 → 클라우드 빈 덮어쓰기" 막기 ===
@@ -2062,11 +2067,13 @@ function _collectInlineImages(){
 }
 function countInlineImages(){var arr=_collectInlineImages();var bytes=0;arr.forEach(function(t){bytes+=t.dataUrl.length;});return {count:arr.length,bytes:bytes};}
 function _dataUrlToBlob(dataUrl){var parts=dataUrl.split(',');var mime=(parts[0].match(/:(.*?);/)||[])[1]||'image/jpeg';var bin=atob(parts[1]);var arr=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return new Blob([arr],{type:mime});}
-async function migrateImagesToCloud(){
-  if(!(window.fbStorage&&window.fbUser)){ if(typeof showToast==='function')showToast('먼저 ☁ 연동에서 로그인하세요 (사진을 클라우드에 올리려면 로그인 필요)'); return; }
+async function migrateImagesToCloud(opts){
+  opts=opts||{};
+  if(!(window.fbStorage&&window.fbUser)){ if(!opts.silent&&typeof showToast==='function')showToast('먼저 ☁ 연동에서 로그인하세요 (사진을 클라우드에 올리려면 로그인 필요)'); return 0; }
   var tasks=_collectInlineImages();
-  if(!tasks.length){ if(typeof showToast==='function')showToast('정리할 인라인 사진이 없어요 (이미 정리됨)'); return; }
-  var ovl=(typeof tpShowUp==='function')?tpShowUp('사진 0/'+tasks.length+' 클라우드로 정리 중…'):null;
+  if(!tasks.length){ if(!opts.silent&&typeof showToast==='function')showToast('정리할 인라인 사진이 없어요 (이미 정리됨)'); return 0; }
+  window._tpMigrating=true;
+  var ovl=(!opts.silent&&typeof tpShowUp==='function')?tpShowUp('사진 0/'+tasks.length+' 클라우드로 정리 중…'):null;
   var done=0,failed=0;
   for(var i=0;i<tasks.length;i++){
     try{ var t=tasks[i]; var blob=_dataUrlToBlob(t.dataUrl); var ref=window.fbStorage.ref().child(t.path); await ref.put(blob); var url=await ref.getDownloadURL(); t.apply(url); done++; }
@@ -2075,8 +2082,14 @@ async function migrateImagesToCloud(){
   }
   if(ovl&&typeof tpHideUp==='function')tpHideUp(ovl);
   try{saveData();}catch(e){}
-  if(typeof showToast==='function')showToast('✅ 사진 '+done+'장 클라우드로 옮김'+(failed?(' · 실패 '+failed+'장(네트워크 후 재시도)'):'')+' — 동기화 다시 시도해요');
-  if(typeof cloudSyncSave==='function'){try{cloudSyncSave();}catch(e){}}
+  window._tpMigrating=false;
+  if(failed>0)window._tpMigrateBlocked=true; // 업로드가 막힘(CORS/규칙) — 자동 재시도 반복 방지
+  if(!opts.silent&&typeof showToast==='function'){
+    if(done>0)showToast('✅ 사진 '+done+'장 클라우드로 옮김'+(failed?(' · 실패 '+failed+'장'):'')+' — 동기화 다시 시도해요');
+    else showToast('⚠ 사진 업로드가 막혀 있어요('+failed+'장 실패) — Firebase Storage CORS/보안규칙을 확인해야 해요',7000);
+  }
+  if(!opts.noResync&&typeof cloudSyncSave==='function'){try{cloudSyncSave();}catch(e){}}
+  return done;
 }
 async function openRecoveryTool(){
   // 데이터 복구 도구 — 사용자가 콘솔 명령 안 치고도 진단/복구할 수 있게
