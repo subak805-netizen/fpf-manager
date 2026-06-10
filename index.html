@@ -2033,11 +2033,15 @@ async function cloudSyncSave(){
       brandConfig:S.brandConfig||{},
       deductions:S.deductions||[]
     };
-    // 문서 크기 사전 점검 (Firestore 1MB 한도)
-    var _coSize=0;try{_coSize=JSON.stringify(coData).length;}catch(e){}
+    // 🛡 클라우드로 보낼 땐 base64 인라인 사진(무거움)을 빼고 보냄 → 본문이 작아져 동기화 항상 성공.
+    // (사진은 로컬·Storage에 그대로. 업로드된 사진은 URL이라 작아서 그대로 동기화됨.)
+    var _cloudCoData=coData;
+    try{ _cloudCoData=JSON.parse(JSON.stringify(coData,function(k,v){return (typeof v==='string'&&v.indexOf('data:image')===0)?'':v;})); }catch(e){ _cloudCoData=coData; }
+    // 문서 크기 사전 점검 (Firestore 1MB 한도) — 실제 전송본 기준
+    var _coSize=0;try{_coSize=JSON.stringify(_cloudCoData).length;}catch(e){}
     var _coRes=await Promise.all([
       cloudSet('fpm_cos',companies),
-      cloudSet('fpm_'+curCoId,coData),
+      cloudSet('fpm_'+curCoId,_cloudCoData),
       cloudSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook})
     ]);
     if(_coRes.indexOf(false)>=0){
