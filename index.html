@@ -2416,15 +2416,25 @@ function recoverFromAutoBackup(idx){
     S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{};
     S.deductions=d.deductions||[];
-    saveData();
-    renderCoSel();render();
+    var _saveOk=true; try{saveData();}catch(se){_saveOk=false;console.error('[자동백업 복구] saveData 실패:',se);}
+    try{renderCoSel();}catch(e){console.warn(e);} try{render();}catch(e){console.warn(e);}
     var overlay=document.getElementById('recovery-overlay');
     if(overlay)overlay.remove();
-    showToast('✅ 자동 백업 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000);
+    if(_saveOk){ showToast('✅ 자동 백업 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000); }
+    else { showToast('⚠ 복구됨(아이템 '+Object.keys(S.items).length+'개)이지만 저장공간 부족 — 새로고침 전에 백업파일을 꼭 받아두세요',8000); try{_downloadBackupNow();}catch(e){} }
   }catch(e){
     alert('복구 실패: '+e.message);
     console.error('[자동백업 복구] 실패:',e);
   }
+}
+// 현재 메모리 상태를 백업 파일로 즉시 다운로드 (저장 실패 시 안전망)
+function _downloadBackupNow(){
+  try{
+    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions};
+    var out={version:'pro2',ts:new Date().toISOString(),companies:companies,allCoData:allCo,shared:{factories:S.factories,priceBook:S.priceBook}};
+    var blob=new Blob([JSON.stringify(out)],{type:'application/json'});var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');a.href=url;a.download='fpm복구본-'+Date.now()+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  }catch(e){console.error('_downloadBackupNow',e);}
 }
 
 function recoverFromHourlyBackup(idx){
@@ -2439,9 +2449,11 @@ function recoverFromHourlyBackup(idx){
     S.orders=d.orders||{}; S.brands=d.brands||[]; S.sampleOrders=d.sampleOrders||[];
     S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{}; S.deductions=d.deductions||[];
-    saveData(); renderCoSel(); render();
+    var _saveOk2=true; try{saveData();}catch(se){_saveOk2=false;console.error('[매시간백업 복구] saveData 실패:',se);}
+    try{renderCoSel();}catch(e){console.warn(e);} try{render();}catch(e){console.warn(e);}
     var overlay=document.getElementById('recovery-overlay'); if(overlay)overlay.remove();
-    showToast('✅ '+(bk.date||'')+' '+bk.hr+'시 백업 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000);
+    if(_saveOk2){ showToast('✅ '+(bk.date||'')+' '+bk.hr+'시 백업 복구 완료! 아이템 '+Object.keys(S.items).length+'개',5000); }
+    else { showToast('⚠ 복구됨(아이템 '+Object.keys(S.items).length+'개)이지만 저장공간 부족 — 새로고침 전에 백업파일을 꼭 받아두세요',8000); try{_downloadBackupNow();}catch(e){} }
   }catch(e){
     alert('복구 실패: '+e.message);
     console.error('[매시간백업 복구] 실패:',e);
@@ -2704,7 +2716,7 @@ async function recoverFromCloud(){
     var ids=Object.keys(companies||{});
     if(ids.length>0){
       if(!curCoId||!companies[curCoId])curCoId=ids[0];
-      var changed=await cloudSyncLoad(curCoId);
+      var changed=await cloudSyncLoad(curCoId,{force:true});
       renderCoSel();
       render();
       var overlay=document.getElementById('recovery-overlay');
@@ -2734,7 +2746,7 @@ async function forceCloudRefresh(){
     }
     // 현재 회사가 있으면 그 데이터를 다시 받는다
     if(curCoId){
-      const changed=await cloudSyncLoad(curCoId);
+      const changed=await cloudSyncLoad(curCoId,{force:true});
       renderCoSel();
       render();
       showToast(changed?'✅ 최신 데이터 가져오기 완료!':'✓ 이미 최신 상태예요',3000);
@@ -2745,7 +2757,7 @@ async function forceCloudRefresh(){
         curCoId=ids[0];
         try{if(_ls)localStorage.setItem('fpm_last',curCoId);}catch(e){}
         loadCoData(curCoId);
-        await cloudSyncLoad(curCoId);
+        await cloudSyncLoad(curCoId,{force:true});
         renderCoSel();
         render();
         showToast('✅ 클라우드 데이터 가져오기 완료!',3000);
@@ -2759,7 +2771,8 @@ async function forceCloudRefresh(){
   }
 }
 
-async function cloudSyncLoad(id){
+async function cloudSyncLoad(id,opts){
+  opts=opts||{};
   if(!isCloudOn())return false;
   setCloudInd('sync');
   try{
@@ -2769,6 +2782,18 @@ async function cloudSyncLoad(id){
     let changed=false;
     if(cosData){companies={...cosData};lsSet('fpm_cos',companies);changed=true;}
     const d=coData||{};const sh=sharedData||{};
+    // 🛡 데이터 손실 방지: 자동 로드 때 클라우드가 로컬보다 항목이 적으면(동기화 실패로 오래된 본) 덮어쓰지 않고 로컬 보호.
+    // 명시적 새로고침(opts.force)일 때만 클라우드로 덮어씀.
+    if(!opts.force){
+      var _localN=Object.keys(S.items||{}).length;
+      var _cloudN=Object.keys(d.items||{}).length;
+      if(_localN>0 && _cloudN<_localN){
+        console.warn('[cloudSyncLoad] 클라우드('+_cloudN+') < 로컬('+_localN+') — 로컬 보호, 덮어쓰기 skip');
+        setCloudInd('ok');
+        if(typeof showToast==='function')showToast('ℹ 클라우드가 더 오래된 것 같아 이 기기 데이터를 지켰어요 (동기화 막힘 — 🚑 데이터 관리에서 사진 정리 후 동기화하세요)',7000);
+        return false;
+      }
+    }
     if(coData||sharedData){
       // 모든 필드를 복원한다 (이전엔 items, orders만 받고 brands 등을 통째로 날려버렸음)
       S={
