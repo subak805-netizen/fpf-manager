@@ -22618,6 +22618,25 @@ function tpWaitImages(el){
     return new Promise(function(res){ var done=function(){res();}; im.addEventListener('load',done,{once:true}); im.addEventListener('error',done,{once:true}); setTimeout(done,4000); });
   })).then(function(){ return new Promise(function(r){ setTimeout(r,60); }); });
 }
+// html2canvas 1.4.1은 input·td의 vertical-align:middle을 무시하고 글씨를 셀 하단(baseline)에 그림 →
+// 캡처 복제본(onclone)에서만 셀·인풋 line-height를 실제 칸높이로 맞춰 수직 중앙 강제(화면 DOM은 안 건드림).
+function tpCaptureFixVAlign(cdoc){
+  try{
+    var sel='#tp-modal .tp-wrap td,#tp-modal .tp-wrap th,#tp-modal .tp-wrap input,#tp-modal .htop .who input';
+    var live=document.querySelectorAll(sel), cl=cdoc.querySelectorAll(sel);
+    for(var i=0;i<cl.length;i++){
+      var lv=live[i], ce=cl[i]; if(!lv||!ce)continue;
+      var isInput=(ce.tagName==='INPUT');
+      if(!isInput && ce.children.length>0) continue; // 스와치·칩 등 자식요소 있는 셀은 제외
+      var hh=lv.clientHeight; if(!hh)continue;
+      ce.style.setProperty('line-height',hh+'px','important');
+      ce.style.setProperty('padding-top','0','important');
+      ce.style.setProperty('padding-bottom','0','important');
+      ce.style.setProperty('vertical-align','middle','important');
+      if(isInput) ce.style.setProperty('height',hh+'px','important');
+    }
+  }catch(e){}
+}
 // 자연 크기 캡처본을 A4 비율 캔버스에 contain-fit (이미지/표 정확 + 한 장, 내용 넘치면 비율 유지 축소)
 function tpFitCanvasToA4(src,a4w,a4h,scale){
   scale=scale||2;
@@ -22632,7 +22651,7 @@ function tpSaveImg(){
   var doc=document.getElementById('tp-doc'); if(!doc)return;
   window._tpCapturing=true; var ctx=tpCaptureExpand();
   var done=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
-  var go=function(){ tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200)}); }).then(function(c){ done(); var it=tpItem(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+((it&&it.code)||'')+'.png'; a.href=c.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('📷 이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
+  var go=function(){ tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200),onclone:tpCaptureFixVAlign}); }).then(function(c){ done(); var it=tpItem(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+((it&&it.code)||'')+'.png'; a.href=c.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('📷 이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
   if(typeof html2canvas==='undefined'){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload=go; s.onerror=function(){done();if(typeof showToast==='function')showToast('라이브러리 로드 실패');}; document.head.appendChild(s); } else go();
 }
 function tpSavePDF(){
@@ -22641,7 +22660,7 @@ function tpSavePDF(){
   var restore=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
   if(typeof showToast==='function')showToast('📄 PDF 만드는 중…');
   var run=function(){
-    tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200)}); }).then(function(canvas){
+    tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:2,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200),onclone:tpCaptureFixVAlign}); }).then(function(canvas){
       restore();
       var land=(_tpOrient==='landscape');
       var img=canvas.toDataURL('image/jpeg',0.92);
