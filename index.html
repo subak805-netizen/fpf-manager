@@ -2047,6 +2047,37 @@ async function cloudSyncSave(){
     setCloudInd('err');
   }
 }
+// === 사진 용량 정리: 기기에만 저장된 인라인(dataURL) 사진을 Firebase Storage로 옮기고 본문엔 URL만 남김 ===
+function _collectInlineImages(){
+  var out=[]; var co=(typeof curCoId!=='undefined'&&curCoId)?curCoId:'default';
+  var isData=function(v){return typeof v==='string'&&v.indexOf('data:image')===0;};
+  var stamp=function(){return Date.now()+'_'+out.length;};
+  Object.keys(S.items||{}).forEach(function(id){var it=S.items[id];var imgs=it&&it.techpack&&it.techpack.images;if(!imgs)return;Object.keys(imgs).forEach(function(k){if(isData(imgs[k]))out.push({dataUrl:imgs[k],path:'techpack/'+co+'/'+id+'/'+k+'_'+stamp()+'.jpg',apply:function(u){imgs[k]=u;}});});});
+  (S.brands||[]).forEach(function(b){
+    ['mainLabels','careLabels','finishMaterials'].forEach(function(kind){(b[kind]||[]).forEach(function(row,idx){if(row&&isData(row.img))out.push({dataUrl:row.img,path:'brandlabels/'+co+'/'+b.id+'_'+kind+idx+'_'+stamp()+'.jpg',apply:function(u){row.img=u;}});});});
+    if(isData(b.logo))out.push({dataUrl:b.logo,path:'brandlogos/'+co+'/'+b.id+'_'+stamp()+'.jpg',apply:function(u){b.logo=u;}});
+    if(b.refImages)Object.keys(b.refImages).forEach(function(k){if(isData(b.refImages[k]))out.push({dataUrl:b.refImages[k],path:'brandref/'+co+'/'+b.id+'_'+k+'_'+stamp()+'.jpg',apply:function(u){b.refImages[k]=u;}});});
+  });
+  return out;
+}
+function countInlineImages(){var arr=_collectInlineImages();var bytes=0;arr.forEach(function(t){bytes+=t.dataUrl.length;});return {count:arr.length,bytes:bytes};}
+function _dataUrlToBlob(dataUrl){var parts=dataUrl.split(',');var mime=(parts[0].match(/:(.*?);/)||[])[1]||'image/jpeg';var bin=atob(parts[1]);var arr=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return new Blob([arr],{type:mime});}
+async function migrateImagesToCloud(){
+  if(!(window.fbStorage&&window.fbUser)){ if(typeof showToast==='function')showToast('먼저 ☁ 연동에서 로그인하세요 (사진을 클라우드에 올리려면 로그인 필요)'); return; }
+  var tasks=_collectInlineImages();
+  if(!tasks.length){ if(typeof showToast==='function')showToast('정리할 인라인 사진이 없어요 (이미 정리됨)'); return; }
+  var ovl=(typeof tpShowUp==='function')?tpShowUp('사진 0/'+tasks.length+' 클라우드로 정리 중…'):null;
+  var done=0,failed=0;
+  for(var i=0;i<tasks.length;i++){
+    try{ var t=tasks[i]; var blob=_dataUrlToBlob(t.dataUrl); var ref=window.fbStorage.ref().child(t.path); await ref.put(blob); var url=await ref.getDownloadURL(); t.apply(url); done++; }
+    catch(e){ console.warn('[migrateImages] fail',e); failed++; }
+    if(ovl)ovl.textContent='사진 '+(done+failed)+'/'+tasks.length+' 정리 중…';
+  }
+  if(ovl&&typeof tpHideUp==='function')tpHideUp(ovl);
+  try{saveData();}catch(e){}
+  if(typeof showToast==='function')showToast('✅ 사진 '+done+'장 클라우드로 옮김'+(failed?(' · 실패 '+failed+'장(네트워크 후 재시도)'):'')+' — 동기화 다시 시도해요');
+  if(typeof cloudSyncSave==='function'){try{cloudSyncSave();}catch(e){}}
+}
 async function openRecoveryTool(){
   // 데이터 복구 도구 — 사용자가 콘솔 명령 안 치고도 진단/복구할 수 있게
   
@@ -2124,6 +2155,22 @@ async function openRecoveryTool(){
   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0;font-size:16px">🚑 데이터 복구 도구</h3><button onclick="document.getElementById(\'recovery-overlay\').remove()" style="background:none;border:none;font-size:18px;cursor:pointer">✕</button></div>';
   
   html+='<div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px">✅ <b>안전망 작동</b>: 현재 상태가 다운로드 폴더에 저장되었어요. 무슨 일이 일어나도 그 파일에서 복구할 수 있어요.</div>';
+
+  // === 🖼 사진 용량 정리 (dataURL → 클라우드) — 동기화 실패(데이터 너무 큼) 해결 ===
+  try{
+    var _imgStat=countInlineImages();
+    if(_imgStat.count>0){
+      html+='<div style="border:2px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px;margin-bottom:14px">';
+      html+='<div style="font-weight:700;color:#92400e;font-size:13px;margin-bottom:4px">🖼 사진 용량 정리 (동기화 실패 해결)</div>';
+      html+='<div style="font-size:11px;color:#92400e;margin-bottom:8px">이 기기에만 저장된 사진(인라인) <b>'+_imgStat.count+'장</b> ≈ <b>'+Math.round(_imgStat.bytes/1024)+'KB</b>. 이 용량이 커지면 클라우드 동기화가 막혀요(1MB 한도). 로그인 후 아래 버튼을 누르면 사진을 클라우드(Storage)로 옮기고 본문엔 가벼운 링크만 남겨 용량이 확 줄어요. (사진은 그대로 보여요.)</div>';
+      if(isCloudOn()){
+        html+='<button onclick="document.getElementById(\'recovery-overlay\').remove();migrateImagesToCloud();" style="background:#d97706;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">🖼 사진 '+_imgStat.count+'장 클라우드로 정리하기</button>';
+      }else{
+        html+='<div style="font-size:11px;color:#b45309;font-weight:600">⚠ 먼저 상단 <b>☁ 연동</b>에서 로그인하세요 — 그 다음 이 도구를 다시 열면 정리 버튼이 떠요.</div>';
+      }
+      html+='</div>';
+    }
+  }catch(e){console.warn('[recovery] imgStat',e);}
 
   // === ⭐ 옵션 0: 자동 백업에서 복구 (가장 먼저, 가장 쉬움) ===
   try{
