@@ -2111,9 +2111,42 @@ async function migrateImagesToCloud(opts){
     if(done>0)showToast('✅ 사진 '+done+'장 클라우드로 옮김'+(failed?(' · 실패 '+failed+'장'):'')+' — 동기화 다시 시도해요');
     else showToast('⚠ 사진 업로드가 막혀 있어요('+failed+'장 실패) — Firebase Storage CORS/보안규칙을 확인해야 해요',7000);
   }
+  if(typeof _updateImgPendingBadge==='function')_updateImgPendingBadge();
   if(!opts.noResync&&typeof cloudSyncSave==='function'){try{cloudSyncSave();}catch(e){}}
   return done;
 }
+// === 사진 업로드 대기 배지 + 백그라운드 자동 재시도 큐 (수동 버튼 없이 100% 자동) ===
+function _imgPendingCount(){ try{ return (typeof countInlineImages==='function')?countInlineImages().count:0; }catch(e){ return 0; } }
+function _updateImgPendingBadge(){
+  var n=_imgPendingCount();
+  var b=document.getElementById('img-pending-badge');
+  if(n<=0){ if(b)b.style.display='none'; return; }
+  if(!b){ b=document.createElement('div'); b.id='img-pending-badge';
+    b.style.cssText='position:fixed;bottom:14px;right:14px;z-index:99998;background:#fffbeb;border:2px solid #f59e0b;color:#92400e;font-size:12px;font-weight:700;padding:7px 12px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,.18);cursor:pointer';
+    b.title='인터넷·로그인되면 자동으로 클라우드에 올라가요 (눌러서 지금 시도)';
+    b.onclick=function(){ if(typeof migrateImagesToCloud==='function')migrateImagesToCloud(); };
+    document.body.appendChild(b);
+  }
+  b.style.display='block'; b.textContent='⏳ 사진 '+n+'장 업로드 대기';
+}
+var _imgRetryTimer=null;
+function _runImgRetry(){
+  if(_imgPendingCount()<=0){ _updateImgPendingBadge(); return; }
+  if(window.fbStorage&&window.fbUser&&!window._tpMigrating&&typeof migrateImagesToCloud==='function'){
+    migrateImagesToCloud({silent:true,noResync:true}).then(function(done){ _updateImgPendingBadge(); if(done>0&&typeof cloudSyncSave==='function'){try{cloudSyncSave();}catch(e){}} });
+  }
+}
+function _scheduleImgRetry(){
+  _updateImgPendingBadge();
+  if(_imgRetryTimer)return;
+  _imgRetryTimer=setInterval(function(){
+    if(_imgPendingCount()<=0){ clearInterval(_imgRetryTimer); _imgRetryTimer=null; _updateImgPendingBadge(); return; }
+    _runImgRetry();
+  },30000); // 30초마다 자동 재시도
+}
+window.addEventListener('online',function(){ try{ _runImgRetry(); }catch(e){} });
+// 앱 로드 후: 이미 대기 중인 사진이 있으면 배지 표시 + 자동 재시도 시작
+setTimeout(function(){ try{ if(_imgPendingCount()>0)_scheduleImgRetry(); }catch(e){} },4000);
 async function openRecoveryTool(){
   // 데이터 복구 도구 — 사용자가 콘솔 명령 안 치고도 진단/복구할 수 있게
   
@@ -22768,12 +22801,19 @@ function tpCaptureExpand(){
 }
 function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); if(!ctx)return; var w=ctx.wrap,f=ctx.fit,sv=ctx.sv; if(f){f.style.transform=sv.ft;f.style.width=sv.fw;} w.style.transform=sv.wt;w.style.marginBottom=sv.wmb;w.style.height=sv.wh;w.style.minHeight=sv.wmh;w.style.overflow=sv.wov; if(typeof tpFit==='function')tpFit(); }
 // 캡처 전 모든 이미지 로드 완료 대기 (도식화·스와치 누락 방지)
+// 캡처/인쇄 전 모든 <img>가 100% 로드+디코드(픽셀 준비)될 때까지 대기 — URL 이미지 안전 캡처
 function tpWaitImages(el){
   var imgs=[].slice.call(el.querySelectorAll('img'));
   return Promise.all(imgs.map(function(im){
-    if(im.complete&&im.naturalWidth>0)return Promise.resolve();
-    return new Promise(function(res){ var done=function(){res();}; im.addEventListener('load',done,{once:true}); im.addEventListener('error',done,{once:true}); setTimeout(done,4000); });
-  })).then(function(){ return new Promise(function(r){ setTimeout(r,60); }); });
+    return new Promise(function(res){
+      // load 완료 후 decode()까지 호출해 픽셀이 실제로 준비된 뒤 통과 (html2canvas 빈칸 방지)
+      var finish=function(){ if(im.decode){ im.decode().then(res).catch(res); } else res(); };
+      if(im.complete&&im.naturalWidth>0){ finish(); return; }
+      im.addEventListener('load',finish,{once:true});
+      im.addEventListener('error',function(){res();},{once:true}); // 깨진 이미지는 통과(무한대기 방지)
+      setTimeout(function(){res();},8000); // URL 네트워크 지연 대비 8초 안전 타임아웃
+    });
+  })).then(function(){ return new Promise(function(r){ setTimeout(r,80); }); }); // 마지막 페인트 정착
 }
 // html2canvas 1.4.1은 input·td의 vertical-align:middle을 무시하고 글씨를 셀 하단(baseline)에 그림 →
 // 캡처 복제본(onclone)에서만 셀·인풋 line-height를 실제 칸높이로 맞춰 수직 중앙 강제(화면 DOM은 안 건드림).
@@ -22886,11 +22926,11 @@ function tpCompress(file,maxDim,q){ return new Promise(function(res,rej){ var rd
 function tpUpload(blob,itemId,slotKey){ var co=(typeof curCoId!=='undefined'&&curCoId)?curCoId:'default'; var path='techpack/'+co+'/'+itemId+'/'+slotKey+'_'+Date.now()+'.jpg'; var ref=window.fbStorage.ref().child(path); return ref.put(blob).then(function(){ return ref.getDownloadURL(); }); }
 function tpShowUp(msg){ var o=document.createElement('div'); o.className='tp-up-ovl'; o.textContent=msg; document.body.appendChild(o); return o; }
 function tpHideUp(o){ if(o&&o.parentNode)o.parentNode.removeChild(o); }
-function tpOnFile(input){ var f=input.files&&input.files[0]; if(!f||!_tpUpKey)return; var slot=_tpUpKey; var ovl=tpShowUp('사진 업로드 중…'); tpCompress(f,1600,0.82).then(function(c){
-    function fallback(){ return tpCompress(f,1100,0.7).then(function(c2){ if(typeof showToast==='function')showToast('⚠ 클라우드 업로드 실패 — 이 기기에만 저장됐어요 (로그인/네트워크 확인)'); return c2.dataUrl; }); }
+function tpOnFile(input){ var f=input.files&&input.files[0]; if(!f||!_tpUpKey)return; var slot=_tpUpKey; var ovl=tpShowUp('사진 업로드 중…'); var _pending=false; tpCompress(f,1600,0.82).then(function(c){
+    function fallback(){ return tpCompress(f,1100,0.7).then(function(c2){ _pending=true; if(typeof showToast==='function')showToast('⏳ 사진은 저장됐고, 인터넷/로그인되면 자동으로 클라우드에 올라가요'); return c2.dataUrl; }); }
     if(window.fbStorage&&window.fbUser){ return tpUpload(c.blob,_tpItemId,slot).catch(function(e){ console.warn('storage fail',e); return fallback(); }); }
     return fallback();
-  }).then(function(url){ tpSet('images.'+slot,url); tpRender(); }).catch(function(e){ console.warn(e); if(typeof showToast==='function')showToast('사진 처리 실패'); }).then(function(){ tpHideUp(ovl); _tpUpKey=null; }); }
+  }).then(function(url){ tpSet('images.'+slot,url); tpRender(); if(_pending&&typeof _scheduleImgRetry==='function')_scheduleImgRetry(); else if(typeof _updateImgPendingBadge==='function')_updateImgPendingBadge(); }).catch(function(e){ console.warn(e); if(typeof showToast==='function')showToast('사진 처리 실패'); }).then(function(){ tpHideUp(ovl); _tpUpKey=null; }); }
 
 /* 동적 행 */
 function tpAddRow(path,empty){ var arr=tpGet(path,[]); if(!Array.isArray(arr))arr=[]; arr=arr.slice(); arr.push(empty||{}); tpSet(path,arr); tpRender(); }
