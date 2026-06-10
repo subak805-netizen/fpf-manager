@@ -1974,8 +1974,8 @@ async function cloudSyncSave(){
   if(!isCloudOn())return;
   if(!curCoId)return; // 회사 없는 상태에서는 푸시 안 함
   // 🖼 자동 사진 정리: 본문에 인라인(dataURL) 사진이 있으면 Storage로 옮겨 용량 줄임 (매번 수동으로 안 눌러도 됨)
-  // 업로드가 막혀(CORS/규칙) 실패한 적 있으면 _tpMigrateBlocked로 반복 시도 차단
-  if(window.fbStorage&&window.fbUser&&!window._tpMigrating&&!window._tpMigrateBlocked){
+  // 업로드가 막혀(CORS/규칙) 실패하면 60초간만 자동 재시도 중지(시간제) → 일시 오류는 자동 회복
+  if(window.fbStorage&&window.fbUser&&!window._tpMigrating&&(!window._tpMigrateBlockedUntil||Date.now()>window._tpMigrateBlockedUntil)){
     try{ if(typeof countInlineImages==='function'&&countInlineImages().count>0){ await migrateImagesToCloud({silent:true,noResync:true}); } }catch(e){console.warn('[autoMigrate]',e);}
   }
   setCloudInd('sync');
@@ -2033,15 +2033,12 @@ async function cloudSyncSave(){
       brandConfig:S.brandConfig||{},
       deductions:S.deductions||[]
     };
-    // 🛡 클라우드로 보낼 땐 base64 인라인 사진(무거움)을 빼고 보냄 → 본문이 작아져 동기화 항상 성공.
-    // (사진은 로컬·Storage에 그대로. 업로드된 사진은 URL이라 작아서 그대로 동기화됨.)
-    var _cloudCoData=coData;
-    try{ _cloudCoData=JSON.parse(JSON.stringify(coData,function(k,v){return (typeof v==='string'&&v.indexOf('data:image')===0)?'':v;})); }catch(e){ _cloudCoData=coData; }
-    // 문서 크기 사전 점검 (Firestore 1MB 한도) — 실제 전송본 기준
-    var _coSize=0;try{_coSize=JSON.stringify(_cloudCoData).length;}catch(e){}
+    // 사진은 위 auto-migrate에서 Storage URL로 이미 변환됨 → coData엔 가벼운 URL만 들어있음(정석).
+    // 문서 크기 사전 점검 (Firestore 1MB 한도)
+    var _coSize=0;try{_coSize=JSON.stringify(coData).length;}catch(e){}
     var _coRes=await Promise.all([
       cloudSet('fpm_cos',companies),
-      cloudSet('fpm_'+curCoId,_cloudCoData),
+      cloudSet('fpm_'+curCoId,coData),
       cloudSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook})
     ]);
     if(_coRes.indexOf(false)>=0){
@@ -2073,7 +2070,7 @@ function countInlineImages(){var arr=_collectInlineImages();var bytes=0;arr.forE
 function _dataUrlToBlob(dataUrl){var parts=dataUrl.split(',');var mime=(parts[0].match(/:(.*?);/)||[])[1]||'image/jpeg';var bin=atob(parts[1]);var arr=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return new Blob([arr],{type:mime});}
 async function migrateImagesToCloud(opts){
   opts=opts||{};
-  if(!opts.silent)window._tpMigrateBlocked=false; // 수동 실행은 항상 새로 시도 (CORS 고친 뒤 재시도 가능하게)
+  if(!opts.silent)window._tpMigrateBlockedUntil=0; // 수동 실행은 항상 새로 시도 (CORS 고친 뒤 재시도 가능하게)
   if(!(window.fbStorage&&window.fbUser)){ if(!opts.silent&&typeof showToast==='function')showToast('먼저 ☁ 연동에서 로그인하세요 (사진을 클라우드에 올리려면 로그인 필요)'); return 0; }
   var tasks=_collectInlineImages();
   if(!tasks.length){ if(!opts.silent&&typeof showToast==='function')showToast('정리할 인라인 사진이 없어요 (이미 정리됨)'); return 0; }
@@ -2088,7 +2085,7 @@ async function migrateImagesToCloud(opts){
   if(ovl&&typeof tpHideUp==='function')tpHideUp(ovl);
   try{saveData();}catch(e){}
   window._tpMigrating=false;
-  if(failed>0)window._tpMigrateBlocked=true; // 업로드가 막힘(CORS/규칙) — 자동 재시도 반복 방지
+  if(failed>0)window._tpMigrateBlockedUntil=Date.now()+60000; // 업로드 실패 — 60초간만 자동 재시도 중지(이후 자동 회복)
   if(!opts.silent&&typeof showToast==='function'){
     if(done>0)showToast('✅ 사진 '+done+'장 클라우드로 옮김'+(failed?(' · 실패 '+failed+'장'):'')+' — 동기화 다시 시도해요');
     else showToast('⚠ 사진 업로드가 막혀 있어요('+failed+'장 실패) — Firebase Storage CORS/보안규칙을 확인해야 해요',7000);
