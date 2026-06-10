@@ -23,6 +23,23 @@
 ---
 
 ## ✅ 이번 세션 완료 (커밋 순, 최신이 위)
+
+### ▶ 2026-06-10 추가 세션 (저장소 근본수정 + 작지/아이템 리스트)
+- **★백업 IndexedDB 이전** (`1664d1d`): 백업(`fpm_abk`+`fpm_hbk` 약 4.4MB = localStorage 96%의 주범)을 **localStorage→IndexedDB**(`fpmBackups`/store `kv`)로 분리. 읽기=메모리캐시(`window._abkCache`/`_hbkCache`)에서 동기, 쓰기=비동기(`idbBkSet`). 회사 로드 시 `idbBkEnsureLoaded()`가 IDB로딩+localStorage→IDB **1회 이사 후 삭제**(유실0). → **localStorage 96%→약 12%**. **실데이터(`fpm_co`)는 아직 localStorage 유지**(약 568KB, 여유). 복구도구/되돌리기 읽기도 캐시 사용.
+- **백업 개수 축소** (`79a9eec`): `autoLocalBackup` 12→5(`ABK_MAX`), `autoHourlyBackup` 40→12(`HBK_MAX`) + 기존분 즉시 정리.
+- **지시서 탭 치수표 버튼 통일** (`8e7e5d0`): 일반아이템 '지시서'=`sew` 패널(@`tpRender` `isPromo?cs:sew`)에도 상의/팬츠/스커트/＋부위 버튼(`tpSpecSecHTML`). 이전엔 sew만 버튼 없는 plain이었음.
+- **치수표 프리셋** (`1714ce8`): 새 작지 기본표=**상의**(`tpInitDefaults`가 `TP_SPEC_TOP`). 상의 순서 변경. **레글런·셔츠** 프리셋+버튼 추가(`tpSpecPreset` raglan/shirt).
+- **리스트 가공 단가 편집** (`cea6940`→`fb29257`): 연결된 가공(워싱·완성 등)도 공임처럼 리스트에서 바로 입력(`setItemCost`). 공장 연결+단가0=빨강'미입력', 공장 없으면 숨김. (itemRowHTML COST_DEFS 루프)
+- **작지 헤더** (`8b690ee`): 담당자 기본값 **'박수빈'**(`tpInitDefaults`가 `d.head.manager`), 담당자·전달일 폰트 +2pt(`.who` CSS).
+- **아이템 행 버튼 정리** (`e09e5d0`): 작지/원가/그래이딩에 **'미전달' 형태 상태토글**(대기↔완료) 페어(`itemStatToggle`/`toggleItemStat`). **그래이딩=신규 상태**(`gradingDone`, saveItemForm 보존 추가). KC는 컬러별 모달(`itemKcHTML`) 유지. 복제/삭제 하단 작게(`.im-mini`/`.im-mini-b`). **기존 레트로 디자인 그대로**(기존 클래스 재사용).
+
+### ▶ 미해결/결정 대기 (다음 작업)
+- **#7 단계 체계 자동화**: 단계를 수동클릭→실제이벤트 연동. 샘플=수동, 메인발주준비→(체크+발주서생성)→생산중 자동, 출고완료→자동(대시보드). 입고중/출고중/미발주 제거. 발주서=리오더 차수 자동. `deriveItemBadge`/`ITEM_STAGE_MAP`(@~5183). **결정 대기**: 샘플→메인 전환방식 / 생산중 게이트 조건 / 리오더 차수 기준(메인첫발주가 1차인지).
+- **#8 오더관리 정리**: 오더상세에서 불량체크·입고·공장진행 제거(불량관리 탭·대시보드는 유지). 결제서의 택배비/박스비/운임(`addPayFee`/`payFees`@~10980)을 **결제관리로 이동**(이동 먼저→제거). 거래처확인을 발주서에 **토글(아코디언)** 로 합쳐 탭전환 제거.
+- **C 버튼 정리(아이디어 단계)**: 상단 덜쓰는 버튼 `⋯`로, 필터칩 접기, 모바일 버튼 축소. 사용자: 지금 익숙하나 모바일 버튼 큼.
+- **#6 날짜 위치**: 사용자는 왼쪽상단 희망했으나 보수적으로 일단 **현 위치(A) 유지** — 옮길지 결정 대기.
+
+### ▶ 이전 세션
 - **결제완료 판정 some→every** (`9ce4402`): 공장 한 곳만 결제돼도 오더 전체가 '결제완료=완료'로 숨던 사각지대 버그 수정. 결제대상 공장 전부 결제돼야 결제완료. 부분결제→'출고완료'로 표기돼 미결제 결제관리에 뜸.
 - **사진 자동 URL 아키텍처** (`18d6be4`,`f77d410`): 첨부 즉시 Firebase Storage 업로드→URL만 DB저장. 실패 시 자동 재시도 큐(30초 타이머+online+저장시). 우하단 "⏳ 사진 N장 업로드 대기" 배지. html2canvas 캡처 전 `tpWaitImages`가 load+`img.decode()`+8초+80ms로 완전 로드 보장.
 - **정직한 저장 + 용량 진단** (`390416e`): `lsSet`이 성공/실패 반환. 저장 실패 시 거짓 '저장됨' 대신 빨강 "⚠ 저장 실패!"+백업파일 자동 다운로드(`_onSaveFailed`). 🚑 데이터 관리에 브라우저 저장소 사용량 막대(`_lsUsageInfo`, 60%주의/80%위험).
@@ -38,12 +55,13 @@
 
 ## 🔴 다음 과제 (우선순위)
 
-### 1순위 — 저장 아키텍처 근본 개편 (★가장 중요, 미착수)
-**문제**: 메인 데이터 + 백업(자동 12개 + 매시간 40개, 각각 발주서 전체 포함)을 **localStorage(약 5MB)** 에 다 저장 → 한계 초과 → 저장 실패 → 데이터 증발. 백업 개수 줄이기는 임시방편(사용자 거부).
-**근본책**: 로컬 저장을 **localStorage → IndexedDB(수백 MB~GB)** 로 교체. 메인 캐시+백업 전부 IndexedDB로 → 5MB 천장 제거.
-- 주의: IndexedDB는 **비동기** → 현 `lsSet/lsGet`(동기, `~1417`/`loadCoData`) 전부 비동기-안전 래퍼+메모리캐시(S)로. 1회 마이그레이션 + 한동안 양쪽 병행 저장(유실0).
-- (궁극형: Firestore 오프라인 지속+실시간 리스너 전면 개편 — 대공사·고위험, 시간 충분할 때.)
-- 백업 함수: `autoLocalBackup`(12개), `autoHourlyBackup`(40개) — 각 스냅샷에 `orders` 통째 포함이 localStorage 범인.
+### 1순위 — 저장 아키텍처 (★백업 IndexedDB 이전 완료 2026-06-10, 남은 천장 2개)
+**진행됨**: 백업(`fpm_abk`/`fpm_hbk` 4.4MB=localStorage 범인)을 **IndexedDB로 이전 완료** → 96%→약 12%. 사진 base64도 Storage URL화 완료(규칙=전 경로 허용으로 고침). 백업 개수도 5/12개로 축소.
+**남은 천장 2개** (사용자 계획: 발주 200·작지 100 추가 예정이라 곧 닿음):
+- **로컬 5MB**: 실데이터(`fpm_co`)는 아직 localStorage. 지금 568KB라 여유. 닿으면 → **localForage**(IndexedDB 래퍼)로 `lsSet/lsGet`(`~1417`/`loadCoData`) 교체. 비동기-안전 래퍼+메모리캐시(S)+병행저장. 백업은 이미 IDB라 패턴 참고 가능(`idbBk*`).
+- **클라우드 1MB/문서**: 회사 데이터를 1문서 통째 JSON(`d.value`) 저장 → 발주 늘면 초과(사진 빠진 텍스트도 ~550KB). → **발주/아이템을 여러 Firestore 문서로 쪼개기**. **실시간 동기화는 이미 구현됨**(`startRealtimeSync`/onSnapshot @~1845; 옛 '실시간 미적용' 메모는 stale) → 쪼갤 때 onSnapshot도 문서별로.
+- (궁극형: Firestore 오프라인 지속 전면개편 — 여러 명 동시 사용 때. 혼자 쓰는 지금은 과함.)
+- ⚠️ **사진 안 올라가/동기화 실패 재발 시**: Firebase Storage 보안규칙이 **`match /{allPaths=**}`(전 경로 허용)** 인지부터 확인. `/techpack/`만 허용하면 브랜드 라벨(`brandlabels/` 등) 업로드 거부→base64로 쌓여 다시 깨짐.
 
 ### 2순위 — (다른 채팅서 해결됨) 사진 Storage 업로드
 - **Firebase Storage 보안규칙 쓰기 허용** + **CORS 업로드 메서드(PUT/POST)** 가 원인이었음. 사용자가 다른 방에서 해결 완료. → `migrateImagesToCloud`/`tpOnFile` 자동 업로드 정상 작동할 것. (firebase-storage-cors.json에 GET/PUT/POST/HEAD/OPTIONS 반영돼 있음.)
