@@ -4862,6 +4862,7 @@ function renderItemsList(){
     +'.il-szchip.on{background:var(--neon-blue,#B0DBF0);}.il-sep{flex:1;}'
     +'.il-pin{border:2.5px solid #c0392b;background:#fff5f3;box-shadow:4px 4px 0 #c0392b;padding:8px 11px;margin:0 0 14px;}'
     +'.il-pin-h{font-weight:800;font-size:13px;color:#c0392b;margin-bottom:6px;}'
+    +'.il-pin-sub{font-weight:800;font-size:11px;color:#b45309;margin:10px 2px 5px;padding-top:8px;border-top:1.5px dashed #f0a878;}'
     +'.il-subh{font-size:11px;font-weight:800;color:var(--t2);margin:7px 2px 4px;}'
     +'.il-dot{display:inline-block;width:8px;height:8px;border:1.5px solid var(--ink,#0b0a05);margin-right:5px;vertical-align:middle;}'
     +'.il-dot.s{background:#FFF6B8;}.il-dot.m{background:#A5E6BA;}'
@@ -4877,14 +4878,21 @@ function renderItemsList(){
     +'</div>';
   bar+='<div class="il-bar"><span class="il-lbl">시즌</span>'+seasonsAll.map(function(s){return '<button class="il-szchip'+(IL.seasonOff[s]?'':' on')+'" onclick="ilToggleSeasonChip(\''+sq(s)+'\')">'+esc(s)+'</button>';}).join('')+'</div>';
   // 메인 준비 상단 — 메인/리오더인데 (KC 미완료(프루토만) 또는 지시서 미완료 또는 원가 미전달)
+  var _pinFlags=function(it){return {kc:itemNeedsKc(it)&&!it.kcCert, ins:!it.instrDone, cost:!it.costSent};};
   var kcPend=filtered.filter(function(x){
+    var f=_pinFlags(x.it);
     if(!(x.b.phase==='main'||x.b.phase==='reorder'))return false;
-    var kcMiss=itemNeedsKc(x.it)&&!x.it.kcCert;
-    var insMiss=!x.it.instrDone;
-    var costMiss=!x.it.costSent;
-    return kcMiss||insMiss||costMiss;
+    return f.kc||f.ins||f.cost;
   });
-  var topHtml=kcPend.length?('<div class="il-pin"><div class="il-pin-h">🛡 메인 준비 — KC·지시서·원가 대기 ('+kcPend.length+')</div>'+kcPend.map(function(x){return itemRowHTML(x.it);}).join('')+'</div>'):'';
+  // 정렬: ① KC/지시서가 남은 항목(다 안된 것일수록 위) → 위, ② 원가만 미전달 → 맨 아래 별도 그룹
+  var pinReady=[], pinCostOnly=[];
+  kcPend.forEach(function(x){ var f=_pinFlags(x.it); if(f.cost&&!f.kc&&!f.ins)pinCostOnly.push(x); else pinReady.push(x); });
+  pinReady.sort(function(a,b){ var fa=_pinFlags(a.it),fb=_pinFlags(b.it); var ma=(fa.kc?1:0)+(fa.ins?1:0)+(fa.cost?1:0), mb=(fb.kc?1:0)+(fb.ins?1:0)+(fb.cost?1:0); return mb-ma; });
+  var _pinRow=function(x){return itemRowHTML(x.it);};
+  var topHtml=kcPend.length?('<div class="il-pin"><div class="il-pin-h">🛡 메인 준비 — KC·지시서·원가 대기 ('+kcPend.length+')</div>'
+    +pinReady.map(_pinRow).join('')
+    +(pinCostOnly.length?('<div class="il-pin-sub">💰 원가만 미전달 ('+pinCostOnly.length+')</div>'+pinCostOnly.map(_pinRow).join('')):'')
+    +'</div>'):'';
   // 시즌 그룹 + 샘플/메인 소그룹 — 상단 핀에 올라간 아이템은 시즌 그룹에서 제외(중복 방지 = 진짜 위로 이동)
   var pinIds={}; kcPend.forEach(function(x){pinIds[x.it.id]=1;});
   var bySeason={};var sOrder=[];
