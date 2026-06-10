@@ -2069,6 +2069,7 @@ function countInlineImages(){var arr=_collectInlineImages();var bytes=0;arr.forE
 function _dataUrlToBlob(dataUrl){var parts=dataUrl.split(',');var mime=(parts[0].match(/:(.*?);/)||[])[1]||'image/jpeg';var bin=atob(parts[1]);var arr=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return new Blob([arr],{type:mime});}
 async function migrateImagesToCloud(opts){
   opts=opts||{};
+  if(!opts.silent)window._tpMigrateBlocked=false; // 수동 실행은 항상 새로 시도 (CORS 고친 뒤 재시도 가능하게)
   if(!(window.fbStorage&&window.fbUser)){ if(!opts.silent&&typeof showToast==='function')showToast('먼저 ☁ 연동에서 로그인하세요 (사진을 클라우드에 올리려면 로그인 필요)'); return 0; }
   var tasks=_collectInlineImages();
   if(!tasks.length){ if(!opts.silent&&typeof showToast==='function')showToast('정리할 인라인 사진이 없어요 (이미 정리됨)'); return 0; }
@@ -2795,15 +2796,14 @@ async function cloudSyncLoad(id,opts){
     let changed=false;
     if(cosData){companies={...cosData};lsSet('fpm_cos',companies);changed=true;}
     const d=coData||{};const sh=sharedData||{};
-    // 🛡 데이터 손실 방지: 자동 로드 때 클라우드가 로컬보다 항목이 적으면(동기화 실패로 오래된 본) 덮어쓰지 않고 로컬 보호.
-    // 명시적 새로고침(opts.force)일 때만 클라우드로 덮어씀.
+    // 🛡 데이터 손실 방지(강화): 자동 로드 때 로컬에 데이터가 조금이라도 있으면 클라우드로 덮어쓰지 않고 로컬 보호.
+    // (개수만 비교하면 '기존 아이템 수정'은 보호 못 함 → 로컬에 데이터 있으면 통째로 지킴)
+    // 다른 기기 변경을 가져오려면 상단 ☁ 새로고침(forceCloudRefresh, opts.force) 사용.
     if(!opts.force){
-      var _localN=Object.keys(S.items||{}).length;
-      var _cloudN=Object.keys(d.items||{}).length;
-      if(_localN>0 && _cloudN<_localN){
-        console.warn('[cloudSyncLoad] 클라우드('+_cloudN+') < 로컬('+_localN+') — 로컬 보호, 덮어쓰기 skip');
+      var _localHas=(Object.keys(S.items||{}).length>0)||(Object.keys(S.orders||{}).length>0)||((S.brands||[]).length>0);
+      if(_localHas){
+        console.warn('[cloudSyncLoad] 자동 로드 — 로컬에 데이터 있어 클라우드 덮어쓰기 skip (다른 기기 변경은 ☁ 새로고침으로)');
         setCloudInd('ok');
-        if(typeof showToast==='function')showToast('ℹ 클라우드가 더 오래된 것 같아 이 기기 데이터를 지켰어요 (동기화 막힘 — 🚑 데이터 관리에서 사진 정리 후 동기화하세요)',7000);
         return false;
       }
     }
