@@ -1622,7 +1622,28 @@ let _memStore={};
 function _lsAvail(){try{localStorage.setItem('_t','1');localStorage.removeItem('_t');return true;}catch(e){return false;}}
 const _ls=_lsAvail();
 function lsGet(k){try{if(_ls)return JSON.parse(localStorage.getItem(k));return _memStore[k]??null;}catch(e){return null;}}
-function lsSet(k,v){try{if(_ls)localStorage.setItem(k,JSON.stringify(v));else _memStore[k]=v;}catch(e){_memStore[k]=v;}}
+// 반환: true=localStorage에 실제 저장됨 / false=저장 못 함(메모리 임시 — 새로고침 시 사라짐)
+function lsSet(k,v){
+  if(!_ls){ _memStore[k]=v; return false; } // localStorage 불가(사파리 시크릿 등) → 휘발성, 진짜 저장 아님
+  try{ localStorage.setItem(k,JSON.stringify(v)); return true; }
+  catch(e){ _memStore[k]=v; window._lsQuotaErr=true; console.error('[lsSet] 저장 실패('+k+'):',e&&e.name,e&&e.message); return false; }
+}
+// 브라우저 저장소(localStorage) 사용량 — 대략(문자수 기준, 한도 보통 5MB)
+function _lsUsageInfo(){
+  var total=0,fpm=0;
+  try{ for(var k in localStorage){ if(!Object.prototype.hasOwnProperty.call(localStorage,k))continue; var sz=((localStorage.getItem(k)||'').length)+k.length; total+=sz; if(k.indexOf('fpm_')===0)fpm+=sz; } }catch(e){}
+  return {totalKB:Math.round(total/1024), fpmKB:Math.round(fpm/1024), limitKB:5120, pct:Math.min(100,Math.round(total/1024/5120*100))};
+}
+// 저장 실패 시 방어: 경고 + 백업파일 자동 다운로드 (20초에 한 번만)
+function _onSaveFailed(){
+  var now=Date.now();
+  if(window._saveFailLastWarn&&(now-window._saveFailLastWarn)<20000)return;
+  window._saveFailLastWarn=now;
+  var msg=_ls?'⚠ 저장공간이 가득 차 저장이 안 됐어요! 백업파일을 받아둘게요 — 🚑 데이터 관리 → 🖼 사진 정리로 비워주세요'
+             :'⚠ 시크릿/사파리 모드라 저장이 안 돼요! 백업파일을 받아둘게요 — 일반 창에서 쓰거나 백업을 꼭 보관하세요';
+  if(typeof showToast==='function')showToast(msg,9000);
+  try{if(typeof _downloadBackupNow==='function')_downloadBackupNow();}catch(e){}
+}
 
 /* ============================================================
    THEME PROVIDER (스킨 스위칭)
@@ -2170,6 +2191,21 @@ async function openRecoveryTool(){
   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0;font-size:16px">🚑 데이터 복구 도구</h3><button onclick="document.getElementById(\'recovery-overlay\').remove()" style="background:none;border:none;font-size:18px;cursor:pointer">✕</button></div>';
   
   html+='<div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px">✅ <b>안전망 작동</b>: 현재 상태가 다운로드 폴더에 저장되었어요. 무슨 일이 일어나도 그 파일에서 복구할 수 있어요.</div>';
+
+  // === 📦 브라우저 저장소 사용량 (꽉 차면 저장 실패로 데이터 날아감) ===
+  try{
+    var _u=_lsUsageInfo();
+    var _danger=_u.pct>=80, _warn=_u.pct>=60;
+    var _barC=_danger?'#dc2626':(_warn?'#d97706':'#16a34a');
+    var _bg=_danger?'#fef2f2':(_warn?'#fffbeb':'#f0fdf4');
+    var _bd=_danger?'#fecaca':(_warn?'#fde68a':'#bbf7d0');
+    html+='<div style="border:1px solid '+_bd+';background:'+_bg+';border-radius:8px;padding:12px;margin-bottom:14px">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px"><span>📦 브라우저 저장소</span><span style="color:'+_barC+'">'+_u.fpmKB+'KB / 약 '+Math.round(_u.limitKB/1024)+'MB ('+_u.pct+'%)</span></div>';
+    html+='<div style="height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden"><div style="height:100%;width:'+_u.pct+'%;background:'+_barC+'"></div></div>';
+    if(_danger)html+='<div style="font-size:11px;color:#b91c1c;font-weight:600;margin-top:6px">⚠ 저장소가 거의 찼어요! 저장이 실패할 수 있어요 — 아래 🖼 사진 정리로 비워주세요.</div>';
+    else if(_warn)html+='<div style="font-size:11px;color:#b45309;margin-top:6px">슬슬 찹니다 — 사진 정리로 미리 비워두면 좋아요.</div>';
+    html+='</div>';
+  }catch(e){console.warn('[recovery] lsUsage',e);}
 
   // === 🖼 사진 용량 정리 (dataURL → 클라우드) — 동기화 실패(데이터 너무 큼) 해결 ===
   try{
@@ -2968,12 +3004,19 @@ function saveData(){
   autoLocalBackup();
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
-  lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]});
+  window._lsQuotaErr=false;
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
-  if(el){const n=new Date();el.textContent=`💾 ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')} 저장됨`;}
-  if(!_ls&&!window._safariWarn){window._safariWarn=true;showToast('⚠ 사파리에서는 탭을 닫으면 데이터가 초기화됩니다. 백업을 꼭 해주세요.',5000);}
+  var _savedOk=_mainOk&&!window._lsQuotaErr;
+  if(_savedOk){
+    if(el){const n=new Date();el.textContent=`💾 ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')} 저장됨`;el.style.color='';el.style.fontWeight='';el.title='';}
+  }else{
+    // 🔴 진짜 저장 실패 — 거짓 '저장됨' 대신 정직하게 알리고 백업파일로 방어
+    if(el){el.textContent=_ls?'⚠ 저장 실패! 용량부족':'⚠ 저장 안됨(시크릿)';el.style.color='#dc2626';el.style.fontWeight='800';el.title='브라우저 저장공간이 가득 찼어요. 🚑 데이터 관리 → 🖼 사진 정리로 비우세요.';}
+    _onSaveFailed();
+  }
   // 클라우드에도 백그라운드 저장 (800ms 디바운스 — 빠른 변경 시 마지막에만 동기화)
   if(isCloudOn()){
     if(window._cloudSyncTimer)clearTimeout(window._cloudSyncTimer);
