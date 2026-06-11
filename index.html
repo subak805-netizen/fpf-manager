@@ -3759,6 +3759,13 @@ const esc=s=>!s?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(
 const num=n=>(!isFinite(n)||isNaN(n))?'0':Math.round(n).toLocaleString('ko-KR');
 const today=()=>new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});
 const todayISO=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+// 케어라벨 제조연월 자동: 발주일 15일까지=그 달, 16일부터=다음 달 → "YYYY-MM" (리오더 시 새 발주일 기준)
+function autoManufactureYM(dateStr){
+  var d=new Date();
+  if(dateStr){ var iso=(typeof toISO==='function'?toISO(dateStr):dateStr); var p=new Date(iso); if(!isNaN(p.getTime()))d=p; }
+  var base=new Date(d.getFullYear(), d.getMonth()+(d.getDate()>15?1:0), 1);
+  return base.getFullYear()+'-'+String(base.getMonth()+1).padStart(2,'0');
+}
 function calcDday(s){if(!s)return null;const d=new Date(s);d.setHours(0,0,0,0);const t=new Date();t.setHours(0,0,0,0);return Math.round((d-t)/86400000);}
 function ddayInfo(s){const d=calcDday(s);if(d===null)return{text:'─',cls:''};if(d<0)return{text:`D+${Math.abs(d)} 지연`,cls:'dday-late'};if(d===0)return{text:'D-DAY!',cls:'dday-today'};if(d<=3)return{text:`D-${d}`,cls:'dday-warn'};return{text:`D-${d}`,cls:'dday-ok'};}
 function showToast(msg,ms=2300){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._to);t._to=setTimeout(()=>t.style.display='none',ms);}
@@ -6250,7 +6257,7 @@ function trimRowHTML(t,i){
       // 사이즈별 +수량, 제조연월
       +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;padding:6px 8px;background:#dcfce7;border-radius:6px">'
       +'<div style="flex:.6;min-width:60px"><label style="font-size:10px;color:#166534">사이즈별 +개수</label><input data-f="qtyBuffer" type="number" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'" min="0" title="각 사이즈의 의뢰수량에 자동 +N개 (기본 10)"></div>'
-      +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:#166534">제조 연월</label><select data-f="manufactureYM" style="font-size:12px;padding:5px 6px"><option value="">선택 안 함</option>'+ymOpts.join('')+'</select></div>'
+      +'<div style="flex:1;min-width:100px"><label style="font-size:10px;color:#166534">제조 연월 <span style="font-weight:400;color:#16a34a">(발주월 자동)</span></label><select data-f="manufactureYM" style="font-size:12px;padding:5px 6px"><option value=""'+((!t.manufactureYM)?' selected':'')+'>자동 (발주일 기준)</option><option value="none"'+(t.manufactureYM==='none'?' selected':'')+'>표시 안 함</option>'+ymOpts.join('')+'</select></div>'
       +'<div style="flex:1.5;min-width:150px;font-size:10px;color:#166534;align-self:center;padding:4px 7px;background:#bbf7d0;border-radius:5px;line-height:1.4">'
       +'<b>📋 자동 적용</b><br>'
       +'• 혼용률: 아이템의 원단 혼용률<br>'
@@ -8078,9 +8085,10 @@ function genPoText(order,sn){
             L.push('');
           }
         }
-        // 제조 연월 (입력 시에만)
-        if(cl.manufactureYM){
-          const ym=cl.manufactureYM.split('-');
+        // 제조 연월: 'none'=표시안함, 특정값=그대로, 그 외(빈값/auto)=발주일 기준 자동(15일까지=그달·이후=다음달)
+        if(cl.manufactureYM!=='none'){
+          var _ymv=(cl.manufactureYM&&cl.manufactureYM!=='auto')?cl.manufactureYM:autoManufactureYM(order&&order.createdAt);
+          var ym=String(_ymv).split('-');
           if(ym.length===2){
             L.push('제조 '+(+ym[0]%100)+'년 '+(+ym[1])+'월');
             L.push('');
