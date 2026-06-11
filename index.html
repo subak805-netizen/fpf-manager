@@ -4056,14 +4056,29 @@ function fcOpts(sel,typeFilter){
 
 /* ===== PRICE BOOK ===== */
 function getPB(sup){if(!S.priceBook[sup])S.priceBook[sup]={email:'',phone:'',kakaoId:'',materials:{}};return S.priceBook[sup];}
-function pbKey(name,color){return color?name+'\x1F'+color:name;}
-function pbDecodeKey(key){var i=key.indexOf('\x1F');return i<0?[key,'']:[key.slice(0,i),key.slice(i+1)];}
+// pbKey: 이름+색상+크기를 조합한 단가장 키. 크기가 다르면 별개 항목으로 저장됨
+// 구분자: 이름↔색상=\x1F, 색상↔크기=\x1F\x1F (기존 키와 혼동 없도록 이중 구분자)
+function pbKey(name,color,size){
+  var k=color?name+'\x1F'+color:name;
+  if(size&&(size+'').trim())k+='\x1F\x1F'+(size+'').trim();
+  return k;
+}
+function pbDecodeKey(key){
+  // 크기 분리 (\x1F\x1F 구분자)
+  var si=key.indexOf('\x1F\x1F');
+  var base=si>=0?key.slice(0,si):key;
+  var sz=si>=0?key.slice(si+2):'';
+  // 이름·색상 분리 (\x1F 구분자)
+  var ci=base.indexOf('\x1F');
+  if(ci<0)return [base,'',sz];
+  return [base.slice(0,ci),base.slice(ci+1),sz];
+}
 function _otLabel(ot){ return ({count:'개수',yard:'야드',roll:'롤',thread:'실',zipper:'지퍼',button:'단추',careLabel:'케어라벨',mainLabel:'메인라벨',bias:'바이어스'})[ot]||ot||'개수'; }
 // 단가 단위 일관성 검증 — 단가장에 저장된 단위(야드/kg/orderType)와 다르게 입력하면 경고 목록 반환
 function pbCheckUnits(item){
   var w=[];
   (item.fabrics||[]).forEach(function(f){ if(!f.supplier||!f.name)return; var e=S.priceBook[f.supplier]&&S.priceBook[f.supplier].materials&&S.priceBook[f.supplier].materials[f.name]; if(e&&e.type==='fabric'&&e.pricingUnit&&f.pricingUnit&&e.pricingUnit!==f.pricingUnit){ w.push('원단 "'+f.name+'": 단가장 '+(e.pricingUnit==='kg'?'KG':'야드')+' ↔ 지금 '+(f.pricingUnit==='kg'?'KG':'야드')); } });
-  (item.trims||[]).forEach(function(t){ if(!t.supplier||!t.name)return; var mm=S.priceBook[t.supplier]&&S.priceBook[t.supplier].materials; if(!mm)return; var e=mm[pbKey(t.name,t.color||'')]||mm[t.name]; if(e&&e.type==='trim'&&e.orderType&&t.orderType&&e.orderType!==t.orderType){ w.push('부자재 "'+t.name+'": 단가장 '+_otLabel(e.orderType)+' ↔ 지금 '+_otLabel(t.orderType)); } });
+  (item.trims||[]).forEach(function(t){ if(!t.supplier||!t.name)return; var mm=S.priceBook[t.supplier]&&S.priceBook[t.supplier].materials; if(!mm)return; var e=mm[pbKey(t.name,t.color||'',t.size||'')]||mm[pbKey(t.name,t.color||'')]||mm[t.name]; if(e&&e.type==='trim'&&e.orderType&&t.orderType&&e.orderType!==t.orderType){ w.push('부자재 "'+t.name+'": 단가장 '+_otLabel(e.orderType)+' ↔ 지금 '+_otLabel(t.orderType)); } });
   return w;
 }
 function saveToPB(item){
@@ -4099,7 +4114,7 @@ function saveToPB(item){
   for(const t of item.trims||[]){if(!t.supplier||!t.name)continue;
     // 부자재처(거래처) 동/호수 → 단가장 거래처 위치정보에 저장 (입력값 있을 때만)
     const pbSupT=getPB(t.supplier);if(t.building)pbSupT.building=t.building;if(t.floorRoom)pbSupT.room=t.floorRoom;
-    const key=pbKey(t.name,t.color||'');const existing=getPB(t.supplier).materials[key]||{};
+    const key=pbKey(t.name,t.color||'',t.size||'');const existing=getPB(t.supplier).materials[key]||getPB(t.supplier).materials[pbKey(t.name,t.color||'')]||{};
     // 단가 보호: 새 단가가 0이면 기존 단가 유지
     const newTP=+t.unitPrice||0;
     const finalTP=newTP>0?newTP:(existing.unitPrice||0);
@@ -4326,10 +4341,13 @@ function autofillTrim(r){
   if(_pbs){var _bE=r.querySelector('[data-f=building]');if(_bE&&!_bE.value&&_pbs.building)_bE.value=_pbs.building;var _rE=r.querySelector('[data-f=floorRoom]');if(_rE&&!_rE.value&&_pbs.room)_rE.value=_pbs.room;}
   const mats=S.priceBook[sup]?.materials;
   var e=null;
+  // 크기 필드 읽기 (버튼크기 포함)
+  const sz=(r.querySelector('[data-f=size]')?.value||r.querySelector('[data-f=buttonSize]')?.value||'').trim();
   if(mats){
-    e=mats[pbKey(nm,cl)];
-    if(!e&&cl)e=mats[nm];
-    // 색상이 정확히 안 맞아도(또는 색상 비어도) 같은 이름의 부자재가 있으면 그걸로 단가·규격 불러오기
+    e=mats[pbKey(nm,cl,sz)];           // ① 이름+색상+크기 정확히
+    if(!e&&sz)e=mats[pbKey(nm,cl)];   // ② 크기 없는 기존 데이터 폴백
+    if(!e&&cl)e=mats[nm];             // ③ 이름만 (색상 없는 구 데이터)
+    // ④ 색상/크기 달라도 같은 이름이면 규격 불러오기
     if(!e){for(var _k in mats){var _de=mats[_k];if(_de&&_de.type==='trim'&&_de.name===nm){e=_de;break;}}}
   }
   // 현재 거래처에 없으면 — 다른 거래처에 같은 이름의 부자재가 있으면 규격만 불러오기
@@ -4705,16 +4723,11 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
     newCl=newVal;
   }
   if(newNm===oldNm&&newCl===oldCl)return;
-  var newKey=pbKey(newNm,newCl);
+  // 크기는 rename 대상이 아니므로 기존 값 유지 → 이름+색상+크기가 모두 같아야 진짜 중복
+  var _sz=(oldEntry.size||oldEntry.width||'').toString().trim();
+  var newKey=pbKey(newNm,newCl,_sz);
   if(pb.materials[newKey]&&newKey!==oldKey){
-    var _exi=pb.materials[newKey];
-    var _exiSz=(_exi.size||_exi.width||'').toString().trim();
-    var _curSz=(oldEntry.size||oldEntry.width||'').toString().trim();
-    var _szDiff=_exiSz&&_curSz&&_exiSz!==_curSz;
-    var _msg=_szDiff
-      ?'이름·색상 같은 항목이 있지만 크기가 달라요 (기존: '+_exiSz+' / 현재: '+_curSz+').\n저장하면 크기 '+_exiSz+' 단가가 덮어씌워집니다.\n이름에 크기를 포함하면(예: 코메즈밴드 30미리) 따로 관리할 수 있어요.\n그래도 덮어쓸까요?'
-      :'같은 이름·색상 조합 이미 존재. 덮어쓸까요?';
-    if(!confirm(_msg))return renderBook();
+    if(!confirm('같은 이름·색상·크기 조합이 이미 존재해요. 덮어쓸까요?'))return renderBook();
   }
   pb.materials[newKey]={...oldEntry,name:newNm,color:newCl,lastUpdated:todayISO()};
   if(newKey!==oldKey)delete pb.materials[oldKey];
@@ -4966,9 +4979,9 @@ function propagatePriceToItems(supplierName,materialKey,priceType,newVal){
     // 부자재 매칭: supplier + pbKey(name,color) 일치
     (it.trims||[]).forEach(function(t){
       if(t.supplier!==supplierName)return;
-      var key=pbKey(t.name||'',t.color||'');
-      // pbKey가 색상 포함 키, 또는 이름만 키와 매칭
-      if(key===materialKey||t.name===materialKey){
+      var key=pbKey(t.name||'',t.color||'',t.size||'');
+      var keyNoSz=pbKey(t.name||'',t.color||''); // 크기 없는 구 키와도 매칭
+      if(key===materialKey||keyNoSz===materialKey||t.name===materialKey){
         t.unitPrice=+newVal||0;
         count++;
       }
