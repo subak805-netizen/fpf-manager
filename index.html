@@ -4558,12 +4558,27 @@ function renderBook(){
   </div>`;
   const importBtn=`<button class="btn p" style="width:100%;margin-bottom:10px;background:#16a34a;border-color:#16a34a" onclick="openPBImport()">📋 단가표 사진 → 일괄 가져오기</button>`;
   try{pbAutoBackup();}catch(e){}
-  el.innerHTML=searchBox+'<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">🛟 백업/되돌리기</button><button class="btn s" onclick="pbShowDuplicates()" title="색상 유무로 중복된 줄 찾기">🧹 중복 줄 찾기</button></div><div id="pb-dups"></div>'+importBtn+addForm+'<div id="book-list"></div>';
+  el.innerHTML=searchBox+'<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">🛟 백업/되돌리기</button><button class="btn s" onclick="pbShowDuplicates()" title="색상 유무로 중복된 줄 찾기">🧹 중복 줄 찾기</button><button class="btn s" onclick="pbNormalizeBuildings()" title="A·에이·에이동 → A동 형식으로 한 번에 통일">🏢 건물명 통일</button></div><div id="pb-dups"></div>'+importBtn+addForm+'<div id="book-list"></div>';
   renderBookList();
+}
+function _normBuilding(v){
+  if(!v)return '';
+  const m={'a':'A동','a동':'A동','에이':'A동','에이동':'A동',
+           'b':'B동','b동':'B동','비':'B동','비동':'B동',
+           'c':'C동','c동':'C동','씨':'C동','씨동':'C동',
+           'd':'D동','d동':'D동','디':'D동','디동':'D동',
+           'n':'N동','n동':'N동','엔':'N동','엔동':'N동'};
+  return m[v.trim().toLowerCase()]||v.trim();
+}
+function pbNormalizeBuildings(){
+  var changed=0;
+  Object.values(S.priceBook||{}).forEach(function(pb){if(!pb)return;var nb=_normBuilding(pb.building||'');if(nb&&nb!==pb.building){pb.building=nb;changed++;}});
+  if(changed){savePB();renderBook();showToast('🏢 건물명 '+changed+'곳 정규화 완료 (A동/B동 형식으로 통일)');}
+  else showToast('이미 모두 통일되어 있어요 ✓');
 }
 function renderBookList(){
   const lst=document.getElementById('book-list');if(!lst)return;
-  const allSups=Object.keys(S.priceBook).sort((a,b)=>{const ba=S.priceBook[a]?.building||'zzz',bb=S.priceBook[b]?.building||'zzz';if(ba!==bb)return ba<bb?-1:1;const fa=S.priceBook[a]?.floor||'',fb=S.priceBook[b]?.floor||'';if(fa!==fb)return fa<fb?-1:1;return a<b?-1:1;});
+  const allSups=Object.keys(S.priceBook).sort((a,b)=>{const ba=_normBuilding(S.priceBook[a]?.building||'')||'zzz',bb=_normBuilding(S.priceBook[b]?.building||'')||'zzz';if(ba!==bb)return ba<bb?-1:1;const fa=S.priceBook[a]?.floor||'',fb=S.priceBook[b]?.floor||'';if(fa!==fb)return fa<fb?-1:1;return a<b?-1:1;});
   const qBook=(window._bookSearch||'').toLowerCase().trim();
   const sups=qBook?allSups.filter(function(s){
     if(s.toLowerCase().includes(qBook))return true;
@@ -4574,8 +4589,8 @@ function renderBookList(){
   if(!allSups.length){lst.innerHTML='<div class="empty">아이템 저장 시 자동 등록됩니다</div>';return;}
   if(!sups.length){lst.innerHTML='<div class="empty">검색 결과가 없습니다</div>';return;}
   let _prevBld=null;
-  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];const locStr=[pb.building,pb.floor,pb.room].filter(Boolean).join(' ');const memoStr=(pb.memo||'').trim();const _bld=pb.building||'';let _grpHd='';if(!qBook&&_bld!==_prevBld){_prevBld=_bld;_grpHd=_bld?`<div style="font-weight:700;font-size:11px;color:#475569;margin:${si?'16px':'0'} 0 5px;padding:4px 10px;background:#f1f5f9;border-radius:6px;border-left:3px solid #94a3b8">📍 ${esc(_bld)}</div>`:'';}return _grpHd+`
-  <div class="card" style="margin-bottom:10px">
+  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];const locStr=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');const memoStr=(pb.memo||'').trim();const _bld=_normBuilding(pb.building||'');let _grpHd='';if(!qBook&&_bld!==_prevBld){_prevBld=_bld;_grpHd=_bld?`<div style="font-weight:700;font-size:11px;color:#475569;margin:${si?'16px':'0'} 0 5px;padding:4px 10px;background:#f1f5f9;border-radius:6px;border-left:3px solid #94a3b8">📍 ${esc(_bld)}</div>`:'';}return _grpHd+`
+  <div class="card" style="margin-bottom:10px;overflow-x:hidden;">
     <div class="fb" style="margin-bottom:8px;cursor:pointer" onclick="toggleBookCard(${si},'${encodeURIComponent(s)}')">
       <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span id="bookcaret-${si}" style="font-size:11px;color:var(--t2)">${isOpen?'▼':'▶'}</span>${esc(s)}${locStr?`<span style="font-size:10px;font-weight:500;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;padding:1px 7px;border-radius:20px">${esc(locStr)}</span>`:''}${memoStr?`<span style="font-size:10px;font-weight:400;color:#6b21a8;background:#faf5ff;border:1px solid #e9d5ff;padding:1px 7px;border-radius:20px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(memoStr)}">${esc(memoStr)}</span>`:''}</div>
       <div class="fr" style="gap:5px">
