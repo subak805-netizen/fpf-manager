@@ -4776,7 +4776,7 @@ function deletePbMaterial(encSup,encKey){
 }
 
 // 단가장 소재 병합 — 🔀 버튼 클릭 시 (이 소재를 KEEP, 다른 소재를 흡수)
-var _pbMergeOthers=[],_pbMergeSelected=null;
+var _pbMergeOthers=[],_pbMergeSelected=null,_pbMergeUndo=null;
 // 이름 유사도 점수 (높을수록 비슷)
 function _pbMergeSim(a,b){
   a=(a||'').toLowerCase();b=(b||'').toLowerCase();
@@ -4793,7 +4793,9 @@ function pbMergeFilter(q){
   if(!items.length){list.innerHTML='<div style="padding:14px;text-align:center;color:#9aa3af;font-size:12px">검색 결과 없음</div>';return;}
   list.innerHTML=items.map(function(o){
     var val=o.s+'|'+o.k;var sel=val===_pbMergeSelected;
-    return '<div onclick="pbMergeSelect(this,\''+encodeURIComponent(val)+'\')" style="padding:9px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid #f1f5f9;background:'+(sel?'#eff6ff':'')+'"><b style="font-weight:'+(sel?'700':'400')+'">'+esc(o.label)+'</b></div>';
+    return '<div onclick="pbMergeSelect(this,\''+encodeURIComponent(val)+'\')" style="padding:9px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9;background:'+(sel?'#eff6ff':'')+'"><b style="font-size:12px;font-weight:'+(sel?'700':'500')+'">'+esc(o.mainLabel||o.label)+'</b>'
+      +((o.sizeLabel||o.priceLabel)?'<div style="font-size:10px;color:#6b7280;margin-top:2px">'+esc([o.sizeLabel,o.priceLabel].filter(Boolean).join(' · '))+'</div>':'')
+      +'</div>';
   }).join('');
 }
 function pbMergeSelect(el,encVal){
@@ -4805,16 +4807,18 @@ function pbMergeMaterial(encSup,encKey){
   var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
   var pb=S.priceBook[sup];if(!pb)return;
   var m=pb.materials[key];if(!m)return;
-  var nm=m.name||pbDecodeKey(key)[0],cl=m.color||pbDecodeKey(key)[1]||'';
-  var disp=nm+(cl?' ('+cl+')':'');
+  var nm=m.name||pbDecodeKey(key)[0],cl=m.color||pbDecodeKey(key)[1]||'',sz=(m.size||m.width||pbDecodeKey(key)[2]||'').toString().trim();
+  var disp=nm+(cl?' ('+cl+')':'')+(sz?' · '+sz:'');
   var others=[];
   Object.keys(S.priceBook||{}).forEach(function(s){
     var mats=(S.priceBook[s]||{}).materials||{};
     Object.keys(mats).forEach(function(k){
       if(s===sup&&k===key)return;
-      var om=mats[k];var onm=om.name||pbDecodeKey(k)[0],ocl=om.color||pbDecodeKey(k)[1]||'';
-      var label=(s!==sup?'['+s+'] ':'')+onm+(ocl?' ('+ocl+')':'');
-      others.push({s:s,k:k,label:label,sim:_pbMergeSim(nm,onm)+(s===sup?5:0)});
+      var om=mats[k];var onm=om.name||pbDecodeKey(k)[0],ocl=om.color||pbDecodeKey(k)[1]||'',osz=(om.size||om.width||pbDecodeKey(k)[2]||'').toString().trim();
+      var oprice=om.unitPrice||om.pricePerKg||0;
+      var mainLabel=(s!==sup?'['+s+'] ':'')+onm+(ocl?' ('+ocl+')':'');
+      var label=mainLabel+(osz?' '+osz:'')+(oprice?' '+oprice:'');
+      others.push({s:s,k:k,label:label,mainLabel:mainLabel,sizeLabel:osz,priceLabel:oprice?oprice.toLocaleString()+'원':'',sim:_pbMergeSim(nm,onm)+(s===sup?5:0)});
     });
   });
   if(!others.length){showToast('병합할 다른 소재가 없어요');return;}
@@ -4858,9 +4862,9 @@ function pbExecuteMerge(keepEncSup,keepEncKey,dropEncSup,dropEncKey){
   if(!keepPB||!dropPB)return;
   var keepM=keepPB.materials[keepKey],dropM=dropPB.materials[dropKey];
   if(!keepM||!dropM){showToast('소재를 찾지 못했어요');return;}
-  var keepNm=keepM.name||pbDecodeKey(keepKey)[0],keepCl=keepM.color||pbDecodeKey(keepKey)[1]||'';
-  var dropNm=dropM.name||pbDecodeKey(dropKey)[0],dropCl=dropM.color||pbDecodeKey(dropKey)[1]||'';
-  var keepDisp=keepNm+(keepCl?' ('+keepCl+')':''),dropDisp=dropNm+(dropCl?' ('+dropCl+')':'');
+  var keepNm=keepM.name||pbDecodeKey(keepKey)[0],keepCl=keepM.color||pbDecodeKey(keepKey)[1]||'',keepSz=(keepM.size||keepM.width||pbDecodeKey(keepKey)[2]||'').toString().trim();
+  var dropNm=dropM.name||pbDecodeKey(dropKey)[0],dropCl=dropM.color||pbDecodeKey(dropKey)[1]||'',dropSz=(dropM.size||dropM.width||pbDecodeKey(dropKey)[2]||'').toString().trim();
+  var keepDisp=keepNm+(keepCl?' ('+keepCl+')':'')+(keepSz?' · '+keepSz:''),dropDisp=dropNm+(dropCl?' ('+dropCl+')':'')+(dropSz?' · '+dropSz:'');
   // 영향받는 아이템 수 계산
   var count=0;
   Object.values(S.items||{}).forEach(function(it){
@@ -4870,6 +4874,10 @@ function pbExecuteMerge(keepEncSup,keepEncKey,dropEncSup,dropEncKey){
   if(!confirm('"'+dropDisp+'"을(를) "'+keepDisp+'"으로 병합합니다.\n\n'
     +'영향받는 아이템: '+count+'건\n'
     +'"'+dropDisp+'"은(는) 단가장에서 삭제됩니다.\n\n계속할까요?'))return;
+  // Undo 스냅샷 (병합 전 상태 저장)
+  var _undoItems=[];
+  Object.entries(S.items||{}).forEach(function(e){var id=e[0],it=e[1];var ch=false;(it.fabrics||[]).forEach(function(f){if(f.supplier===dropSup&&f.name===dropNm)ch=true;});(it.trims||[]).forEach(function(t){if(t.supplier===dropSup&&t.name===dropNm&&(t.color||'')===dropCl)ch=true;});if(ch)_undoItems.push({id:id,fabrics:JSON.parse(JSON.stringify(it.fabrics||[])),trims:JSON.parse(JSON.stringify(it.trims||[]))});});
+  _pbMergeUndo={keepSup:keepSup,keepKey:keepKey,keepM_before:JSON.parse(JSON.stringify(keepM)),dropSup:dropSup,dropKey:dropKey,dropM:JSON.parse(JSON.stringify(dropM)),changedItems:_undoItems};
   // 단가 데이터 병합 (KEEP 우선, DROP은 빈 필드만 채움)
   ['unitPrice','pricePerKg','width','composition','yardsPerKg','yardsPerRoll','pricingUnit','orderType'].forEach(function(f){
     if((keepM[f]==null||keepM[f]==='')&&(dropM[f]!=null&&dropM[f]!==''))keepM[f]=dropM[f];
@@ -4895,6 +4903,32 @@ function pbExecuteMerge(keepEncSup,keepEncKey,dropEncSup,dropEncKey){
   var ov=document.getElementById('pb-merge-ov');if(ov)ov.remove();
   savePB();saveData();renderBook();
   showToast('🔀 "'+dropDisp+'" → "'+keepDisp+'" 병합 완료'+(count?' ('+count+'개 아이템 변경)':''));
+  _showMergeUndoBar();
+}
+function _showMergeUndoBar(){
+  var old=document.getElementById('pb-undo-bar');if(old)old.remove();
+  var bar=document.createElement('div');bar.id='pb-undo-bar';bar.style.cssText='margin-bottom:8px';
+  bar.innerHTML='<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:9px 14px;display:flex;align-items:center;gap:10px"><span style="flex:1;font-size:12px;font-weight:500">↩ 방금 병합을 취소할 수 있어요 <span style="font-weight:400;color:#92400e;font-size:11px">(30초 후 소멸)</span></span><button class="btn" onclick="pbUndoMerge()" style="font-size:12px;background:#fff;border-color:#f59e0b;color:#92400e;font-weight:700">↩ 되돌리기</button><span onclick="document.getElementById(\'pb-undo-bar\').remove();_pbMergeUndo=null;clearTimeout(window._pbMergeUndoTimer)" style="cursor:pointer;color:#9aa3af;padding:0 6px;font-size:18px;line-height:1">✕</span></div>';
+  var lst=document.getElementById('book-list');
+  if(lst)lst.insertAdjacentElement('beforebegin',bar);
+  clearTimeout(window._pbMergeUndoTimer);
+  window._pbMergeUndoTimer=setTimeout(function(){var b=document.getElementById('pb-undo-bar');if(b)b.remove();_pbMergeUndo=null;},30000);
+}
+function pbUndoMerge(){
+  if(!_pbMergeUndo){showToast('되돌릴 수 없어요');return;}
+  var u=_pbMergeUndo;_pbMergeUndo=null;
+  clearTimeout(window._pbMergeUndoTimer);
+  var bar=document.getElementById('pb-undo-bar');if(bar)bar.remove();
+  // DROP 소재 복원
+  if(!S.priceBook[u.dropSup])S.priceBook[u.dropSup]={materials:{}};
+  S.priceBook[u.dropSup].materials[u.dropKey]=u.dropM;
+  // KEEP 소재를 병합 전 상태로 복원
+  if(S.priceBook[u.keepSup]&&S.priceBook[u.keepSup].materials)
+    S.priceBook[u.keepSup].materials[u.keepKey]=u.keepM_before;
+  // 아이템 참조 복원
+  u.changedItems.forEach(function(ci){if(S.items[ci.id]){S.items[ci.id].fabrics=ci.fabrics;S.items[ci.id].trims=ci.trims;}});
+  savePB();saveData();renderBook();
+  showToast('↩ 병합 취소 완료!');
 }
 
 // 단가장 표에서 규격(크기/폭/롤당야드) 직접 수정 → 다음 자동완성에 반영
