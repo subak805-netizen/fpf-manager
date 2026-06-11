@@ -9256,9 +9256,41 @@ function refreshOrderSuppliers(o){
   o.suppliers=fresh;
 }
 
+// 거래처 자재 종류 판별 (우선순위: 브랜드라벨 > 케어라벨 > 원단 > 부자재)
+function poTypeOf(sup){
+  var mats=(sup&&sup.materials)||[];
+  if(mats.some(function(m){return m.orderType==='mainLabel';}))return 'brandLabel';
+  if(mats.some(function(m){return m.orderType==='careLabel';}))return 'careLabel';
+  if(mats.some(function(m){return m.type==='fabric';}))return 'fabric';
+  if(mats.some(function(m){return m.type==='trim';}))return 'trim';
+  return '';
+}
+var PO_TYPE_DEFAULTS={
+  brandLabel:{companyLabel:true,includeAddr:true,includeFcName:false},
+  careLabel:{vatReceipt:true,includeFcName:true,includeAddr:false},
+  fabric:{nego:true,companyLabel:true,includeAddr:true,includeFcName:false},
+  trim:{companyLabel:true,includeFcName:true,includeAddr:false}
+};
+function isDefaultPoOpts(p){
+  if(!p)return true;
+  return Object.keys(DEFAULT_PO_OPTS).every(function(k){return (!!p[k])===(!!DEFAULT_PO_OPTS[k]);});
+}
+// 새 거래처(또는 기본값 그대로인 거래처)에만 타입별 기본 체크 적용. 손댄 건 보존.
+function applyPoTypeDefaults(o){
+  if(!o||!o.suppliers)return; var changed=false;
+  for(var sn in o.suppliers){
+    var sup=o.suppliers[sn]; if(!sup)continue;
+    if(!sup.poOpts)sup.poOpts={};
+    if(sup.poOpts._typed)continue;
+    if(isDefaultPoOpts(sup.poOpts)){ var d=PO_TYPE_DEFAULTS[poTypeOf(sup)]; if(d){ var np={}; Object.keys(DEFAULT_PO_OPTS).forEach(function(k){np[k]=false;}); Object.assign(np,d); sup.poOpts=np; } }
+    sup.poOpts._typed=true; changed=true;
+  }
+  if(changed&&typeof saveData==='function')saveData();
+}
 function renderPoTab(o){
   // 최신 아이템 정의(로스율 등) 반영 — actualOrderedQty/메타 보존하며 재계산
   refreshOrderSuppliers(o);
+  applyPoTypeDefaults(o);
   const sns=Object.keys(o.suppliers||{});if(!sns.length)return'<div class="empty">원부자재 정보 없음</div>';
   return sns.map(sn=>{
     const sup=o.suppliers[sn];if(!sup)return'';const sent=sup.status==='sent';const opts=sup.poOpts||{};const pb=S.priceBook[sn]||{};
