@@ -4479,6 +4479,27 @@ function pbShowDuplicates(){
     +dups.map(function(d){return '<div class="fb" style="padding:5px 0;border-top:1px dashed #fcd34d;font-size:12px"><div><b>'+esc(d.sup)+'</b> · '+esc(d.nm)+' <span class="muted">(색상없음 · 단가 '+num(d.price)+'원)</span> <span style="color:#92400e">↔ 색상버전: '+esc(d.colors)+'</span></div><button class="btn s d" style="padding:2px 8px;font-size:11px" onclick="deletePbMaterial(\''+encodeURIComponent(d.sup)+'\',\''+encodeURIComponent(d.key)+'\');setTimeout(pbShowDuplicates,150)">🗑 이 줄 삭제</button></div>';}).join('')
     +'</div>';
 }
+// ===== 단가장 단독 백업/되돌리기 (전체 데이터와 별개로 단가장만) =====
+function _pbBkLoad(){ try{ return lsGet('fpm_pbbk')||[]; }catch(e){ return []; } }
+function _pbBkSave(list){ try{ lsSet('fpm_pbbk',list); }catch(e){} }
+function _pbCount(pb){ var sup=Object.keys(pb||{}).length, mat=0; Object.keys(pb||{}).forEach(function(s){mat+=Object.keys((pb[s]||{}).materials||{}).length;}); return {sup:sup,mat:mat}; }
+function pbBackupNow(silent){ var list=_pbBkLoad(); list.push({ts:Date.now(), pb:JSON.parse(JSON.stringify(S.priceBook||{}))}); while(list.length>15)list.shift(); _pbBkSave(list); if(!silent&&typeof showToast==='function')showToast('🛟 단가장 백업됨 ('+_pbCount(S.priceBook).sup+'개 거래처)'); return list.length; }
+function pbAutoBackup(){ var list=_pbBkLoad(); var last=list[list.length-1]; var d=new Date(); var dayStart=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(last&&last.ts>=dayStart)return; if(!S.priceBook||!Object.keys(S.priceBook).length)return; pbBackupNow(true); }
+function pbRestoreBackup(idx){ var list=_pbBkLoad(); var bk=list[idx]; if(!bk||!bk.pb)return; var c=_pbCount(bk.pb); if(!confirm('이 시점 단가장으로 되돌릴까요?\n\n거래처 '+c.sup+'곳 · 품목 '+c.mat+'개\n\n※ 지금 단가장 전체가 이 백업으로 교체돼요(아이템·오더는 그대로).'))return; pbBackupNow(true); S.priceBook=JSON.parse(JSON.stringify(bk.pb)); savePB(); if(typeof renderBook==='function')renderBook(); var ov=document.getElementById('pb-bk-ov'); if(ov)ov.remove(); showToast('🛟 단가장 복구 완료 (거래처 '+c.sup+'곳)',4000); }
+function pbDeleteBackup(idx){ var list=_pbBkLoad(); list.splice(idx,1); _pbBkSave(list); pbOpenBackups(); }
+function pbOpenBackups(){
+  var list=_pbBkLoad();
+  var body='<div style="margin-bottom:10px"><button onclick="pbBackupNow();pbOpenBackups()" style="background:#16a34a;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">💾 지금 단가장 백업</button> <span style="font-size:11px;color:#64748b">단가장 열 때 하루 1회 자동 백업돼요</span></div>';
+  if(!list.length){ body+='<div style="color:#9aa0a8;font-size:12px;padding:10px 0">아직 백업이 없어요.</div>'; }
+  else { for(var ri=list.length-1;ri>=0;ri--){ var bk=list[ri]; var d=new Date(bk.ts); var p=function(n){return String(n).padStart(2,'0');}; var ds=(d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes()); var c=_pbCount(bk.pb);
+    body+='<div style="display:flex;align-items:center;gap:7px;padding:7px 4px;border-bottom:1px dotted #e2e8f0;font-size:12px"><span style="flex:1"><b>'+ds+'</b> · 거래처 '+c.sup+' · 품목 '+c.mat+'</span><button onclick="pbRestoreBackup('+ri+')" style="border:none;background:#2563eb;color:#fff;padding:4px 11px;border-radius:5px;cursor:pointer;font-weight:600">되돌리기</button><button onclick="pbDeleteBackup('+ri+')" style="border:1px solid #cbd5e1;background:#fff;padding:4px 9px;border-radius:5px;cursor:pointer">삭제</button></div>';
+  } }
+  var ex=document.getElementById('pb-bk-ov'); if(ex)ex.remove();
+  var ov=document.createElement('div'); ov.id='pb-bk-ov'; ov.style.cssText='position:fixed;inset:0;z-index:100070;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.innerHTML='<div style="background:#fff;border-radius:10px;max-width:430px;width:100%;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.25)"><div style="display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid #e2e8f0"><b style="flex:1;font-size:14px">🛟 단가장 백업 / 되돌리기</b><span onclick="this.closest(\'#pb-bk-ov\').remove()" style="cursor:pointer;font-size:18px;padding:0 4px">✕</span></div><div style="padding:10px 14px 14px;overflow-y:auto">'+body+'</div></div>';
+  ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+  document.body.appendChild(ov);
+}
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;
   const allSups=Object.keys(S.priceBook).sort();
@@ -4503,7 +4524,8 @@ function renderBook(){
     </div>
   </div>`;
   const importBtn=`<button class="btn p" style="width:100%;margin-bottom:10px;background:#16a34a;border-color:#16a34a" onclick="openPBImport()">📋 단가표 사진 → 일괄 가져오기</button>`;
-  el.innerHTML=searchBox+'<div style="margin-bottom:10px"><button class="btn s" onclick="pbShowDuplicates()" title="색상 유무로 중복된 줄 찾기">🧹 중복 줄 찾기</button></div><div id="pb-dups"></div>'+importBtn+addForm+'<div id="book-list"></div>';
+  try{pbAutoBackup();}catch(e){}
+  el.innerHTML=searchBox+'<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">🛟 백업/되돌리기</button><button class="btn s" onclick="pbShowDuplicates()" title="색상 유무로 중복된 줄 찾기">🧹 중복 줄 찾기</button></div><div id="pb-dups"></div>'+importBtn+addForm+'<div id="book-list"></div>';
   renderBookList();
 }
 function renderBookList(){
