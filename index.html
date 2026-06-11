@@ -1618,6 +1618,7 @@ body.tp-capturing #tp-modal .tp-hdate::-webkit-calendar-picker-indicator{display
     <div class="fg"><label>주소</label><input id="fc-addr"></div>
     <div class="g2"><div class="fg"><label>전화</label><input id="fc-phone"></div><div class="fg"><label>이메일</label><input id="fc-email" type="email"></div></div>
     <div class="fg"><label>입금 계좌 <span class="muted" style="font-weight:400;font-size:10px">결제서에 자동 표시</span></label><input id="fc-bank" placeholder="은행명 계좌번호 예금주 (예: 국민은행 123-456-789 홍길동)"></div>
+    <div class="g2"><div class="fg"><label>동층호수 <span class="muted" style="font-weight:400;font-size:10px">목록 정렬·묶음 기준</span></label><input id="fc-roomno" placeholder="예: A동 3층 5호"></div><div class="fg"><label>특징 메모</label><input id="fc-memo" placeholder="예: 다이마루 원단처, 소재좋음"></div></div>
     <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:10px"><button class="btn" onclick="closeModal('fc-modal')">취소</button><button class="btn p" onclick="saveFc()">저장</button></div>
   </div>
 </div>
@@ -3970,10 +3971,39 @@ function render(){try{if(!window._nim){window._nim=1;try{new MutationObserver(fu
 
 /* ===== FACTORIES ===== */
 function renderFactories(){
-  const el=document.getElementById('fc-list');if(!el)return;const fcs=Object.values(S.factories||{});
+  const el=document.getElementById('fc-list');if(!el)return;
+  const fcs=Object.values(S.factories||{});
   if(!fcs.length){el.innerHTML='<div class="empty">공장/처를 등록하세요</div>';return;}
   const byType={};fcs.forEach(f=>{const t=f.type||'기타';if(!byType[t])byType[t]=[];byType[t].push(f);});
-  el.innerHTML=Object.entries(byType).map(([type,flist])=>`<div class="sec">${esc(type)}</div>`+flist.map(f=>`<div class="card" style="margin-bottom:6px"><div class="fb"><div><div style="font-weight:600">${esc(f.name)}</div><div class="muted">${[f.contact,f.phone].filter(Boolean).map(esc).join(' · ')}</div><div class="muted">${esc(f.address||'')}</div></div><div class="fr"><button class="btn s" onclick="showFcForm('${f.id}')">✎</button><button class="btn s d" onclick="deleteFc('${f.id}')">🗑</button></div></div></div>`).join('')).join('');
+  // 동층호수에서 건물명(동) 추출
+  function _bldg(rn){var m=(rn||'').match(/^(\S+동)/);return m?m[1]:'';}
+  el.style.maxWidth='640px';
+  el.innerHTML=Object.entries(byType).map(([type,flist])=>{
+    // 동층호수 기준 정렬 (없으면 이름순)
+    flist.sort((a,b)=>(a.roomNo||'￿'+a.name).localeCompare(b.roomNo||'￿'+b.name));
+    // 건물별 그룹핑
+    const byB={};flist.forEach(f=>{const b=_bldg(f.roomNo)||'__none';if(!byB[b])byB[b]=[];byB[b].push(f);});
+    const hasMulti=Object.keys(byB).filter(b=>b!=='__none').length>0&&Object.keys(byB).length>1;
+    return '<div class="sec">'+esc(type)+'</div>'+
+      Object.entries(byB).map(([b,bfl])=>{
+        const bh=(hasMulti&&b!=='__none')?'<div style="font-size:10px;font-weight:700;color:#6b7280;padding:4px 2px 2px;letter-spacing:.3px">'+esc(b)+'</div>':'';
+        return bh+bfl.map(f=>{
+          var rnBadge=f.roomNo?'<span style="font-size:10px;font-weight:500;margin-left:6px;padding:1px 6px;border-radius:4px;background:#f3f4f6;color:#374151;white-space:nowrap">'+esc(f.roomNo)+'</span>':'';
+          var contactLine=[f.contact,f.phone].filter(Boolean).map(esc).join(' · ');
+          var addrLine=f.address?'<div class="muted" style="font-size:11px;word-break:break-all">'+esc(f.address)+'</div>':'';
+          var memoLine=f.memo?'<div style="font-size:11px;color:#6b7280;margin-top:3px;word-break:break-all">📌 '+esc(f.memo)+'</div>':'';
+          return '<div class="card" style="margin-bottom:6px;max-width:100%;overflow:hidden">'
+            +'<div class="fb" style="align-items:flex-start;gap:6px">'
+            +'<div style="flex:1;min-width:0;overflow:hidden">'
+            +'<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:2px">'+esc(f.name)+rnBadge+'</div>'
+            +(contactLine?'<div class="muted">'+contactLine+'</div>':'')
+            +addrLine+memoLine
+            +'</div>'
+            +'<div class="fr" style="flex-shrink:0;gap:4px"><button class="btn s" onclick="showFcForm(\''+f.id+'\')">✎</button><button class="btn s d" onclick="deleteFc(\''+f.id+'\')">🗑</button></div>'
+            +'</div></div>';
+        }).join('');
+      }).join('');
+  }).join('');
 }
 function renderVendors(){
   renderFactories();
@@ -3994,13 +4024,15 @@ function showFcForm(id){
   const g=k=>fc?fc[k]||'':'';
   ['nm','type','contact','addr','phone','email'].forEach(k=>document.getElementById('fc-'+k).value=g(k==='nm'?'name':k==='addr'?'address':k));
   const bankEl=document.getElementById('fc-bank');if(bankEl)bankEl.value=g('bank');
+  const rnEl=document.getElementById('fc-roomno');if(rnEl)rnEl.value=g('roomNo');
+  const memoEl=document.getElementById('fc-memo');if(memoEl)memoEl.value=g('memo');
   document.getElementById('fc-type-sel').value='';showModal('fc-modal');
 }
 function saveFc(){
   const nm=document.getElementById('fc-nm').value.trim();if(!nm){alert('이름 입력');return;}
   const type=document.getElementById('fc-type-sel').value||document.getElementById('fc-type').value.trim();
   const id=editFcId||uid();
-  S.factories[id]={id,name:nm,type,contact:document.getElementById('fc-contact').value.trim(),address:document.getElementById('fc-addr').value.trim(),phone:document.getElementById('fc-phone').value.trim(),email:document.getElementById('fc-email').value.trim(),bank:document.getElementById('fc-bank')?.value.trim()||''};
+  S.factories[id]={id,name:nm,type,contact:document.getElementById('fc-contact').value.trim(),address:document.getElementById('fc-addr').value.trim(),phone:document.getElementById('fc-phone').value.trim(),email:document.getElementById('fc-email').value.trim(),bank:document.getElementById('fc-bank')?.value.trim()||'',roomNo:document.getElementById('fc-roomno')?.value.trim()||'',memo:document.getElementById('fc-memo')?.value.trim()||''};
   saveData();closeModal('fc-modal');renderFactories();showToast('저장 완료');
 }
 function deleteFc(id){
@@ -4480,7 +4512,12 @@ function pbShowDuplicates(){
     Object.keys(mats).forEach(function(k){ var m=mats[k]; if(!m)return; var nm=m.name||pbDecodeKey(k)[0]; var cl=m.color||pbDecodeKey(k)[1]||''; (byName[nm]=byName[nm]||[]).push({k:k,cl:cl,m:m}); });
     Object.keys(byName).forEach(function(nm){
       var rows=byName[nm]; var withCl=rows.filter(function(r){return r.cl;}); var noCl=rows.filter(function(r){return !r.cl;});
-      if(withCl.length&&noCl.length){ noCl.forEach(function(r){ dups.push({sup:sup,nm:nm,key:r.k,price:(r.m.unitPrice||r.m.pricePerKg||0),colors:withCl.map(function(x){return x.cl;}).join(', ')}); }); }
+      if(withCl.length&&noCl.length){ noCl.forEach(function(r){
+        // 크기가 다른 색상버전은 별개 품목으로 취급 → 중복 아님
+        var sz1=(r.m.size||r.m.width||'').toString().trim();
+        var sameSzCols=withCl.filter(function(w){var sz2=(w.m.size||w.m.width||'').toString().trim();return !sz1||!sz2||sz1===sz2;});
+        if(sameSzCols.length){dups.push({sup:sup,nm:nm,key:r.k,price:(r.m.unitPrice||r.m.pricePerKg||0),colors:sameSzCols.map(function(x){return x.cl;}).join(', ')});}
+      }); }
     });
   });
   if(!dups.length){ box.innerHTML='<div class="card" style="margin-bottom:10px;background:#ecfdf5;border:1px solid #a7f3d0;padding:10px 12px;font-size:12px;color:#065f46">✅ 색상 유무로 중복된 줄이 없어요.</div>'; return; }
@@ -4601,13 +4638,14 @@ function renderBookList(){
     </div>
     ${mats.length?`<div>
       <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:5px">단가 수정 <span class="muted" style="font-weight:400">매장단가는 원가계산 / 네고가는 결제에 사용</span></div>
-      <table class="tbl"><thead><tr><th>품목</th><th>색상</th><th>유형</th><th style="background:#FBF7EC">크기/규격</th><th style="background:#FBF7EC">롤당yard</th><th>매장단가 <span class="muted" style="font-weight:400;font-size:10px">(고정)</span></th><th>네고가 <span class="muted" style="font-weight:400;font-size:10px">(유동)</span></th><th>갱신일</th><th style="width:32px"></th></tr></thead><tbody>
+      <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>품목</th><th>색상</th><th>유형</th><th style="background:#FBF7EC">크기/규격</th><th style="background:#FBF7EC">롤당yard</th><th style="background:#f0fdf4">혼용률</th><th>매장단가 <span class="muted" style="font-weight:400;font-size:10px">(고정)</span></th><th>네고가 <span class="muted" style="font-weight:400;font-size:10px">(유동)</span></th><th>갱신일</th><th style="width:32px"></th></tr></thead><tbody>
       ${mats.map(([key,m])=>{const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return`<tr>
         <td><input type="text" value="${esc(nm)}" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'name')" style="font-size:12px;width:100%;border:none;background:transparent;padding:3px 5px;border-radius:4px" onfocus="this.style.background='#fff8e1';this.style.border='1px solid #fde68a'" onblur="this.style.background='transparent';this.style.border='none'"></td>
         <td>${isFab?'<span class="muted" style="font-size:10px">-</span>':`<input type="text" value="${esc(cl)}" placeholder="색상" list="dl-clr" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'color')" style="font-size:11px;width:70px;padding:3px 5px">`}</td>
         <td>${isFab?(isKg?'<span class="badge b2">KG</span>':'<span class="badge b1">YARD</span>'):`<select onchange="updatePBOrderType('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value)" style="font-size:11px;padding:3px 5px"><option value="count"${m.orderType==='count'||!m.orderType?' selected':''}>개수</option><option value="yard"${m.orderType==='yard'?' selected':''}>야드</option><option value="roll"${m.orderType==='roll'?' selected':''}>롤</option><option value="thread"${m.orderType==='thread'?' selected':''}>실</option><option value="zipper"${m.orderType==='zipper'?' selected':''}>지퍼</option><option value="button"${m.orderType==='button'?' selected':''}>단추</option></select>`}</td>
         <td style="background:#FBF7EC">${isFab?`<input type="text" value="${esc(m.width||'')}" placeholder="폭" style="width:70px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','width',this.value)">`:`<input type="text" value="${esc(m.size||'')}" placeholder="크기" style="width:70px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','size',this.value)">`}</td>
         <td style="background:#FBF7EC">${isFab?'<span class="muted" style="font-size:10px">—</span>':`<input type="number" value="${m.yardsPerRoll!=null&&m.yardsPerRoll!==''?m.yardsPerRoll:''}" placeholder="야드" min="0" style="width:58px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','yardsPerRoll',this.value)">`}</td>
+        <td style="background:#f0fdf4">${isFab?`<input type="text" value="${esc(m.composition||'')}" placeholder="예: 100%C" style="width:80px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','composition',this.value)">`:'<span class="muted" style="font-size:10px">-</span>'}</td>
         <td><div class="fr" style="gap:4px;align-items:center">
           <input type="number" value="${storeP}" min="0" style="width:80px;font-size:12px"
             onchange="updatePBPrice('${encodeURIComponent(s)}','${encodeURIComponent(key)}','${isKg?'kg':'unit'}',+this.value)">
@@ -4619,9 +4657,9 @@ function renderBookList(){
           <span class="muted" style="font-size:10px">${isKg?'원/kg':'원'}</span>
         </div></td>
         <td class="muted" id="pb-updated-${encodeURIComponent(s)}-${encodeURIComponent(key)}" style="font-size:11px">${m.lastUpdated||''}${(m.priceLog&&m.priceLog.length)?` <span onclick="pbShowPriceLog('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="cursor:pointer" title="단가 변경 이력 ${m.priceLog.length}건">📜</span>`:''}</td>
-        <td style="text-align:center;white-space:nowrap"><button class="btn s g" onclick="showPBUsage('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목을 쓰는 아이템 보기">🔍</button><button class="btn s d g" onclick="deletePbMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목 삭제">🗑</button></td>
+        <td style="text-align:center;white-space:nowrap"><button class="btn s g" onclick="showPBUsage('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목을 쓰는 아이템 보기">🔍</button><button class="btn s g" onclick="pbMergeMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="다른 소재와 합치기(병합)">🔀</button><button class="btn s d g" onclick="deletePbMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목 삭제">🗑</button></td>
       </tr>`;}).join('')}
-      </tbody></table>
+      </tbody></table></div>
     </div>`:''}
     </div>
   </div>`;}).join('');
@@ -4669,7 +4707,14 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
   if(newNm===oldNm&&newCl===oldCl)return;
   var newKey=pbKey(newNm,newCl);
   if(pb.materials[newKey]&&newKey!==oldKey){
-    if(!confirm('같은 이름·색상 조합 이미 존재. 덮어쓸까요?'))return renderBook();
+    var _exi=pb.materials[newKey];
+    var _exiSz=(_exi.size||_exi.width||'').toString().trim();
+    var _curSz=(oldEntry.size||oldEntry.width||'').toString().trim();
+    var _szDiff=_exiSz&&_curSz&&_exiSz!==_curSz;
+    var _msg=_szDiff
+      ?'이름·색상 같은 항목이 있지만 크기가 달라요 (기존: '+_exiSz+' / 현재: '+_curSz+').\n저장하면 크기 '+_exiSz+' 단가가 덮어씌워집니다.\n이름에 크기를 포함하면(예: 코메즈밴드 30미리) 따로 관리할 수 있어요.\n그래도 덮어쓸까요?'
+      :'같은 이름·색상 조합 이미 존재. 덮어쓸까요?';
+    if(!confirm(_msg))return renderBook();
   }
   pb.materials[newKey]={...oldEntry,name:newNm,color:newCl,lastUpdated:todayISO()};
   if(newKey!==oldKey)delete pb.materials[oldKey];
@@ -4745,6 +4790,99 @@ function deletePbMaterial(encSup,encKey){
   savePB();
   renderBook();
   showToast('🗑 "'+display+'" 단가장에서 삭제');
+}
+
+// 단가장 소재 병합 — 🔀 버튼 클릭 시 (이 소재를 KEEP, 다른 소재를 흡수)
+function pbMergeMaterial(encSup,encKey){
+  var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var pb=S.priceBook[sup];if(!pb)return;
+  var m=pb.materials[key];if(!m)return;
+  var nm=m.name||pbDecodeKey(key)[0],cl=m.color||pbDecodeKey(key)[1]||'';
+  var disp=nm+(cl?' ('+cl+')':'');
+  // 모든 거래처의 소재 목록 (본인 제외)
+  var others=[];
+  Object.keys(S.priceBook||{}).forEach(function(s){
+    var mats=(S.priceBook[s]||{}).materials||{};
+    Object.keys(mats).forEach(function(k){
+      if(s===sup&&k===key)return;
+      var om=mats[k];var onm=om.name||pbDecodeKey(k)[0],ocl=om.color||pbDecodeKey(k)[1]||'';
+      var label=(s!==sup?'['+s+'] ':'')+onm+(ocl?' ('+ocl+')':'');
+      others.push({s:s,k:k,label:label});
+    });
+  });
+  if(!others.length){showToast('병합할 다른 소재가 없어요');return;}
+  // 같은 거래처 먼저 정렬
+  others.sort(function(a,b){var as=(a.s===sup?0:1),bs=(b.s===sup?0:1);return as-bs||(a.label>b.label?1:-1);});
+  var opts=others.map(function(o){return '<option value="'+encodeURIComponent(o.s)+'|'+encodeURIComponent(o.k)+'">'+esc(o.label)+'</option>';}).join('');
+  var ex=document.getElementById('pb-merge-ov');if(ex)ex.remove();
+  var ov=document.createElement('div');ov.id='pb-merge-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:100070;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.innerHTML='<div style="background:#fff;border-radius:10px;max-width:420px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.25)">'
+    +'<div style="display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid #e2e8f0">'
+    +'<b style="flex:1;font-size:14px">🔀 소재 병합</b>'
+    +'<span onclick="document.getElementById(\'pb-merge-ov\').remove()" style="cursor:pointer;font-size:18px;padding:0 4px;color:#6b7280">✕</span></div>'
+    +'<div style="padding:14px">'
+    +'<p style="font-size:13px;margin:0 0 12px;line-height:1.6">아래 소재를 <b>'+esc(disp)+'</b>로 통일합니다.<br>'
+    +'<span style="font-size:11px;color:#6b7280">선택한 소재를 쓰는 아이템이 자동으로 변경되고, 선택한 소재는 단가장에서 삭제됩니다.</span></p>'
+    +'<label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px">삭제할 소재 (이쪽으로 흡수됨)</label>'
+    +'<select id="pb-merge-sel" style="width:100%;padding:8px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:14px">'+opts+'</select>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +'<button class="btn" onclick="document.getElementById(\'pb-merge-ov\').remove()" style="font-size:12px">취소</button>'
+    +'<button class="btn p" onclick="pbExecuteMergeFromSel(\''+encSup+'\',\''+encodeURIComponent(key)+'\')" style="font-size:12px">🔀 병합 실행</button>'
+    +'</div></div></div>';
+  ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+  document.body.appendChild(ov);
+}
+function pbExecuteMergeFromSel(keepEncSup,keepEncKey){
+  var sel=document.getElementById('pb-merge-sel');if(!sel||!sel.value)return;
+  var idx=sel.value.indexOf('|');
+  var dropEncSup=sel.value.substring(0,idx),dropEncKey=sel.value.substring(idx+1);
+  pbExecuteMerge(keepEncSup,keepEncKey,dropEncSup,dropEncKey);
+}
+function pbExecuteMerge(keepEncSup,keepEncKey,dropEncSup,dropEncKey){
+  var keepSup=decodeURIComponent(keepEncSup),keepKey=decodeURIComponent(keepEncKey);
+  var dropSup=decodeURIComponent(dropEncSup),dropKey=decodeURIComponent(dropEncKey);
+  var keepPB=S.priceBook[keepSup],dropPB=S.priceBook[dropSup];
+  if(!keepPB||!dropPB)return;
+  var keepM=keepPB.materials[keepKey],dropM=dropPB.materials[dropKey];
+  if(!keepM||!dropM){showToast('소재를 찾지 못했어요');return;}
+  var keepNm=keepM.name||pbDecodeKey(keepKey)[0],keepCl=keepM.color||pbDecodeKey(keepKey)[1]||'';
+  var dropNm=dropM.name||pbDecodeKey(dropKey)[0],dropCl=dropM.color||pbDecodeKey(dropKey)[1]||'';
+  var keepDisp=keepNm+(keepCl?' ('+keepCl+')':''),dropDisp=dropNm+(dropCl?' ('+dropCl+')':'');
+  // 영향받는 아이템 수 계산
+  var count=0;
+  Object.values(S.items||{}).forEach(function(it){
+    (it.fabrics||[]).forEach(function(f){if(f.supplier===dropSup&&f.name===dropNm)count++;});
+    (it.trims||[]).forEach(function(t){if(t.supplier===dropSup&&t.name===dropNm&&(t.color||'')===dropCl)count++;});
+  });
+  if(!confirm('"'+dropDisp+'"을(를) "'+keepDisp+'"으로 병합합니다.\n\n'
+    +'영향받는 아이템: '+count+'건\n'
+    +'"'+dropDisp+'"은(는) 단가장에서 삭제됩니다.\n\n계속할까요?'))return;
+  // 단가 데이터 병합 (KEEP 우선, DROP은 빈 필드만 채움)
+  ['unitPrice','pricePerKg','width','composition','yardsPerKg','yardsPerRoll','pricingUnit','orderType'].forEach(function(f){
+    if((keepM[f]==null||keepM[f]==='')&&(dropM[f]!=null&&dropM[f]!==''))keepM[f]=dropM[f];
+  });
+  // priceLog 병합
+  if(dropM.priceLog&&dropM.priceLog.length){
+    keepM.priceLog=((keepM.priceLog||[]).concat(dropM.priceLog)).sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+  }
+  // colorPrices 병합 (KEEP 우선)
+  if(keepSup===dropSup&&dropPB.colorPrices){
+    keepPB.colorPrices=keepPB.colorPrices||{};
+    Object.keys(dropPB.colorPrices).forEach(function(ck){
+      var parts=ck.split('|');if(parts[0]===dropNm){parts[0]=keepNm;var nk=parts.join('|');if(!keepPB.colorPrices[nk])keepPB.colorPrices[nk]=dropPB.colorPrices[ck];}
+    });
+  }
+  // 아이템 참조 업데이트
+  Object.values(S.items||{}).forEach(function(it){
+    (it.fabrics||[]).forEach(function(f){if(f.supplier===dropSup&&f.name===dropNm){f.supplier=keepSup;f.name=keepNm;}});
+    (it.trims||[]).forEach(function(t){if(t.supplier===dropSup&&t.name===dropNm&&(t.color||'')===dropCl){t.supplier=keepSup;t.name=keepNm;t.color=keepCl;}});
+  });
+  // DROP 삭제
+  delete dropPB.materials[dropKey];
+  var ov=document.getElementById('pb-merge-ov');if(ov)ov.remove();
+  savePB();saveData();renderBook();
+  showToast('🔀 "'+dropDisp+'" → "'+keepDisp+'" 병합 완료'+(count?' ('+count+'개 아이템 변경)':''));
 }
 
 // 단가장 표에서 규격(크기/폭/롤당야드) 직접 수정 → 다음 자동완성에 반영
