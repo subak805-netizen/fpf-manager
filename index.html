@@ -4026,6 +4026,14 @@ function fcOpts(sel,typeFilter){
 function getPB(sup){if(!S.priceBook[sup])S.priceBook[sup]={email:'',phone:'',kakaoId:'',materials:{}};return S.priceBook[sup];}
 function pbKey(name,color){return color?name+'\x1F'+color:name;}
 function pbDecodeKey(key){var i=key.indexOf('\x1F');return i<0?[key,'']:[key.slice(0,i),key.slice(i+1)];}
+function _otLabel(ot){ return ({count:'개수',yard:'야드',roll:'롤',thread:'실',zipper:'지퍼',button:'단추',careLabel:'케어라벨',mainLabel:'메인라벨',bias:'바이어스'})[ot]||ot||'개수'; }
+// 단가 단위 일관성 검증 — 단가장에 저장된 단위(야드/kg/orderType)와 다르게 입력하면 경고 목록 반환
+function pbCheckUnits(item){
+  var w=[];
+  (item.fabrics||[]).forEach(function(f){ if(!f.supplier||!f.name)return; var e=S.priceBook[f.supplier]&&S.priceBook[f.supplier].materials&&S.priceBook[f.supplier].materials[f.name]; if(e&&e.type==='fabric'&&e.pricingUnit&&f.pricingUnit&&e.pricingUnit!==f.pricingUnit){ w.push('원단 "'+f.name+'": 단가장 '+(e.pricingUnit==='kg'?'KG':'야드')+' ↔ 지금 '+(f.pricingUnit==='kg'?'KG':'야드')); } });
+  (item.trims||[]).forEach(function(t){ if(!t.supplier||!t.name)return; var mm=S.priceBook[t.supplier]&&S.priceBook[t.supplier].materials; if(!mm)return; var e=mm[pbKey(t.name,t.color||'')]||mm[t.name]; if(e&&e.type==='trim'&&e.orderType&&t.orderType&&e.orderType!==t.orderType){ w.push('부자재 "'+t.name+'": 단가장 '+_otLabel(e.orderType)+' ↔ 지금 '+_otLabel(t.orderType)); } });
+  return w;
+}
 function saveToPB(item){
   for(const f of item.fabrics||[]){
     if(!f.supplier)continue;
@@ -7228,6 +7236,7 @@ function saveItemForm(){
   if(item.brandId){var _btnLogo=(item.trims||[]).find(function(t){return t.orderType==='button'&&t.hasButtonLogo&&((t.buttonLogoText||'').trim()||(t.buttonLogoStyle||'').trim());});if(_btnLogo){if(!S.brandConfig)S.brandConfig={};if(!S.brandConfig[item.brandId])S.brandConfig[item.brandId]={};if((_btnLogo.buttonLogoText||'').trim())S.brandConfig[item.brandId].buttonLogo=_btnLogo.buttonLogoText.trim();if((_btnLogo.buttonLogoStyle||'').trim())S.brandConfig[item.brandId].buttonLogoStyle=_btnLogo.buttonLogoStyle.trim();}}
   // === 새 아이템 등록 시 샘플 자동 생성은 제거됨 (사용자가 필요할 때 샘플 탭에서 추가) ===
   var isNewItem=!editItemId;
+  try{var _uw=pbCheckUnits(item);if(_uw.length)showToast('⚠ 단위 확인 — '+_uw.join(' / ')+' (다른 단위로 저장돼요)',7000);}catch(e){}
   saveToPB(item);saveData();renderItemsList();renderCSDropdown();
   // 폼은 닫지 않고 그대로 유지 (사용자가 추가 편집할 수 있도록)
   // 다만 신규 → 편집 모드로 전환되어야 다음 저장 시 동일 아이템 업데이트됨
