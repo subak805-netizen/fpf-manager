@@ -12269,7 +12269,7 @@ function pdToggleDone(el){
 }
 // ===== 장수 입력 모달 =====
 window._pdQtyCtx=null;
-function pdOpenQtyModal(oid,itemId,role,fcId){
+function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
   const o=S.orders[oid];const it=S.items[itemId];
   if(!o||!it){showToast('데이터 없음');return;}
   if(!fcId){showToast('공장이 지정되지 않았어요');return;}
@@ -12289,7 +12289,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId){
   //  - 재단(cut): 기존 회차를 새 그리드로 교체
   //  - 출고/봉제/완성/검품/외주(ship): 새 회차로 추가(append)
   const mode='grid';
-  window._pdQtyCtx={oid,itemId,fcId,role,recsKey,sch,mode,saveMode:isCut?'replace':'append'};
+  window._pdQtyCtx={oid,itemId,fcId,role,recsKey,sch,mode,saveMode:isCut?'replace':'append',editDate:(!isCut&&editDate)?editDate:''};
   // 오더수량
   const oi=(o.orderItems||[]).find(x=>x.itemId===itemId);
   const sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
@@ -12316,6 +12316,15 @@ function pdOpenQtyModal(oid,itemId,role,fcId){
       if(r.date&&!curDate)curDate=r.date;
     });
     if(!curDate)curDate=(isCut?sch.cuttingDate:sch.shipExpectedDate)||todayISO();
+    // 회차별(날짜 기준) 그룹 — 출고/봉제/완성/검품 모드에서 목록·수정·삭제용
+    const byDate={};const dOrder=[];
+    if(!isCut){
+      itRecs.forEach(function(r){ if(!r||(+r.qty||0)<=0)return; var d=r.date||''; if(!byDate[d]){byDate[d]={total:0,grid:{}};dOrder.push(d);} var c=r.color||'',sz=r.size||''; byDate[d].total+=(+r.qty||0); if(!byDate[d].grid[c])byDate[d].grid[c]={}; byDate[d].grid[c][sz]=(byDate[d].grid[c][sz]||0)+(+r.qty||0); });
+      dOrder.sort(_cmpDateFn);
+    }
+    // 수정 모드: 그 회차(editDate) 값을 그리드에 미리 채움 + 날짜 그 회차로
+    const editGrid=(!isCut&&editDate&&byDate[editDate])?byDate[editDate].grid:null;
+    if(editGrid)curDate=editDate;
     // 재단: 입력한 회차 없으면 cuttingGrid → 오더수량 순으로 미리채움 (칸이 비어있지 않게)
     var prefillGrid=curGrid;
     if(isCut&&curTotal===0){
@@ -12323,35 +12332,44 @@ function pdOpenQtyModal(oid,itemId,role,fcId){
       if(_cg&&Object.keys(_cg).length)prefillGrid=_cg;
       else if(oi&&oi.qtyGrid&&Object.keys(oi.qtyGrid).length)prefillGrid=oi.qtyGrid;
     }
+    if(editGrid)prefillGrid=editGrid; // 수정 모드: 그 회차 값 채움
+    const _prefill=isCut||!!editGrid;
     // 저장 모드별 텍스트
     const saveMode=window._pdQtyCtx.saveMode;
     const dateLabel=isCut?'재단일':'출고일';
     const titleEmoji=isCut?'✂':'🚚';
     const helpText=isCut
       ?'✏️ 칸을 클릭해서 수량 입력·정정 가능. 비우면 0으로 저장됨.'
-      :('✏️ 한 날짜에 한 번에 입력 가능. 저장하면 새 회차로 추가됩니다. 기존 회차 합계: '+curTotal+'장');
+      :(editGrid
+        ?'✏️ 이 회차를 수정 중이에요. 저장하면 이 날짜 회차가 교체돼요. (모두 비우고 저장하면 이 회차 삭제)'
+        :('✏️ 한 날짜에 한 번에 입력 가능. 저장하면 새 회차로 추가됩니다. 기존 회차 합계: '+curTotal+'장'));
     // 헤더 행 (사이즈명)
     const sizeHdrs=sizes.map(sz=>`<th style="padding:8px 6px;font-size:11px;font-weight:700;color:#4b5563;background:#f9fafb;border:1px solid #e5e7eb">${esc(sz)}</th>`).join('');
     // 컬러별 행 (cut 모드는 기존 값 prefill, ship 모드는 빈칸)
     const rowsHtml=colors.map(c=>{
       const cells=sizes.map(sz=>{
-        const v=isCut?(prefillGrid[c]?.[sz]||0):0;
+        const v=_prefill?(prefillGrid[c]?.[sz]||0):0;
         return `<td style="padding:5px;border:1px solid #e5e7eb;background:#fff"><input class="pd-grid-in" type="number" inputmode="numeric" min="0" value="${v||''}" data-color="${esc(c)}" data-size="${esc(sz)}" placeholder="0" oninput="pdGridRecalc()" onfocus="this.select()" style="width:100%;padding:11px 8px;border:2px solid #fbbf24;border-radius:7px;font-size:18px;font-weight:700;text-align:center;color:#1f2937;background:#fff;font-family:inherit;outline:none"></td>`;
       }).join('');
-      const rowTot=isCut?sizes.reduce((s,sz)=>s+(+prefillGrid[c]?.[sz]||0),0):0;
+      const rowTot=_prefill?sizes.reduce((s,sz)=>s+(+prefillGrid[c]?.[sz]||0),0):0;
       return `<tr><td style="padding:8px 10px;font-size:13px;font-weight:600;color:#374151;border:1px solid #e5e7eb;background:#f9fafb;white-space:nowrap">${esc(c||'-')}</td>${cells}<td id="pd-grid-rowtot-${esc(c).replace(/[^a-zA-Z0-9]/g,'_')}" style="padding:8px 10px;text-align:center;font-weight:700;color:#1f2937;border:1px solid #e5e7eb;background:#fafbfc;font-size:14px">${rowTot||''}</td></tr>`;
     }).join('');
     // 사이즈별 합계 행
     const szTotCells=sizes.map(sz=>`<td id="pd-grid-sztot-${esc(sz).replace(/[^a-zA-Z0-9]/g,'_')}" style="padding:8px 10px;text-align:center;font-weight:700;color:#1f2937;border:1px solid #e5e7eb;background:#fafbfc;font-size:14px"></td>`).join('');
     // ship 모드일 때 기존 회차 요약 (참고용)
-    const prevSummary=(!isCut&&itRecs.length)
-      ?'<div style="margin-bottom:10px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:11px;color:#065f46">'
-        +'<b>지난 회차 누적 '+curTotal+'장</b> · '+itRecs.length+'건 <span style="color:#16a34a">(아래는 새 회차 입력)</span>'
-        +'<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;color:#065f46"><thead><tr>'
-        +'<th style="padding:3px 6px;text-align:left;border-bottom:1px solid #bbf7d0">컬러</th>'+sizes.map(sz=>'<th style="padding:3px 6px;text-align:center;border-bottom:1px solid #bbf7d0">'+esc(sz)+'</th>').join('')+'<th style="padding:3px 6px;text-align:center;border-bottom:1px solid #bbf7d0">합계</th>'
-        +'</tr></thead><tbody>'
-        +colors.filter(function(c){return curGrid[c];}).map(function(c){var ct=0;var tds=sizes.map(function(sz){var v=+(curGrid[c]&&curGrid[c][sz])||0;ct+=v;return '<td style="padding:3px 6px;text-align:center">'+(v||'·')+'</td>';}).join('');return '<tr><td style="padding:3px 6px;font-weight:700">'+esc(c||'-')+'</td>'+tds+'<td style="padding:3px 6px;text-align:center;font-weight:700">'+ct+'</td></tr>';}).join('')
-        +'</tbody></table></div>'
+    const prevSummary=(!isCut&&dOrder.length)
+      ?('<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:#065f46;margin-bottom:6px">📦 지난 회차 '+dOrder.length+'회 · 누적 '+curTotal+'장 <span style="font-weight:400;color:#16a34a">(✏ 수정 / 🗑 삭제)</span></div>'
+        +dOrder.map(function(d){
+          var g=byDate[d];var dd=(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d);
+          var cs=colors.filter(function(c){return g.grid[c];}).map(function(c){var t=sizes.reduce(function(s,sz){return s+(+(g.grid[c]&&g.grid[c][sz])||0);},0);return esc(c||'-')+' '+t;}).join(' · ');
+          var isEd=(editDate===d);var dEnc=encodeURIComponent(d);
+          return '<div style="display:flex;align-items:center;gap:6px;padding:7px 9px;background:'+(isEd?'#fef9c3':'#f0fdf4')+';border:1px solid '+(isEd?'#fde047':'#bbf7d0')+';border-radius:6px;margin-bottom:5px;font-size:12px">'
+            +'<div style="flex:1;color:#065f46;min-width:0"><b>'+esc(dd)+'</b> <span style="color:#16a34a">'+cs+' = '+g.total+'장</span>'+(isEd?' <b style="color:#a16207">· 수정 중</b>':'')+'</div>'
+            +'<button onclick="pdEditShipBatch(\''+oid+'\',\''+itemId+'\',\''+role+'\',\''+fcId+'\',\''+dEnc+'\')" style="padding:4px 9px;background:#fff;border:1px solid #93c5fd;color:#1d4ed8;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">✏ 수정</button>'
+            +'<button onclick="pdDeleteShipBatch(\''+oid+'\',\''+itemId+'\',\''+role+'\',\''+fcId+'\',\''+dEnc+'\')" style="padding:4px 8px;background:#fff;border:1px solid #fca5a5;color:#dc2626;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">🗑</button>'
+          +'</div>';
+        }).join('')
+        +'</div>')
       :'';
     const html=`<div style="font-family:'Pretendard',-apple-system,sans-serif">
       <div style="font-size:12px;color:#6b7280;margin:0 0 14px">${esc(fc.name||'공장')} · 오더 ${orderTotal}장 · ${esc(role)} 입력</div>
@@ -12479,17 +12497,44 @@ function pdGridSave(){
     if(date)sch.cuttingDate=date;
     if(recsKey==='cuttingShipments'&&typeof pdSyncCuttingShipmentsToGrid==='function')pdSyncCuttingShipmentsToGrid(sch);
   }else{
-    // 출고/봉제/완성/검품/외주: 기존 회차에 추가
-    if(!newRecs.length){showToast('입력된 수량이 없어요');return;}
-    sch[recsKey]=sch[recsKey].concat(newRecs);
+    // 출고/봉제/완성/검품/외주: 새 회차 추가 (수정 모드면 그 날짜 회차 교체/삭제)
+    var single=(o.orderItems&&o.orderItems.length===1);
+    if(ctx.editDate){
+      sch[recsKey]=sch[recsKey].filter(function(r){ if(!r)return false; var mine=(!r.itemId?single:(r.itemId===ctx.itemId)); return !(mine&&r.date===ctx.editDate); });
+    }
+    if(!newRecs.length){
+      if(!ctx.editDate){showToast('입력된 수량이 없어요');return;}
+      // 수정 모드에서 전부 비움 = 그 회차 삭제 (위에서 이미 제거됨)
+    }else{
+      sch[recsKey]=sch[recsKey].concat(newRecs);
+    }
     if(recsKey==='shipments'&&typeof recomputeShipping==='function')recomputeShipping(sch);
     if(typeof syncFcToTrack==='function'){try{syncFcToTrack(ctx.oid,ctx.fcId);}catch(e){}}
   }
   saveData();
   closeGenericModal();
-  showToast(ctx.saveMode==='replace'?'✓ 재단 수량 저장됨':'✓ '+(newRecs.length||0)+'건 '+(ctx.role||'')+' 회차 추가됨');
+  showToast(ctx.saveMode==='replace'?'✓ 재단 수량 저장됨':(ctx.editDate?(newRecs.length?'✓ 회차 수정됨':'✓ 회차 삭제됨'):'✓ '+(newRecs.length||0)+'건 '+(ctx.role||'')+' 회차 추가됨'));
   if(typeof renderProdDash==='function')renderProdDash();
   if(activeTab==='orders'&&typeof renderOrderPane==='function'){try{renderOrderPane();}catch(e){}}
+}
+function pdEditShipBatch(oid,itemId,role,fcId,dEnc){ pdOpenQtyModal(oid,itemId,role,fcId,decodeURIComponent(dEnc)); }
+function pdDeleteShipBatch(oid,itemId,role,fcId,dEnc){
+  var date=decodeURIComponent(dEnc);var o=S.orders[oid];if(!o)return;
+  var sch=o.factorySchedules&&o.factorySchedules[fcId];if(!sch)return;
+  var recsKey=(role==='재단')?'cuttingShipments':'shipments';
+  if(!Array.isArray(sch[recsKey]))return;
+  var single=(o.orderItems&&o.orderItems.length===1);
+  var mineOf=function(r){return !r?false:(!r.itemId?single:(r.itemId===itemId));};
+  var cnt=sch[recsKey].filter(function(r){return mineOf(r)&&r.date===date;}).reduce(function(a,r){return a+(+r.qty||0);},0);
+  var dd=(typeof fmtKoDate==='function'?fmtKoDate(toISO(date)):date);
+  if(!confirm(dd+' 회차('+cnt+'장)를 삭제할까요?'))return;
+  sch[recsKey]=sch[recsKey].filter(function(r){return !(mineOf(r)&&r.date===date);});
+  if(recsKey==='shipments'&&typeof recomputeShipping==='function')recomputeShipping(sch);
+  if(typeof syncFcToTrack==='function'){try{syncFcToTrack(oid,fcId);}catch(e){}}
+  saveData();
+  if(typeof renderProdDash==='function')renderProdDash();
+  pdOpenQtyModal(oid,itemId,role,fcId);
+  showToast('✓ 회차 삭제됨');
 }
 function pdQtyRowHtml(r,idx,colors,sizes,colorOpts,sizeOpts){
   return `<div class="pd-qty-row" data-idx="${idx}" style="display:grid;grid-template-columns:140px 110px 90px 100px 1fr 36px;gap:8px;align-items:center;margin-bottom:8px">
