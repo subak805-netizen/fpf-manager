@@ -4586,7 +4586,7 @@ function renderBookList(){
             onchange="updatePBNegoPrice('${encodeURIComponent(s)}','${encodeURIComponent(key)}','${isKg?'kg':'unit'}',this.value)">
           <span class="muted" style="font-size:10px">${isKg?'원/kg':'원'}</span>
         </div></td>
-        <td class="muted" id="pb-updated-${encodeURIComponent(s)}-${encodeURIComponent(key)}" style="font-size:11px">${m.lastUpdated||''}</td>
+        <td class="muted" id="pb-updated-${encodeURIComponent(s)}-${encodeURIComponent(key)}" style="font-size:11px">${m.lastUpdated||''}${(m.priceLog&&m.priceLog.length)?` <span onclick="pbShowPriceLog('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="cursor:pointer" title="단가 변경 이력 ${m.priceLog.length}건">📜</span>`:''}</td>
         <td style="text-align:center;white-space:nowrap"><button class="btn s g" onclick="showPBUsage('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목을 쓰는 아이템 보기">🔍</button><button class="btn s d g" onclick="deletePbMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목 삭제">🗑</button></td>
       </tr>`;}).join('')}
       </tbody></table>
@@ -4730,8 +4730,11 @@ function updatePBSpec(encSup,encKey,field,val){
 function updatePBPrice(encSup,encKey,priceType,val){
   const s=decodeURIComponent(encSup);const key=decodeURIComponent(encKey);
   const pb=S.priceBook[s];if(!pb||!pb.materials[key])return;
-  if(priceType==='kg')pb.materials[key].pricePerKg=val;else pb.materials[key].unitPrice=val;
-  pb.materials[key].lastUpdated=todayISO();
+  var _m=pb.materials[key];
+  var _old=(priceType==='kg')?(_m.pricePerKg||0):(_m.unitPrice||0);
+  if(priceType==='kg')_m.pricePerKg=val;else _m.unitPrice=val;
+  _pbLogPush(_m,(priceType==='kg'?'매장(kg)':'매장'),_old,val);
+  _m.lastUpdated=todayISO();
   savePB();
   // === 점진적 갱신: 이 자재를 쓰는 모든 아이템의 단가도 같이 업데이트 ===
   // (옛 오더의 단가는 절대 안 건드림 - 결제 보호)
@@ -4781,19 +4784,38 @@ function propagatePriceToItems(supplierName,materialKey,priceType,newVal){
 function updatePBNegoPrice(encSup,encKey,priceType,val){
   const s=decodeURIComponent(encSup);const key=decodeURIComponent(encKey);
   const pb=S.priceBook[s];if(!pb||!pb.materials[key])return;
+  var _m=pb.materials[key];
+  var _oldN=(priceType==='kg')?(_m.negoPricePerKg||0):(_m.negoPrice||0);
   // 빈 값이면 네고가 삭제 (매장단가 사용)
   if(val===''||val===null){
-    if(priceType==='kg')delete pb.materials[key].negoPricePerKg;
-    else delete pb.materials[key].negoPrice;
+    if(priceType==='kg')delete _m.negoPricePerKg;
+    else delete _m.negoPrice;
   }else{
     const v=+val;
-    if(priceType==='kg')pb.materials[key].negoPricePerKg=v;else pb.materials[key].negoPrice=v;
+    if(priceType==='kg')_m.negoPricePerKg=v;else _m.negoPrice=v;
   }
-  pb.materials[key].lastUpdated=todayISO();
+  var _newN=(priceType==='kg')?(_m.negoPricePerKg||0):(_m.negoPrice||0);
+  _pbLogPush(_m,'네고',_oldN,_newN);
+  _m.lastUpdated=todayISO();
   savePB();
   const updEl=document.getElementById(`pb-updated-${encSup}-${encKey}`);
   if(updEl)updEl.textContent=todayISO();
   showToast('💰 네고가 저장됨');
+}
+// 단가 변경 이력 기록 (언제 얼마→얼마)
+function _pbLogPush(m,field,from,to){ from=+from||0; to=+to||0; if(from===to)return; if(!Array.isArray(m.priceLog))m.priceLog=[]; m.priceLog.push({ts:Date.now(),f:field,from:from,to:to}); while(m.priceLog.length>60)m.priceLog.shift(); }
+function pbShowPriceLog(encSup,encKey){
+  var s=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var m=S.priceBook[s]&&S.priceBook[s].materials&&S.priceBook[s].materials[key]; if(!m)return;
+  var log=Array.isArray(m.priceLog)?m.priceLog.slice().reverse():[];
+  var nm=(m.name||'')+(m.color?(' ('+m.color+')'):'');
+  var body=log.length?log.map(function(e){var d=new Date(e.ts);var p=function(n){return String(n).padStart(2,'0');};var ds=(d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());var up=e.to>e.from;return '<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px dotted #e2e8f0;font-size:12px"><span style="color:#64748b">'+ds+' · '+esc(e.f)+'</span><span><b>'+num(e.from)+'</b> → <b style="color:'+(up?'#dc2626':'#2563eb')+'">'+num(e.to)+'</b> '+(up?'▲':'▼')+'</span></div>';}).join(''):'<div style="color:#9aa0a8;font-size:12px;padding:12px 0">아직 단가 변경 기록이 없어요.</div>';
+  var ex=document.getElementById('pb-log-ov'); if(ex)ex.remove();
+  var ov=document.createElement('div'); ov.id='pb-log-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:100070;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.innerHTML='<div style="background:#fff;border-radius:10px;max-width:380px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.25)"><div style="display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid #e2e8f0"><b style="flex:1;font-size:14px">📜 '+esc(nm)+' 단가 이력</b><span onclick="this.closest(\'#pb-log-ov\').remove()" style="cursor:pointer;font-size:18px;padding:0 4px">✕</span></div><div style="padding:6px 14px 14px;overflow-y:auto">'+body+'</div></div>';
+  ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+  document.body.appendChild(ov);
 }
 function savePB(){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
 // 시즌 최근순 정렬 (예: 27SS > 26FW > 26SS > 25FW). SS=상반기, FW=하반기
