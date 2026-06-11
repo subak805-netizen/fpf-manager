@@ -5220,9 +5220,10 @@ function deriveItemBadge(it){
     var num=rn&&rn.num?rn.num:orders.length;
     if(num>1){r.phase='reorder';r.round=num-1;}
     else{r.phase='main';r.round=0;}
-    var cs=(typeof computeItemStatus==='function')?computeItemStatus(it):null;
-    var stg=cs?cs.stage:'';
-    r.stage=({'출고':'ship','입고':'in','공장진행':'prod','부분발주':'prep','발주준비':'prep','준비':'none'})[stg]||'none';
+    // 자동 단계: 출고완료(대시보드 출고완료·출고수량) > 생산중(발주서 sent·재단 시작) > 발주준비
+    var anyShip=orders.some(function(oo){return Object.values(oo.factorySchedules||{}).some(function(f){return f&&(f.shipDoneDate||(f.shipments||[]).some(function(s){return s&&(+s.qty);}));});});
+    var anyProd=orders.some(function(oo){return Object.values(oo.suppliers||{}).some(function(s){return s&&s.status==='sent';})||Object.values(oo.factorySchedules||{}).some(function(f){return f&&f.cuttingDate;});});
+    r.stage=anyShip?'ship':(anyProd?'prod':'prep');
   }else{
     var samples=(typeof getSampleOrders==='function')?getSampleOrders().filter(function(s){return s.itemId===it.id;}):[];
     if(samples.length){
@@ -5235,7 +5236,7 @@ function deriveItemBadge(it){
   }
   return r;
 }
-var ITEM_STAGE_MAP={none:['미발주','s-none'],prep:['발주준비','s-prep'],prod:['생산중','s-prod'],in:['입고중','s-in'],ship:['출고됨','s-ship'],progress:['진행','s-progress'],confirm:['컨펌','s-confirm']};
+var ITEM_STAGE_MAP={none:['미발주','s-none'],prep:['발주준비','s-prep'],prod:['생산중','s-prod'],in:['입고중','s-in'],ship:['출고완료','s-ship'],progress:['진행','s-progress'],confirm:['컨펌','s-confirm']};
 function itemBadgeHTML(it){
   var b=deriveItemBadge(it);
   var phaseTxt=({sample:'샘플',main:'메인',reorder:'리오더'})[b.phase]||'샘플';
@@ -5258,7 +5259,7 @@ function itemStatusEditorHTML(it){
   var b=deriveItemBadge(it);
   var phases=[['sample','샘플'],['main','메인'],['reorder','리오더']];
   var SAMPLE_STAGES=[['progress','진행'],['confirm','컨펌']];
-  var MAIN_STAGES=[['prep','발주준비'],['prod','생산중'],['in','입고중'],['ship','출고됨'],['none','미발주']];
+  var MAIN_STAGES=[['prep','발주준비'],['prod','생산중'],['ship','출고완료'],['none','미발주']];
   var stages=b.phase==='sample'?SAMPLE_STAGES:MAIN_STAGES;
   var phaseSel='<select onchange="setItemPhase(\''+it.id+'\',this.value)">'+phases.map(function(p){return '<option value="'+p[0]+'"'+(p[0]===b.phase?' selected':'')+'>'+p[1]+'</option>';}).join('')+'</select>';
   var stageSel='<select onchange="setItemStage(\''+it.id+'\',this.value)">'+stages.map(function(s){return '<option value="'+s[0]+'"'+(s[0]===b.stage?' selected':'')+'>'+s[1]+'</option>';}).join('')+'</select>';
