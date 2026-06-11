@@ -3974,7 +3974,7 @@ function saveToPB(item){
     // 원단처(거래처) 동/호수 → 단가장 거래처 위치정보에 저장 (입력값 있을 때만, 빈칸은 기존값 보호)
     const pbSup=getPB(f.supplier);
     if(f.building)pbSup.building=f.building;
-    if(f.floorRoom){pbSup.room=f.floorRoom;pbSup.floor='';}
+    if(f.floorRoom)pbSup.room=f.floorRoom; // floor(층)는 단가장에서 따로 관리 — 덮어쓰지 않음(보존)
     if(!f.name)continue;
     const existing=getPB(f.supplier).materials[f.name]||{};
     // === 단가 보호 ===
@@ -4466,15 +4466,15 @@ function renderBookList(){
         <td style="background:#FBF7EC">${isFab?'<span class="muted" style="font-size:10px">—</span>':`<input type="number" value="${m.yardsPerRoll!=null&&m.yardsPerRoll!==''?m.yardsPerRoll:''}" placeholder="야드" min="0" style="width:58px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','yardsPerRoll',this.value)">`}</td>
         <td><div class="fr" style="gap:4px;align-items:center">
           <input type="number" value="${storeP}" min="0" style="width:80px;font-size:12px"
-            onchange="updatePBPrice('${encodeURIComponent(s)}','${encodeURIComponent(nm)}','${isKg?'kg':'unit'}',+this.value)">
+            onchange="updatePBPrice('${encodeURIComponent(s)}','${encodeURIComponent(key)}','${isKg?'kg':'unit'}',+this.value)">
           <span class="muted" style="font-size:10px">${isKg?'원/kg':'원'}</span>
         </div></td>
         <td><div class="fr" style="gap:4px;align-items:center">
           <input type="number" value="${negoP}" min="0" placeholder="${num(storeP)}" style="width:80px;font-size:12px;background:#fff8e1;border-color:#ffd54f"
-            onchange="updatePBNegoPrice('${encodeURIComponent(s)}','${encodeURIComponent(nm)}','${isKg?'kg':'unit'}',this.value)">
+            onchange="updatePBNegoPrice('${encodeURIComponent(s)}','${encodeURIComponent(key)}','${isKg?'kg':'unit'}',this.value)">
           <span class="muted" style="font-size:10px">${isKg?'원/kg':'원'}</span>
         </div></td>
-        <td class="muted" id="pb-updated-${encodeURIComponent(s)}-${encodeURIComponent(nm)}" style="font-size:11px">${m.lastUpdated||''}</td>
+        <td class="muted" id="pb-updated-${encodeURIComponent(s)}-${encodeURIComponent(key)}" style="font-size:11px">${m.lastUpdated||''}</td>
         <td style="text-align:center;white-space:nowrap"><button class="btn s g" onclick="showPBUsage('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목을 쓰는 아이템 보기">🔍</button><button class="btn s d g" onclick="deletePbMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목 삭제">🗑</button></td>
       </tr>`;}).join('')}
       </tbody></table>
@@ -4539,6 +4539,12 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
         tr.name=newNm;tr.color=newCl;
       }
     }
+  }
+  // 컬러별 단가(colorPrices: 이름|사이즈|발주명)도 이름 변경 따라가게 — 안 그러면 컬러단가 자동채움이 끊김
+  if(field==='name'&&oldNm!==newNm&&pb.colorPrices){
+    var _ncp={};
+    Object.keys(pb.colorPrices).forEach(function(ck){ var _p=ck.split('|'); if(_p[0]===oldNm){_p[0]=newNm;_ncp[_p.join('|')]=pb.colorPrices[ck];}else _ncp[ck]=pb.colorPrices[ck]; });
+    pb.colorPrices=_ncp;
   }
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   saveData();
@@ -4609,16 +4615,16 @@ function updatePBSpec(encSup,encKey,field,val){
   var el=document.getElementById('pb-updated-'+encodeURIComponent(s)+'-'+encodeURIComponent(m.name||k));if(el)el.textContent=m.lastUpdated;
   showToast('💾 '+(m.name||'')+' '+(field==='width'?'폭':field==='yardsPerRoll'?'롤당야드':'크기')+' 저장');
 }
-function updatePBPrice(encSup,encNm,priceType,val){
-  const s=decodeURIComponent(encSup);const nm=decodeURIComponent(encNm);
-  const pb=S.priceBook[s];if(!pb||!pb.materials[nm])return;
-  if(priceType==='kg')pb.materials[nm].pricePerKg=val;else pb.materials[nm].unitPrice=val;
-  pb.materials[nm].lastUpdated=todayISO();
+function updatePBPrice(encSup,encKey,priceType,val){
+  const s=decodeURIComponent(encSup);const key=decodeURIComponent(encKey);
+  const pb=S.priceBook[s];if(!pb||!pb.materials[key])return;
+  if(priceType==='kg')pb.materials[key].pricePerKg=val;else pb.materials[key].unitPrice=val;
+  pb.materials[key].lastUpdated=todayISO();
   savePB();
   // === 점진적 갱신: 이 자재를 쓰는 모든 아이템의 단가도 같이 업데이트 ===
   // (옛 오더의 단가는 절대 안 건드림 - 결제 보호)
-  var affected=propagatePriceToItems(s,nm,priceType,val);
-  const updEl=document.getElementById('pb-updated-'+encSup+'-'+encNm);
+  var affected=propagatePriceToItems(s,key,priceType,val);
+  const updEl=document.getElementById('pb-updated-'+encSup+'-'+encKey);
   if(updEl)updEl.textContent=todayISO();
   if(affected>0){
     showToast('💾 단가 저장 + 아이템 '+affected+'개 자동 갱신 (옛 발주는 그대로)',3500);
@@ -4660,20 +4666,20 @@ function propagatePriceToItems(supplierName,materialKey,priceType,newVal){
   }
   return count;
 }
-function updatePBNegoPrice(encSup,encNm,priceType,val){
-  const s=decodeURIComponent(encSup);const nm=decodeURIComponent(encNm);
-  const pb=S.priceBook[s];if(!pb||!pb.materials[nm])return;
+function updatePBNegoPrice(encSup,encKey,priceType,val){
+  const s=decodeURIComponent(encSup);const key=decodeURIComponent(encKey);
+  const pb=S.priceBook[s];if(!pb||!pb.materials[key])return;
   // 빈 값이면 네고가 삭제 (매장단가 사용)
   if(val===''||val===null){
-    if(priceType==='kg')delete pb.materials[nm].negoPricePerKg;
-    else delete pb.materials[nm].negoPrice;
+    if(priceType==='kg')delete pb.materials[key].negoPricePerKg;
+    else delete pb.materials[key].negoPrice;
   }else{
     const v=+val;
-    if(priceType==='kg')pb.materials[nm].negoPricePerKg=v;else pb.materials[nm].negoPrice=v;
+    if(priceType==='kg')pb.materials[key].negoPricePerKg=v;else pb.materials[key].negoPrice=v;
   }
-  pb.materials[nm].lastUpdated=todayISO();
+  pb.materials[key].lastUpdated=todayISO();
   savePB();
-  const updEl=document.getElementById(`pb-updated-${encSup}-${encNm}`);
+  const updEl=document.getElementById(`pb-updated-${encSup}-${encKey}`);
   if(updEl)updEl.textContent=todayISO();
   showToast('💰 네고가 저장됨');
 }
@@ -6051,7 +6057,7 @@ function upsertTrimSizeRate(i){
   var r=t.sizeRates.find(function(x){return String(x.size).trim()===sz;});
   if(!r){r={size:sz};t.sizeRates.push(r);}
   if(ypr)r.yardsPerRoll=ypr; if(pr)r.price=pr;
-  try{if(typeof saveToPB==='function')saveToPB(t);}catch(e){}
+  try{if(typeof saveToPB==='function')saveToPB(t);if(typeof savePB==='function')savePB();}catch(e){} // savePB로 공유 단가장 즉시 영속(유실 방지)
   renderTrimRows();
   if(typeof showToast==='function')showToast('💾 '+sz+' 단가표에 저장됨 (다음에 자동 호출)');
 }
