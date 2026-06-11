@@ -7823,20 +7823,28 @@ function genPoText(order,sn){
       if(g.composition)line+=' '+reorderComp(g.composition);
       // 단가는 발주서에 표기하지 않음 (협상가/가산 모두 숨김)
       L.push(line);
-      g.colors.forEach((cl,idx)=>{
-        // #원단처 컬러명 - 야드수량 (원단처 컬러명 없으면 우리 컬러명)
-        const fabClr=cl.fabricColor||cl.colorName||'';
-        let qtyLine='#'+fabClr;
-        const displayY=cl.actualOrderedQty!==undefined&&cl.actualOrderedQty!==''?+cl.actualOrderedQty:cl.totalYards;
-        qtyLine+=' - '+displayY+'y';
-        if(cl.actualOrderedQty!==undefined&&cl.actualOrderedQty!==''&&+cl.actualOrderedQty!==cl.totalYards){
-          qtyLine+=' ※실제발주(원래 '+cl.totalYards+'y)';
-        }
-        if(cl.totalKg&&!cl.actualOrderedQty)qtyLine+='('+cl.totalKg+'kg)';
+      // 같은 원단처 컬러(fabricColor)끼리 합쳐서 한 줄 — 예: #32번아이 - 60y (아이/레드, 아이/곤 사용)
+      var _fcG={}, _fcO=[];
+      g.colors.forEach(function(cl){
+        var fabClr=cl.fabricColor||cl.colorName||'';
+        if(!_fcG[fabClr]){_fcG[fabClr]={y:0,oy:0,kg:0,ovr:false,items:[]};_fcO.push(fabClr);}
+        var grp=_fcG[fabClr];
+        var hasO=(cl.actualOrderedQty!==undefined&&cl.actualOrderedQty!=='');
+        grp.y+=hasO?(+cl.actualOrderedQty||0):(+cl.totalYards||0);
+        grp.oy+=(+cl.totalYards||0);
+        if(hasO)grp.ovr=true;
+        if(cl.totalKg)grp.kg+=(+cl.totalKg||0);
+        var icn=cl.colorName||'';
+        if(icn&&grp.items.indexOf(icn)<0)grp.items.push(icn);
+      });
+      _fcO.forEach(function(fabClr){
+        var grp=_fcG[fabClr];
+        var yv=parseFloat(grp.y.toFixed(2));
+        var qtyLine='#'+fabClr+' - '+yv+'y';
+        if(grp.items.length)qtyLine+=' ('+grp.items.join(', ')+' 사용)';
+        if(grp.ovr){var ov=parseFloat(grp.oy.toFixed(2));if(ov!==yv)qtyLine+=' ※실제발주(원래 '+ov+'y)';}
+        else if(grp.kg)qtyLine+='('+parseFloat(grp.kg.toFixed(2))+'kg)';
         L.push(qtyLine);
-        // 가산 항목은 품명 줄에 이름으로 표기 (단가는 발주서에 안 적음)
-        // 사이즈별 요척 분포는 거래처에 노출 안 함 (우리 노하우)
-        // 컬러는 빈 줄 없이 붙여서 표시 (Image 2 스타일)
       });
       if(g.colors.length>1){const tot=parseFloat(g.colors.reduce((s,c)=>{const q=c.actualOrderedQty!==undefined&&c.actualOrderedQty!==''?+c.actualOrderedQty:c.totalYards;return s+q;},0).toFixed(2));L.push(`합계 ${tot}y`);}
       if(g.memo)L.push(`📝 ${g.memo}`);
