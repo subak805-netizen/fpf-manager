@@ -4079,14 +4079,13 @@ function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.t
     const bEl=r.querySelector('[data-f=building]');if(bEl&&!bEl.value&&e.building)bEl.value=e.building;
     const frEl=r.querySelector('[data-f=floorRoom]');if(frEl&&!frEl.value&&e.floorRoom)frEl.value=e.floorRoom;
   }}
-  // 2) 이름만으로 — 다른 아이템/단가장에서 같은 원단명의 폭·혼용률·단가
+  // 2) 이름만으로 — 다른 아이템/단가장에서 같은 원단명의 폭·혼용률(물리값만). 단가는 거래처마다 달라 안 끌어옴.
   if(nm){var fdb=buildFabDB();var e2=fdb[nm];if(e2){
     var wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e2.width){wEl.value=e2.width;flash(wEl);filled=true;}
     var cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e2.composition){cEl.value=e2.composition;flash(cEl);var _idx2=(r.id||'').replace('fr-','');if(_idx2!==''&&typeof setCompFromString==='function')setCompFromString(_idx2,e2.composition);filled=true;}
-    var pEl=r.querySelector('[data-f=unitPrice]');if(pEl&&!+pEl.value&&e2.unitPrice){pEl.value=e2.unitPrice;flash(pEl);filled=true;}
     var sEl=r.querySelector('[data-f=supplier]');if(sEl&&!sEl.value&&e2.supplier){sEl.value=e2.supplier;flash(sEl);filled=true;}
   }}
-  if(filled)showToast('💡 원단명으로 폭·혼용률·단가 자동입력');
+  if(filled)showToast('💡 원단명으로 폭·혼용률 자동입력');
 }
 // ===== 혼용률 Row 빌더 (한 줄에 하나씩) =====
 function parseComp(str){
@@ -4233,16 +4232,17 @@ function autofillTrim(r){
     // 색상이 정확히 안 맞아도(또는 색상 비어도) 같은 이름의 부자재가 있으면 그걸로 단가·규격 불러오기
     if(!e){for(var _k in mats){var _de=mats[_k];if(_de&&_de.type==='trim'&&_de.name===nm){e=_de;break;}}}
   }
-  // 현재 거래처에 없으면 — 다른 거래처에 같은 이름의 부자재가 있으면 그 단가/규격 불러오기
-  // (datalist는 전체 거래처를 보여주는데 autofill은 현재 거래처만 봐서 단가가 안 따라오던 문제)
-  if(!e){ for(var _sn in (S.priceBook||{})){ if(_sn===sup)continue; var _mm=S.priceBook[_sn]&&S.priceBook[_sn].materials; if(!_mm)continue; var _hit=null; for(var _k2 in _mm){ var _d2=_mm[_k2]; if(_d2&&_d2.type==='trim'&&_d2.name===nm){ _hit=_d2; break; } } if(_hit){e=_hit;break;} } }
+  // 현재 거래처에 없으면 — 다른 거래처에 같은 이름의 부자재가 있으면 규격만 불러오기
+  // (단가는 거래처마다 달라서 '다른 거래처' 자동입력은 안 함 → _crossSup 플래그로 단가 차단)
+  var _crossSup=false;
+  if(!e){ for(var _sn in (S.priceBook||{})){ if(_sn===sup)continue; var _mm=S.priceBook[_sn]&&S.priceBook[_sn].materials; if(!_mm)continue; var _hit=null; for(var _k2 in _mm){ var _d2=_mm[_k2]; if(_d2&&_d2.type==='trim'&&_d2.name===nm){ _hit=_d2; break; } } if(_hit){e=_hit;_crossSup=true;break;} } }
   if(!e||e.type!=='trim')return;
   var _tiC=(r.id||'').replace('tr-','');
   var _ft=formTrims[_tiC];
   var _nameChanged=!!(_ft&&_ft._afName!=null&&_ft._afName!==nm); // 이름을 '다른 걸로' 바꿨을 때
   // 단가: 빈칸이거나 이름을 바꿨으면 새 단가로 갱신 (다른 이름 고르면 단가 따라오게)
   const p=r.querySelector('[data-f=unitPrice]');
-  if(p&&e.unitPrice&&(!+p.value||_nameChanged)){
+  if(p&&e.unitPrice&&!_crossSup&&(!+p.value||_nameChanged)){
     p.value=e.unitPrice;
     p.classList.add('autofill');
     setTimeout(()=>p.classList.remove('autofill'),1200);
@@ -4269,9 +4269,9 @@ function autofillTrim(r){
     if(e.width&&!_ft.width){_ft.width=e.width;}
     if(e.packUnit&&!_ft.packUnit){_ft.packUnit=e.packUnit;_ch=true;}
     // 사이즈별 단가표: 저장돼 있으면 불러오기(이름 바뀌거나 비었을 때) → 크기 선택 시 단가 자동매칭
-    if(e.sizeRates&&e.sizeRates.length&&(_nameChanged||!(_ft.sizeRates&&_ft.sizeRates.length))){_ft.sizeRates=JSON.parse(JSON.stringify(e.sizeRates));_ch=true;showToast('💡 사이즈별 단가표 불러옴');}
-    // 단가·크기도 메모리에 반영(재렌더 대비)
-    if(e.unitPrice&&(_nameChanged||!_ft.unitPrice))_ft.unitPrice=+e.unitPrice;
+    if(e.sizeRates&&e.sizeRates.length&&!_crossSup&&(_nameChanged||!(_ft.sizeRates&&_ft.sizeRates.length))){_ft.sizeRates=JSON.parse(JSON.stringify(e.sizeRates));_ch=true;showToast('💡 사이즈별 단가표 불러옴');}
+    // 단가·크기도 메모리에 반영(재렌더 대비) — 단가는 타거래처(_crossSup)일 땐 안 끌어옴
+    if(e.unitPrice&&!_crossSup&&(_nameChanged||!_ft.unitPrice))_ft.unitPrice=+e.unitPrice;
     if(e.size&&(_nameChanged||!_ft.size))_ft.size=e.size;
     if(e.buttonSize&&(_nameChanged||!_ft.buttonSize))_ft.buttonSize=e.buttonSize;
     _ft._afName=nm;
@@ -4368,6 +4368,59 @@ function importPriceBook(supplier,jsonStr){
   if(typeof showToast==='function')showToast('✅ '+supplier+' 단가장: '+added+'건 추가, '+updated+'건 갱신');
   else alert('✅ '+supplier+' 단가장: '+added+'건 추가, '+updated+'건 갱신');
 }
+// 거래처 이름 변경 — 단가장(materials·colorPrices·연락처) + 아이템 정의 참조를 한꺼번에 이동.
+// 과거 발주서/결제서(오더)는 스냅샷이라 건드리지 않음(옛 이름 유지).
+function renamePbSupplierUI(encOld){
+  var oldName=decodeURIComponent(encOld);
+  var nn=prompt('거래처 이름 변경\n\n"'+oldName+'" → 새 이름\n(이 거래처의 모든 단가·아이템 연결이 함께 이동돼요. 과거 발주서는 옛 이름 유지)', oldName);
+  if(nn===null)return; nn=String(nn).trim();
+  if(!nn||nn===oldName)return;
+  renamePbSupplier(oldName,nn);
+}
+function renamePbSupplier(oldName,newName){
+  var src=S.priceBook[oldName]; if(!src)return;
+  var exists=!!S.priceBook[newName];
+  if(exists&&!confirm('"'+newName+'" 거래처가 이미 있어요.\n\n두 거래처를 합칠까요?\n(겹치는 품목·정보는 기존 "'+newName+'" 값을 유지해요)'))return;
+  if(!exists){
+    S.priceBook[newName]=src;
+  }else{
+    var tgt=S.priceBook[newName];
+    tgt.materials=tgt.materials||{}; var sm=src.materials||{};
+    Object.keys(sm).forEach(function(k){ if(!(k in tgt.materials))tgt.materials[k]=sm[k]; });
+    tgt.colorPrices=tgt.colorPrices||{}; var scp=src.colorPrices||{};
+    Object.keys(scp).forEach(function(k){ if(!(k in tgt.colorPrices))tgt.colorPrices[k]=scp[k]; });
+    ['email','phone','kakaoId','bank','building','floor','room','market'].forEach(function(f){ if(!tgt[f]&&src[f])tgt[f]=src[f]; });
+    if(!tgt.defaultPoOpts&&src.defaultPoOpts)tgt.defaultPoOpts=src.defaultPoOpts;
+  }
+  delete S.priceBook[oldName];
+  var n=0;
+  for(var iid in (S.items||{})){ var it=S.items[iid];
+    (it.fabrics||[]).forEach(function(f){ if(f.supplier===oldName){f.supplier=newName;n++;} });
+    (it.trims||[]).forEach(function(t){ if(t.supplier===oldName){t.supplier=newName;n++;} });
+  }
+  savePB(); saveData();
+  if(typeof updateSupDL==='function')updateSupDL();
+  renderBook();
+  showToast('✏ 거래처 "'+oldName+'" → "'+newName+'" (아이템 '+n+'곳 이동)',3500);
+}
+// 중복 줄 찾기 — 같은 거래처에서 같은 이름이 '색상 없음' + '색상 있음'으로 나뉘어 있으면 색상없는 줄이 옛 중복일 가능성. 보여주고 수동 삭제(자동삭제 안 함).
+function pbShowDuplicates(){
+  var box=document.getElementById('pb-dups'); if(!box)return;
+  var dups=[];
+  Object.keys(S.priceBook||{}).forEach(function(sup){
+    var mats=(S.priceBook[sup]||{}).materials||{}; var byName={};
+    Object.keys(mats).forEach(function(k){ var m=mats[k]; if(!m)return; var nm=m.name||pbDecodeKey(k)[0]; var cl=m.color||pbDecodeKey(k)[1]||''; (byName[nm]=byName[nm]||[]).push({k:k,cl:cl,m:m}); });
+    Object.keys(byName).forEach(function(nm){
+      var rows=byName[nm]; var withCl=rows.filter(function(r){return r.cl;}); var noCl=rows.filter(function(r){return !r.cl;});
+      if(withCl.length&&noCl.length){ noCl.forEach(function(r){ dups.push({sup:sup,nm:nm,key:r.k,price:(r.m.unitPrice||r.m.pricePerKg||0),colors:withCl.map(function(x){return x.cl;}).join(', ')}); }); }
+    });
+  });
+  if(!dups.length){ box.innerHTML='<div class="card" style="margin-bottom:10px;background:#ecfdf5;border:1px solid #a7f3d0;padding:10px 12px;font-size:12px;color:#065f46">✅ 색상 유무로 중복된 줄이 없어요.</div>'; return; }
+  box.innerHTML='<div class="card" style="margin-bottom:10px;background:#fffbeb;border:1px solid #fcd34d;padding:10px 12px">'
+    +'<div style="font-weight:700;font-size:12px;color:#92400e;margin-bottom:8px">🧹 중복 의심 '+dups.length+'건 <span style="font-weight:400;font-size:10px">— "색상 없는" 줄이 옛 중복일 수 있어요. 확인 후 삭제하세요(자동삭제 아님)</span></div>'
+    +dups.map(function(d){return '<div class="fb" style="padding:5px 0;border-top:1px dashed #fcd34d;font-size:12px"><div><b>'+esc(d.sup)+'</b> · '+esc(d.nm)+' <span class="muted">(색상없음 · 단가 '+num(d.price)+'원)</span> <span style="color:#92400e">↔ 색상버전: '+esc(d.colors)+'</span></div><button class="btn s d" style="padding:2px 8px;font-size:11px" onclick="deletePbMaterial(\''+encodeURIComponent(d.sup)+'\',\''+encodeURIComponent(d.key)+'\');setTimeout(pbShowDuplicates,150)">🗑 이 줄 삭제</button></div>';}).join('')
+    +'</div>';
+}
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;
   const allSups=Object.keys(S.priceBook).sort();
@@ -4392,7 +4445,7 @@ function renderBook(){
     </div>
   </div>`;
   const importBtn=`<button class="btn p" style="width:100%;margin-bottom:10px;background:#16a34a;border-color:#16a34a" onclick="openPBImport()">📋 단가표 사진 → 일괄 가져오기</button>`;
-  el.innerHTML=searchBox+importBtn+addForm+'<div id="book-list"></div>';
+  el.innerHTML=searchBox+'<div style="margin-bottom:10px"><button class="btn s" onclick="pbShowDuplicates()" title="색상 유무로 중복된 줄 찾기">🧹 중복 줄 찾기</button></div><div id="pb-dups"></div>'+importBtn+addForm+'<div id="book-list"></div>';
   renderBookList();
 }
 function renderBookList(){
@@ -4413,6 +4466,7 @@ function renderBookList(){
       <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px"><span id="bookcaret-${si}" style="font-size:11px;color:var(--t2)">${isOpen?'▼':'▶'}</span>${esc(s)}</div>
       <div class="fr" style="gap:5px">
         <span class="tag">${mats.length}개 품목</span>
+        <button class="btn s" onclick="event.stopPropagation();renamePbSupplierUI('${encodeURIComponent(s)}')" title="거래처 이름 변경 (단가·아이템 함께 이동)">✏ 이름</button>
         <button class="btn s d" onclick="event.stopPropagation();deletePriceBookEntry('${encodeURIComponent(s)}')">🗑 삭제</button>
       </div>
     </div>
