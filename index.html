@@ -7658,6 +7658,22 @@ function notifyOrdersAffectedByItemChange(itemId, itemName){
 
 function mkSup(){return{materials:[],recipient:'',status:'draft',sentAt:'',deliveryFcId:'',poOpts:{...DEFAULT_PO_OPTS},stockOk:false,negotiated:false,negotiatedNote:'',sampleRequested:false,sampleReceived:false,expectedShipDate:'',invoiceReceived:false,invoiceCorrect:false,invoiceHasVat:false,invoiceNote:'',shippingCost:0,actualShipDate:'',arrivalDate:'',fabricReadyColors:{},trimReadyItems:{},negotiatedAmount:0};}
 function mkSupWithDefaults(sn){const s=mkSup();const pb=S.priceBook[sn];if(pb?.defaultPoOpts)s.poOpts={...s.poOpts,...pb.defaultPoOpts};return s;}
+// #od-tab innerHTML 교체 시 스크롤이 위로 튀는 문제 방지 — 스크롤 컨테이너 위치 보존
+function _renderOTabKeepScroll(){
+  var el=document.getElementById('od-tab');
+  var sc=el?el.parentElement:null;
+  while(sc&&sc!==document.body&&sc!==document.documentElement){ var oy=getComputedStyle(sc).overflowY; if((oy==='auto'||oy==='scroll')&&sc.scrollHeight>sc.clientHeight+2)break; sc=sc.parentElement; }
+  var useWin=(!sc||sc===document.body||sc===document.documentElement);
+  var top=useWin?(window.scrollY||document.documentElement.scrollTop||0):sc.scrollTop;
+  renderOTab();
+  if(useWin){window.scrollTo(0,top);}else{sc.scrollTop=top;}
+}
+// 요청사항·출고 요청 옵션 토글 (스크롤 보존 재렌더)
+function togglePoReqOpt(oid,sn,key,checked){
+  var op=S.orders[oid]&&S.orders[oid].suppliers&&S.orders[oid].suppliers[sn]; if(!op)return;
+  op.poOpts=op.poOpts||{}; op.poOpts[key]=checked;
+  savePoOptsDefault(sn,key,checked); saveData(); _renderOTabKeepScroll();
+}
 function togglePoAddrOpt(oid,sn,key,checked){
   var op=S.orders[oid]&&S.orders[oid].suppliers&&S.orders[oid].suppliers[sn];
   if(!op)return;
@@ -7673,7 +7689,7 @@ function togglePoAddrOpt(oid,sn,key,checked){
     }
   }
   saveData();
-  renderOTab();
+  _renderOTabKeepScroll();
 }
 
 function savePoOptsDefault(sn,key,val){if(!S.priceBook[sn])S.priceBook[sn]={email:'',phone:'',memo:'',materials:{}};if(!S.priceBook[sn].defaultPoOpts)S.priceBook[sn].defaultPoOpts={};S.priceBook[sn].defaultPoOpts[key]=val;lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
@@ -9418,11 +9434,11 @@ function renderPoTab(o){
         <div style="margin-top:8px">
         <div style="font-size:10px;color:var(--t2);margin-bottom:4px;font-weight:600">요청사항</div>
         <div style="display:flex;flex-wrap:wrap;gap:0">
-          ${PO_OPT_DEFS.filter(d=>d.cat==='req').map(def=>`<label class="po-opt${opts[def.key]?' checked':''}"><input type="checkbox"${opts[def.key]?' checked':''} onchange="S.orders['${o.id}'].suppliers['${sn}'].poOpts['${def.key}']=this.checked;savePoOptsDefault('${sn}','${def.key}',this.checked);saveData();renderOTab()">${def.label}</label>`).join('')}
+          ${PO_OPT_DEFS.filter(d=>d.cat==='req').map(def=>`<label class="po-opt${opts[def.key]?' checked':''}"><input type="checkbox"${opts[def.key]?' checked':''} onchange="togglePoReqOpt('${o.id}','${sn}','${def.key}',this.checked)">${def.label}</label>`).join('')}
         </div>
         <div style="font-size:10px;color:var(--t2);margin:6px 0 4px;font-weight:600">출고 요청사항</div>
         <div style="display:flex;flex-wrap:wrap;gap:0">
-          ${PO_OPT_DEFS.filter(d=>d.cat==='ship').map(def=>`<label class="po-opt${opts[def.key]?' checked':''}"><input type="checkbox"${opts[def.key]?' checked':''} onchange="S.orders['${o.id}'].suppliers['${sn}'].poOpts['${def.key}']=this.checked;savePoOptsDefault('${sn}','${def.key}',this.checked);saveData();renderOTab()">${def.label}</label>`).join('')}
+          ${PO_OPT_DEFS.filter(d=>d.cat==='ship').map(def=>`<label class="po-opt${opts[def.key]?' checked':''}"><input type="checkbox"${opts[def.key]?' checked':''} onchange="togglePoReqOpt('${o.id}','${sn}','${def.key}',this.checked)">${def.label}</label>`).join('')}
         </div>
         <div style="font-size:10px;color:var(--t2);margin:6px 0 4px;font-weight:600">출고처</div>
         <div style="display:flex;flex-wrap:wrap;gap:0">
@@ -17174,7 +17190,7 @@ function onConfirmPickupToggle(orderId,supplierName,checked){
   if(checked){
     // 중복 방지: 이 오더+거래처 컨펌용 픽업이 이미 있으면 새로 안 만듦 (flag 유실돼도 안전)
     var existP=(S.pickups||[]).find(function(p){return p.source==='order_confirm'&&p.orderId===orderId&&p.supplierName===supplierName;});
-    if(existP){sup.confirmPickupId=existP.id;sup.confirmPickupCreated=true;saveData();renderOTab();showToast('이미 컨펌용 픽업이 있어요');return;}
+    if(existP){sup.confirmPickupId=existP.id;sup.confirmPickupCreated=true;saveData();_renderOTabKeepScroll();showToast('이미 컨펌용 픽업이 있어요');return;}
     var itemId=(o.orderItems||[])[0]&&o.orderItems[0].itemId||'';
     var it=S.items[itemId];
     var brandId=it&&it.brandId||'';
@@ -17185,7 +17201,7 @@ function onConfirmPickupToggle(orderId,supplierName,checked){
     var newTask={id:uid(),name:'📍 컨펌용: '+supplierName+' ('+o.name+')',priority:'high',type:'pickup',brandId:brandId,done:false,auto:false,createdAt:new Date().toISOString(),link:{type:'pickup',id:newPickup.id}};
     if(!S.tasks)S.tasks=[];
     S.tasks.push(newTask);
-    saveData();renderOTab();showToast('✅ 컨펌용 픽업 + 업무 생성!');
+    saveData();_renderOTabKeepScroll();showToast('✅ 컨펌용 픽업 + 업무 생성!');
   }else{
     // 이 오더+거래처 컨펌용 픽업 전부 삭제 (중복 쌓인 것까지 청소)
     var ids=(S.pickups||[]).filter(function(p){return p.source==='order_confirm'&&p.orderId===orderId&&p.supplierName===supplierName;}).map(function(p){return p.id;});
@@ -17193,7 +17209,7 @@ function onConfirmPickupToggle(orderId,supplierName,checked){
     S.pickups=(S.pickups||[]).filter(function(p){return ids.indexOf(p.id)<0;});
     S.tasks=(S.tasks||[]).filter(function(t){return!(t.link&&ids.indexOf(t.link.id)>=0);});
     sup.confirmPickupCreated=false;sup.confirmPickupId='';
-    saveData();renderOTab();showToast(ids.length>1?('픽업 예약 '+ids.length+'건 모두 취소됨'):'픽업 예약 취소됨');
+    saveData();_renderOTabKeepScroll();showToast(ids.length>1?('픽업 예약 '+ids.length+'건 모두 취소됨'):'픽업 예약 취소됨');
   }
 }
 
