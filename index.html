@@ -2340,6 +2340,29 @@ async function openRecoveryTool(){
 
   // === ⭐ 옵션 0: 자동 백업에서 복구 (가장 먼저, 가장 쉬움) ===
   try{
+    // === 📋 할일판만 복구 (다른 데이터 안 건드리고 할일판만) ===
+    var _tbCands=[];
+    (window._abkCache||[]).forEach(function(bk,i){ var c=bk&&bk.data&&_tbContentCount(bk.data.todoBoard); if(c>0)_tbCands.push({src:'abk',idx:i,ts:bk.ts,cnt:c}); });
+    (window._hbkCache||[]).forEach(function(bk,i){ var c=bk&&bk.data&&_tbContentCount(bk.data.todoBoard); if(c>0)_tbCands.push({src:'hbk',idx:i,ts:bk.ts||0,date:bk.date,hr:bk.hr,cnt:c}); });
+    _tbCands.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+    html+='<div style="border:2px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px;margin-bottom:14px">';
+    html+='<div style="font-weight:700;color:#92400e;font-size:13px;margin-bottom:4px">📋 할일판만 복구 <span style="font-weight:400">(다른 데이터는 그대로 둬요)</span></div>';
+    if(_tbCands.length){
+      html+='<div style="font-size:11px;color:#92400e;margin-bottom:8px">할일판 내용이 남아있는 백업이에요. 사라지기 <b>직전</b> 시점(항목 수 많은 것)을 골라 <b>할일판만</b> 되살리세요.</div>';
+      html+='<div style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:5px">';
+      _tbCands.forEach(function(c){
+        var t; if(c.src==='hbk'&&c.date){ t=esc(c.date)+' '+esc(String(c.hr))+'시'; } else { var bd=new Date(c.ts);var bp=function(x){return String(x).padStart(2,'0');}; t=(bd.getMonth()+1)+'/'+bd.getDate()+' '+bp(bd.getHours())+':'+bp(bd.getMinutes()); }
+        html+='<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #fcd34d;border-radius:6px;padding:6px 10px">';
+        html+='<span style="font-size:12px;color:#92400e"><b>'+t+'</b> · 할일판 '+c.cnt+'개 항목</span>';
+        html+='<button onclick="recoverTodoBoardOnly(\''+c.src+'\','+c.idx+')" style="background:#d97706;color:#fff;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600">할일판만 되살리기</button>';
+        html+='</div>';
+      });
+      html+='</div>';
+    }else{
+      html+='<div style="font-size:11px;color:#92400e">백업에서 할일판 내용을 못 찾았어요. 아래 전체 복구(옵션 0/0b)를 시도하거나, JSON 백업 파일이 있으면 파일 복원을 써보세요.</div>';
+    }
+    html+='</div>';
+
     var abkList=window._abkCache||[];
     if(abkList.length>0){
       html+='<div style="border:2px solid #34d399;background:#ecfdf5;border-radius:8px;padding:12px;margin-bottom:14px">';
@@ -2528,10 +2551,13 @@ function recoverFromLocal(key){
     S.brands=data.brands||[];
     S.sampleOrders=data.sampleOrders||[];
     S.pickups=data.pickups||[];
+    S.packages=data.packages||[];
+    S.goals=data.goals||[];
     S.tasks=data.tasks||[];
     S.brandConfig=data.brandConfig||{};
     S.deductions=data.deductions||[];
-    
+    S.todoBoard=data.todoBoard||{}; // ★할일판 복원
+
     // curCoId 추출
     var coId=key.replace('fpm_','');
     curCoId=coId;
@@ -2582,6 +2608,7 @@ function recoverFromAutoBackup(idx){
     S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{};
     S.deductions=d.deductions||[];
+    S.todoBoard=d.todoBoard||{}; // ★할일판 복원 (이게 빠져서 복구해도 할일판이 안 돌아오던 버그)
     var _saveOk=true; try{saveData();}catch(se){_saveOk=false;console.error('[자동백업 복구] saveData 실패:',se);}
     try{renderCoSel();}catch(e){console.warn(e);} try{render();}catch(e){console.warn(e);}
     var overlay=document.getElementById('recovery-overlay');
@@ -2615,6 +2642,7 @@ function recoverFromHourlyBackup(idx){
     S.orders=d.orders||{}; S.brands=d.brands||[]; S.sampleOrders=d.sampleOrders||[];
     S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{}; S.deductions=d.deductions||[];
+    S.todoBoard=d.todoBoard||{}; // ★할일판 복원
     var _saveOk2=true; try{saveData();}catch(se){_saveOk2=false;console.error('[매시간백업 복구] saveData 실패:',se);}
     try{renderCoSel();}catch(e){console.warn(e);} try{render();}catch(e){console.warn(e);}
     var overlay=document.getElementById('recovery-overlay'); if(overlay)overlay.remove();
@@ -2626,6 +2654,29 @@ function recoverFromHourlyBackup(idx){
   }
 }
 
+// 할일판 항목 수(그룹+할일) 세기
+function _tbContentCount(tb){
+  if(!tb||!tb.brands)return 0; var n=0;
+  Object.keys(tb.brands).forEach(function(bid){ var b=tb.brands[bid]||{};
+    Object.keys(b).forEach(function(col){ if(Array.isArray(b[col]))b[col].forEach(function(g){ n+=1; if(g&&Array.isArray(g.items))n+=g.items.length; }); }); });
+  return n;
+}
+// 백업에서 '할일판만' 되살리기 — 아이템·오더 등 나머지는 그대로 유지
+function recoverTodoBoardOnly(source,idx){
+  try{
+    var list=(source==='hbk'?window._hbkCache:window._abkCache)||[];
+    var bk=list[idx];
+    if(!bk||!bk.data||!bk.data.todoBoard){alert('이 백업엔 할일판이 없어요');return;}
+    var cnt=_tbContentCount(bk.data.todoBoard);
+    if(!cnt){ if(!confirm('이 백업의 할일판도 비어 있어요. 그래도 적용할까요?'))return; }
+    if(!confirm('이 백업의 할일판('+cnt+'개 항목)으로 되살릴까요?\n\n※ 아이템·오더 등 나머지 데이터는 그대로 유지돼요.\n※ 지금 화면의 할일판은 이 내용으로 교체돼요.'))return;
+    S.todoBoard=JSON.parse(JSON.stringify(bk.data.todoBoard));
+    try{saveData();}catch(e){}
+    try{ if(typeof renderTodoBoard==='function')renderTodoBoard(); else if(typeof render==='function')render(); }catch(e){}
+    var overlay=document.getElementById('recovery-overlay'); if(overlay)overlay.remove();
+    showToast('✅ 할일판 복구 완료! '+cnt+'개 항목',5000);
+  }catch(e){ alert('할일판 복구 실패: '+e.message); }
+}
 function recoverFromFile(input){
   var file=input.files&&input.files[0];
   if(!file)return;
