@@ -4793,13 +4793,37 @@ function deletePbMaterial(encSup,encKey){
 }
 
 // 단가장 소재 병합 — 🔀 버튼 클릭 시 (이 소재를 KEEP, 다른 소재를 흡수)
+var _pbMergeOthers=[],_pbMergeSelected=null;
+// 이름 유사도 점수 (높을수록 비슷)
+function _pbMergeSim(a,b){
+  a=(a||'').toLowerCase();b=(b||'').toLowerCase();
+  if(a===b)return 100;
+  if(b.indexOf(a)>=0||a.indexOf(b)>=0)return 80;
+  var wa=a.split(/\s+/),wb=b.split(/\s+/);
+  var common=wa.filter(function(w){return w.length>1&&wb.some(function(v){return v.indexOf(w)>=0||w.indexOf(v)>=0;});});
+  return common.length*20;
+}
+function pbMergeFilter(q){
+  var list=document.getElementById('pb-merge-list');if(!list)return;
+  q=(q||'').toLowerCase().trim();
+  var items=_pbMergeOthers.filter(function(o){return !q||o.label.toLowerCase().indexOf(q)>=0;});
+  if(!items.length){list.innerHTML='<div style="padding:14px;text-align:center;color:#9aa3af;font-size:12px">검색 결과 없음</div>';return;}
+  list.innerHTML=items.map(function(o){
+    var val=o.s+'|'+o.k;var sel=val===_pbMergeSelected;
+    return '<div onclick="pbMergeSelect(this,\''+encodeURIComponent(val)+'\')" style="padding:9px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid #f1f5f9;background:'+(sel?'#eff6ff':'')+'"><b style="font-weight:'+(sel?'700':'400')+'">'+esc(o.label)+'</b></div>';
+  }).join('');
+}
+function pbMergeSelect(el,encVal){
+  _pbMergeSelected=decodeURIComponent(encVal);
+  var list=document.getElementById('pb-merge-list');
+  if(list)list.querySelectorAll('div').forEach(function(d){d.style.background=d===el?'#eff6ff':'';d.querySelector('b').style.fontWeight=d===el?'700':'400';});
+}
 function pbMergeMaterial(encSup,encKey){
   var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
   var pb=S.priceBook[sup];if(!pb)return;
   var m=pb.materials[key];if(!m)return;
   var nm=m.name||pbDecodeKey(key)[0],cl=m.color||pbDecodeKey(key)[1]||'';
   var disp=nm+(cl?' ('+cl+')':'');
-  // 모든 거래처의 소재 목록 (본인 제외)
   var others=[];
   Object.keys(S.priceBook||{}).forEach(function(s){
     var mats=(S.priceBook[s]||{}).materials||{};
@@ -4807,36 +4831,41 @@ function pbMergeMaterial(encSup,encKey){
       if(s===sup&&k===key)return;
       var om=mats[k];var onm=om.name||pbDecodeKey(k)[0],ocl=om.color||pbDecodeKey(k)[1]||'';
       var label=(s!==sup?'['+s+'] ':'')+onm+(ocl?' ('+ocl+')':'');
-      others.push({s:s,k:k,label:label});
+      others.push({s:s,k:k,label:label,sim:_pbMergeSim(nm,onm)+(s===sup?5:0)});
     });
   });
   if(!others.length){showToast('병합할 다른 소재가 없어요');return;}
-  // 같은 거래처 먼저 정렬
-  others.sort(function(a,b){var as=(a.s===sup?0:1),bs=(b.s===sup?0:1);return as-bs||(a.label>b.label?1:-1);});
-  var opts=others.map(function(o){return '<option value="'+encodeURIComponent(o.s)+'|'+encodeURIComponent(o.k)+'">'+esc(o.label)+'</option>';}).join('');
+  // 유사도 높은 순 → 같은 거래처 우선 → 이름순
+  others.sort(function(a,b){return b.sim-a.sim||(a.label>b.label?1:-1);});
+  _pbMergeOthers=others;
+  _pbMergeSelected=others[0].s+'|'+others[0].k;
   var ex=document.getElementById('pb-merge-ov');if(ex)ex.remove();
   var ov=document.createElement('div');ov.id='pb-merge-ov';
   ov.style.cssText='position:fixed;inset:0;z-index:100070;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:14px';
-  ov.innerHTML='<div style="background:#fff;border-radius:10px;max-width:420px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.25)">'
-    +'<div style="display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid #e2e8f0">'
+  ov.innerHTML='<div style="background:#fff;border-radius:10px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.25)">'
+    +'<div style="display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid #e2e8f0;flex-shrink:0">'
     +'<b style="flex:1;font-size:14px">🔀 소재 병합</b>'
     +'<span onclick="document.getElementById(\'pb-merge-ov\').remove()" style="cursor:pointer;font-size:18px;padding:0 4px;color:#6b7280">✕</span></div>'
-    +'<div style="padding:14px">'
-    +'<p style="font-size:13px;margin:0 0 12px;line-height:1.6">아래 소재를 <b>'+esc(disp)+'</b>로 통일합니다.<br>'
-    +'<span style="font-size:11px;color:#6b7280">선택한 소재를 쓰는 아이템이 자동으로 변경되고, 선택한 소재는 단가장에서 삭제됩니다.</span></p>'
-    +'<label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px">삭제할 소재 (이쪽으로 흡수됨)</label>'
-    +'<select id="pb-merge-sel" style="width:100%;padding:8px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:14px">'+opts+'</select>'
-    +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +'<div style="padding:14px;flex-shrink:0">'
+    +'<p style="font-size:13px;margin:0 0 10px;line-height:1.6">아래 소재를 <b>'+esc(disp)+'</b>로 통일합니다.<br>'
+    +'<span style="font-size:11px;color:#6b7280">선택한 소재를 쓰는 아이템이 자동 변경되고, 해당 소재는 단가장에서 삭제됩니다.</span></p>'
+    +'<label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:5px">삭제할 소재 (이쪽으로 흡수됨)</label>'
+    +'<input id="pb-merge-q" type="text" placeholder="🔍 이름으로 검색…" oninput="pbMergeFilter(this.value)" autocomplete="off" style="width:100%;padding:7px 10px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;margin-bottom:6px">'
+    +'</div>'
+    +'<div id="pb-merge-list" style="overflow-y:auto;flex:1;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;max-height:260px"></div>'
+    +'<div style="padding:12px 14px;display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">'
     +'<button class="btn" onclick="document.getElementById(\'pb-merge-ov\').remove()" style="font-size:12px">취소</button>'
     +'<button class="btn p" onclick="pbExecuteMergeFromSel(\''+encSup+'\',\''+encodeURIComponent(key)+'\')" style="font-size:12px">🔀 병합 실행</button>'
-    +'</div></div></div>';
+    +'</div></div>';
   ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
   document.body.appendChild(ov);
+  pbMergeFilter(''); // 초기 목록 렌더링
+  var qi=document.getElementById('pb-merge-q');if(qi)qi.focus();
 }
 function pbExecuteMergeFromSel(keepEncSup,keepEncKey){
-  var sel=document.getElementById('pb-merge-sel');if(!sel||!sel.value)return;
-  var idx=sel.value.indexOf('|');
-  var dropEncSup=sel.value.substring(0,idx),dropEncKey=sel.value.substring(idx+1);
+  if(!_pbMergeSelected){showToast('소재를 선택해주세요');return;}
+  var idx=_pbMergeSelected.indexOf('|');
+  var dropEncSup=encodeURIComponent(_pbMergeSelected.substring(0,idx)),dropEncKey=encodeURIComponent(_pbMergeSelected.substring(idx+1));
   pbExecuteMerge(keepEncSup,keepEncKey,dropEncSup,dropEncKey);
 }
 function pbExecuteMerge(keepEncSup,keepEncKey,dropEncSup,dropEncKey){
