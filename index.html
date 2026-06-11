@@ -1618,7 +1618,6 @@ body.tp-capturing #tp-modal .tp-hdate::-webkit-calendar-picker-indicator{display
     <div class="fg"><label>주소</label><input id="fc-addr"></div>
     <div class="g2"><div class="fg"><label>전화</label><input id="fc-phone"></div><div class="fg"><label>이메일</label><input id="fc-email" type="email"></div></div>
     <div class="fg"><label>입금 계좌 <span class="muted" style="font-weight:400;font-size:10px">결제서에 자동 표시</span></label><input id="fc-bank" placeholder="은행명 계좌번호 예금주 (예: 국민은행 123-456-789 홍길동)"></div>
-    <div class="g2"><div class="fg"><label>동층호수 <span class="muted" style="font-weight:400;font-size:10px">목록 정렬·묶음 기준</span></label><input id="fc-roomno" placeholder="예: A동 3층 5호"></div><div class="fg"><label>특징 메모</label><input id="fc-memo" placeholder="예: 다이마루 원단처, 소재좋음"></div></div>
     <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:10px"><button class="btn" onclick="closeModal('fc-modal')">취소</button><button class="btn p" onclick="saveFc()">저장</button></div>
   </div>
 </div>
@@ -3971,39 +3970,10 @@ function render(){try{if(!window._nim){window._nim=1;try{new MutationObserver(fu
 
 /* ===== FACTORIES ===== */
 function renderFactories(){
-  const el=document.getElementById('fc-list');if(!el)return;
-  const fcs=Object.values(S.factories||{});
+  const el=document.getElementById('fc-list');if(!el)return;const fcs=Object.values(S.factories||{});
   if(!fcs.length){el.innerHTML='<div class="empty">공장/처를 등록하세요</div>';return;}
   const byType={};fcs.forEach(f=>{const t=f.type||'기타';if(!byType[t])byType[t]=[];byType[t].push(f);});
-  // 동층호수에서 건물명(동) 추출
-  function _bldg(rn){var m=(rn||'').match(/^(\S+동)/);return m?m[1]:'';}
-  el.style.maxWidth='640px';
-  el.innerHTML=Object.entries(byType).map(([type,flist])=>{
-    // 동층호수 기준 정렬 (없으면 이름순)
-    flist.sort((a,b)=>(a.roomNo||'￿'+a.name).localeCompare(b.roomNo||'￿'+b.name));
-    // 건물별 그룹핑
-    const byB={};flist.forEach(f=>{const b=_bldg(f.roomNo)||'__none';if(!byB[b])byB[b]=[];byB[b].push(f);});
-    const hasMulti=Object.keys(byB).filter(b=>b!=='__none').length>0&&Object.keys(byB).length>1;
-    return '<div class="sec">'+esc(type)+'</div>'+
-      Object.entries(byB).map(([b,bfl])=>{
-        const bh=(hasMulti&&b!=='__none')?'<div style="font-size:10px;font-weight:700;color:#6b7280;padding:4px 2px 2px;letter-spacing:.3px">'+esc(b)+'</div>':'';
-        return bh+bfl.map(f=>{
-          var rnBadge=f.roomNo?'<span style="font-size:10px;font-weight:500;margin-left:6px;padding:1px 6px;border-radius:4px;background:#f3f4f6;color:#374151;white-space:nowrap">'+esc(f.roomNo)+'</span>':'';
-          var contactLine=[f.contact,f.phone].filter(Boolean).map(esc).join(' · ');
-          var addrLine=f.address?'<div class="muted" style="font-size:11px;word-break:break-all">'+esc(f.address)+'</div>':'';
-          var memoLine=f.memo?'<div style="font-size:11px;color:#6b7280;margin-top:3px;word-break:break-all">📌 '+esc(f.memo)+'</div>':'';
-          return '<div class="card" style="margin-bottom:6px;max-width:100%;overflow:hidden">'
-            +'<div class="fb" style="align-items:flex-start;gap:6px">'
-            +'<div style="flex:1;min-width:0;overflow:hidden">'
-            +'<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:2px">'+esc(f.name)+rnBadge+'</div>'
-            +(contactLine?'<div class="muted">'+contactLine+'</div>':'')
-            +addrLine+memoLine
-            +'</div>'
-            +'<div class="fr" style="flex-shrink:0;gap:4px"><button class="btn s" onclick="showFcForm(\''+f.id+'\')">✎</button><button class="btn s d" onclick="deleteFc(\''+f.id+'\')">🗑</button></div>'
-            +'</div></div>';
-        }).join('');
-      }).join('');
-  }).join('');
+  el.innerHTML=Object.entries(byType).map(([type,flist])=>`<div class="sec">${esc(type)}</div>`+flist.map(f=>`<div class="card" style="margin-bottom:6px"><div class="fb"><div><div style="font-weight:600">${esc(f.name)}</div><div class="muted">${[f.contact,f.phone].filter(Boolean).map(esc).join(' · ')}</div><div class="muted">${esc(f.address||'')}</div></div><div class="fr"><button class="btn s" onclick="showFcForm('${f.id}')">✎</button><button class="btn s d" onclick="deleteFc('${f.id}')">🗑</button></div></div></div>`).join('')).join('');
 }
 function renderVendors(){
   renderFactories();
@@ -4024,15 +3994,13 @@ function showFcForm(id){
   const g=k=>fc?fc[k]||'':'';
   ['nm','type','contact','addr','phone','email'].forEach(k=>document.getElementById('fc-'+k).value=g(k==='nm'?'name':k==='addr'?'address':k));
   const bankEl=document.getElementById('fc-bank');if(bankEl)bankEl.value=g('bank');
-  const rnEl=document.getElementById('fc-roomno');if(rnEl)rnEl.value=g('roomNo');
-  const memoEl=document.getElementById('fc-memo');if(memoEl)memoEl.value=g('memo');
   document.getElementById('fc-type-sel').value='';showModal('fc-modal');
 }
 function saveFc(){
   const nm=document.getElementById('fc-nm').value.trim();if(!nm){alert('이름 입력');return;}
   const type=document.getElementById('fc-type-sel').value||document.getElementById('fc-type').value.trim();
   const id=editFcId||uid();
-  S.factories[id]={id,name:nm,type,contact:document.getElementById('fc-contact').value.trim(),address:document.getElementById('fc-addr').value.trim(),phone:document.getElementById('fc-phone').value.trim(),email:document.getElementById('fc-email').value.trim(),bank:document.getElementById('fc-bank')?.value.trim()||'',roomNo:document.getElementById('fc-roomno')?.value.trim()||'',memo:document.getElementById('fc-memo')?.value.trim()||''};
+  S.factories[id]={id,name:nm,type,contact:document.getElementById('fc-contact').value.trim(),address:document.getElementById('fc-addr').value.trim(),phone:document.getElementById('fc-phone').value.trim(),email:document.getElementById('fc-email').value.trim(),bank:document.getElementById('fc-bank')?.value.trim()||''};
   saveData();closeModal('fc-modal');renderFactories();showToast('저장 완료');
 }
 function deleteFc(id){
@@ -4595,7 +4563,7 @@ function renderBook(){
 }
 function renderBookList(){
   const lst=document.getElementById('book-list');if(!lst)return;
-  const allSups=Object.keys(S.priceBook).sort();
+  const allSups=Object.keys(S.priceBook).sort((a,b)=>{const ba=S.priceBook[a]?.building||'zzz',bb=S.priceBook[b]?.building||'zzz';if(ba!==bb)return ba<bb?-1:1;const fa=S.priceBook[a]?.floor||'',fb=S.priceBook[b]?.floor||'';if(fa!==fb)return fa<fb?-1:1;return a<b?-1:1;});
   const qBook=(window._bookSearch||'').toLowerCase().trim();
   const sups=qBook?allSups.filter(function(s){
     if(s.toLowerCase().includes(qBook))return true;
@@ -4605,10 +4573,11 @@ function renderBookList(){
   const cnt=document.getElementById('book-count');if(cnt)cnt.textContent=qBook?(sups.length+'/'+allSups.length):(allSups.length+'곳');
   if(!allSups.length){lst.innerHTML='<div class="empty">아이템 저장 시 자동 등록됩니다</div>';return;}
   if(!sups.length){lst.innerHTML='<div class="empty">검색 결과가 없습니다</div>';return;}
-  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];return`
+  let _prevBld=null;
+  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];const locStr=[pb.building,pb.floor,pb.room].filter(Boolean).join(' ');const memoStr=(pb.memo||'').trim();const _bld=pb.building||'';let _grpHd='';if(!qBook&&_bld!==_prevBld){_prevBld=_bld;_grpHd=_bld?`<div style="font-weight:700;font-size:11px;color:#475569;margin:${si?'16px':'0'} 0 5px;padding:4px 10px;background:#f1f5f9;border-radius:6px;border-left:3px solid #94a3b8">📍 ${esc(_bld)}</div>`:'';}return _grpHd+`
   <div class="card" style="margin-bottom:10px">
     <div class="fb" style="margin-bottom:8px;cursor:pointer" onclick="toggleBookCard(${si},'${encodeURIComponent(s)}')">
-      <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px"><span id="bookcaret-${si}" style="font-size:11px;color:var(--t2)">${isOpen?'▼':'▶'}</span>${esc(s)}</div>
+      <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span id="bookcaret-${si}" style="font-size:11px;color:var(--t2)">${isOpen?'▼':'▶'}</span>${esc(s)}${locStr?`<span style="font-size:10px;font-weight:500;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;padding:1px 7px;border-radius:20px">${esc(locStr)}</span>`:''}${memoStr?`<span style="font-size:10px;font-weight:400;color:#6b21a8;background:#faf5ff;border:1px solid #e9d5ff;padding:1px 7px;border-radius:20px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(memoStr)}">${esc(memoStr)}</span>`:''}</div>
       <div class="fr" style="gap:5px">
         <span class="tag">${mats.length}개 품목</span>
         <button class="btn s" onclick="event.stopPropagation();renamePbSupplierUI('${encodeURIComponent(s)}')" title="거래처 이름 변경 (단가·아이템 함께 이동)">✏ 이름</button>
@@ -4653,6 +4622,7 @@ function renderBookList(){
         </div>
         <div class="fg" style="margin-bottom:0"><label style="font-size:10px">위치 메모</label><input value="${esc(pb.locationMemo||'')}" placeholder="예: 엘베 옆 코너" style="font-size:12px;padding:5px" onchange="getPB('${s}').locationMemo=this.value;savePB()"></div>
       </div>
+      <div class="fg" style="margin-top:6px;margin-bottom:0"><label style="font-size:10px">✨ 특징 메모 <span class="muted" style="font-weight:400;font-size:9px">목록에서 뱃지로 표시</span></label><textarea rows="2" style="width:100%;font-size:12px;padding:5px;resize:vertical;border-radius:6px;border:1px solid var(--br)" placeholder="예: 다이마루 원단처, 소재 좋음, 별로임" onchange="getPB('${s}').memo=this.value;savePB()">${esc(pb.memo||'')}</textarea></div>
     </div>
     ${mats.length?`<div>
       <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:5px">단가 수정 <span class="muted" style="font-weight:400">매장단가는 원가계산 / 네고가는 결제에 사용</span></div>
