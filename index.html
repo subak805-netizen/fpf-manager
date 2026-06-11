@@ -4573,6 +4573,15 @@ function _normBuilding(v){
            'n':'N동','n동':'N동','엔':'N동','엔동':'N동'};
   return m[v.trim().toLowerCase()]||v.trim();
 }
+function _effectiveFloor(pb){
+  // pb.floor가 있으면 사용 (3F→3, B1→B1)
+  if(pb.floor){return (pb.floor+'').replace(/F$/i,'').trim();}
+  // 없으면 호수 첫 자리에서 추론 (동대문시장 4자리 호수: 3066 → 층=3, 2714 → 층=2)
+  var r=(pb.room||'').trim();
+  if(/^\d{4}$/.test(r))return r[0];
+  if(/^\d{5}$/.test(r))return r.slice(0,2);
+  return '';
+}
 function pbNormalizeBuildings(){
   var changed=0;
   Object.values(S.priceBook||{}).forEach(function(pb){if(!pb)return;var nb=_normBuilding(pb.building||'');if(nb&&nb!==pb.building){pb.building=nb;changed++;}});
@@ -4581,7 +4590,7 @@ function pbNormalizeBuildings(){
 }
 function renderBookList(){
   const lst=document.getElementById('book-list');if(!lst)return;
-  const allSups=Object.keys(S.priceBook).sort((a,b)=>{const ba=_normBuilding(S.priceBook[a]?.building||'')||'zzz',bb=_normBuilding(S.priceBook[b]?.building||'')||'zzz';if(ba!==bb)return ba<bb?-1:1;const fa=S.priceBook[a]?.floor||'',fb=S.priceBook[b]?.floor||'';if(fa!==fb)return fa<fb?-1:1;return a<b?-1:1;});
+  const allSups=Object.keys(S.priceBook).sort((a,b)=>{const ba=_normBuilding(S.priceBook[a]?.building||'')||'zzz',bb=_normBuilding(S.priceBook[b]?.building||'')||'zzz';if(ba!==bb)return ba<bb?-1:1;const fa=_effectiveFloor(S.priceBook[a]||{}),fb=_effectiveFloor(S.priceBook[b]||{});const faN=parseInt(fa)||999,fbN=parseInt(fb)||999;if(faN!==fbN)return faN-fbN;return a<b?-1:1;});
   const qBook=(window._bookSearch||'').toLowerCase().trim();
   const sups=qBook?allSups.filter(function(s){
     if(s.toLowerCase().includes(qBook))return true;
@@ -4591,8 +4600,8 @@ function renderBookList(){
   const cnt=document.getElementById('book-count');if(cnt)cnt.textContent=qBook?(sups.length+'/'+allSups.length):(allSups.length+'곳');
   if(!allSups.length){lst.innerHTML='<div class="empty">아이템 저장 시 자동 등록됩니다</div>';return;}
   if(!sups.length){lst.innerHTML='<div class="empty">검색 결과가 없습니다</div>';return;}
-  let _prevBld=null;
-  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];const locStr=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');const memoStr=(pb.memo||'').trim();const _bld=_normBuilding(pb.building||'');let _grpHd='';if(!qBook&&_bld!==_prevBld){_prevBld=_bld;_grpHd=_bld?`<div style="font-weight:700;font-size:11px;color:#475569;margin:${si?'16px':'0'} 0 5px;padding:4px 10px;background:#f1f5f9;border-radius:6px;border-left:3px solid #94a3b8">📍 ${esc(_bld)}</div>`:'';}return _grpHd+`
+  let _prevBld=null,_prevFlr=null;
+  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];const locStr=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');const memoStr=(pb.memo||'').trim();const _bld=_normBuilding(pb.building||'');const _flr=_effectiveFloor(pb);let _grpHd='';if(!qBook){if(_bld!==_prevBld){_prevBld=_bld;_prevFlr=null;_grpHd=_bld?`<div style="font-weight:700;font-size:11px;color:#475569;margin:${si?'16px':'0'} 0 5px;padding:4px 10px;background:#f1f5f9;border-radius:6px;border-left:3px solid #94a3b8">📍 ${esc(_bld)}</div>`:'';}if(_flr&&_flr!==_prevFlr){_prevFlr=_flr;_grpHd+=`<div style="font-size:10px;font-weight:600;color:#64748b;margin:4px 0 3px;padding:2px 14px;border-left:2px solid #cbd5e1">└ ${esc(_flr)}층</div>`;}}return _grpHd+`
   <div class="card" style="margin-bottom:10px;overflow-x:hidden;">
     <div class="fb" style="margin-bottom:8px;cursor:pointer" onclick="toggleBookCard(${si},'${encodeURIComponent(s)}')">
       <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span id="bookcaret-${si}" style="font-size:11px;color:var(--t2)">${isOpen?'▼':'▶'}</span>${esc(s)}${locStr?`<span style="font-size:10px;font-weight:500;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;padding:1px 7px;border-radius:20px">${esc(locStr)}</span>`:''}${memoStr?`<span style="font-size:10px;font-weight:400;color:#6b21a8;background:#faf5ff;border:1px solid #e9d5ff;padding:1px 7px;border-radius:20px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(memoStr)}">${esc(memoStr)}</span>`:''}</div>
