@@ -683,6 +683,7 @@ html[data-theme="retro"] .pay-month-hdr{font-family:var(--font-display);backgrou
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
 
 // === 로스율 고정 정책 ===
@@ -868,6 +869,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-progress" onclick="switchTab('dash')">진행</button>
   <button class="ntab" id="nt-tasks" onclick="switchTab('tasks')">할 일</button>
   <button class="ntab" id="nt-route" onclick="switchTab('route')">동선</button>
+  <button class="ntab" id="nt-todoboard" onclick="switchTab('todoboard')">📋 할일판</button>
   <button class="ntab" id="nt-items" onclick="switchTab('items')">아이템</button>
   <button class="ntab" id="nt-defect" onclick="switchTab('defect')">불량 관리</button>
   <button class="ntab" id="nt-analytics" onclick="switchTab('analytics')">분석</button>
@@ -937,6 +939,7 @@ tryInitFirebase();
   <!-- Tasks (업무 관리 허브) -->
   <div id="pane-tasks" class="panel" style="display:none"><div id="tasks-body"></div></div>
 <div id="pane-route" class="panel" style="display:none"><div id="route-body"></div></div>
+<div id="pane-todoboard" class="panel" style="display:none"><div id="todoboard-body"></div></div>
   <!-- Analytics (업무량 분석) -->
   <div id="pane-analytics" class="panel" style="display:none"><div id="analytics-body"></div></div>
   <!-- Notifications -->
@@ -1445,6 +1448,10 @@ body.tp-capturing #tp-modal .iz-brand{display:none!important;}
 <div class="overlay" id="payfee-modal" style="display:none" onclick="if(event.target===this)closeModal('payfee-modal')">
   <div class="modal" style="max-width:420px"><div id="payfee-modal-body"></div></div>
 </div>
+<!-- 할일판 항목 메뉴(태그/수정/삭제) -->
+<div class="overlay" id="tb-item-modal" style="display:none" onclick="if(event.target===this)closeModal('tb-item-modal')">
+  <div class="modal" style="max-width:360px"><div id="tb-item-modal-body"></div></div>
+</div>
 
 <!-- 브랜드 관리 모달 -->
 <div class="overlay" id="brand-manage-modal" style="display:none" onclick="if(event.target===this)closeModal('brand-manage-modal')">
@@ -1844,7 +1851,7 @@ function applyRemoteCoData(data){
   S.items=tpPreserveLocalContent(data.items||{},_oldItems);S.orders=data.orders||{};S.brands=data.brands||[];
   S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=data.tasks||[];
   S.brandConfig=data.brandConfig||{};S.deductions=data.deductions||[];
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
   try{switchTab(activeTab);}catch(e){try{render();}catch(e2){}}
 }
 function showRemoteBanner(){
@@ -2074,6 +2081,7 @@ async function cloudSyncSave(){
       pickups:S.pickups||[],
       packages:S.packages||[],
       goals:S.goals||[],
+      todoBoard:S.todoBoard||{},
       tasks:S.tasks||[],
       brandConfig:S.brandConfig||{},
       deductions:S.deductions||[]
@@ -2539,7 +2547,7 @@ function recoverFromAutoBackup(idx){
 // 현재 메모리 상태를 백업 파일로 즉시 다운로드 (저장 실패 시 안전망)
 function _downloadBackupNow(){
   try{
-    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions};
+    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions,todoBoard:S.todoBoard||{}};
     var out={version:'pro2',ts:new Date().toISOString(),companies:companies,allCoData:allCo,shared:{factories:S.factories,priceBook:S.priceBook}};
     var blob=new Blob([JSON.stringify(out)],{type:'application/json'});var url=URL.createObjectURL(blob);
     var a=document.createElement('a');a.href=url;a.download='fpm복구본-'+Date.now()+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
@@ -2910,7 +2918,7 @@ async function cloudSyncLoad(id,opts){
         brands:d.brands||S.brands||[],
         sampleOrders:d.sampleOrders||S.sampleOrders||[],
         pickups:d.pickups||S.pickups||[],
-        packages:d.packages||S.packages||[],
+        packages:d.packages||S.packages||[],todoBoard:d.todoBoard||S.todoBoard||{},
         goals:d.goals||S.goals||[],
         tasks:d.tasks||S.tasks||[],
         brandConfig:d.brandConfig||S.brandConfig||{},
@@ -2922,7 +2930,7 @@ async function cloudSyncLoad(id,opts){
       lsSet('fpm_'+id,{
         items:S.items,orders:S.orders,
         brands:S.brands,sampleOrders:S.sampleOrders,
-        pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],tasks:S.tasks,
+        pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],todoBoard:S.todoBoard||{},tasks:S.tasks,
         brandConfig:S.brandConfig,deductions:S.deductions
       });
       lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
@@ -3061,7 +3069,7 @@ function autoLocalBackup(){
       data:{
         items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,
         orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],
-        packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],
+        packages:S.packages||[],goals:S.goals||[],todoBoard:S.todoBoard||{},tasks:S.tasks||[],
         brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]
       }
     };
@@ -3084,7 +3092,7 @@ function autoHourlyBackup(){
     var list=window._hbkCache;
     if(list.length&&list[list.length-1].stamp===stamp)return; // 이번 시간 이미 저장됨
     var snap={stamp:stamp,ts:Date.now(),hr:hr,date:(now.getMonth()+1)+'/'+now.getDate(),n:Object.keys(items).length,
-      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
+      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
     list.push(snap); while(list.length>HBK_MAX)list.shift();
     idbBkSet('fpm_hbk_'+curCoId,list).catch(function(){}); // IndexedDB에 비동기 저장
   }catch(e){}
@@ -3095,7 +3103,7 @@ function saveData(){
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   window._lsQuotaErr=false;
-  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]});
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
@@ -3124,7 +3132,7 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[]};
+  S={items:d.items||{},orders:d.orders||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{}};
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{ window._bkCacheCoId=null; if(typeof idbBkEnsureLoaded==='function')idbBkEnsureLoaded(); }catch(e){} // 백업 IndexedDB 로드/이사(회사 전환 시 캐시 갱신)
@@ -3725,7 +3733,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample'].forEach(n=>{
+  ['dash','items','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -3769,6 +3777,7 @@ function switchTab(t){
     else if(t==='sample')renderSamplePane();
     else if(t==='tasks')renderTasksPane();
     else if(t==='route')renderRoutePane();
+    else if(t==='todoboard')renderTodoBoard();
     else if(t==='analytics')renderAnalyticsPane();
     else if(t==='leftover')renderLeftoverTab();
   }catch(err){
@@ -22859,6 +22868,36 @@ function runAlertCheck() {
 
 // 앱 켤 때 + 30분마다 체크
 setTimeout(() => { runAlertCheck(); setInterval(runAlertCheck, 30 * 60 * 1000); }, 2000);
+
+/* ===== 📋 할일판 (브랜드→할일/메이드/시장 3칸→자유 그룹→태그·체크 항목, 드래그·인쇄·동기화) ===== */
+var TB_COLS=[['todo','할 일'],['made','메이드'],['market','시장']];
+var TB_DEFAULT_TAGS=[{name:'택배',color:'#E8F6EE'},{name:'급',color:'#FBE0E0'},{name:'오늘',color:'#FFF6B8'},{name:'내일',color:'#EAF3F8'},{name:'시장',color:'#F0E6FA'},{name:'확인',color:'#FCEFD8'}];
+function tbEnsure(){ if(!S.todoBoard||typeof S.todoBoard!=='object')S.todoBoard={}; if(!Array.isArray(S.todoBoard.tags)||!S.todoBoard.tags.length)S.todoBoard.tags=JSON.parse(JSON.stringify(TB_DEFAULT_TAGS)); if(!S.todoBoard.brands||typeof S.todoBoard.brands!=='object')S.todoBoard.brands={}; return S.todoBoard; }
+function tbBrandId(){ var bs=(typeof getBrands==='function')?getBrands():(S.brands||[]); if(!bs.length)return ''; if(window._tbBrand&&bs.some(function(b){return b.id===window._tbBrand;}))return window._tbBrand; window._tbBrand=bs[0].id; return window._tbBrand; }
+function tbBoard(bid){ var tb=tbEnsure(); if(!tb.brands[bid])tb.brands[bid]={}; TB_COLS.forEach(function(c){ if(!Array.isArray(tb.brands[bid][c[0]]))tb.brands[bid][c[0]]=[]; }); return tb.brands[bid]; }
+function tbSave(){ saveData(); renderTodoBoard(); }
+function tbFindG(bid,col,gid){ return tbBoard(bid)[col].find(function(x){return x.id===gid;}); }
+function tbAddGroup(col){ var bid=tbBrandId(); if(!bid){alert('브랜드를 먼저 등록하세요');return;} var t=prompt('그룹 이름 (예: 업무, 확인, 급)'); if(!t)return; tbBoard(bid)[col].push({id:uid(),title:t,items:[]}); tbSave(); }
+function tbRenameGroup(col,gid){ var bid=tbBrandId(); var g=tbFindG(bid,col,gid); if(!g)return; var t=prompt('그룹 이름',g.title); if(t==null)return; g.title=t; tbSave(); }
+function tbDelGroup(col,gid){ var bid=tbBrandId(); var arr=tbBoard(bid)[col]; var g=tbFindG(bid,col,gid); if(!g)return; if((g.items||[]).length&&!confirm('"'+g.title+'" 그룹과 안의 할일 '+g.items.length+'개를 삭제할까요?'))return; arr.splice(arr.indexOf(g),1); tbSave(); }
+function tbAddItem(col,gid){ var bid=tbBrandId(); var g=tbFindG(bid,col,gid); if(!g)return; var t=prompt('할일 내용'); if(!t)return; g.items.push({id:uid(),text:t,tags:[],done:false}); tbSave(); }
+function tbEditItem(col,gid,iid){ var bid=tbBrandId(); var g=tbFindG(bid,col,gid); var it=g&&g.items.find(function(x){return x.id===iid;}); if(!it)return; var t=prompt('할일 수정',it.text); if(t==null)return; it.text=t; tbSave(); }
+function tbToggleItem(col,gid,iid){ var bid=tbBrandId(); var g=tbFindG(bid,col,gid); var it=g&&g.items.find(function(x){return x.id===iid;}); if(!it)return; it.done=!it.done; tbSave(); }
+function tbDelItem(col,gid,iid){ var bid=tbBrandId(); var g=tbFindG(bid,col,gid); if(!g)return; var i=g.items.findIndex(function(x){return x.id===iid;}); if(i>=0){g.items.splice(i,1);tbSave();} }
+function tbToggleTag(col,gid,iid,tagName){ var bid=tbBrandId(); var g=tbFindG(bid,col,gid); var it=g&&g.items.find(function(x){return x.id===iid;}); if(!it)return; if(!Array.isArray(it.tags))it.tags=[]; var i=it.tags.indexOf(tagName); if(i>=0)it.tags.splice(i,1); else it.tags.push(tagName); saveData(); }
+function tbAddTag(){ var tb=tbEnsure(); var t=prompt('새 태그 이름'); if(!t)return; if(tb.tags.some(function(x){return x.name===t;})){alert('이미 있어요');return;} var pal=['#E8F6EE','#FBE0E0','#FFF6B8','#EAF3F8','#F0E6FA','#FCEFD8','#FDE2E4','#E2ECF9']; tb.tags.push({name:t,color:pal[tb.tags.length%pal.length]}); tbSave(); }
+function tbDelTag(name){ var tb=tbEnsure(); if(!confirm('태그 "'+name+'" 삭제? (붙은 곳에서도 빠져요)'))return; tb.tags=tb.tags.filter(function(x){return x.name!==name;}); Object.keys(tb.brands).forEach(function(bk){TB_COLS.forEach(function(c){(tb.brands[bk][c[0]]||[]).forEach(function(g){(g.items||[]).forEach(function(it){if(it.tags)it.tags=it.tags.filter(function(n){return n!==name;});});});});}); tbSave(); }
+function tbSetBrand(bid){ window._tbBrand=bid; renderTodoBoard(); }
+function tbTagColor(name){ var tb=tbEnsure(); var t=tb.tags.find(function(x){return x.name===name;}); return t?t.color:'#eee'; }
+function tbItemHTML(col,g,it){ var tags=(it.tags||[]).map(function(n){return '<span class="tb-tg" style="background:'+tbTagColor(n)+'">'+esc(n)+'</span>';}).join(''); return '<div class="tb-it'+(it.done?' done':'')+'" data-iid="'+it.id+'"><span class="tb-drag">⠿</span><span class="tb-chk'+(it.done?' on':'')+'" onclick="tbToggleItem(\''+col+'\',\''+g.id+'\',\''+it.id+'\')"></span>'+tags+'<span class="tb-tx" onclick="tbEditItem(\''+col+'\',\''+g.id+'\',\''+it.id+'\')">'+esc(it.text)+'</span><span class="tb-it-x" onclick="tbOpenItemMenu(event,\''+col+'\',\''+g.id+'\',\''+it.id+'\')">⋯</span></div>'; }
+var _tbMenuCtx=null;
+function tbOpenItemMenu(e,col,gid,iid){ if(e&&e.stopPropagation)e.stopPropagation(); _tbMenuCtx={col:col,gid:gid,iid:iid}; renderTbMenu(); var m=document.getElementById('tb-item-modal'); if(m)m.style.display='flex'; }
+function renderTbMenu(){ if(!_tbMenuCtx)return; var c=_tbMenuCtx; var tb=tbEnsure(); var el=document.getElementById('tb-item-modal-body'); if(!el)return; var bid=tbBrandId(); var g=tbFindG(bid,c.col,c.gid); var it=g&&g.items.find(function(x){return x.id===c.iid;}); if(!it){closeModal('tb-item-modal');return;} el.innerHTML='<div class="fb" style="margin-bottom:8px"><b>'+esc(it.text)+'</b><button class="btn s g" onclick="closeModal(\'tb-item-modal\')">✕</button></div><div style="font-size:12px;font-weight:700;margin-bottom:5px">태그</div><div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">'+tb.tags.map(function(t){var on=(it.tags||[]).indexOf(t.name)>=0;return '<span onclick="tbToggleTag(\''+c.col+'\',\''+c.gid+'\',\''+c.iid+'\',\''+t.name.replace(/'/g,'')+'\');renderTbMenu()" style="cursor:pointer;border:1.5px solid #161616;padding:2px 9px;font-size:12px;font-weight:700;background:'+(on?t.color:'#fff')+';opacity:'+(on?1:.5)+'">'+esc(t.name)+'</span>';}).join('')+'</div><div class="fr" style="gap:6px"><button class="btn s" style="flex:1" onclick="closeModal(\'tb-item-modal\');tbEditItem(\''+c.col+'\',\''+c.gid+'\',\''+c.iid+'\')">✏️ 수정</button><button class="btn s d" style="flex:1" onclick="closeModal(\'tb-item-modal\');tbDelItem(\''+c.col+'\',\''+c.gid+'\',\''+c.iid+'\')">🗑 삭제</button></div>'; }
+function tbInjectStyle(){ if(document.getElementById('tb-style'))return; var s=document.createElement('style'); s.id='tb-style'; s.textContent='#pane-todoboard .tb-wrap{background:#fff;border:2px solid #161616;box-shadow:4px 4px 0 #161616;max-width:1150px;margin:6px auto}#pane-todoboard .tb-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:2px solid #161616;flex-wrap:wrap}#pane-todoboard .tb-btabs{display:flex;gap:6px;flex-wrap:wrap}#pane-todoboard .tb-btab{border:1.5px solid #161616;background:#fff;padding:4px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:0}#pane-todoboard .tb-btab.on{background:#161616;color:#fff}#pane-todoboard .tb-cols{display:grid;grid-template-columns:1fr 1fr 1fr}#pane-todoboard .tb-col{border-right:1.5px solid #161616;min-height:300px;overflow:hidden;padding-bottom:10px}#pane-todoboard .tb-col:last-child{border-right:none}#pane-todoboard .tb-colh{text-align:center;font-size:15px;font-weight:800;padding:8px;border-bottom:1.5px solid #161616;background:#F5F1E8}#pane-todoboard .tb-grp{padding:7px 11px 3px}#pane-todoboard .tb-grph{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;border-bottom:1.5px solid #cfcabd;padding-bottom:3px;margin-bottom:5px}#pane-todoboard .tb-grpt{flex:1;cursor:pointer}#pane-todoboard .tb-gdrag,#pane-todoboard .tb-drag{color:#c4bfb2;cursor:grab;font-size:12px;flex-shrink:0}#pane-todoboard .tb-grp-x,#pane-todoboard .tb-it-x{color:#b9b4a7;cursor:pointer;font-size:12px;padding:0 3px}#pane-todoboard .tb-it{display:flex;align-items:center;gap:6px;padding:4px 2px;font-size:13px;border-bottom:1px dotted #e3e0d8}#pane-todoboard .tb-chk{width:15px;height:15px;border:1.5px solid #161616;border-radius:2px;flex-shrink:0;cursor:pointer}#pane-todoboard .tb-chk.on{background:#A5E6BA}#pane-todoboard .tb-tg{font-size:10px;font-weight:800;border:1.5px solid #161616;padding:0 5px;line-height:16px;flex-shrink:0}#pane-todoboard .tb-tx{flex:1;cursor:text}#pane-todoboard .tb-it.done .tb-tx{text-decoration:line-through;color:#9aa0a8}#pane-todoboard .tb-add{display:block;font-size:11px;color:#8a8576;border:1px dashed #b9b4a7;background:#fff;padding:3px 8px;margin:4px 8px 0 2px;cursor:pointer;box-sizing:border-box}#pane-todoboard .tb-addgrp{margin:6px 11px 4px;font-weight:700}#pane-todoboard .tb-legend{display:flex;gap:7px;flex-wrap:wrap;align-items:center;padding:9px 12px;border-top:2px solid #161616}#pane-todoboard .tb-lg{font-size:11px;font-weight:800;border:1.5px solid #161616;padding:1px 8px;cursor:pointer}#pane-todoboard .tb-lg-add{font-size:11px;border:1px dashed #b9b4a7;padding:1px 8px;cursor:pointer;color:#8a8576}#pane-todoboard .tb-ghost{opacity:.4}@media(max-width:560px){#pane-todoboard .tb-cols{grid-template-columns:1fr}#pane-todoboard .tb-col{border-right:none;border-bottom:1.5px solid #161616}}'; document.head.appendChild(s); }
+function renderTodoBoard(){ var el=document.getElementById('todoboard-body'); if(!el)return; tbInjectStyle(); tbEnsure(); var bs=(typeof getBrands==='function')?getBrands():(S.brands||[]); if(!bs.length){ el.innerHTML='<div class="empty" style="padding:30px">브랜드를 먼저 등록하세요 (아이템 탭 → 🏷 브랜드)</div>'; return; } var bid=tbBrandId(); var btabs=bs.map(function(b){return '<button class="tb-btab'+(b.id===bid?' on':'')+'" onclick="tbSetBrand(\''+b.id+'\')">'+esc(b.name)+'</button>';}).join(''); var board=tbBoard(bid); var cols=TB_COLS.map(function(c){ var groups=(board[c[0]]||[]).map(function(g){ var items=(g.items||[]).map(function(it){return tbItemHTML(c[0],g,it);}).join(''); return '<div class="tb-grp" data-gid="'+g.id+'"><div class="tb-grph"><span class="tb-gdrag">⠿</span><span class="tb-grpt" onclick="tbRenameGroup(\''+c[0]+'\',\''+g.id+'\')">'+esc(g.title)+'</span><span class="tb-grp-x" onclick="tbDelGroup(\''+c[0]+'\',\''+g.id+'\')">🗑</span></div><div class="tb-items" data-col="'+c[0]+'" data-gid="'+g.id+'">'+items+'</div><div class="tb-add" onclick="tbAddItem(\''+c[0]+'\',\''+g.id+'\')">＋ 할일 추가</div></div>'; }).join(''); return '<div class="tb-col"><div class="tb-colh">'+esc(c[1])+'</div><div class="tb-groups" data-col="'+c[0]+'">'+groups+'</div><div class="tb-add tb-addgrp" onclick="tbAddGroup(\''+c[0]+'\')">＋ 그룹</div></div>'; }).join(''); var tb=S.todoBoard; var legend=tb.tags.map(function(t){return '<span class="tb-lg" style="background:'+t.color+'" onclick="tbDelTag(\''+t.name.replace(/'/g,'')+'\')" title="클릭=삭제">'+esc(t.name)+'</span>';}).join(''); el.innerHTML='<div class="tb-wrap"><div class="tb-head"><div class="tb-btabs">'+btabs+'</div><span style="flex:1"></span><button class="btn s" onclick="tbPrint()">🖨 인쇄</button></div><div class="tb-cols">'+cols+'</div><div class="tb-legend"><b style="font-size:11px">태그:</b>'+legend+'<span class="tb-lg-add" onclick="tbAddTag()">＋태그</span></div></div>'; tbInitDrag(); }
+function tbInitDrag(){ if(typeof Sortable==='undefined')return; document.querySelectorAll('#pane-todoboard .tb-items').forEach(function(c){ Sortable.create(c,{group:'tb-items',animation:130,handle:'.tb-drag',ghostClass:'tb-ghost',onEnd:tbSyncFromDom}); }); document.querySelectorAll('#pane-todoboard .tb-groups').forEach(function(c){ Sortable.create(c,{group:'tb-groups',animation:130,handle:'.tb-gdrag',ghostClass:'tb-ghost',onEnd:tbSyncFromDom}); }); }
+function tbSyncFromDom(){ var bid=tbBrandId(); var board=tbBoard(bid); var allG={},allI={}; TB_COLS.forEach(function(cc){(board[cc[0]]||[]).forEach(function(g){allG[g.id]=g;(g.items||[]).forEach(function(it){allI[it.id]=it;});});}); var nb={}; TB_COLS.forEach(function(c){ nb[c[0]]=[]; var gel=document.querySelector('#pane-todoboard .tb-groups[data-col="'+c[0]+'"]'); if(!gel)return; gel.querySelectorAll('.tb-grp').forEach(function(ge){ var gid=ge.getAttribute('data-gid'); var og=allG[gid]||{id:gid,title:'',items:[]}; var ng={id:gid,title:og.title,items:[]}; ge.querySelectorAll('.tb-items .tb-it').forEach(function(ie){ var iid=ie.getAttribute('data-iid'); if(allI[iid])ng.items.push(allI[iid]); }); nb[c[0]].push(ng); }); }); S.todoBoard.brands[bid]=nb; saveData(); }
+function tbPrint(){ var bs=(typeof getBrands==='function')?getBrands():(S.brands||[]); tbEnsure(); var blocks=bs.map(function(b){ var board=tbBoard(b.id); var cols=TB_COLS.map(function(c){ var groups=(board[c[0]]||[]).map(function(g){ var items=(g.items||[]).map(function(it){var tg=(it.tags||[]).map(function(n){return '['+esc(n)+']';}).join(' ');return '<div class="p-it">'+(it.done?'☑':'☐')+' '+(tg?tg+' ':'')+esc(it.text)+'</div>';}).join(''); return '<div class="p-grp"><div class="p-grph">'+esc(g.title)+'</div>'+items+'</div>'; }).join(''); return '<div class="p-col"><div class="p-colh">'+esc(c[1])+'</div>'+groups+'</div>'; }).join(''); return '<div class="p-brand"><div class="p-bh">'+esc(b.name)+'</div><div class="p-cols">'+cols+'</div></div>'; }).join(''); var w=window.open('','_blank'); if(!w){alert('팝업 차단을 풀어주세요');return;} w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>할일판</title><style>@page{size:A4 portrait;margin:8mm}body{font-family:-apple-system,"Apple SD Gothic Neo",sans-serif;margin:0}.p-brand{border:1.5px solid #000;margin-bottom:6mm;page-break-inside:avoid;min-height:130mm;box-sizing:border-box}.p-brand:nth-child(2n){page-break-after:always}.p-bh{font-weight:800;font-size:15px;padding:5px 9px;border-bottom:1.5px solid #000}.p-cols{display:grid;grid-template-columns:1fr 1fr 1fr}.p-col{border-right:1px solid #000;padding:0 0 6px}.p-col:last-child{border-right:none}.p-colh{text-align:center;font-weight:800;font-size:13px;padding:5px;border-bottom:1px solid #000}.p-grp{padding:6px 9px 2px}.p-grph{font-weight:800;font-size:12px;border-bottom:1px solid #ccc;padding-bottom:2px;margin-bottom:4px}.p-it{font-size:12px;padding:2px 0;line-height:1.5}</style></head><body>'+blocks+'</body></html>'); w.document.close(); setTimeout(function(){try{w.print();}catch(e){}},350); }
 
 initApp();
 </script>
