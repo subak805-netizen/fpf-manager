@@ -6721,20 +6721,33 @@ function trimRowHTML(t,i){
         +'<option value="">— 브랜드 선택 —</option>'
         +getBrands().map(function(b){return '<option value="'+b.id+'"'+(t.brandId===b.id?' selected':'')+'>'+esc(b.name)+'</option>';}).join('')
         +'</select></div>'
-      +'<div style="flex:1.4;min-width:130px"><label>라벨명 <span class="muted" style="font-size:9px">(브랜드별 등록)</span></label>'
-        +(function(){
-          var b=t.brandId?getBrands().find(function(x){return x.id===t.brandId;}):null;
-          var labels=(b&&b.mainLabels)||[];
-          var opts='<option value="">— 라벨 선택 —</option>';
-          labels.forEach(function(lb){opts+='<option value="'+esc(lb.name)+'"'+(t.labelName===lb.name?' selected':'')+'>'+esc(lb.name)+' ('+num(lb.price||0)+'원)</option>';});
-          // 등록 안 된 라벨명이 이미 입력돼 있으면 그것도 표시
-          if(t.labelName&&!labels.some(function(lb){return lb.name===t.labelName;}))opts+='<option value="'+esc(t.labelName)+'" selected>'+esc(t.labelName)+'</option>';
-          return '<select data-f="labelName" onchange="onMainLabelSelect('+i+',this.value)" style="font-size:12px;width:100%"'+(b?'':' disabled')+'>'+opts+'</select>';
+      +(function(){
+          var _b2=t.brandId?getBrands().find(function(x){return x.id===t.brandId;}):null;
+          var _lbs=(_b2&&_b2.mainLabels)||[];
+          var _lnames=Array.isArray(t.labelNames)&&t.labelNames.length?t.labelNames.slice():(t.labelName?[t.labelName]:[]);
+          var _chips=_lnames.map(function(nm,idx){
+            var _lb=_lbs.find(function(x){return x.name===nm;});
+            return '<span style="display:inline-flex;align-items:center;gap:3px;background:#fde68a;border:1px solid #fcd34d;border-radius:20px;padding:2px 8px;font-size:12px;font-weight:600;color:#854d0e">'
+              +esc(nm)
+              +(_lb&&_lb.price?' <span style="font-size:9px;color:#a16207">('+num(_lb.price)+'원)</span>':'')
+              +' <button type="button" onclick="removeMainLabelEntry('+i+','+idx+')" style="background:none;border:none;cursor:pointer;padding:0 0 0 2px;color:#92400e;font-size:14px;line-height:1">×</button>'
+              +'</span>';
+          }).join(' ');
+          var _addOpts='<option value="">＋ 라벨 추가</option>';
+          _lbs.forEach(function(lb){_addOpts+='<option value="'+esc(lb.name)+'">'+esc(lb.name)+' ('+num(lb.price||0)+'원)</option>';});
+          return '<div style="flex:1.5;min-width:150px"><label>라벨명 <span class="muted" style="font-size:9px">(브랜드별 등록)</span></label>'
+            +'<input type="hidden" data-f-labelnames value="'+esc(JSON.stringify(_lnames))+'">'
+            +'<div style="display:flex;flex-wrap:wrap;gap:4px;min-height:26px;align-items:center;margin-bottom:4px;padding:3px 0">'
+            +(_chips||'<span style="color:#a16207;font-size:11px;font-style:italic">라벨을 추가하세요</span>')
+            +'</div>'
+            +'<div style="display:flex;gap:4px">'
+            +'<select onchange="addMainLabelEntry('+i+',this)" style="font-size:11px;flex:1"'+(_b2?'':' disabled')+'>'
+            +_addOpts+'</select>'
+            +'<button class="btn s" onclick="addLabelToBrandInline(\''+(t.brandId||'')+'\',\'main\','+i+')" type="button" style="font-size:10px;padding:4px 6px;background:#fef3c7;border-color:#fcd34d;white-space:nowrap"'+(t.brandId?'':' disabled')+'>＋새</button>'
+            +'</div></div>';
         })()
-        +'</div>'
       +'<div style="flex:.5;min-width:50px"><label>부위 <span class="muted" style="font-size:9px">선택</span></label><input list="dl-labelpart" data-f="labelPart" value="'+esc(t.labelPart||'')+'" placeholder="상의/하의"></div>'
       +'<div style="flex:.5;min-width:50px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
-      +'<button class="btn s" onclick="addLabelToBrandInline(\''+(t.brandId||'')+'\',\'main\','+i+')" type="button" style="font-size:10px;padding:6px 8px;background:#fef3c7;border-color:#fcd34d;white-space:nowrap"'+(t.brandId?'':' disabled')+'>＋새 라벨</button>'
       +'</div>'
       // 포함 옵션 + 수량
       +'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px">'
@@ -7244,9 +7257,11 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
     formTrims[i].autoFactory=true;
   }else if(tp==='mainLabel'){
     formTrims[i].brandId=g('brandId')||'';
-    formTrims[i].labelName=g('labelName')||'';
+    // 다중 라벨명 배열 읽기 (hidden input에 JSON 직렬화됨)
+    var _lnEl=r.querySelector('[data-f-labelnames]');
+    if(_lnEl&&_lnEl.value){try{var _lnParsed=JSON.parse(_lnEl.value);if(Array.isArray(_lnParsed)){formTrims[i].labelNames=_lnParsed;formTrims[i].labelName=_lnParsed[0]||'';}}catch(e){}}
     formTrims[i].labelPart=g('labelPart')||'';
-    formTrims[i].midSize=g('labelName')||formTrims[i].midSize||''; // 호환: midSize에도 라벨명 저장
+    formTrims[i].midSize=formTrims[i].labelName||formTrims[i].midSize||''; // 호환: midSize에도 라벨명 저장
     formTrims[i].unitPrice=+g('unitPrice')||0;
     formTrims[i].qtyBuffer=g('qtyBuffer')!==undefined?+g('qtyBuffer'):10;
     // 포함 체크박스 수집 (구버전 고정 체크박스가 있을 때만 — 호환 보존)
@@ -7469,7 +7484,7 @@ function addTrimRow(t){
   else if(t==='zipper')newRow={id:uid(),supplier:'',name:'지퍼',orderType:'zipper',zipperSize:'',zipperLength:'',zipperDirection:'오픈',toothColor:'',sliderModel:'',sliderColor:'',hasSliderLogo:false,sliderLogoText:'',qtyPerPiece:1,unitPrice:0,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='button')newRow={id:uid(),supplier:'',name:'단추',orderType:'button',buttonSize:'',buttonStyle:'',unitPrice:0,qtyPerPiece:1,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='careLabel')newRow={id:uid(),supplier:'',name:'케어라벨',orderType:'careLabel',labelName:'',labelPart:'',unitPrice:0,qtyBuffer:10,manufactureYM:'',autoComposition:true,autoFactory:true,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
-  else if(t==='mainLabel')newRow={id:uid(),supplier:'',name:'메인라벨',orderType:'mainLabel',brandId:'',labelName:'',labelPart:'',midSize:'',unitPrice:0,qtyBuffer:10,finishSel:[],includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,includeDenimSizeTab:false,includeDenimCareLabel:false,autoFactory:true,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
+  else if(t==='mainLabel')newRow={id:uid(),supplier:'',name:'메인라벨',orderType:'mainLabel',brandId:'',labelName:'',labelNames:[],labelPart:'',midSize:'',unitPrice:0,qtyBuffer:10,finishSel:[],includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,includeDenimSizeTab:false,includeDenimCareLabel:false,autoFactory:true,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='bias')newRow={id:uid(),supplier:'',name:'바이어스재단',orderType:'bias',biasSpec:'',fabricSource:'',consumptionPerPiece:0,unitPrice:20000,buffer:TRIM_LOSS_PCT,colorLinks:[],sizeRates:[]};
   else newRow={id:uid(),supplier:'',name:'',orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   formTrims.push(newRow);
@@ -8628,8 +8643,9 @@ function genPoText(order,sn){
         L.push('');
         // 메인라벨 + 라벨명
         L.push('메인라벨');
-        var mlName=ml.labelName||ml.midSize;
-        if(mlName)L.push(mlName);
+        // 다중 라벨명 지원: labelNames 배열 우선, 없으면 labelName 폴백
+        var _mlNames=Array.isArray(ml.labelNames)&&ml.labelNames.length?ml.labelNames:(ml.labelName||ml.midSize?[ml.labelName||ml.midSize]:[]);
+        _mlNames.forEach(function(nm){if(nm)L.push(nm);});
         L.push('');
         // 포함 항목 — 신규: 브랜드 완성부자재 선택(finishSel), 구버전: include 플래그
         var incOpts=[];
@@ -8778,7 +8794,7 @@ function genPoText(order,sn){
     if(buttons.length){
       const bGrp={};const bGrpOrder=[];
       for(const b of buttons){
-        const bk=(b.buttonSize||'')+'|'+(b.buttonStyle||'')+'|'+(b.color||'')+'|'+(b.hasButtonLogo?'1':'0')+'|'+(b.buttonLogoText||'');
+        const bk=(b.name||'')+'|'+(b.buttonSize||'')+'|'+(b.buttonStyle||'')+'|'+(b.color||'')+'|'+(b.hasButtonLogo?'1':'0')+'|'+(b.buttonLogoText||'');
         if(!bGrp[bk]){bGrp[bk]={...b,colors:[]};bGrpOrder.push(bk);}
         bGrp[bk].colors.push(b);
       }
@@ -17569,9 +17585,12 @@ function addLabelToBrandInline(brandId,kind,trimIdx){
   const priceStr=prompt('단가 (원/개):','0');
   const price=+priceStr||0;
   addBrandLabel(brandId,kind,{name:nm.trim(),price:price});
-  // 폼의 해당 행 갱신
+  // 폼의 해당 행 갱신 (labelNames 배열에 추가)
   if(formTrims[trimIdx]){
-    formTrims[trimIdx].labelName=nm.trim();
+    var _arr=Array.isArray(formTrims[trimIdx].labelNames)?formTrims[trimIdx].labelNames.slice():(formTrims[trimIdx].labelName?[formTrims[trimIdx].labelName]:[]);
+    if(_arr.indexOf(nm.trim())<0)_arr.push(nm.trim());
+    formTrims[trimIdx].labelNames=_arr;
+    formTrims[trimIdx].labelName=_arr[0]||nm.trim(); // 첫 번째가 대표 labelName
     formTrims[trimIdx].unitPrice=price;
     renderTrimRows();
   }
@@ -17582,6 +17601,7 @@ function onMainLabelBrandChange(i,brandId){
   if(!formTrims[i])return;
   formTrims[i].brandId=brandId;
   formTrims[i].labelName=''; // 브랜드 바뀌면 라벨 초기화
+  formTrims[i].labelNames=[]; // 다중 라벨 초기화
   formTrims[i].finishSel=[];  // 브랜드 바뀌면 완성부자재 선택 초기화
   renderTrimRows();
 }
@@ -17644,6 +17664,38 @@ function onMainLabelSelect(i,labelName){  if(!formTrims[i])return;
     if(lb&&lb.price!==undefined)formTrims[i].unitPrice=lb.price;
   }
   renderTrimRows();
+}
+// 메인라벨 다중 라벨 추가
+function addMainLabelEntry(i,sel){
+  var nm=(sel&&sel.value)||'';
+  if(!nm){return;}
+  colTR();
+  if(!formTrims[i])return;
+  var _arr=Array.isArray(formTrims[i].labelNames)?formTrims[i].labelNames.slice():(formTrims[i].labelName?[formTrims[i].labelName]:[]);
+  if(_arr.indexOf(nm)<0){
+    _arr.push(nm);
+    // 첫 번째 라벨 추가 시 단가 자동 설정
+    if(_arr.length===1){
+      var _b=formTrims[i].brandId?getBrands().find(function(x){return x.id===formTrims[i].brandId;}):null;
+      if(_b&&_b.mainLabels){var _lb=_b.mainLabels.find(function(x){return x.name===nm;});if(_lb&&_lb.price!==undefined)formTrims[i].unitPrice=_lb.price;}
+    }
+  }
+  formTrims[i].labelNames=_arr;
+  formTrims[i].labelName=_arr[0]||''; // 대표 labelName = 첫 번째
+  if(sel)sel.value=''; // 선택 리셋
+  renderTrimRows();
+  persistTrimEdit(i);
+}
+// 메인라벨 다중 라벨 제거
+function removeMainLabelEntry(i,idx){
+  colTR();
+  if(!formTrims[i])return;
+  var _arr=Array.isArray(formTrims[i].labelNames)?formTrims[i].labelNames.slice():[];
+  _arr.splice(idx,1);
+  formTrims[i].labelNames=_arr;
+  formTrims[i].labelName=_arr[0]||'';
+  renderTrimRows();
+  persistTrimEdit(i);
 }
 
 function renderBrandManageList(){
