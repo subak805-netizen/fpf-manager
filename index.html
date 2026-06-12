@@ -6032,7 +6032,6 @@ function showItemForm(id){
     
     <!-- 메모 (한줄) -->
     <div class="fg"><label>메모</label><textarea id="f-notes" rows="2" oninput="scheduleDraft()">${esc(p.notes||'')}</textarea></div>
-    <div id="if-unreg"></div>
     <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="hideItemForm()">취소</button><button class="btn p" onclick="saveItemForm()">✓ 저장</button></div>`;
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
 }
@@ -6158,6 +6157,10 @@ function calcFabShrinkForColor(f,colorName){
 function fabRowHTML(f,i){
   const isKg=f.pricingUnit==='kg';
   const hasLinks=f.colorLinks&&f.colorLinks.length>0;
+  const _fabInPB=!!(f.supplier&&f.name&&S.priceBook[f.supplier]?.materials?.[f.name]);
+  const _fabPbBadge=(f.supplier&&f.name)?(_fabInPB
+    ?`<span style="order:98;align-self:center;font-size:10px;color:#16a34a;background:#dcfce7;border:1px solid #86efac;padding:1px 7px;border-radius:20px;white-space:nowrap">✓ 단가장</span>`
+    :`<button type="button" class="btn s" onclick="pbRegisterFormMat('fab',${i})" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">📚 단가장 등록</button>`):'';
   // 컬러 연결 섹션
   let colorSec='';
   if(formColors.length>0){
@@ -6194,7 +6197,7 @@ function fabRowHTML(f,i){
     <select data-f="pricingUnit" style="width:auto;font-size:11px;padding:3px 5px" onchange="onFabPU(${i},this.value)"><option value="yard"${!isKg?' selected':''}>야드 단가</option><option value="kg"${isKg?' selected':''}>⚖️ KG 단가</option></select>
     ${isKg?'<span class="badge b2" style="font-size:10px">KG</span>':''}
     <div style="flex:.4;min-width:90px;max-width:160px"><label>용도 <span class="muted" style="font-size:9px">선택</span></label><input list="dl-fabpart" data-f="part" value="${esc(f.part||'')}" placeholder="몸판 / 스트링감 / 안감 …"></div>
-    <button class="btn s d g" style="order:99;margin-left:auto" onclick="rmFabRow(${i})">🗑</button>
+    ${_fabPbBadge}<button class="btn s d g" style="order:99;margin-left:auto" onclick="rmFabRow(${i})">🗑</button>
   </div>
   <div class="fab-split">
     <div class="fab-split-left">
@@ -6896,7 +6899,6 @@ function updTnmDL(el){
 function renderFabRows(){const el=document.getElementById('fab-rows');if(!el)return;el.innerHTML=formFabs.length?formFabs.map((f,i)=>fabRowHTML(f,i)).join(''):'<div class="muted" style="text-align:center;padding:.5rem">원단 없음</div>';var dl=document.getElementById('dl-fnm');if(dl){var fdb=buildFabDB();dl.innerHTML=Object.keys(fdb).map(function(k){return '<option value="'+esc(k)+'">';}).join('');}
   // 혼용률 빌더 각 row 초기 렌더
   formFabs.forEach(function(f,i){renderCompBuilder(i,f.composition||'');});
-  renderUnregisteredMats();
 }
 function inlineTrimCostsHTML(t){
   if(!t||!t.id)return'';
@@ -6916,10 +6918,17 @@ function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)r
   const labelTypes=['careLabel','mainLabel'];
   const basics=[];const labels=[];
   (formTrims||[]).forEach((t,i)=>{if(labelTypes.indexOf(t.orderType)>=0)labels.push({t,i});else basics.push({t,i});});
-  el.innerHTML = basics.length ? basics.map(x=>trimRowHTML(x.t,x.i)+inlineTrimCostsHTML(x.t)).join('') : '<div class="muted" style="text-align:center;padding:.5rem">부자재 없음</div>';
+  el.innerHTML = basics.length ? basics.map(x=>{const badge=_pbTrimBadge(x.t,x.i);const raw=trimRowHTML(x.t,x.i);const html=badge?raw.replace('<button class="btn s d g" style="order:99;margin-left:auto" onclick="rmTrimRow('+x.i+')">🗑</button>',badge+'<button class="btn s d g" style="order:99;margin-left:auto" onclick="rmTrimRow('+x.i+')">🗑</button>'):raw;return html+inlineTrimCostsHTML(x.t);}).join('') : '<div class="muted" style="text-align:center;padding:.5rem">부자재 없음</div>';
   const labelEl=document.getElementById('label-trim-rows');
   if(labelEl) labelEl.innerHTML = labels.length ? labels.map(x=>trimRowHTML(x.t,x.i)+inlineTrimCostsHTML(x.t)).join('') : '<div class="muted" style="font-size:11px;padding:6px 4px">라벨 없음 — 아래 버튼으로 추가</div>';
-  renderUnregisteredMats();
+}
+function _pbTrimBadge(t,i){
+  if(!t||!t.supplier||!t.name)return'';
+  var key=pbKey(t.name,t.color||'',t.size||'');
+  var pb=S.priceBook[t.supplier];
+  var inPB=!!(pb&&pb.materials&&(pb.materials[key]||pb.materials[pbKey(t.name,t.color||'')]));
+  if(inPB)return'<span style="order:98;align-self:center;font-size:10px;color:#16a34a;background:#dcfce7;border:1px solid #86efac;padding:1px 7px;border-radius:20px;white-space:nowrap">✓ 단가장</span>';
+  return'<button type="button" class="btn s" onclick="pbRegisterFormMat(\'trim\','+i+')" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">📚 단가장 등록</button>';
 }
 function renderUnregisteredMats(){
   const el=document.getElementById('if-unreg');if(!el)return;
@@ -6964,7 +6973,7 @@ function pbRegisterFormMat(type,idx){
       yardsPerRoll:t.yardsPerRoll!=null?t.yardsPerRoll:existing.yardsPerRoll||null,lastUpdated:today()};
     savePB();showToast('📚 단가장 등록: '+t.name+(t.color?' ('+t.color+')':''));
   }
-  renderUnregisteredMats();
+  renderFabRows();renderTrimRows();
 }
 function _renderTrimRows_OLD_unused(){const el=document.getElementById('trim-rows');if(!el)return;
   if(!formTrims.length){el.innerHTML='<div class="muted" style="text-align:center;padding:.5rem">부자재 없음</div>';return;}
