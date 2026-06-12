@@ -11927,26 +11927,46 @@ function _payFeeRefresh(){
 // 택배비/박스비/운임 입력 모달 (좁은 카드 대신 넉넉히 입력)
 var _payFeeModalCtx=null;
 function openPayFeeModal(oid,key,title){ _payFeeModalCtx={oid:oid,key:key,title:title||'운임·기타 비용'}; renderPayFeeModalBody(); var m=document.getElementById('payfee-modal'); if(m)m.style.display='flex'; }
-function renderPayFeeModalBody(){ if(!_payFeeModalCtx)return; var c=_payFeeModalCtx; var el=document.getElementById('payfee-modal-body'); if(!el)return; var pb=payFeeBlock(c.oid,c.key,1); el.innerHTML='<div class="fb" style="margin-bottom:6px"><b>🚚 '+esc(c.title)+'</b><button class="btn s g" onclick="closeModal(\'payfee-modal\')">✕</button></div>'+pb.editor+'<div style="text-align:right;margin-top:10px;font-weight:800;font-size:14px">합계 '+num(pb.feeTot)+'원 <span style="font-weight:400;font-size:11px;color:var(--t2)">(이 명세서에 더해짐)</span></div><button class="btn p" style="width:100%;margin-top:10px" onclick="closeModal(\'payfee-modal\')">완료</button>'; }
+function renderPayFeeModalBody(){ if(!_payFeeModalCtx)return; var c=_payFeeModalCtx; var el=document.getElementById('payfee-modal-body'); if(!el)return; var pb=payFeeBlock(c.oid,c.key,1); var totTxt=pb.noVatTot>0?'과세 '+num(pb.feeTot)+'원 + 면세 '+num(pb.noVatTot)+'원 = 합계 '+num(pb.feeTot+pb.noVatTot)+'원':'합계 '+num(pb.feeTot)+'원'; el.innerHTML='<div class="fb" style="margin-bottom:6px"><b>🚚 '+esc(c.title)+'</b><button class="btn s g" onclick="closeModal(\'payfee-modal\')">✕</button></div>'+pb.editor+'<div style="text-align:right;margin-top:10px;font-weight:800;font-size:14px">'+totTxt+' <span style="font-weight:400;font-size:11px;color:var(--t2)">(이 명세서에 더해짐)</span></div><button class="btn p" style="width:100%;margin-top:10px" onclick="closeModal(\'payfee-modal\')">완료</button>'; }
 function addPayFee(oid,key,name){var o=S.orders[oid];if(!o)return;if(!o.payFees)o.payFees={};if(!o.payFees[key])o.payFees[key]=[];o.payFees[key].push({name:name||'운임',qty:1,unitPrice:0,amount:0});saveData();_payFeeRefresh();}
 function setPayFeeName(oid,key,idx,v){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr&&arr[idx]){arr[idx].name=v;saveData();}}
 function setPayFeeQty(oid,key,idx,v){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr&&arr[idx]){arr[idx].qty=(v===''?'':+v||0);arr[idx].amount=payFeeAmt(arr[idx]);saveData();_payFeeRefresh();}}
 function setPayFeeUnitPrice(oid,key,idx,v){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr&&arr[idx]){arr[idx].unitPrice=+v||0;arr[idx].amount=payFeeAmt(arr[idx]);saveData();_payFeeRefresh();}}
 function rmPayFee(oid,key,idx){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr){arr.splice(idx,1);saveData();_payFeeRefresh();}}
+function setPayFeeNoVat(oid,key,idx,v){var o=S.orders[oid];var arr=o&&o.payFees&&o.payFees[key];if(arr&&arr[idx]){arr[idx].noVat=!!v;saveData();_payFeeRefresh();}}
 function payFeeBlock(oid,key,labelColspan){
   var o=S.orders[oid];var fees=getPayFees(o,key);
-  var feeTot=fees.reduce(function(s,f){return s+payFeeAmt(f);},0);
-  var rows=fees.map(function(f){var amt=payFeeAmt(f);var sub=(f.qty!=null&&f.qty!=='')?(num(+f.qty||0)+'개 × '+num(+f.unitPrice||0)+'원'):'';return '<tr style="border-bottom:1px dashed var(--bd)"><td colspan="'+labelColspan+'" style="padding:6px 4px"><span class="badge" style="background:#fef3c7;color:#854d0e">🚚 '+esc(f.name||'운임')+'</span>'+(sub?' <span style="font-size:9px;color:var(--t2)">'+sub+'</span>':'')+'</td><td style="text-align:right;padding:6px 4px;font-weight:600">'+num(amt)+'원</td></tr>';}).join('');
+  var feeTot=fees.reduce(function(s,f){return f.noVat?s:s+payFeeAmt(f);},0);
+  var noVatTot=fees.reduce(function(s,f){return f.noVat?s+payFeeAmt(f):s;},0);
+  var rows=fees.map(function(f){
+    var amt=payFeeAmt(f);
+    var sub=(f.qty!=null&&f.qty!=='')?(num(+f.qty||0)+'개 × '+num(+f.unitPrice||0)+'원'):'';
+    var badge=f.noVat
+      ?'<span class="badge" style="background:#f0fdf4;color:#166534">🔕 '+esc(f.name||'운임')+'</span><span class="badge" style="font-size:9px;background:#dcfce7;color:#166534;margin-left:3px">면세</span>'
+      :'<span class="badge" style="background:#fef3c7;color:#854d0e">🚚 '+esc(f.name||'운임')+'</span>';
+    return '<tr style="border-bottom:1px dashed var(--bd)"><td colspan="'+labelColspan+'" style="padding:6px 4px">'+badge+(sub?' <span style="font-size:9px;color:var(--t2)">'+sub+'</span>':'')+'</td><td style="text-align:right;padding:6px 4px;font-weight:600">'+num(amt)+'원</td></tr>';
+  }).join('');
   var editor='<div style="margin-top:10px;padding:9px 11px;background:#fffbeb;border:1px dashed #fde68a;border-radius:7px">'
     +'<div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">🚚 운임·기타 비용 (박스수 × 단가 = 합계, 이 명세서에 더해져요)</div>'
-    +fees.map(function(f,idx){var amt=payFeeAmt(f);return '<div class="fr" style="gap:4px;margin-bottom:5px;align-items:center;flex-wrap:nowrap"><input value="'+esc(f.name||'')+'" onchange="setPayFeeName(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="flex:1;min-width:60px;font-size:12px" placeholder="비용명"><input type="number" value="'+(f.qty!=null&&f.qty!==''?f.qty:1)+'" onchange="setPayFeeQty(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="width:48px;font-size:12px;text-align:center" placeholder="박스" title="박스/수량"><span style="font-size:10px;color:var(--t2)">×</span><input type="number" value="'+(+f.unitPrice||0)+'" onchange="setPayFeeUnitPrice(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="width:78px;font-size:12px;text-align:right" placeholder="단가"><span style="font-size:11px;font-weight:700;min-width:62px;text-align:right">='+num(amt)+'</span><button class="btn s d" onclick="rmPayFee(\''+oid+'\',\''+key+'\','+idx+')">🗑</button></div>';}).join('')
-    +'<div style="font-size:9px;color:var(--t2);margin:2px 0 5px">※ 박스수를 비우고 단가만 넣으면 그 금액이 그대로 합계예요</div>'
+    +fees.map(function(f,idx){
+      var amt=payFeeAmt(f);var noVat=!!f.noVat;
+      return '<div class="fr" style="gap:4px;margin-bottom:5px;align-items:center;flex-wrap:nowrap">'
+        +'<input value="'+esc(f.name||'')+'" onchange="setPayFeeName(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="flex:1;min-width:60px;font-size:12px" placeholder="비용명">'
+        +'<input type="number" value="'+(f.qty!=null&&f.qty!==''?f.qty:1)+'" onchange="setPayFeeQty(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="width:48px;font-size:12px;text-align:center" placeholder="박스" title="박스/수량">'
+        +'<span style="font-size:10px;color:var(--t2)">×</span>'
+        +'<input type="number" value="'+(+f.unitPrice||0)+'" onchange="setPayFeeUnitPrice(\''+oid+'\',\''+key+'\','+idx+',this.value)" style="width:78px;font-size:12px;text-align:right" placeholder="단가">'
+        +'<span style="font-size:11px;font-weight:700;min-width:62px;text-align:right">='+num(amt)+'</span>'
+        +'<button class="btn s" onclick="setPayFeeNoVat(\''+oid+'\',\''+key+'\','+idx+','+(!noVat)+')" style="'+(noVat?'background:#dcfce7;color:#166534;border-color:#86efac;':'')+'font-size:10px;padding:3px 6px" title="'+(noVat?'면세 적용 중 — 클릭하면 과세로':'클릭하면 면세로 전환')+'">'+(noVat?'면세':'과세')+'</button>'
+        +'<button class="btn s d" onclick="rmPayFee(\''+oid+'\',\''+key+'\','+idx+')">🗑</button>'
+        +'</div>';
+    }).join('')
+    +'<div style="font-size:9px;color:var(--t2);margin:2px 0 5px">※ 박스수를 비우고 단가만 넣으면 그 금액이 그대로 합계예요 · 면세 항목은 부가세 계산에서 제외</div>'
     +'<div class="fr" style="gap:4px;flex-wrap:wrap;margin-top:2px">'
     +'<button class="btn s" type="button" onclick="addPayFee(\''+oid+'\',\''+key+'\',\'택배비\')">+ 택배비</button>'
     +'<button class="btn s" type="button" onclick="addPayFee(\''+oid+'\',\''+key+'\',\'박스비\')">+ 박스비</button>'
     +'<button class="btn s" type="button" onclick="addPayFee(\''+oid+'\',\''+key+'\',\'운임\')">+ 운임</button>'
     +'</div></div>';
-  return {feeTot:feeTot,rows:rows,editor:editor,txt:fees.map(function(f){var sub=(f.qty!=null&&f.qty!=='')?(' ('+num(+f.qty||0)+'×'+num(+f.unitPrice||0)+')'):'';return (f.name||'운임')+sub+'  '+num(payFeeAmt(f))+'원';})};
+  return {feeTot:feeTot,noVatTot:noVatTot,rows:rows,editor:editor,txt:fees.map(function(f){var sub=(f.qty!=null&&f.qty!=='')?(' ('+num(+f.qty||0)+'×'+num(+f.unitPrice||0)+')'):'';return (f.name||'운임')+sub+'  '+num(payFeeAmt(f))+'원'+(f.noVat?' (면세)':'');})};
 }
 function getTrimCostRows(o,sn){
   var out=[];
@@ -12019,6 +12039,7 @@ function renderPayShtTab(o){
     if(!cItems.length&&_feeF.feeTot<=0&&!isInspectionFc&&fc.name==='(삭제됨)')continue;
     const tB=cItems.reduce((s,c)=>s+c.base,0);
     const tBf=tB+_feeF.feeTot;
+    const noVatAmt=_feeF.noVatTot||0;
     const vatRate=sch.vatRate||10;
     const tV=Math.round(tBf*vatRate/100);
     const bankAcc=fc.bank||'';  // 공장 입금계좌
@@ -12044,7 +12065,8 @@ function renderPayShtTab(o){
       `──────────────────`,
       `공급가 합계  ${num(tBf)}원`,
       `부가세 (${vatRate}%)  ${num(tV)}원`,
-      `최종 합계  ${num(tBf+tV)}원`,
+      ...(noVatAmt>0?[`면세 합계  ${num(noVatAmt)}원`]:[]),
+      `최종 합계  ${num(tBf+tV+noVatAmt)}원`,
       ``,
       bankAcc?`입금 계좌: ${bankAcc}`:'입금 계좌: ',
       ``,`감사합니다.`,coNm
@@ -12095,9 +12117,10 @@ function renderPayShtTab(o){
               <td style="padding:4px 4px;color:var(--t2)">부가세 (${vatRate}%)</td>
               <td style="text-align:right;padding:4px 4px">${num(tV)}원</td>
             </tr>
+            ${noVatAmt>0?`<tr><td style="padding:4px 4px;color:#166534">면세 합계 <span class="badge" style="background:#dcfce7;color:#166534;font-size:9px">세액제외</span></td><td style="text-align:right;padding:4px 4px;color:#166534">${num(noVatAmt)}원</td></tr>`:''}
             <tr style="border-top:2px solid var(--text);background:var(--bg2)">
               <td style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 <span class="badge b3" style="font-size:10px">VAT 포함</span></td>
-              <td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:var(--blue)">${num(tBf+tV)}원</td>
+              <td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:var(--blue)">${num(tBf+tV+noVatAmt)}원</td>
             </tr>
             </tbody>
           </table>
@@ -12139,7 +12162,8 @@ function renderPayShtTab(o){
     var _extraRows=extraOrderRowsForSupplier(o,sn);if(_extraRows.length)Array.prototype.push.apply(rows,_extraRows);
     const _feeS=payFeeBlock(o.id,'sp:'+sn,isFabricSup?3:4);
     const tB=rows.reduce(function(s,r){return s+r.amount;},0)+_feeS.feeTot;
-    if(!tB)continue;
+    const noVatAmtS=_feeS.noVatTot||0;
+    if(!tB&&!noVatAmtS)continue;
     const tV=Math.round(tB*vatRate/100);
     const bankAcc=pb.bank||'';
     const psid='ps-sup-'+sn.replace(/\W/g,'');
@@ -12151,8 +12175,8 @@ function renderPayShtTab(o){
     const ptxt=['[결제 내역서]','발행일: '+today(),'공급자: '+sn,'출고처: '+orderBrandNm,'',
       '■ 오더: '+o.name,'──────────────────',
       ...txtRows,..._feeS.txt,'──────────────────',
-      '공급가 합계: '+num(tB)+'원','부가세('+vatRate+'%): '+num(tV)+'원','합계(VAT포함): '+num(tB+tV)+'원',
-      bankAcc?'\n🏦 입금계좌: '+bankAcc:'','','감사합니다.',coNm].filter(function(x){return x!==undefined;}).join('\n');
+      '공급가 합계: '+num(tB)+'원','부가세('+vatRate+'%): '+num(tV)+'원'].concat(noVatAmtS>0?['면세 합계: '+num(noVatAmtS)+'원']:[]).concat(['합계(VAT포함): '+num(tB+tV+noVatAmtS)+'원',
+      bankAcc?'\n🏦 입금계좌: '+bankAcc:'','','감사합니다.',coNm]).filter(function(x){return x!==undefined;}).join('\n');
     const paid=sup.paymentSent;
     // 컬럼 헤더 (종류별)
     const colHead=isFabricSup
@@ -12192,7 +12216,8 @@ function renderPayShtTab(o){
             ${_feeS.rows}
             <tr style="border-top:1px solid var(--bd)"><td colspan="${colSpan}" style="padding:6px 4px;color:var(--t2)">공급가 합계</td><td style="text-align:right;padding:6px 4px">${num(tB)}원</td></tr>
             <tr><td colspan="${colSpan}" style="padding:4px 4px;color:var(--t2)">부가세 (${vatRate}%)</td><td style="text-align:right;padding:4px 4px">${num(tV)}원</td></tr>
-            <tr style="border-top:2px solid var(--text);background:var(--bg2)"><td colspan="${colSpan}" style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 <span class="badge b3" style="font-size:10px">VAT 포함</span></td><td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:var(--blue)">${num(tB+tV)}원</td></tr>
+            ${noVatAmtS>0?`<tr><td colspan="${colSpan}" style="padding:4px 4px;color:#166534">면세 합계 <span class="badge" style="background:#dcfce7;color:#166534;font-size:9px">세액제외</span></td><td style="text-align:right;padding:4px 4px;color:#166534">${num(noVatAmtS)}원</td></tr>`:''}
+            <tr style="border-top:2px solid var(--text);background:var(--bg2)"><td colspan="${colSpan}" style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 <span class="badge b3" style="font-size:10px">VAT 포함</span></td><td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:var(--blue)">${num(tB+tV+noVatAmtS)}원</td></tr>
             </tbody>
           </table>
           ${bankAcc?`<div style="margin-top:10px;padding:8px 10px;background:#f0f7ff;border-radius:5px;font-size:12px">🏦 <b>입금 계좌:</b> ${esc(bankAcc)}</div>`:''}
@@ -12220,7 +12245,7 @@ function renderPayShtTab(o){
       ...rows.map(function(r){return r.name+'  '+num(r.qty)+r.unit+' × '+num(r.price)+'원 = '+num(r.amount)+'원';}),
       '──────────────────','공급가 합계: '+num(tB)+'원','부가세('+vatRate+'%): '+num(tV)+'원','합계(VAT포함): '+num(tB+tV)+'원',
       bankAcc?'\n🏦 입금계좌: '+bankAcc:'','','감사합니다.',coNm].filter(function(x){return x!==undefined;}).join('\n');
-    var _feeP=payFeeBlock(o.id,'pf:'+sn,4);tB+=_feeP.feeTot;tV=Math.round(tB*vatRate/100);
+    var _feeP=payFeeBlock(o.id,'pf:'+sn,4);var noVatAmtP=_feeP.noVatTot||0;tB+=_feeP.feeTot;tV=Math.round(tB*vatRate/100);
     html+='<div class="sc" style="margin-bottom:12px" id="'+psid+'"><div class="sc-h"><div style="font-weight:700;font-size:15px">'+esc(sn)+' <span class="badge b2" style="font-size:10px">🎨 가공처</span></div><span class="badge '+(paid?'b3':'b0')+'">'+(paid?'결제완료':'미결제')+'</span></div><div class="sc-b">'
       +'<div style="border:1px solid var(--bd);border-radius:8px;padding:16px;margin-bottom:12px;background:white">'
       +'<div style="display:flex;border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:12px"><div style="flex:1;text-align:center;padding:11px;font-size:16px;font-weight:700">가공비 내역서</div><div style="min-width:98px;white-space:nowrap;padding:0 8px;border-left:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">'+fmtKoDate(getPayDate(o,'pf:'+sn))+'</div></div>'
@@ -12230,7 +12255,8 @@ function renderPayShtTab(o){
       +_feeP.rows
       +'<tr style="border-top:1px solid var(--bd)"><td colspan="3" style="padding:6px 4px;color:var(--t2)">공급가 합계</td><td style="text-align:right;padding:6px 4px">'+num(tB)+'원</td></tr>'
       +'<tr><td colspan="3" style="padding:4px 4px;color:var(--t2)">부가세 ('+vatRate+'%)</td><td style="text-align:right;padding:4px 4px">'+num(tV)+'원</td></tr>'
-      +'<tr style="border-top:2px solid var(--text);background:var(--bg2)"><td colspan="3" style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 <span class="badge b3" style="font-size:10px">VAT 포함</span></td><td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:var(--blue)">'+num(tB+tV)+'원</td></tr>'
+      +(noVatAmtP>0?'<tr><td colspan="3" style="padding:4px 4px;color:#166534">면세 합계 <span class="badge" style="background:#dcfce7;color:#166534;font-size:9px">세액제외</span></td><td style="text-align:right;padding:4px 4px;color:#166534">'+num(noVatAmtP)+'원</td></tr>':'')
+      +'<tr style="border-top:2px solid var(--text);background:var(--bg2)"><td colspan="3" style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 <span class="badge b3" style="font-size:10px">VAT 포함</span></td><td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:var(--blue)">'+num(tB+tV+noVatAmtP)+'원</td></tr>'
       +'</tbody></table>'+(bankAcc?'<div style="margin-top:10px;padding:8px 10px;background:#f0f7ff;border-radius:5px;font-size:12px">🏦 <b>입금 계좌:</b> '+esc(bankAcc)+'</div>':'')+'</div>'
       +payDatePicker(o.id,'pf:'+sn)
       +_feeP.editor
@@ -15506,15 +15532,18 @@ function renderItemPay(opts){
         let base=rate*qty;
         const feeKey='fc:'+fcId;
         const fees=(o.payFees||{})[feeKey]||[];
-        const feeTot=fees.reduce((s,f)=>s+payFeeAmt(f),0);
-        base+=feeTot;
-        if(!base)continue;
+        const taxFeeTot=fees.reduce((s,f)=>f.noVat?s:s+payFeeAmt(f),0);
+        const noVatFeeTot=fees.reduce((s,f)=>f.noVat?s+payFeeAmt(f):s,0);
+        const feeTot=taxFeeTot+noVatFeeTot;
+        base+=taxFeeTot;
+        const isInspFc=(it.inspectionFcId===fcId);
+        if(!base&&!noVatFeeTot&&!isInspFc)continue;
         const vatRate=sch.vatRate||10;
         const vat=Math.round(base*vatRate/100);
-        const total=base+vat;
+        const total=base+vat+noVatFeeTot;
         const payKey='fc:'+fcId;
         const st=getPaySt(o.id,payKey);
-        fcs.push({fcId,fc,role,name:fc.name,rate,qty,lbl,ck,fees,feeTot,base,vat,total,paid:st.paid,payKey,isSewing});
+        fcs.push({fcId,fc,role,name:fc.name,rate,qty,lbl,ck,fees,feeTot,noVatFeeTot,base,vat,total,paid:st.paid,payKey,isSewing});
       }
       if(!fcs.length)continue;
       sewShipRecs.sort((a,b)=>cmpDate(a.date).localeCompare(cmpDate(b.date)));
@@ -15601,10 +15630,10 @@ function renderItemPay(opts){
         costLines+=`<div class="ln"><span>${esc(f.lbl||'단가')}</span><span class="v">${num(f.rate)}원</span></div>`;
         costLines+=`<div class="ln"><span>×</span><span class="v">${f.qty}장</span></div>`;
       }
-      if(f.feeTot>0){
+      if(f.feeTot>0||f.noVatFeeTot>0){
         f.fees.forEach(function(fee){
           const amt=payFeeAmt(fee);
-          if(amt>0)costLines+=`<div class="ln"><span>${esc(fee.name||'운임')}</span><span class="v">${num(amt)}원</span></div>`;
+          if(amt>0)costLines+=`<div class="ln"><span>${esc(fee.name||'운임')}${fee.noVat?' <span style="font-size:9px;color:#166534">(면세)</span>':''}</span><span class="v">${num(amt)}원</span></div>`;
         });
       }
       if(!costLines)costLines='<div class="ln" style="color:#9ca3af">비용 미입력</div>';
@@ -15619,7 +15648,7 @@ function renderItemPay(opts){
           <button data-oid="${esc(r.oid)}" data-fcid="${esc(f.fcId)}" data-itemid="${esc(r.itemId)}" onclick="ipOpenReceipt(this)">명세서</button>
           <button class="${btnCls}" data-oid="${esc(r.oid)}" data-key="${esc(f.payKey)}" onclick="ipTogglePay(this)">${btnLbl}</button>
         </div>
-        ${(()=>{const _k='fc:'+f.fcId;const _ft=payFeeBlock(r.oid,_k,1).feeTot;const _ttl=(f.name||'').replace(/'/g,'');return `<button class="btn s" style="margin-top:7px;width:100%" onclick="openPayFeeModal('${r.oid}','${_k}','${_ttl} 운임·택배')">🚚 운임/택배${_ft>0?' · '+num(_ft)+'원':' 추가'}</button>`;})()}
+        ${(()=>{const _k='fc:'+f.fcId;const _pb2=payFeeBlock(r.oid,_k,1);const _ft=(_pb2.feeTot||0)+(_pb2.noVatTot||0);const _ttl=(f.name||'').replace(/'/g,'');return `<button class="btn s" style="margin-top:7px;width:100%" onclick="openPayFeeModal('${r.oid}','${_k}','${_ttl} 운임·택배')">🚚 운임/택배${_ft>0?' · '+num(_ft)+'원':' 추가'}</button>`;})()}
       </div>`;
     }).join('');
     const titleHtml=(brandNm?'<span class="brand">'+esc(brandNm)+'</span>':'')+(codeStr?'<span class="code">'+esc(codeStr)+'</span>':'')+'<span>'+esc(r.item.name||'')+'</span>';
