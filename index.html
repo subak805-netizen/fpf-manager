@@ -4192,9 +4192,18 @@ function parseComp(str){
 }
 function buildComp(rows){
   return (rows||[]).filter(function(r){return (r.name+'').trim()||r.pct;}).map(function(r){
-    var pct=r.pct!==''&&r.pct!=null?(r.pct+'% '):'';
-    return (pct+(r.name||'')).trim();
-  }).join('\n');
+    var pct=r.pct!==''&&r.pct!=null?(' '+r.pct):'';
+    return ((r.name||'')+pct).trim();
+  }).join(', ');
+}
+// 혼용률 문자열 표시 포맷: "100% cotton" / "cotton 100%" / "cotton\n100" → "cotton 100" (콤마 구분, % 없음)
+function fmtComp(str){
+  if(!str)return'';
+  return String(str).split(/[\n,;\/]/).map(function(s){return s.trim();}).filter(Boolean).map(function(p){
+    var m=p.match(/^(\d+(?:\.\d+)?)\s*%?\s*(.+)$/);if(m&&m[2].trim())return m[2].trim()+' '+m[1];
+    var m2=p.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*%?$/);if(m2)return m2[1].trim()+' '+m2[2];
+    return p.replace(/\s*%/g,'');
+  }).join(', ');
 }
 function renderCompBuilder(idx,initial){
   var el=document.getElementById('comp-builder-'+idx);
@@ -8277,7 +8286,7 @@ function genPoText(order,sn){
   // 오더명에서 날짜 단축 (2026. 05. 17. → 5/17)
   const shortName=(name)=>name.replace(/\d{4}\.\s*(\d{1,2})\.\s*(\d{1,2})\./g,(_,m,d)=>`${+m}/${+d}`);
   // 혼용률 숫자를 뒤로 ("100% cotton" → "cotton 100", "60% rayon" → "rayon 60")
-  const reorderComp=(comp)=>String(comp).split(/[\n,]/).map(s=>s.trim()).filter(Boolean).map(p=>{var m=p.match(/^(\d+(?:\.\d+)?)\s*%?\s*(.+)$/);if(m)return m[2].trim()+' '+m[1];var m2=p.match(/^(.+?)\s*(\d+(?:\.\d+)?)\s*%?$/);if(m2)return m2[1].trim()+' '+m2[2];return p;}).join(' ');
+  const reorderComp=(comp)=>fmtComp(comp);
   if(!onlyLabels){
     // 일반 거래처(원단/부자재): 상호 + 품명 헤더 표시
     if(headerNm)L.push('상호 '+headerNm);
@@ -16256,7 +16265,7 @@ function renderCS(){
   const fr=it.fabrics.map(f=>{
     const cp=fabPure(f,qty);const cl={...cp,cost:cp.cost*(1+fabLoss/100)};
     const k='f-'+f.id;const inc=!isEx(k);if(inc){tf+=cp.cost;tfL+=cl.cost;}
-    const fabInfo=[f.width?f.width+'"':'',f.composition?String(f.composition).replace(/\n/g,' '):''].filter(Boolean).join(' ');
+    const fabInfo=[f.width?f.width+'"':'',f.composition?fmtComp(f.composition):''].filter(Boolean).join(' ');
     const ovrVal=csGetOverride(id,'fab',f.id);
     return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td class="muted" style="font-size:12px">${esc(f.supplier||'')}</td><td><b>${esc(f.name)}</b>${f.pricingUnit==='kg'?' <span class="badge b2" style="font-size:10px">KG</span>':''}${fabInfo?`<br><span class="muted" style="font-size:12px">${esc(fabInfo)}</span>`:''}</td><td class="muted" style="font-size:13px">${(function(){
       if(f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0){
@@ -18305,7 +18314,7 @@ function genSamplePoText(so,kind){
       if(firstSup&&f.supplier!==firstSup)continue;
       var line=f.name||'원단';
       if(f.width)line+=' '+f.width+'"';
-      if(f.composition)line+=' '+String(f.composition).replace(/\n/g,' ');
+      if(f.composition)line+=' '+fmtComp(f.composition);
       if(f.unitPrice)line+=' '+num(f.unitPrice)+'원';
       lines.push(line);
       // 컬러별로 한 줄씩
@@ -24010,7 +24019,7 @@ function tpLabelTableHTML(it){
   rows.forEach(function(r){ h+='<tr><td class="l">'+tpEsc(r.nm)+'</td><td>'+tpInpL('labelPos.'+(r.t.id||''),'위치 입력')+'</td></tr>'; });
   return h+'</table>';
 }
-function tpFabricTableHTML(it){ var fabs=it.fabrics||[]; if(!fabs.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 원단 없음</div>'; var h='<table class="tp-tbl"><tr><th>부위</th><th>원단명</th><th>혼용률</th><th>폭</th><th>요척</th></tr>'; fabs.forEach(function(f){ h+='<tr><td>'+tpEsc(f.part||'-')+'</td><td class="l">'+tpEsc(f.name||'')+'</td><td>'+tpEsc((f.composition||'').replace(/\n/g,' '))+'</td><td>'+tpEsc(f.width||'')+(f.width?'"':'')+'</td><td>'+tpEsc(f.consumption||'')+(f.consumption?'Y':'')+'</td></tr>'; }); return h+'</table>'; }
+function tpFabricTableHTML(it){ var fabs=it.fabrics||[]; if(!fabs.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 원단 없음</div>'; var h='<table class="tp-tbl"><tr><th>부위</th><th>원단명</th><th>혼용률</th><th>폭</th><th>요척</th></tr>'; fabs.forEach(function(f){ h+='<tr><td>'+tpEsc(f.part||'-')+'</td><td class="l">'+tpEsc(f.name||'')+'</td><td>'+tpEsc(fmtComp(f.composition||''))+'</td><td>'+tpEsc(f.width||'')+(f.width?'"':'')+'</td><td>'+tpEsc(f.consumption||'')+(f.consumption?'Y':'')+'</td></tr>'; }); return h+'</table>'; }
 function tpHasCord(it){ return /코듀로이|골덴|벨벳|corduroy|velvet/i.test(JSON.stringify(it.fabrics||[])); }
 function tpTrimTableHTML(it){ var tr=it.trims||[]; if(!tr.length)return '<div class="tp-sb" style="color:#9aa0a8;font-size:13px">등록된 부자재 없음</div>'; var h='<table class="tp-tbl"><tr><th>부자재</th><th>위치 / 규격</th><th>컬러</th></tr>'; tr.forEach(function(t){ var spec=[t.part,t.size].filter(Boolean).join(' · '); h+='<tr><td class="l">'+tpEsc(t.name||t.labelName||'')+'</td><td>'+tpEsc(spec||'-')+'</td><td>'+tpEsc(t.color||'-')+'</td></tr>'; }); return h+'</table>'; }
 function tpTagChips(it){ var names=(typeof tpFinishItems==='function'?tpFinishItems(it):[])||[]; names=names.filter(function(v,i,a){return v&&a.indexOf(v)===i;}); if(!names.length)return '<span style="color:#9aa0a8;font-size:13px">완성부자재 없음 — 아이템 메인라벨의 포함 항목(브랜드 완성부자재)에서 선택하세요</span>'; return names.map(function(n){return '<span class="tp-chip">'+tpEsc(n)+'</span>';}).join(''); }
