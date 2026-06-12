@@ -6007,6 +6007,7 @@ function showItemForm(id){
   _itemListScrollY=window.scrollY||0;
   document.getElementById('ipl').style.display='none';document.getElementById('ipf').style.display='';
   window.scrollTo(0,0);
+  window._autoWorkRoute=''; // 자동경로 추적 초기화
   updateSupDL();const p=it||{};
   // 임시저장 있는지 확인 (신규 작성 시에만)
   const draft=!id?lsGet(DRAFT_KEY):null;
@@ -6112,12 +6113,38 @@ function showItemForm(id){
 }
 function refreshWorkRoute(){
   var el=document.getElementById('f-workRoute');if(!el)return;
-  // 사용자가 직접 입력한 내용이 있으면 건드리지 않음 (싹 비우면 다시 자동 적용)
-  if(el.value.trim())return;
-  var tmp={brandId:(document.getElementById('f-brand')||{}).value||'',fabrics:formFabs};
-  COST_DEFS.forEach(function(d){var fk=d[2];var sel=document.getElementById('f-'+fk);if(sel)tmp[fk]=sel.value||'';});
-  var r=(typeof tpAutoRoute==='function')?tpAutoRoute(tmp).join(' → '):'';
-  if(r)el.value=r;
+  var cur=el.value.trim();
+  // 직전 자동생성값 저장 — 공장이 바뀌면 자동값이면 덮어씀, 직접 입력한 커스텀이면 유지
+  if(cur&&cur!==(window._autoWorkRoute||''))return;
+  var parts=[];
+  // 원단 거래처 (formFabs에서 직접)
+  var fabSups=[];
+  (formFabs||[]).forEach(function(f){if((f.supplier||'').trim()&&fabSups.indexOf(f.supplier)<0)fabSups.push(f.supplier);});
+  if(fabSups.length)parts.push('원단 '+fabSups.join('·'));
+  // 공장: select 옵션 텍스트에서 공장명 추출 (S.factories ID 조회 없이 바로 읽음)
+  var fcOrder=[
+    ['embroideryFcId','자수'],['printingFcId','나염'],['sewingFcId','봉제'],
+    ['washingFcId','워싱'],['finishingFcId','완성'],['inspectionFcId','검품']
+  ];
+  fcOrder.forEach(function(pair){
+    var fk=pair[0],lbl=pair[1];
+    var sel=document.getElementById('f-'+fk);
+    if(!sel||!sel.value)return;
+    var opt=sel.options[sel.selectedIndex];
+    var nm=(opt?opt.text:'').replace(/\s*\([^)]*\)\s*$/,'').trim(); // "엄지 (봉제공임공장)" → "엄지"
+    if(nm&&nm!=='없음')parts.push(lbl+' '+nm);
+  });
+  // 브랜드 출고
+  var bid=(document.getElementById('f-brand')||{}).value||'';
+  if(bid){
+    var bnm='';
+    var bs=S&&S.brands;
+    if(Array.isArray(bs)){var br=bs.find(function(b){return b&&b.id===bid;});if(br)bnm=br.name||br.label||'';}
+    else if(bs&&bs[bid]){var bv=bs[bid];bnm=bv.name||bv||'';}
+    if(bnm)parts.push('출고 '+bnm);
+  }
+  var r=parts.join(' → ');
+  if(r){el.value=r;window._autoWorkRoute=r;}
 }
 function hideItemForm(){document.getElementById('ipl').style.display='';document.getElementById('ipf').style.display='none';requestAnimationFrame(function(){window.scrollTo(0,_itemListScrollY);});}
 
