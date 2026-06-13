@@ -3035,7 +3035,8 @@ async function cloudSyncLoad(id,opts){
         brandConfig:d.brandConfig||S.brandConfig||{},
         deductions:d.deductions||S.deductions||[],
         factories:sh.factories||S.factories||{},
-        priceBook:sh.priceBook||S.priceBook||{}
+        priceBook:sh.priceBook||S.priceBook||{},
+        _compMigrated:d._compMigrated||S._compMigrated||false
       };
       // 로컬 캐시도 모든 필드로 업데이트
       lsSet('fpm_'+id,{
@@ -3214,7 +3215,7 @@ function saveData(){
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   window._lsQuotaErr=false;
-  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]});
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
@@ -3243,7 +3244,7 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{}};
+  S={items:d.items||{},orders:d.orders||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false};
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{ window._bkCacheCoId=null; if(typeof idbBkEnsureLoaded==='function')idbBkEnsureLoaded(); }catch(e){} // 백업 IndexedDB 로드/이사(회사 전환 시 캐시 갱신)
@@ -3274,6 +3275,12 @@ function migrateData(){
   var _mktMap={'동대문종합시장':'동대문시장','평화시장':'기타','광장시장':'기타','신평화패션타운':'기타','청평화패션타운':'기타','동화상가':'동화시장'};
   for(const _pb of Object.values(S.priceBook||{})){
     if(_pb&&_pb.market&&_mktMap[_pb.market])_pb.market=_mktMap[_pb.market];
+    // 혼용률 형식 정규화(1회): "100% Cotton" → "Cotton 100" (단가장 자재)
+    if(!S._compMigrated&&_pb&&_pb.materials&&typeof fmtComp==='function'){
+      for(const _m of Object.values(_pb.materials)){
+        if(_m&&_m.composition)_m.composition=fmtComp(_m.composition);
+      }
+    }
   }
   // Items
   for(const it of Object.values(S.items||{})){
@@ -3281,7 +3288,7 @@ function migrateData(){
     COST_DEFS.forEach(([ck,,fk])=>{if(it[ck]===undefined)it[ck]=0;if(fk&&it[fk]===undefined)it[fk]='';});
     if(it.patternCost===undefined)it.patternCost=0;if(it.sampleCost===undefined)it.sampleCost=0;
     if(it.onceCost===undefined)it.onceCost=0;if(!it.onceCostNm)it.onceCostNm='';if(it.inclOnce===undefined)it.inclOnce=false;
-    for(const f of it.fabrics){if(!f.fabricColor)f.fabricColor='';if(f.width===undefined)f.width=null;if(!f.composition)f.composition='';if(!f.colorLinks)f.colorLinks=[];}
+    for(const f of it.fabrics){if(!f.fabricColor)f.fabricColor='';if(f.width===undefined)f.width=null;if(!f.composition)f.composition='';else if(!S._compMigrated&&typeof fmtComp==='function')f.composition=fmtComp(f.composition);if(!f.colorLinks)f.colorLinks=[];}
     for(const t of it.trims){
       if(!t.colorLinks)t.colorLinks=[];
       // 실/롤 미니멈 내장 → useMinSplit 버튼으로 통일 (기본 ON, 기존 동작 유지)
@@ -3463,6 +3470,8 @@ function migrateData(){
       if(!b.factoryId){const it=S.items[b.itemId];if(it?.sewingFcId)b.factoryId=it.sewingFcId;}
     }
   }
+  // 혼용률 정규화 1회 완료 표시 — 이후 로드에선 입력값 그대로 보존(약식 등 강제변환 방지)
+  S._compMigrated=true;
 }
 
 /* ===== BACKUP / RESTORE ===== */
