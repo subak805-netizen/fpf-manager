@@ -1868,13 +1868,23 @@ function tpStripDataUrls(items){
   window._tpStrippedCount=stripped;
   return out;
 }
-// 원격(클라우드)에서 받은 items에, 로컬에만 있던 dataURL 사진을 다시 합침 (원격 적용 시 로컬 사진 보존)
+// 작업지시서 이미지 개수 세기 (손실 감지용) — dataURL + Storage URL 모두 카운트
+function _countTpImages(items){
+  var n=0;
+  Object.keys(items||{}).forEach(function(id){
+    var imgs=items[id]&&items[id].techpack&&items[id].techpack.images;
+    if(imgs)Object.keys(imgs).forEach(function(k){if(imgs[k]&&typeof imgs[k]==='string')n++;});
+  });
+  return n;
+}
+// 원격(클라우드)에서 받은 items에, 로컬에만 있던 사진을 다시 합침 (원격 적용 시 로컬 사진 보존)
+// ★ dataURL뿐 아니라 Storage URL 사진도 보존 — 원격이 비운 슬롯을 로컬 사진으로 채움(이미지 유실 방지)
 function tpMergeLocalImages(newItems,oldItems){
   Object.keys(newItems||{}).forEach(function(id){
     var oi=oldItems&&oldItems[id]; var ni=newItems[id];
     if(oi&&oi.techpack&&oi.techpack.images&&ni){
       if(!ni.techpack)ni.techpack={}; if(!ni.techpack.images)ni.techpack.images={};
-      Object.keys(oi.techpack.images).forEach(function(k){var ov=oi.techpack.images[k];if(typeof ov==='string'&&ov.indexOf('data:')===0&&!ni.techpack.images[k])ni.techpack.images[k]=ov;});
+      Object.keys(oi.techpack.images).forEach(function(k){var ov=oi.techpack.images[k];if(typeof ov==='string'&&ov&&!ni.techpack.images[k])ni.techpack.images[k]=ov;});
     }
   });
   return newItems;
@@ -2092,46 +2102,70 @@ async function cloudSyncSave(){
   }
   setCloudInd('sync');
   try{
-    // === 안전장치 1: "빈 메모리 → 클라우드 빈 덮어쓰기" 막기 ===
-    // 메모리에 아이템/오더/브랜드가 모두 0개면 이건 정상 사용 상태가 아닐 수 있음
+    // === 안전장치: 빈/부분손실 데이터로 클라우드 덮어쓰기 막기 ===
+    // (1) 메모리가 완전히 빈데 클라우드엔 데이터 있음 → 절대 덮어쓰기 금지
+    // (2) 메모리가 클라우드보다 "크게 줄어듦"(아이템/오더/작업지시서 사진) → 사용자 확인 후에만 저장
+    //     → 다른 기기(폰 등)의 불완전한 데이터가 완전한 클라우드를 덮어쓰는 사고 방지
     var memItemCount=Object.keys(S.items||{}).length;
     var memOrderCount=Object.keys(S.orders||{}).length;
     var memBrandCount=(S.brands||[]).length;
     var memSampleCount=(S.sampleOrders||[]).length;
+    var memImgCount=_countTpImages(S.items||{});
     var memEmpty=(memItemCount===0&&memOrderCount===0&&memBrandCount===0&&memSampleCount===0);
-    
-    if(memEmpty){
-      // 클라우드 현재 상태 확인 — 클라우드에는 데이터가 있는데 메모리는 비어있다면?
-      try{
-        var cloudCurrent=await cloudGet('fpm_'+curCoId);
-        if(cloudCurrent){
-          var cloudHas=(Object.keys(cloudCurrent.items||{}).length>0||
-                        Object.keys(cloudCurrent.orders||{}).length>0||
-                        (cloudCurrent.brands||[]).length>0);
-          if(cloudHas){
-            // 위험 신호! 절대 덮어쓰지 않고 사용자에게 알림
-            console.error('[cloudSyncSave] 🛑 안전장치 발동: 메모리는 비어있는데 클라우드에 데이터 있음. 덮어쓰기 중단.');
-            setCloudInd('err');
-            if(!window._safetyGuardShown){
-              window._safetyGuardShown=true;
-              setTimeout(function(){
-                alert('🛑 안전장치 작동\n\n현재 화면은 비어있는데 클라우드에는 데이터가 있어요. 빈 상태로 덮어쓰지 않도록 동기화를 중단했습니다.\n\n복구 방법:\n1. 🚑 복구 버튼을 누르세요\n2. 옵션 3 (클라우드에서 다시 받기) 누르세요\n\n이렇게 하면 클라우드 데이터를 안전하게 받아올 수 있습니다.');
-              },300);
-            }
-            return;
-          }
-        }
-      }catch(checkErr){
-        console.warn('[cloudSyncSave] 클라우드 사전 확인 실패:',checkErr);
-        // 사전 확인 실패해도 빈 메모리 덮어쓰기는 위험 — 로그만 남기고 계속 진행 막음
-        if(memEmpty){
+
+    try{
+      var cloudCurrent=await cloudGet('fpm_'+curCoId);
+      if(cloudCurrent){
+        var cloudItems=Object.keys(cloudCurrent.items||{}).length;
+        var cloudOrders=Object.keys(cloudCurrent.orders||{}).length;
+        var cloudBrands=(cloudCurrent.brands||[]).length;
+        var cloudImgs=_countTpImages(cloudCurrent.items||{});
+        var cloudHas=(cloudItems>0||cloudOrders>0||cloudBrands>0);
+
+        // (1) 빈 메모리 → 클라우드에 데이터 있음 → 절대 덮어쓰기 금지
+        if(memEmpty&&cloudHas){
+          console.error('[cloudSyncSave] 🛑 안전장치: 메모리 비었는데 클라우드에 데이터 있음. 덮어쓰기 중단.');
           setCloudInd('err');
-          console.error('[cloudSyncSave] 메모리가 빈 상태인데 클라우드 확인 실패. 덮어쓰기 중단.');
+          if(!window._safetyGuardShown){
+            window._safetyGuardShown=true;
+            setTimeout(function(){
+              alert('🛑 안전장치 작동\n\n현재 화면은 비어있는데 클라우드에는 데이터가 있어요. 빈 상태로 덮어쓰지 않도록 동기화를 중단했습니다.\n\n복구 방법:\n1. 🚑 데이터 관리 → 옵션 3 (클라우드에서 다시 받기)');
+            },300);
+          }
           return;
         }
+
+        // (2) 부분 손실 — 클라우드보다 데이터가 크게 줄면 확인 후에만 저장
+        //     임계: 아이템 1개↓ / 오더 3개↓ / 작업지시서 사진 2개↓ (정상적인 1~2개 삭제는 통과)
+        if(!memEmpty&&!window._allowShrinkOnce){
+          var loss=[];
+          if(memItemCount<cloudItems)       loss.push('아이템 '+cloudItems+'→'+memItemCount+'개');
+          if(memOrderCount<cloudOrders-2)   loss.push('오더 '+cloudOrders+'→'+memOrderCount+'개');
+          if(memImgCount<cloudImgs-1)       loss.push('작업지시서 사진 '+cloudImgs+'→'+memImgCount+'개');
+          if(loss.length){
+            setCloudInd('err');
+            var okOverwrite=confirm('⚠️ 저장하려는 데이터가 클라우드보다 줄어들어요:\n\n'+loss.join('\n')+'\n\n다른 기기(폰 등)의 더 완전한 데이터일 수 있어요.\n\n[취소] = 저장 안 함 (☁ 새로고침으로 최신 받기 권장)\n[확인] = 그래도 이 기기 내용으로 덮어쓰기');
+            if(!okOverwrite){
+              if(typeof showToast==='function')showToast('🛡️ 덮어쓰기를 막았어요 — ☁ 새로고침으로 최신을 받으세요',7000);
+              console.warn('[cloudSyncSave] 🛡️ 부분손실 덮어쓰기 취소:',loss.join(', '));
+              return;
+            }
+            // 사용자가 의도적으로 덮어쓰기 선택 → 15초간 재확인 안 함(연속 저장 대비)
+            window._allowShrinkOnce=true; setTimeout(function(){window._allowShrinkOnce=false;},15000);
+            console.warn('[cloudSyncSave] 사용자가 덮어쓰기 승인:',loss.join(', '));
+          }
+        }
+      }
+    }catch(checkErr){
+      console.warn('[cloudSyncSave] 클라우드 사전 확인 실패:',checkErr);
+      // 사전 확인 실패 시 빈 메모리 덮어쓰기는 위험 → 중단
+      if(memEmpty){
+        setCloudInd('err');
+        console.error('[cloudSyncSave] 빈 메모리인데 클라우드 확인 실패 → 덮어쓰기 중단.');
+        return;
       }
     }
-    
+
     // 회사별 데이터 전체 (작업지시서 dataURL 사진은 클라우드 문서에서 제외 — 1MB 초과로 동기화 깨짐 방지)
     var coData={
       items:tpStripDataUrls(S.items||{}),
