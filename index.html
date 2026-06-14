@@ -949,6 +949,10 @@ tryInitFirebase();
   <!-- Items -->
   <div id="pane-items" class="panel" style="display:none">
     <div id="ipl">
+      <div id="item-subtabs" style="display:flex;margin-bottom:12px;border:2.5px solid var(--ink,#1a1a1a);border-radius:4px;overflow:hidden;max-width:920px">
+        <button id="ist-list" onclick="setItemView('list')" style="flex:1;padding:10px;font-weight:700;font-size:13px;border:none;border-right:2.5px solid var(--ink,#1a1a1a);background:#fff;cursor:pointer;font-family:inherit">아이템 목록</button>
+        <button id="ist-idea" onclick="setItemView('idea')" style="flex:1;padding:10px;font-weight:700;font-size:13px;border:none;background:#fff;cursor:pointer;font-family:inherit">💡 아이디어</button>
+      </div>
       <div class="fb" style="margin-bottom:8px"><div class="fr" style="gap:8px;align-items:center"><div class="muted" id="i-cnt"></div></div><div class="fr" style="gap:6px"><div class="il-more"><button class="btn s" onclick="toggleItemsMore(event)" title="더보기 (정렬·작지 가져오기·브랜드)">⋯</button><div class="il-more-pop" id="items-more-pop"><button class="btn s" id="item-sort-btn" onclick="closeItemsMore();toggleItemSort()" title="정렬 방향 전환 (시즌·품번 기준)">↓ 내림차순</button><button class="btn s" onclick="closeItemsMore();openJobImport()">📋 작지 가져오기</button><button class="btn s" onclick="closeItemsMore();showBrandManageModal()">🏷 브랜드</button></div></div><button class="btn p s" onclick="showItemForm(null)">＋ 아이템 추가</button></div></div>
       <div class="fr" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">
         <div id="item-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"></div>
@@ -5572,7 +5576,55 @@ function importJobSheet(txt){
   if(typeof showToast==='function')showToast('✅ 작지 가져오기 완료: '+created.join(', '),4000);
 }
 function toggleItemSort(){window._itemSortDir=(window._itemSortDir==='asc')?'desc':'asc';renderItemsList();}
+// ===== 아이디어 보드 (아이템 탭 서브탭) =====
+function setItemView(v){window._itemView=v;try{lsSet('fpm_itemView',v);}catch(e){}renderItemsList();}
+function createIdea(){
+  var nm=prompt('새 아이디어 이름 (가칭)');
+  if(nm===null)return; nm=(nm||'').trim()||'새 아이디어';
+  var id=(typeof uid==='function')?uid():('id'+Date.now());
+  var bf=window._itemBrandFlt;
+  S.items[id]={id:id,name:nm,colors:[],sizes:[],fabrics:[],trims:[],trimCosts:[],finishCosts:[],
+    brandId:(bf&&bf!=='__none')?bf:'',
+    statusManual:{auto:false,phase:'idea',round:0,stage:'none'},
+    ideaData:{},createdAt:(typeof todayISO==='function'?todayISO():'')};
+  if(typeof saveData==='function')saveData();
+  window._itemView='idea'; renderItemsList();
+  if(typeof showToast==='function')showToast('💡 아이디어 추가됨 — 카드를 눌러 내용을 채워보세요',4000);
+}
+function renderIdeaBoard(){
+  var el=document.getElementById('i-list'); if(!el)return;
+  var ideas=Object.values(S.items).filter(function(it){return deriveItemBadge(it).phase==='idea';});
+  var bf=window._itemBrandFlt;
+  if(bf&&bf!=='__none')ideas=ideas.filter(function(it){return it.brandId===bf;});
+  else if(bf==='__none')ideas=ideas.filter(function(it){return !it.brandId;});
+  var cnt=document.getElementById('i-cnt'); if(cnt)cnt.textContent='아이디어 '+ideas.length+'개';
+  var INK='var(--ink,#1a1a1a)';
+  var rows=ideas.map(function(it){
+    var brand=(it.brandId&&typeof getBrandName==='function')?(getBrandName(it.brandId)||''):'';
+    var imgs=(it.techpack&&it.techpack.images)||{};
+    var firstImg=''; var nImg=0;
+    for(var k in imgs){if(imgs[k]){if(!firstImg)firstImg=imgs[k];nImg++;}}
+    var imgInner=firstImg?('<img src="'+esc(firstImg)+'" alt="" style="width:100%;height:100%;object-fit:cover">'):('📷 레퍼런스<br>'+(nImg?nImg+'장':'없음'));
+    var tags='';
+    if(it.season)tags+='<span style="font-size:11px;padding:2px 7px;border:1.5px solid '+INK+';border-radius:3px;margin:0 4px 4px 0;display:inline-block;background:#A5E6BA">'+esc(it.season)+'</span>';
+    (it.fabrics||[]).slice(0,1).forEach(function(f){if(f.name)tags+='<span style="font-size:11px;padding:2px 7px;border:1.5px solid '+INK+';border-radius:3px;margin:0 4px 4px 0;display:inline-block;background:#B0DBF0">'+esc(f.name)+'</span>';});
+    var brandMark=brand?('<span style="font-size:11px;font-weight:600;color:#7c6a4a;background:#f0ebde;border:1.5px solid '+INK+';border-radius:3px;padding:1px 6px;margin-right:6px">'+esc(brand)+'</span>'):'';
+    return '<div onclick="showItemForm(\''+it.id+'\')" style="display:flex;gap:11px;background:#fff;border:2.5px solid '+INK+';box-shadow:3px 3px 0 rgba(11,10,5,.18);border-radius:3px;padding:10px;margin-bottom:11px;cursor:pointer">'
+      +'<div style="width:120px;height:120px;flex-shrink:0;border:2px solid '+INK+';border-radius:3px;background:#efeadd;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8a8470;text-align:center;overflow:hidden">'+imgInner+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="margin-bottom:6px">'+brandMark+'</div><div style="font-size:15px;font-weight:700;margin:0 0 7px;word-break:keep-all">'+esc(it.name)+'</div>'+tags+'</div>'
+      +'</div>';
+  }).join('');
+  var empty=ideas.length?'':'<div style="text-align:center;color:#9a958a;font-size:13px;padding:24px 0">아직 아이디어가 없어요. 아래 버튼으로 첫 아이디어를 추가해보세요 💡</div>';
+  el.innerHTML=empty+rows
+    +'<div onclick="createIdea()" style="border:2.5px dashed '+INK+';border-radius:3px;padding:16px;text-align:center;font-weight:700;font-size:14px;cursor:pointer;background:rgba(255,255,255,.4)">＋ 새 아이디어</div>';
+}
 function renderItemsList(){
+  // 서브탭(목록/아이디어) 활성 표시 + 분기
+  var _iv=window._itemView||'list';
+  var _bl=document.getElementById('ist-list'), _bi=document.getElementById('ist-idea');
+  if(_bl)_bl.style.background=(_iv==='list')?'var(--neon-blue,#B0DBF0)':'#fff';
+  if(_bi)_bi.style.background=(_iv==='idea')?'var(--neon-blue,#B0DBF0)':'#fff';
+  if(_iv==='idea'){ try{renderIdeaBoard();}catch(e){console.error('renderIdeaBoard',e);} return; }
   const allItems=Object.values(S.items);
   // 필터 드롭다운 채우기
   // 브랜드 필터: 가로 pill 버튼 (공통 헬퍼 사용)
@@ -5588,6 +5640,7 @@ function renderItemsList(){
   const fcFlt=document.getElementById('item-factory-flt')?.value||'';
   const search=(document.getElementById('item-search')?.value||'').toLowerCase().trim();
   const items=allItems.filter(it=>{
+    if(deriveItemBadge(it).phase==='idea')return false; // 아이디어는 '아이디어 보드' 서브탭에서만 표시
     if(brandFlt==='__none'){if(it.brandId)return false;}
     else if(brandFlt&&it.brandId!==brandFlt)return false;
     if(seasonFlt&&it.season!==seasonFlt)return false;
