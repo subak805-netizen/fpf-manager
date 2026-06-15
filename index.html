@@ -16277,20 +16277,29 @@ function _clRecentNames(){
   Object.keys(S.factories||{}).forEach(function(id){var n=S.factories[id]&&S.factories[id].name;if(n&&!seen[n]){seen[n]=1;out.push(n);}});
   return out.slice(0,12);
 }
+function _clPad2(n){n=''+n;return n.length<2?'0'+n:n;}
 function clParseNL(text){
   var t=(text||'').trim(); if(!t)return null;
-  var brandId='',name=t;
-  _clBrands().forEach(function(b){if(b.name&&name.indexOf(b.name)>=0){brandId=b.id;name=name.replace(b.name,' ');}});
+  // 날짜: 2026-06-12 / 6.12 / 6/12 (월/일이면 올해)
+  var date='', dm=t.match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+  if(dm){date=dm[1]+'-'+_clPad2(dm[2])+'-'+_clPad2(dm[3]);t=t.replace(dm[0],' ');}
+  else{var dm2=t.match(/(?:^|\s)(\d{1,2})[.\/](\d{1,2})(?=\s|$)/);if(dm2){var yr=(typeof todayISO==='function'?todayISO().slice(0,4):'2026');date=yr+'-'+_clPad2(dm2[1])+'-'+_clPad2(dm2[2]);t=t.replace(dm2[0],' ');}}
+  // 브랜드 (한 번만 제거 — 보통 맨 앞에 공통으로 적음)
+  var brandId='';
+  _clBrands().forEach(function(b){if(b.name&&!brandId&&t.indexOf(b.name)>=0){brandId=b.id;t=t.replace(b.name,' ');}});
+  // 방향
   var dir='send';
-  if(/받음|받아|받기|수령|입고/.test(t))dir='recv';
-  else if(/보냄|보내기|보내|발송|출고/.test(t))dir='send';
-  name=name.replace(/(보냄|보내기|보내|발송|출고|받음|받기|받아|수령|입고)/g,' ');
+  if(/받음|받아|받기|수령|입고/.test(t))dir='recv';else if(/보냄|보내기|보내|발송|출고/.test(t))dir='send';
+  t=t.replace(/(보냄|보내기|보내|발송|출고|받음|받기|받아|수령|입고)/g,' ');
+  // 결제
   var pay='';
-  if(/착불/.test(t)){pay='col';name=name.replace(/착불/g,' ');}
-  else if(/선불/.test(t)){pay='pre';name=name.replace(/선불/g,' ');}
-  var amt=5000,mm=t.match(/(\d[\d,]{2,})\s*원?/); if(mm){amt=+mm[1].replace(/,/g,'')||5000;name=name.replace(mm[0],' ');}
-  name=name.replace(/\s{2,}/g,' ').trim();
-  return {brandId:brandId,name:name||'택배',dir:dir,pay:pay,amount:amt};
+  if(/착불/.test(t)){pay='col';t=t.replace(/착불/g,' ');}else if(/선불/.test(t)){pay='pre';t=t.replace(/선불/g,' ');}
+  // 금액
+  var amount=5000,mm=t.match(/(\d[\d,]{2,})\s*원?/); if(mm){amount=+mm[1].replace(/,/g,'')||5000;t=t.replace(mm[0],' ');}
+  // 쉼표(·/、)로 여러 거래처 분리 → 각각 1건
+  var names=t.split(/[,，、·]/).map(function(x){return x.replace(/\s{2,}/g,' ').trim();}).filter(Boolean);
+  if(!names.length)names=['택배'];
+  return {date:date,brandId:brandId,dir:dir,pay:pay,amount:amount,names:names};
 }
 function clAddEntry(o){
   var cl=clEnsure();
@@ -16314,7 +16323,17 @@ function clPick(kind,val,el){
   var grp=el.parentNode; if(grp)grp.querySelectorAll('.cl-chip').forEach(function(c){c.classList.remove('on');});
   if(!(kind==='pay'&&!window._clPay))el.classList.add('on');
 }
-function clQuickNL(){var inp=document.getElementById('cl-nl');if(!inp)return;var o=clParseNL(inp.value);if(!o){showToast('내용을 입력하세요');return;}clAddEntry(o);showToast('✅ '+_clBrandName(o.brandId)+' · '+o.name+' '+(o.dir==='recv'?'받음':'보냄')+' '+num(o.amount)+'원');}
+function clQuickNL(){
+  var inp=document.getElementById('cl-nl');if(!inp)return;
+  var o=clParseNL(inp.value);if(!o){showToast('내용을 입력하세요');return;}
+  var cl=clEnsure(),base=(typeof todayISO==='function'?todayISO():today());
+  o.names.forEach(function(nm,i){
+    cl.entries.push({id:(typeof uid==='function'?uid():'cl'+Date.now()+'_'+i+Math.floor(Math.random()*1000)),
+      date:o.date||base,brandId:o.brandId||'',name:nm,dir:o.dir,pay:o.pay,amount:+o.amount||0,memo:'',settled:false});
+  });
+  saveData(); renderCourierLedger();
+  showToast('✅ '+_clBrandName(o.brandId)+' · '+o.names.length+'건 추가'+(o.date?' ('+o.date.slice(5).replace('-','/')+')':''));
+}
 function clQuickBtn(){var ne=document.getElementById('cl-name');var name=((ne&&ne.value)||'').trim();if(!name){showToast('거래처/내용을 입력하세요');return;}var ae=document.getElementById('cl-amt');var amt=+(((ae&&ae.value)||'').toString().replace(/,/g,''))||5000;clAddEntry({brandId:window._clBrand||'',name:name,dir:window._clDir||'send',pay:window._clPay||'',amount:amt});}
 function clDel(id){var cl=clEnsure();var i=cl.entries.findIndex(function(e){return e.id===id;});if(i<0)return;var e=cl.entries[i];if(!confirm('"'+(e.name||'')+'" 항목을 삭제할까요?'))return;cl.entries.splice(i,1);saveData();renderCourierLedger();}
 function clSettle(brandId,val){var cl=clEnsure();var t=(typeof todayISO==='function'?todayISO():'');cl.entries.forEach(function(e){if((e.brandId||'')===(brandId||'')&&_clPeriodOk(e.date)){e.settled=!!val;if(val)e.settledAt=t;}});saveData();renderCourierLedger();showToast(val?'정산 완료로 표시했어요':'정산 취소했어요');}
@@ -16329,8 +16348,8 @@ function renderCourierLedger(){
   var html='<div class="cl-quick"><div class="cl-qhd">⚡ 빠른 입력 <span class="cl-sub">매일 택배 보내거나 받을 때</span>'
     +'<span class="cl-modesw"><span class="'+(modeNL?'on':'')+'" onclick="clSetMode(\'nl\')">✍️ 한 줄</span><span class="'+(modeNL?'':'on')+'" onclick="clSetMode(\'btn\')">🔘 버튼</span></span></div>';
   if(modeNL){
-    html+='<div class="cl-nl"><input id="cl-nl" placeholder="예: 아루드 투케이 보냄 (착불·금액 안 쓰면 5,000원)" onkeydown="if(event.key===\'Enter\'&&!event.isComposing)clQuickNL()"><button class="tl-btn pri" onclick="clQuickNL()">＋ 추가</button></div>'
-      +'<div class="cl-hint">브랜드·거래처·보냄/받음·착불/선불·금액 자동 인식 (등록된 브랜드/거래처 이름 기준 · 수정은 버튼 모드)</div>';
+    html+='<div class="cl-nl"><input id="cl-nl" placeholder="예: 6/12 아루드 파스텔, 새로운, 포루뚜나 (쉼표로 여러 건)" onkeydown="if(event.key===\'Enter\'&&!event.isComposing)clQuickNL()"><button class="tl-btn pri" onclick="clQuickNL()">＋ 추가</button></div>'
+      +'<div class="cl-hint">맨 앞 날짜(6/12)·브랜드·보냄/받음·착불/선불·금액 자동 인식 · <b>쉼표로 거래처 여러 곳을 한 번에</b> (각각 1줄씩 · 날짜·브랜드는 공통 적용)</div>';
   }else{
     html+='<div class="cl-row"><span class="cl-k">브랜드</span><div class="cl-chips" data-g="brand">';
     html+='<span class="cl-chip'+(!window._clBrand?' on':'')+'" onclick="clPick(\'brand\',\'\',this)">미지정</span>';
