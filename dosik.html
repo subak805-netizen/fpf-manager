@@ -54,7 +54,7 @@
     <button class="btn primary" onclick="newProject()">＋ 새 도식화</button>
   </div>
   <div class="wrap">
-    <div class="toolbar"><input class="search" id="search" placeholder="품번·품명 검색" oninput="render()"></div>
+    <div class="toolbar"><select id="folder-sel" onchange="setFolder(this.value)" style="height:38px;padding:0 28px 0 12px;border:1px solid var(--bd);border-radius:9px;font-family:inherit;font-size:13px;background:#fff;-webkit-appearance:none;appearance:none;cursor:pointer"></select><input class="search" id="search" placeholder="품번·품명 검색" oninput="render()"></div>
     <div id="grid" class="grid"></div>
   </div>
 
@@ -69,18 +69,24 @@
 
 <script>
 const LS='fpf_dosik_projects';
-let projects=[], cur=null;
+let projects=[], cur=null, folderFilter='전체';
+function setFolder(v){ folderFilter=v; render(); }
 function load(){ try{projects=JSON.parse(localStorage.getItem(LS)||'[]');}catch(e){projects=[];} }
 function save(){ try{localStorage.setItem(LS,JSON.stringify(projects));}catch(e){ toast('저장공간이 가득찼어요(이미지 큼)'); } }
 function fmtDate(t){ const d=new Date(t); return (d.getMonth()+1)+'/'+d.getDate(); }
 function render(){
   const q=(document.getElementById('search').value||'').trim();
-  const list=projects.filter(p=>!q||(p.name+' '+(p.code||'')).indexOf(q)>=0).sort((a,b)=>b.updated-a.updated);
+  const folders=['전체',...new Set(['상의','하의','아동복', ...projects.map(p=>p.folder||'기타')])];
+  const fsel=document.getElementById('folder-sel');
+  if(fsel){ if(!folders.includes(folderFilter))folderFilter='전체'; fsel.innerHTML=folders.map(f=>'<option value="'+f+'">'+(f==='전체'?'📁 전체':'📁 '+f)+(f==='전체'?'':' ('+projects.filter(p=>(p.folder||'기타')===f).length+')')+'</option>').join(''); fsel.value=folderFilter; }
+  let list=projects.filter(p=>!q||(p.name+' '+(p.code||'')).indexOf(q)>=0);
+  if(folderFilter!=='전체') list=list.filter(p=>(p.folder||'기타')===folderFilter);
+  list.sort((a,b)=>b.updated-a.updated);
   const g=document.getElementById('grid');
-  if(!list.length){ g.innerHTML='<div class="empty" style="grid-column:1/-1">'+(q?'검색 결과가 없어요.':'아직 도식화가 없어요.<br>오른쪽 위 <b>＋ 새 도식화</b>로 시작하세요.')+'</div>'; return; }
+  if(!list.length){ g.innerHTML='<div class="empty" style="grid-column:1/-1">'+(q||folderFilter!=='전체'?'해당 조건의 도식화가 없어요.':'아직 도식화가 없어요.<br>오른쪽 위 <b>＋ 새 도식화</b>로 시작하세요.')+'</div>'; return; }
   g.innerHTML=list.map(p=>'<div class="cardc">'
     +'<div class="pv" onclick="openM(\''+p.id+'\')">'+(p.png?'<img src="'+p.png+'">':'그리기 전')+'<div class="draw-hint">✏️ 그리기</div></div>'
-    +'<div class="cinfo"><p class="cnm">'+esc(p.name)+'</p><div class="cmeta">'+(p.code?esc(p.code)+' · ':'')+'수정 '+fmtDate(p.updated)+'</div></div>'
+    +'<div class="cinfo"><p class="cnm">'+esc(p.name)+'</p><div class="cmeta">📁'+esc(p.folder||'기타')+(p.code?' · '+esc(p.code):'')+' · 수정 '+fmtDate(p.updated)+'</div></div>'
     +'<div class="cacts"><button class="b accent" onclick="openM(\''+p.id+'\')">✏️ 그리기</button>'
     +'<button class="b" onclick="dl(\''+p.id+'\')" '+(p.png?'':'disabled style=opacity:.4')+'>PNG</button>'
     +'<button class="b del" onclick="delP(\''+p.id+'\')">🗑</button></div></div>').join('');
@@ -89,8 +95,9 @@ function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>
 function newProject(){
   const name=prompt('도식화 이름 (품명)'); if(!name)return;
   const code=prompt('품번 (선택)','')||'';
-  const p={id:'d'+Date.now(),name:name.slice(0,40),code:code.slice(0,24),png:null,updated:Date.now()};
-  projects.push(p); save(); render(); openM(p.id);
+  const folder=(prompt('폴더 (상의 / 하의 / 아동복 / 기타)','기타')||'기타').trim();
+  const p={id:'d'+Date.now(),name:name.slice(0,40),code:code.slice(0,24),folder:folder,png:null,updated:Date.now()};
+  folderFilter=folder; projects.push(p); save(); render(); openM(p.id);
 }
 function openM(id){ cur=id; const p=projects.find(x=>x.id===id); if(!p)return;
   document.getElementById('mtitle').textContent='🎨 '+p.name+(p.code?' · '+p.code:'');
