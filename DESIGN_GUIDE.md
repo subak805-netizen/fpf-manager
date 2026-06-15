@@ -66,6 +66,7 @@
 3. **표 컬럼 폭 재배분:** 내용이 짧은 칸(날짜 등)은 좁히고, 줄바꿈 위험 있는 칸(공장명·오더명·상태)에 폭을 양보. 칸이 "널널"하면 좁혀서 다른 칸 살리기.
 4. **반영 후 실제 폭(특히 390px 모바일)에서 줄바꿈/정렬 눈으로 확인.** 데스크탑만 보고 넘기지 말 것.
 
+- **🔴 좌우 무한확장 금지 (max-width로 가둠).** 입력바·검색창·셀렉트·카드·명세서 등 콘텐츠 영역은 와이드 데스크탑에서 화면 끝까지 늘어나면 안 됨 → 컨테이너에 `max-width`(보통 **760px 안팎**)를 주고, flex 자식 입력은 `min-width:0`, 기간/짧은 select는 `flex:0 0 auto;max-width`로 폭 고정. (사용자 지적: 택배시재 빠른입력/입금계좌/기간 셀렉트가 좌우로 마구 늘어남 → `.cl-root{max-width:760px}` 등으로 해결, 2026-06-15)
 - number 입력칸 모바일 숫자패드(`inputmode`), 숫자 스피너 제거, `tabular-nums`로 숫자 안 잘리게.
 - **숫자 스피너(↕) 전역 제거** — 테마 무관·모든 탭 공통으로 base CSS에 박는다: `input[type=number]{-moz-appearance:textfield;appearance:textfield}` + `input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}`. (사용자: "숫자 보더 안 화살표 모든 탭에서 다 없애줘".)
 - **`단가`+`원` 같은 값+단위 묶음은 `display:inline-flex;white-space:nowrap`로 한 덩어리**(`.prw`)로 감싼다 → 좁은 모바일 폭에서 단위(원)가 줄바꿈돼 혼자 떨어지는 것 방지.
