@@ -15921,7 +15921,7 @@ function ipBuildGroupReceipt(fcId,brandId,items){
   const brandNm=brandId&&typeof getBrandName==='function'?getBrandName(brandId):'';
   // 모든 아이템·출고일 행 수집
   const allRows=[];
-  let costSum=0;
+  let costSum=0;let noVatSum=0;
   items.forEach(function(t){
     const o=S.orders[t.oid];const it=S.items[t.itemId];if(!o||!it)return;
     if(it.brandId!==brandId)return;
@@ -15961,17 +15961,19 @@ function ipBuildGroupReceipt(fcId,brandId,items){
       const hasQty=(f.qty!=null&&f.qty!=='');
       allRows.push({
         date:ships[0]?.date||'',item:f.name||'운임',color:'',
-        qty:hasQty?(+f.qty||0):1,unit:hasQty?(+f.unitPrice||0):amt,amount:amt,kind:'fee'
+        qty:hasQty?(+f.qty||0):1,unit:hasQty?(+f.unitPrice||0):amt,amount:amt,kind:'fee',exempt:!!f.noVat
       });
       costSum+=amt;
+      if(f.noVat)noVatSum+=amt;
     });
   });
   if(!allRows.length)return {hasRows:false};
   // 출고일 오름차순 정렬
   allRows.sort((a,b)=>cmpDate(a.date).localeCompare(cmpDate(b.date)));
   const vatRate=10;
-  const vat=Math.round(costSum*vatRate/100);
-  const total=costSum+vat;
+  const taxableBase=costSum-noVatSum;          // 면세(VAT 미포함) 제외한 과세 공급가액
+  const vat=Math.round(taxableBase*vatRate/100); // 세액은 과세분에만
+  const total=costSum+vat;                       // 합계 = 전체 공급가액 + 세액(면세분은 세금 0)
   // 출고일별 소계 HTML
   let bodyRows='';let curDate='';let subT=0;let subQ=0;
   allRows.forEach(function(r){
@@ -15986,7 +15988,7 @@ function ipBuildGroupReceipt(fcId,brandId,items){
       <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.color)}</td>
       <td style="padding:11px 12px;text-align:center;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827">${r.qty}</td>
       <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.unit)}</td>
-      <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}</td>
+      <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}${r.exempt?'<div style="font-size:9px;font-weight:500;color:#6b7280">VAT 미포함</div>':''}</td>
     </tr>`;
     subT+=r.amount;subQ+=r.qty;
   });
@@ -16029,8 +16031,9 @@ function ipBuildGroupReceipt(fcId,brandId,items){
       <tbody>${bodyRows}</tbody>
     </table>
     <div style="padding:0 12px;margin-top:18px">
-      <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px"><span style="color:#374151;font-weight:600">공급가액</span><span style="color:#1f2937;font-weight:700;font-size:14px">${num(costSum)}원</span></div>
+      <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px"><span style="color:#374151;font-weight:600">공급가액${noVatSum>0?' <span style="font-size:10px;color:#9ca3af;font-weight:500">(과세분)</span>':''}</span><span style="color:#1f2937;font-weight:700;font-size:14px">${num(taxableBase)}원</span></div>
       <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px"><span style="color:#374151;font-weight:600">부가세 (${vatRate}%)</span><span style="color:#1f2937;font-weight:700;font-size:14px">${num(vat)}원</span></div>
+      ${noVatSum>0?`<div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px"><span style="color:#166534;font-weight:600">면세 <span style="font-size:10px;font-weight:500">(VAT 미포함)</span></span><span style="color:#166534;font-weight:700;font-size:14px">${num(noVatSum)}원</span></div>`:''}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:16px 14px;border-top:3px solid #1f2937;background:#f3f4f6;border-radius:0 0 6px 6px;margin-left:-12px;margin-right:-12px">
         <span style="font-size:15px;color:#111827;font-weight:800">합계 <span style="display:inline-block;padding:3px 9px;background:#1f2937;color:#fff;border-radius:100px;font-size:10px;font-weight:700;margin-left:8px">VAT 포함</span></span>
         <span style="font-size:24px;font-weight:800;color:#111827;letter-spacing:-0.5px">${num(total)}원</span>
@@ -16090,15 +16093,18 @@ function buildItemReceiptHTML(oid,fcId,itemId){
       qty:hasQty?(+f.qty||0):1,
       unit:hasQty?(+f.unitPrice||0):amt,
       amount:amt,
-      kind:'fee'
+      kind:'fee',
+      exempt:!!f.noVat
     });
   });
   if(!rows.length)return {hasRows:false};
   // 소계 계산 (출고일 + 아이템별 그룹 합계)
   const baseTotal=rows.reduce((s,r)=>s+r.amount,0);
+  const noVatSum=rows.reduce((s,r)=>s+(r.exempt?r.amount:0),0); // 면세(VAT 미포함) 합
   const vatRate=sewSch?.vatRate||10;
-  const vat=Math.round(baseTotal*vatRate/100);
-  const total=baseTotal+vat;
+  const taxableBase=baseTotal-noVatSum;            // 과세 공급가액
+  const vat=Math.round(taxableBase*vatRate/100);   // 세액은 과세분에만
+  const total=baseTotal+vat;                       // 합계 = 전체 + 세액(면세분 세금 0)
   // 브랜드명
   const brandNm=it.brandId?(getBrandName(it.brandId)||''):'';
   // HTML 생성
@@ -16118,7 +16124,7 @@ function buildItemReceiptHTML(oid,fcId,itemId){
       <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.color)}</td>
       <td style="padding:11px 12px;text-align:center;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827">${r.qty}</td>
       <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.unit)}</td>
-      <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}</td>
+      <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}${r.exempt?'<div style="font-size:9px;font-weight:500;color:#6b7280">VAT 미포함</div>':''}</td>
     </tr>`;
     subTotal+=r.amount;subQty+=r.qty;
   });
@@ -16166,13 +16172,17 @@ function buildItemReceiptHTML(oid,fcId,itemId){
     <!-- 합계 -->
     <div style="padding:0 12px;margin-top:18px">
       <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px">
-        <span style="color:#374151;font-weight:600">공급가액</span>
-        <span style="color:#1f2937;font-weight:700;font-size:14px">${num(baseTotal)}원</span>
+        <span style="color:#374151;font-weight:600">공급가액${noVatSum>0?' <span style="font-size:10px;color:#9ca3af;font-weight:500">(과세분)</span>':''}</span>
+        <span style="color:#1f2937;font-weight:700;font-size:14px">${num(taxableBase)}원</span>
       </div>
       <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px">
         <span style="color:#374151;font-weight:600">부가세 (${vatRate}%)</span>
         <span style="color:#1f2937;font-weight:700;font-size:14px">${num(vat)}원</span>
       </div>
+      ${noVatSum>0?`<div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13px">
+        <span style="color:#166534;font-weight:600">면세 <span style="font-size:10px;font-weight:500">(VAT 미포함)</span></span>
+        <span style="color:#166534;font-weight:700;font-size:14px">${num(noVatSum)}원</span>
+      </div>`:''}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:16px 14px;border-top:3px solid #1f2937;background:#f3f4f6;border-radius:0 0 6px 6px;margin-left:-12px;margin-right:-12px">
         <span style="font-size:15px;color:#111827;font-weight:800">합계 <span style="display:inline-block;padding:3px 9px;background:#1f2937;color:#fff;border-radius:100px;font-size:10px;font-weight:700;margin-left:8px">VAT 포함</span></span>
         <span style="font-size:24px;font-weight:800;color:#111827;letter-spacing:-0.5px">${num(total)}원</span>
