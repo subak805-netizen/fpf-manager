@@ -170,6 +170,8 @@
       <button class="tool" data-tool="symbol" title="봉제 기호·부품 (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="6" r="2"/><path d="M12 8v9M9 13l3-3 3 3"/></svg>봉제</button>
       <div class="tsep"></div>
       <button class="tool" data-tool="node" title="점편집 (A) · 곡선 핸들"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.4 16.6 16.6 7.4"/></svg>점편집</button>
+      <button class="tool" data-tool="scissor" title="패스 자르기 (X) · 선·템플릿 클릭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8 8l12 8M8 16L20 8"/></svg>자르기</button>
+      <button class="tool" data-tool="join" title="패스 붙이기 (J) · 두 선 탭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h6M15 12h6"/><circle cx="12" cy="12" r="2.5"/></svg>붙이기</button>
       <div class="tsep"></div>
       <button class="tool" data-tool="photo" title="사진 올리기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5-7 7"/></svg>사진</button>
     </div>
@@ -333,7 +335,7 @@ function loadTemplate(key){
   t.paths.forEach(d=>{
     const p=new Konva.Path({data:d,stroke:COLORS.ink,strokeWidth:2,lineJoin:'round',hitStrokeWidth:12});
     p.setAttr('isTpl',true);
-    p.on('click tap',e=>{ if(tool==='node'){e.cancelBubble=true;startNodeEdit(p);} else if(tool==='trace'){e.cancelBubble=true;traceStitch(p);} });
+    p.on('click tap',e=>shapeClick(p,e));
     g.add(p);
   });
   (t.dots||[]).forEach(p=>g.add(new Konva.Circle({x:p[0],y:p[1],radius:3,stroke:COLORS.ink,strokeWidth:1.5,listening:false})));
@@ -476,7 +478,7 @@ async function importSvgVector(svgText){
       else if(tag==='ellipse'){ const c=hasM?applyM(M,+el.getAttribute('cx'),+el.getAttribute('cy')):{x:+el.getAttribute('cx'),y:+el.getAttribute('cy')}; node=new Konva.Ellipse({x:c.x,y:c.y,radiusX:(+el.getAttribute('rx'))*sx,radiusY:(+el.getAttribute('ry'))*sy,...common}); }
     }catch(e){}
     if(node){ if(dash)node.dash(dash); node.setAttr('isTpl',true);
-      node.on('click tap',e=>{ if(tool==='node'){e.cancelBubble=true;startNodeEdit(node);} else if(tool==='trace'){e.cancelBubble=true;traceStitch(node);} });
+      node.on('click tap',e=>shapeClick(node,e));
       group.add(node); count++; }
   });
   document.body.removeChild(holder);
@@ -576,9 +578,9 @@ function makeLine(kind,x1,y1,x2,y2){   // kind='dim' 전용 (치수선)
   const lb=new Konva.Text({text:'00cm',fontSize:13,fontFamily:FONT_DRAW,fill:'#993C1D',draggable:true});
   node.setAttr('labelNode',lb); node.setAttr('labelText','00cm'); node.setAttr('labelOff',{x:0,y:-14});
   lb.on('dragmove',()=>{ const p=node.points(); node.setAttr('labelOff',{x:lb.x()-(p[0]+p[2])/2, y:lb.y()-(p[1]+p[3])/2}); });
-  lb.on('click tap',e=>{e.cancelBubble=true;selectNode(node);});
+  lb.on('click tap',e=>shapeClick(node,e));
   layer.add(lb);
-  node.on('click tap',e=>{e.cancelBubble=true;selectNode(node);});
+  node.on('click tap',e=>shapeClick(node,e));
   layer.add(node); pushUndo(node); positionDimLabel(node); layer.draw();
   return node;
 }
@@ -594,14 +596,14 @@ function makeArrow(x1,y1,x2,y2){      // 지시용 화살표 (모양·크기·�
   const node=new Konva.Arrow({points:[x1,y1,x2,y2],stroke:COLORS.ink,strokeWidth:arrowWidth,fill:COLORS.ink,
     pointerLength:none?0:arrowSize,pointerWidth:none?0:arrowSize*0.9,pointerAtBeginning:both,pointerAtEnding:!none,hitStrokeWidth:14});
   node.setAttr('kind','arrow');
-  node.on('click tap',e=>{e.cancelBubble=true;selectNode(node);});
+  node.on('click tap',e=>shapeClick(node,e));
   layer.add(node); pushUndo(node); layer.draw();
   return node;
 }
 function makeCut(x1,y1,x2,y2){        // 절개선(실선)
   const node=new Konva.Line({points:[x1,y1,x2,y2],stroke:COLORS.ink,strokeWidth:lineWidth,hitStrokeWidth:14,lineCap:'round'});
   node.setAttr('kind','cut');
-  node.on('click tap',e=>{e.cancelBubble=true;selectNode(node);});
+  node.on('click tap',e=>shapeClick(node,e));
   layer.add(node); pushUndo(node); layer.draw();
   return node;
 }
@@ -617,7 +619,7 @@ function finishCurve(){
   if(curvePts.length>=4){
     const node=new Konva.Line({points:curvePts.slice(),stroke:COLORS.ink,strokeWidth:lineWidth,tension:0.5,lineCap:'round',lineJoin:'round',hitStrokeWidth:14,draggable:true});
     node.setAttr('kind','curve');
-    node.on('click tap',e=>{e.cancelBubble=true;selectNode(node);});
+    node.on('click tap',e=>shapeClick(node,e));
     layer.add(node); pushUndo(node); layer.draw();
   }
   cancelCurve(); hint('');
@@ -646,7 +648,7 @@ function penFinish(close){
   if(penA.length>=2){
     var node=new Konva.Path({data:penData(penA,close),stroke:COLORS.ink,strokeWidth:lineWidth,lineJoin:'round',lineCap:'round',hitStrokeWidth:14,draggable:true});
     node.setAttr('kind','pen');
-    node.on('click tap',function(e){ if(tool==='node'){e.cancelBubble=true;startNodeEdit(node);} else {e.cancelBubble=true;selectNode(node);} });
+    node.on('click tap',function(e){shapeClick(node,e);});
     layer.add(node); pushUndo(node); layer.draw();
   }
   penReset(); hint('');
@@ -671,6 +673,53 @@ stage.on('mouseup touchend',function(){ if(tool==='pen')penDrag=false; });
 function flashTap(p){ const s=uiS(); const r=new Konva.Circle({x:p.x,y:p.y,radius:3*s,fill:'rgba(24,95,165,0.16)',stroke:COLORS.stitch,strokeWidth:2*s,listening:false}); ui.add(r); ui.batchDraw();
   const an=new Konva.Animation(function(f){ var k=Math.min(1,f.time/260); r.radius((3+11*k)*s); r.opacity(1-k); if(k>=1){ an.stop(); if(r.getLayer())r.destroy(); ui.batchDraw(); } }, ui); an.start();
 }
+/* ---- 패스 자르기(가위) + 붙이기 + 통합 클릭 처리 ---- */
+function _sampleToLayer(node,N){
+  N=N||80; var cls=node.getClassName(), srcPath;
+  if(cls==='Path'){ srcPath=node; }
+  else if(typeof node.points==='function'){ var pts=node.points(); if(!pts||pts.length<4)return []; var d='M '+pts[0]+' '+pts[1]; for(var i=2;i<pts.length;i+=2)d+=' L '+pts[i]+' '+pts[i+1]; srcPath=new Konva.Path({data:d}); }
+  else return [];
+  var len=srcPath.getLength?srcPath.getLength():0;
+  var abs=node.getAbsoluteTransform(), sinv=stage.getAbsoluteTransform().copy().invert(), out=[];
+  if(len>2&&srcPath.getPointAtLength){ for(var s=0;s<=N;s++){ var lp=srcPath.getPointAtLength(len*s/N); out.push(sinv.point(abs.point(lp))); } }
+  return out;
+}
+function _ptsToPathD(arr){ if(arr.length<2)return ''; var d='M '+arr[0].x+' '+arr[0].y; for(var i=1;i<arr.length;i++)d+=' L '+arr[i].x+' '+arr[i].y; return d; }
+function _mkEditPath(arr){ var node=new Konva.Path({data:_ptsToPathD(arr),stroke:COLORS.ink,strokeWidth:lineWidth,lineJoin:'round',lineCap:'round',hitStrokeWidth:14,draggable:true}); node.setAttr('kind','pen'); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); pushUndo(node); return node; }
+function _removeTarget(node){ var lb=node.getAttr&&node.getAttr('labelNode'); if(lb)lb.destroy(); node.destroy(); }
+function scissorAt(node,click){
+  if(!click){return;}
+  var pts=_sampleToLayer(node,120); if(pts.length<3){ hint('이 도형은 자를 수 없어요'); setTimeout(function(){hint('');},1500); return; }
+  var bi=0,bd=1e18; for(var i=0;i<pts.length;i++){ var dx=pts[i].x-click.x,dy=pts[i].y-click.y,dd=dx*dx+dy*dy; if(dd<bd){bd=dd;bi=i;} }
+  if(bi<2)bi=2; if(bi>pts.length-3)bi=pts.length-3;
+  _mkEditPath(pts.slice(0,bi+1)); _mkEditPath(pts.slice(bi));
+  _removeTarget(node); layer.draw(); tplLayer.draw(); hint('잘랐어요 ✂'); setTimeout(function(){hint('');},1200);
+}
+let joinFirst=null;
+function joinReset(){ if(joinFirst){ try{ joinFirst.opacity(joinFirst.getAttr('_op')!=null?joinFirst.getAttr('_op'):1); var ly=joinFirst.getLayer(); if(ly)ly.batchDraw(); }catch(e){} joinFirst=null; } }
+function joinPick(node){
+  if(!joinFirst){ joinFirst=node; node.setAttr('_op',node.opacity?node.opacity():1); if(node.opacity)node.opacity(0.4); var ly=node.getLayer(); if(ly)ly.batchDraw(); hint('붙일 두 번째 선을 탭하세요 · Esc 취소'); return; }
+  if(node===joinFirst){ joinReset(); hint(''); return; }
+  var a=joinFirst, b=node, pa=_sampleToLayer(a,80), pb=_sampleToLayer(b,80);
+  try{ a.opacity(a.getAttr('_op')!=null?a.getAttr('_op'):1); }catch(e){}
+  joinFirst=null;
+  if(pa.length<2||pb.length<2){ hint('붙일 수 없는 도형이에요'); setTimeout(function(){hint('');},1500); return; }
+  function d2(p,q){var dx=p.x-q.x,dy=p.y-q.y;return dx*dx+dy*dy;}
+  var combos=[[d2(pa[pa.length-1],pb[0]),0,0],[d2(pa[pa.length-1],pb[pb.length-1]),0,1],[d2(pa[0],pb[0]),1,0],[d2(pa[0],pb[pb.length-1]),1,1]];
+  combos.sort(function(x,y){return x[0]-y[0];}); var c=combos[0];
+  var A=c[1]?pa.slice().reverse():pa.slice(), B=c[2]?pb.slice().reverse():pb.slice();
+  _mkEditPath(A.concat(B)); _removeTarget(a); _removeTarget(b); layer.draw(); tplLayer.draw(); hint('붙였어요 🔗'); setTimeout(function(){hint('');},1200);
+}
+function shapeClick(node,e){
+  if(e)e.cancelBubble=true;
+  var p=stage.getRelativePointerPosition();
+  if(tool==='scissor'){ if(p)flashTap(p); scissorAt(node,p); return; }
+  if(tool==='join'){ joinPick(node); return; }
+  if(tool==='trace'){ if(typeof traceStitch==='function')traceStitch(node); return; }
+  if(tool==='node'){ if(node.getClassName()==='Path')startNodeEdit(node); else if(!(node.getAttr&&node.getAttr('isTpl')))selectNode(node); return; }
+  if(node.getAttr&&node.getAttr('isTpl'))return;
+  selectNode(node);
+}
 /* ---- 스티치 렌더 (직선/곡선 공통) ---- */
 function offsetSeg(pts,o){ const[x1,y1,x2,y2]=pts; const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1; const nx=-dy/L*o,ny=dx/L*o; return [x1+nx,y1+ny,x2+nx,y2+ny]; }
 function zigzagPts(pts,amp,freq){ const[x1,y1,x2,y2]=pts; const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1; const ux=dx/L,uy=dy/L,nx=-uy,ny=ux; const n=Math.max(2,Math.round(L/freq)); const out=[]; for(let i=0;i<=n;i++){ const t=i/n, s=(i%2?1:-1)*amp; out.push(x1+dx*t+nx*s, y1+dy*t+ny*s);} return out; }
@@ -686,7 +735,7 @@ function makeStitch(x1,y1,x2,y2,key){
   key=key||stitchPreset; const pr=getStitch(key);
   const g=new Konva.Group({draggable:true}); g.setAttr('kind','stitch'); g.setAttr('preset',key); g.setAttr('seg',[x1,y1,x2,y2]);
   buildStitchInto(g,[x1,y1,x2,y2],pr);
-  g.on('click tap',e=>{e.cancelBubble=true;selectNode(g);});
+  g.on('click tap',e=>shapeClick(g,e));
   layer.add(g); pushUndo(g);
   if(linkOn && window.__tplGroup){
     const tr=window.__tplGroup.getTransform(), inv=tr.copy().invert();
@@ -694,7 +743,7 @@ function makeStitch(x1,y1,x2,y2,key){
     panelCopies([a.x,a.y,b.x,b.y]).forEach(cp=>{
       const p1=tr.point({x:cp[0],y:cp[1]}), p2=tr.point({x:cp[2],y:cp[3]});
       const gg=new Konva.Group({draggable:true}); gg.setAttr('kind','stitch'); gg.setAttr('preset',key); gg.setAttr('seg',[p1.x,p1.y,p2.x,p2.y]);
-      buildStitchInto(gg,[p1.x,p1.y,p2.x,p2.y],pr); gg.on('click tap',e=>{e.cancelBubble=true;selectNode(gg);});
+      buildStitchInto(gg,[p1.x,p1.y,p2.x,p2.y],pr); gg.on('click tap',e=>shapeClick(gg,e));
       layer.add(gg); pushUndo(gg);
     });
   }
@@ -856,7 +905,7 @@ document.getElementById('seam-both').addEventListener('click',()=>{ stitchBoth=!
 function makeText(x,y,txt){
   const node=new Konva.Text({x,y,text:txt||'메모를 입력',fontSize:textSize,fontFamily:FONT_DRAW,fill:COLORS.text,draggable:true});
   node.setAttr('kind','text');
-  node.on('click tap',e=>{e.cancelBubble=true;selectNode(node);});
+  node.on('click tap',e=>shapeClick(node,e));
   node.on('dblclick dbltap',()=>editText(node));
   layer.add(node);pushUndo(node);layer.draw();return node;
 }
@@ -955,7 +1004,7 @@ function makeSymbol(x,y,id){
   g.setAttr('kind','symbol'); g.setAttr('symId',id);
   g.add(new Konva.Tag({fill:'#fff',stroke:'#ccc',strokeWidth:1,cornerRadius:4}));
   g.add(new Konva.Text({text:(s.glyph||'●')+' '+s.name,fontSize:14,fontFamily:FONT_DRAW,fill:COLORS.ink,padding:4}));
-  g.on('click tap',e=>{e.cancelBubble=true;selectNode(g);});
+  g.on('click tap',e=>shapeClick(g,e));
   layer.add(g);pushUndo(g);layer.draw();return g;
 }
 function makeImageSymbol(x,y,s){
@@ -964,7 +1013,7 @@ function makeImageSymbol(x,y,s){
     const h=42, w=img.width*(h/(img.height||h));
     const kn=new Konva.Image({image:img,x:x-w/2,y:y-h/2,width:w,height:h,draggable:true});
     kn.setAttr('kind','symbol'); kn.setAttr('symId',s.id); kn.setAttr('src',src);
-    kn.on('click tap',e=>{e.cancelBubble=true;selectNode(kn);});
+    kn.on('click tap',e=>shapeClick(kn,e));
     layer.add(kn); pushUndo(kn); layer.draw();
   }; img.src=src;
 }
@@ -974,7 +1023,7 @@ function placePhotoURL(dataUrl,cb){
     const kn=new Konva.Image({image:img,x:(W||820)/2-img.width*scale/2,y:(H||640)/2-img.height*scale/2,
       width:img.width*scale,height:img.height*scale,draggable:true});
     kn.setAttr('kind','photo'); kn.setAttr('src',dataUrl);
-    kn.on('click tap',e=>{e.cancelBubble=true;selectNode(kn);});
+    kn.on('click tap',e=>shapeClick(kn,e));
     layer.add(kn); layer.draw();
     if(typeof cb==='function')cb(kn);
   };
@@ -994,7 +1043,7 @@ function addPhoto(file){
       width:img.width*scale,height:img.height*scale,draggable:true,opacity:0.92});
     kn.setAttr('kind','photo');
     const d=imgToDataURL(img,1600,0.9); if(d)kn.setAttr('src',d);   // 저장·복원용 dataURL
-    kn.on('click tap',e=>{e.cancelBubble=true;selectNode(kn);});
+    kn.on('click tap',e=>shapeClick(kn,e));
     tplLayer.add(kn);tplLayer.draw(); setTool('select'); selectNode(kn);
   };
   img.src=url;
@@ -1006,6 +1055,8 @@ stage.on('click tap',e=>{
   if(tool==='select'){ if(e.target===stage) clearSel(); return; }
   if(tool==='node'){ if(e.target===stage) nodeEditEnd(); return; }
   if(tool==='pen')return;   // 펜은 mousedown/up에서 처리
+  if(tool==='scissor')return;   // 가위는 도형 클릭(shapeClick)에서 처리
+  if(tool==='join'){ if(e.target===stage)joinReset(); return; }   // 빈 곳 클릭=취소
   if(tool!=='select'&&tool!=='node'&&typeof flashTap==='function')flashTap(pos);
   if(tool==='text'){ const n=makeText(pos.x,pos.y); setTool('select'); selectNode(n); editText(n); return; }
   if(tool==='symbol'){ makeSymbol(pos.x,pos.y,symbolType); return; }
@@ -1047,6 +1098,7 @@ function setTool(t){
   if(tool==='node' && t!=='node') nodeEditEnd();
   if(tool==='curve' && t!=='curve' && typeof cancelCurve==='function') cancelCurve();
   if(tool==='pen' && t!=='pen' && typeof penReset==='function') penReset();
+  if(tool==='join' && t!=='join' && typeof joinReset==='function') joinReset();
   if(typeof clearDrawAids==='function') clearDrawAids();
   tool=t; pendingStart=null;
   document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
@@ -1082,10 +1134,11 @@ document.getElementById('btn-undo').onclick=()=>{ const n=undoStack.pop(); if(n)
 document.addEventListener('keydown',e=>{
   if(tool==='curve'){ if(e.key==='Enter'){finishCurve();return;} if(e.key==='Escape'){cancelCurve();hint('');return;} }
   if(tool==='pen'){ if(e.key==='Enter'){penFinish(false);return;} if(e.key==='Escape'){penReset();hint('');return;} }
+  if(tool==='join'&&e.key==='Escape'){ joinReset(); hint(''); return; }
   if((e.key==='Delete'||e.key==='Backspace')&&selected&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){removeNode(selected);}
 });
 /* ── 키보드 단축키 (일러스트레이터식) ── */
-const TOOL_KEYS={v:'select',l:'dim',r:'arrow',c:'cut',p:'curve',n:'pen',s:'stitch',b:'trace',t:'text',m:'symbol',a:'node'};
+const TOOL_KEYS={v:'select',l:'dim',r:'arrow',c:'cut',p:'curve',n:'pen',s:'stitch',b:'trace',t:'text',m:'symbol',a:'node',x:'scissor',j:'join'};
 document.addEventListener('keydown',e=>{
   var ae=document.activeElement, tg=ae&&ae.tagName;
   if(tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT'||(ae&&ae.isContentEditable))return;
@@ -1159,14 +1212,14 @@ window.restoreState=function(st){
   st.objs.forEach(function(o){
     var node=null;
     if(o.k==='text'){ node=makeText(o.x,o.y,o.text); if(o.fontSize)node.fontSize(o.fontSize); if(o.fill)node.fill(o.fill); applyTr(node,o); }
-    else if(o.k==='arrow'){ node=new Konva.Arrow({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,fill:o.fill,pointerLength:o.pointerLength,pointerWidth:o.pointerWidth,pointerAtBeginning:o.pointerAtBeginning,pointerAtEnding:o.pointerAtEnding,hitStrokeWidth:14}); node.setAttr('kind','arrow'); node.on('click tap',function(e){e.cancelBubble=true;selectNode(node);}); layer.add(node); applyTr(node,o); }
-    else if(o.k==='cut'){ node=new Konva.Line({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,hitStrokeWidth:14,lineCap:'round'}); node.setAttr('kind','cut'); node.on('click tap',function(e){e.cancelBubble=true;selectNode(node);}); layer.add(node); applyTr(node,o); }
-    else if(o.k==='curve'){ node=new Konva.Line({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,tension:0.5,lineCap:'round',lineJoin:'round',hitStrokeWidth:14,draggable:true}); node.setAttr('kind','curve'); node.on('click tap',function(e){e.cancelBubble=true;selectNode(node);}); layer.add(node); applyTr(node,o); }
-    else if(o.k==='pen'&&o.data){ node=new Konva.Path({data:o.data,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,lineJoin:'round',lineCap:'round',hitStrokeWidth:14,draggable:true}); node.setAttr('kind','pen'); node.on('click tap',function(e){ if(tool==='node'){e.cancelBubble=true;startNodeEdit(node);} else {e.cancelBubble=true;selectNode(node);} }); layer.add(node); applyTr(node,o); }
+    else if(o.k==='arrow'){ node=new Konva.Arrow({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,fill:o.fill,pointerLength:o.pointerLength,pointerWidth:o.pointerWidth,pointerAtBeginning:o.pointerAtBeginning,pointerAtEnding:o.pointerAtEnding,hitStrokeWidth:14}); node.setAttr('kind','arrow'); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); applyTr(node,o); }
+    else if(o.k==='cut'){ node=new Konva.Line({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,hitStrokeWidth:14,lineCap:'round'}); node.setAttr('kind','cut'); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); applyTr(node,o); }
+    else if(o.k==='curve'){ node=new Konva.Line({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,tension:0.5,lineCap:'round',lineJoin:'round',hitStrokeWidth:14,draggable:true}); node.setAttr('kind','curve'); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); applyTr(node,o); }
+    else if(o.k==='pen'&&o.data){ node=new Konva.Path({data:o.data,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,lineJoin:'round',lineCap:'round',hitStrokeWidth:14,draggable:true}); node.setAttr('kind','pen'); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); applyTr(node,o); }
     else if(o.k==='dim'&&o.points){ node=makeLine('dim',o.points[0],o.points[1],o.points[2],o.points[3]); if(o.labelText){ node.setAttr('labelText',o.labelText); var lb=node.getAttr('labelNode'); if(lb)lb.text(o.labelText); } if(o.labelOff)node.setAttr('labelOff',o.labelOff); positionDimLabel(node); }
     else if(o.k==='stitch'&&o.seg){ node=makeStitch(o.seg[0],o.seg[1],o.seg[2],o.seg[3],o.preset); if(o.x||o.y)node.position({x:o.x,y:o.y}); applyTr(node,o); }
-    else if(o.k==='symbol'&&o.cls==='Label'){ var g=new Konva.Label({x:o.x,y:o.y,draggable:true}); g.setAttr('kind','symbol'); if(o.symId)g.setAttr('symId',o.symId); g.add(new Konva.Tag({fill:'#fff',stroke:'#ccc',strokeWidth:1,cornerRadius:4})); g.add(new Konva.Text({text:o.symText||'●',fontSize:14,fontFamily:FONT_DRAW,fill:COLORS.ink,padding:4})); g.on('click tap',function(e){e.cancelBubble=true;selectNode(g);}); layer.add(g); applyTr(g,o); }
-    else if((o.k==='symbol'||o.k==='photo')&&o.src){ var im=new Image(); im.onload=function(){ var kn=new Konva.Image({image:im,x:o.x,y:o.y,width:o.width,height:o.height,draggable:true,opacity:(o.opacity!=null?o.opacity:1)}); kn.setAttr('kind',o.k); kn.setAttr('src',o.src); if(o.symId)kn.setAttr('symId',o.symId); kn.on('click tap',function(e){e.cancelBubble=true;selectNode(kn);}); (o.lyr==='tpl'?tplLayer:layer).add(kn); applyTr(kn,o); (o.lyr==='tpl'?tplLayer:layer).draw(); }; im.src=o.src; }
+    else if(o.k==='symbol'&&o.cls==='Label'){ var g=new Konva.Label({x:o.x,y:o.y,draggable:true}); g.setAttr('kind','symbol'); if(o.symId)g.setAttr('symId',o.symId); g.add(new Konva.Tag({fill:'#fff',stroke:'#ccc',strokeWidth:1,cornerRadius:4})); g.add(new Konva.Text({text:o.symText||'●',fontSize:14,fontFamily:FONT_DRAW,fill:COLORS.ink,padding:4})); g.on('click tap',function(e){shapeClick(g,e);}); layer.add(g); applyTr(g,o); }
+    else if((o.k==='symbol'||o.k==='photo')&&o.src){ var im=new Image(); im.onload=function(){ var kn=new Konva.Image({image:im,x:o.x,y:o.y,width:o.width,height:o.height,draggable:true,opacity:(o.opacity!=null?o.opacity:1)}); kn.setAttr('kind',o.k); kn.setAttr('src',o.src); if(o.symId)kn.setAttr('symId',o.symId); kn.on('click tap',function(e){shapeClick(kn,e);}); (o.lyr==='tpl'?tplLayer:layer).add(kn); applyTr(kn,o); (o.lyr==='tpl'?tplLayer:layer).draw(); }; im.src=o.src; }
   });
   linkOn=prevLink; layer.draw(); tplLayer.draw(); return true;
 };
