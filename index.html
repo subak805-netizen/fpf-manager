@@ -3479,9 +3479,10 @@ function migrateData(){
   //   기존 colorName 마이그(아래 needColor 블록)는 qtyGrid가 옛 키일 때만 동작해서,
   //   qtyGrid는 이미 새 컬러인데 자재 colorName만 옛 이름인 경우가 안 잡혔음.
   //   → 분배보기에서 쓰는 fabricColor 역추적과 동일 방식으로 colorName을 현재 아이템 컬러로 영구 고정.
-  try{ if(!S._matColorResync){
-    var _rsCnt=0;
-    Object.values(S.orders||{}).forEach(function(o){
+  try{ if(!S._matColorResync2){
+    var _rsCnt=0; var _rsAffected={};
+    for(var _oid in (S.orders||{})){ (function(oid){
+      var o=S.orders[oid];
       if(!o||!o.suppliers||!o.orderItems)return;
       o.orderItems.forEach(function(oi){
         var it=S.items[oi.itemId]; if(!it)return;
@@ -3504,16 +3505,21 @@ function migrateData(){
             var nn=resolve(m.colorName,m.fabricColor,defs,m.fabId,m.name);
             if(nn&&nn!==m.colorName){
               if(m.displayName&&m.displayName.indexOf('('+m.colorName+')')>=0)m.displayName=m.displayName.replace('('+m.colorName+')','('+nn+')');
-              m.colorName=nn;_rsCnt++;
+              m.colorName=nn;_rsCnt++;_rsAffected[oid+'|'+oi.itemId]=[oid,oi.itemId];
             }
             var ni=resolve(m.itemColorName,m.fabricColor,defs,m.fabId,m.name);
             if(ni&&ni!==m.itemColorName)m.itemColorName=ni;
           });
         }
       });
-    });
-    S._matColorResync=true;
-    if(_rsCnt>0)setTimeout(function(){try{saveData();if(typeof showToast==='function')showToast('🔄 옛 오더 컬러명 '+_rsCnt+'건 현재 이름으로 정리됨');}catch(e){}},3000);
+    })(_oid); }
+    // 컬러명 정렬 후, 영향받은 오더·아이템의 자재 수량(totalYards/calc/sizeBreakdown) 재계산
+    // — 이름만 고치면 저장된 옛 수량(예: 랍빠 80장)이 그대로라, 도미노 재계산까지 돌려야 반영됨
+    if(typeof propagateEffectiveRatio==='function'){
+      Object.keys(_rsAffected).forEach(function(k){var p=_rsAffected[k];try{propagateEffectiveRatio(p[0],p[1]);}catch(e){}});
+    }
+    S._matColorResync2=true;
+    if(_rsCnt>0)setTimeout(function(){try{saveData();if(typeof showToast==='function')showToast('🔄 옛 오더 컬러명 '+_rsCnt+'건 정리 + 수량 재계산됨');}catch(e){}},3000);
   }}catch(e){console.warn('자재 컬러 재동기화 스킵:',e);}
   // Orders
   for(const o of Object.values(S.orders||{})){
