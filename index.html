@@ -8409,6 +8409,21 @@ function saveItemForm(){
             }
           }
           oi2.qtyGrid=newGrid;
+          if(item.name)oi2.itemName=item.name; // 아이템명 변경 시 오더 스냅샷도 갱신(표시용)
+          // ★오더 스냅샷의 거래처 자재 컬러명도 새 이름으로 옮김
+          //   — 안 하면 원단부족(effective pcs)의 컬러 매칭이 끊겨 한 컬러 부족이 전 컬러에 번짐
+          if(colorsChanged&&ord.suppliers){
+            for(var _sn in ord.suppliers){
+              (ord.suppliers[_sn].materials||[]).forEach(function(_m){
+                if(_m.itemId!==editItemId)return;
+                if(_m.colorName&&colorMap[_m.colorName]!==undefined)_m.colorName=colorMap[_m.colorName];
+                if(_m.itemColorName&&colorMap[_m.itemColorName]!==undefined)_m.itemColorName=colorMap[_m.itemColorName];
+                if(Array.isArray(_m.itemColors))_m.itemColors=_m.itemColors.map(function(c){return colorMap[c]!==undefined?colorMap[c]:c;});
+                if(Array.isArray(_m.commonForColors))_m.commonForColors=_m.commonForColors.map(function(c){return colorMap[c]!==undefined?colorMap[c]:c;});
+                if(item.name)_m.itemName=item.name;
+              });
+            }
+          }
           migratedOrders++;
           // 마이그레이션 후 자재 재계산: totalYards/calc 갱신 (actualOrderedQty는 보존)
           if(typeof propagateEffectiveRatio==='function'){
@@ -11291,9 +11306,28 @@ function getEffectivePcsByColor(o,oi){
       if(m.type!=='fabric'||m.itemId!==oi.itemId)continue;
       if(m.actualOrderedQty===undefined||m.actualOrderedQty===''||m.actualOrderedQty===null)continue;
       hasAnyActual=true;
-      // 이 원단이 어느 컬러에 속하는지: m.colorName
-      // colorName이 비어있으면 (드문 케이스) 모든 컬러에 적용
-      var targets=m.colorName&&origByColor[m.colorName]!==undefined?[m.colorName]:colors;
+      // 이 원단이 어느 아이템 컬러에 속하는지 결정
+      // - colorName 비어있으면(공용 원단) 전체 적용 (의도된 케이스)
+      // - colorName이 현재 아이템 컬러와 일치하면 그 컬러만
+      // - 이름이 어긋나면(컬러/아이템명 변경 등) 같은 원단(fabId)의 colorLinks에서
+      //   원단처컬러(fabricColor)로 현재 아이템 컬러를 역추적 → 못 찾으면 건너뜀
+      //   (예전엔 무조건 전 컬러 적용으로 도망가서 한 컬러 부족이 전 컬러 -40%로 번지던 버그)
+      var targets;
+      if(!m.colorName){
+        targets=colors;
+      }else if(origByColor[m.colorName]!==undefined){
+        targets=[m.colorName];
+      }else{
+        var _mapped=null;
+        var _fdef=(it.fabrics||[]).find(function(ff){return (ff.id||ff.name)===(m.fabId||m.name);});
+        if(_fdef&&_fdef.colorLinks&&_fdef.colorLinks.length){
+          var _lk=_fdef.colorLinks.find(function(l){return (l.fabricColor||'')!==''&&(l.fabricColor||'')===(m.fabricColor||'')&&origByColor[l.itemColor]!==undefined;});
+          if(_lk)_mapped=_lk.itemColor;
+          if(!_mapped){var _lk2=_fdef.colorLinks.find(function(l){return origByColor[l.itemColor]!==undefined&&((l.itemColor||'')===(m.colorName||'')||(l.fabricColor||'')===(m.colorName||''));});if(_lk2)_mapped=_lk2.itemColor;}
+        }
+        targets=_mapped?[_mapped]:null;
+      }
+      if(!targets){continue;}
       var origQty=m.pricingUnit==='kg'?(m.totalKg||0):(m.totalYards||0);
       if(!origQty||origQty<=0)continue;
       var actualQty=+m.actualOrderedQty;
