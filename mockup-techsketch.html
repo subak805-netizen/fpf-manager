@@ -1250,6 +1250,7 @@ function setTool(t){
   if(tool==='free' && t!=='free' && typeof freeReset==='function') freeReset();
   if(typeof clearDrawAids==='function') clearDrawAids();
   tool=t; pendingStart=null;
+  try{ stage.draggable(t==='select'); }catch(e){}   // 선택 도구일 때만 한 손가락 팬 (그리기 중엔 화면 안 밀림)
   document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
   if(t==='photo'){ document.getElementById('file-photo').click(); setTool('select'); return; }
   const msg={dim:'시작점을 탭하세요 (치수선)',arrow:'시작점을 탭하세요 (화살표)',cut:'시작점을 탭하세요 (절개선·실선)',curve:'점을 탭해 곡선 그리기 · 더블클릭/Enter 완료',stitch:'시작점을 탭하세요 (스티치)',text:'옷 위를 탭해 글자 추가',symbol:'옷 위를 탭해 기호 찍기',node:'편집할 옷 선을 탭하세요 (점이 떠요)',trace:'옷 선을 탭하면 그 선 따라 스티치가 그려져요'};
@@ -1425,18 +1426,19 @@ stage.on('wheel',e=>{ e.evt.preventDefault(); zoomAt(e.evt.deltaY>0?1/1.12:1.12,
 document.getElementById('btn-zoom-in').onclick=()=>zoomAt(1.2);
 document.getElementById('btn-zoom-out').onclick=()=>zoomAt(1/1.2);
 document.getElementById('btn-zoom-reset').onclick=resetZoom;
-stage.draggable(true);   // 빈 곳 드래그 = 화면 이동(팬). 앵커/주석 등 draggable 요소가 우선이라 충돌 없음
-let pinchDist=0;
+stage.draggable(true);   // 선택 도구에서만 한 손가락 팬 (setTool이 도구별로 켜고 끔). 두 손가락은 항상 팬+줌
+let pinchDist=0, pinchC=null;
 stage.on('touchmove',e=>{
   const t=e.evt.touches; if(!t||t.length<2)return;
   e.evt.preventDefault(); stage.draggable(false);
   const r=host.getBoundingClientRect();
   const p1={x:t[0].clientX-r.left,y:t[0].clientY-r.top}, p2={x:t[1].clientX-r.left,y:t[1].clientY-r.top};
   const d=Math.hypot(p1.x-p2.x,p1.y-p2.y), c={x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2};
-  if(pinchDist) zoomAt(d/pinchDist, c);
-  pinchDist=d;
+  if(pinchDist) zoomAt(d/pinchDist, c);                                   // 두 손가락 = 줌
+  if(pinchC){ stage.x(stage.x()+(c.x-pinchC.x)); stage.y(stage.y()+(c.y-pinchC.y)); afterZoom(); }  // + 팬
+  pinchDist=d; pinchC=c;
 });
-stage.on('touchend',()=>{ pinchDist=0; stage.draggable(true); });
+stage.on('touchend',()=>{ pinchDist=0; pinchC=null; try{ stage.draggable(tool==='select'); }catch(e){} });
 
 /* ---------- 작지 프레임 (가로/세로 구도 가이드 + 내보내기 크롭) ---------- */
 let frameMode='off', frameRect=null, frameScale=1.4, frameTr=null;   // 1.4 = 기본(=100% 표시)
