@@ -128,6 +128,7 @@
   .tool.dragover{box-shadow:inset 0 0 0 2px var(--accent)}
   .psec.dragover{box-shadow:0 -2px 0 0 var(--accent)}
   #panel-default .psec h3{cursor:grab}
+  #btn-mirror.on{background:var(--accent-bg);border-color:var(--accent-bd);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -151,6 +152,7 @@
       <button class="btn" id="btn-zoom-in" title="확대">＋</button>
       <button class="btn" id="btn-undo" title="실행취소">↶</button>
       <button class="btn del" id="btn-del" title="선택 삭제">🗑 삭제</button>
+      <button class="btn" id="btn-mirror" title="좌우 대칭 그리기 — 반쪽만 그리면 반대쪽 자동 생성">↔ 대칭</button>
       <select id="frame-sel" title="작지 프레임 (내보내기 영역)">
         <option value="off">프레임 없음</option>
         <option value="fit">내용 맞춤</option>
@@ -293,7 +295,8 @@ const stage=new Konva.Stage({container:'stage-host',width:W,height:H});
 const tplLayer=new Konva.Layer();      // 옷 템플릿 + 사진 배경
 const layer=new Konva.Layer();          // 주석
 const ui=new Konva.Layer();             // 핸들/앵커
-stage.add(tplLayer);stage.add(layer);stage.add(ui);
+const axisLayer=new Konva.Layer();      // 대칭 축(미러 가이드) — 내용물/프레임 계산·내보내기에서 제외
+stage.add(tplLayer);stage.add(layer);stage.add(ui);stage.add(axisLayer);
 
 let tool='select', selected=null, stitchPreset='t05', symbolType='단추', stitchOffset=6, stitchBoth=false, textSize=15;
 let arrowStyle='end', arrowSize=10, arrowWidth=1.6, lineWidth=1.8, curvePts=[], curvePreview=null;
@@ -563,8 +566,12 @@ function selectNode(node){
     } else body.innerHTML='<div class="muted">모서리를 끌어 크기·회전 조절, 가운데를 끌어 이동</div>';
   }
   if(['pen','cut','curve','arrow','stitch','symbol','dim'].indexOf(kind)>=0){
+    var mb=document.createElement('button'); mb.className='btn'; mb.textContent='↔ 좌우 대칭 복사';
+    mb.style.cssText='width:100%;margin-top:8px;background:#eef5fc;border-color:#cfe0f3;color:#185FA5';
+    mb.onclick=function(){ mirrorSelected(node); };
+    body.appendChild(mb);
     var sp=document.createElement('button'); sp.className='btn'; sp.textContent='🧩 부품으로 저장';
-    sp.style.cssText='width:100%;margin-top:8px;background:#eef7ef;border-color:#cfe7d6;color:#1D9E75';
+    sp.style.cssText='width:100%;margin-top:6px;background:#eef7ef;border-color:#cfe7d6;color:#1D9E75';
     sp.onclick=function(){ savePartFromNode(node); };
     body.appendChild(sp);
   }
@@ -624,7 +631,7 @@ function makeCut(x1,y1,x2,y2){        // 절개선(실선)
   const node=new Konva.Line({points:[x1,y1,x2,y2],stroke:COLORS.ink,strokeWidth:lineWidth,hitStrokeWidth:14,lineCap:'round'});
   node.setAttr('kind','cut');
   node.on('click tap',e=>shapeClick(node,e));
-  layer.add(node); pushUndo(node); layer.draw();
+  layer.add(node); pushUndo(node); maybeMirror(node); layer.draw();
   return node;
 }
 /* ---- 곡선 도구: 여러 점 탭 → 부드러운 곡선, 더블클릭/Enter 완료 ---- */
@@ -640,7 +647,7 @@ function finishCurve(){
     const node=new Konva.Line({points:curvePts.slice(),stroke:COLORS.ink,strokeWidth:lineWidth,tension:0.5,lineCap:'round',lineJoin:'round',hitStrokeWidth:14,draggable:true});
     node.setAttr('kind','curve');
     node.on('click tap',e=>shapeClick(node,e));
-    layer.add(node); pushUndo(node); layer.draw();
+    layer.add(node); pushUndo(node); maybeMirror(node); layer.draw();
   }
   cancelCurve(); hint('');
 }
@@ -669,7 +676,7 @@ function penFinish(close){
     var node=new Konva.Path({data:penData(penA,close),stroke:COLORS.ink,strokeWidth:lineWidth,lineJoin:'round',lineCap:'round',hitStrokeWidth:14,draggable:true});
     node.setAttr('kind','pen');
     node.on('click tap',function(e){shapeClick(node,e);});
-    layer.add(node); pushUndo(node); layer.draw();
+    layer.add(node); pushUndo(node); maybeMirror(node); layer.draw();
   }
   penReset(); hint('');
 }
@@ -740,6 +747,26 @@ function shapeClick(node,e){
   if(node.getAttr&&node.getAttr('isTpl'))return;
   selectNode(node);
 }
+/* ---- 좌우 대칭(미러): 반쪽만 그리면 반대쪽 자동 생성 ---- */
+let mirrorOn=false, mirrorAxisX=null, mirrorAxisLine=null;
+function mirrorCenterX(){ var g=window.__tplGroup; if(g){ var r=g.getClientRect(), sinv=stage.getAbsoluteTransform().copy().invert(); return sinv.point({x:r.x+r.width/2,y:r.y}).x; } return (W||820)/2; }
+function drawMirrorAxis(){ if(mirrorAxisLine){mirrorAxisLine.destroy();mirrorAxisLine=null;} if(!mirrorOn)return;
+  mirrorAxisLine=new Konva.Line({points:[0,-4000,0,8000],x:mirrorAxisX,y:0,stroke:'#C0392B',strokeWidth:1.4,dash:[9,6],opacity:.7,draggable:true,hitStrokeWidth:12});
+  mirrorAxisLine.on('dragmove',function(){ mirrorAxisLine.y(0); mirrorAxisX=mirrorAxisLine.x(); });
+  axisLayer.add(mirrorAxisLine); axisLayer.batchDraw();
+}
+function toggleMirror(){ mirrorOn=!mirrorOn; var btn=document.getElementById('btn-mirror'); if(btn)btn.classList.toggle('on',mirrorOn);
+  if(mirrorOn){ if(mirrorAxisX==null)mirrorAxisX=mirrorCenterX(); drawMirrorAxis(); hint('대칭 ON · 반쪽만 그리면 반대쪽 자동 (빨간 축 드래그로 위치)'); setTimeout(function(){hint('');},2600); }
+  else { drawMirrorAxis(); hint('대칭 OFF'); setTimeout(function(){hint('');},1100); }
+}
+function mirrorNodeX(node,A){ node.scaleX(-(node.scaleX()||1)); node.x(2*A-node.x()); if(node.rotation)node.rotation(-(node.rotation()||0)); }
+function maybeMirror(node){ if(!mirrorOn||mirrorAxisX==null||!node)return; var k=node.getAttr&&node.getAttr('kind'); if(['pen','cut','curve'].indexOf(k)<0)return;
+  var o=_capObj(node,'main'); if(!o)return; var copy=buildFromObj(o,null); if(copy){ mirrorNodeX(copy,mirrorAxisX); layer.draw(); } }
+function mirrorSelected(node){ var k=node.getAttr&&node.getAttr('kind');
+  if(k==='photo'||(k==='symbol'&&node.getClassName()==='Image')){ hint('이미지는 대칭 복사가 안 돼요'); setTimeout(function(){hint('');},1500); return; }
+  if(mirrorAxisX==null)mirrorAxisX=mirrorCenterX();
+  var o=_capObj(node, node.getLayer()===tplLayer?'tpl':'main'); if(!o)return; var copy=buildFromObj(o,null);
+  if(copy){ mirrorNodeX(copy,mirrorAxisX); layer.draw(); tplLayer.draw(); hint('좌우 대칭 복사 완료'); setTimeout(function(){hint('');},1200); } }
 /* ---- 스티치 렌더 (직선/곡선 공통) ---- */
 function offsetSeg(pts,o){ const[x1,y1,x2,y2]=pts; const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1; const nx=-dy/L*o,ny=dx/L*o; return [x1+nx,y1+ny,x2+nx,y2+ny]; }
 function zigzagPts(pts,amp,freq){ const[x1,y1,x2,y2]=pts; const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1; const ux=dx/L,uy=dy/L,nx=-uy,ny=ux; const n=Math.max(2,Math.round(L/freq)); const out=[]; for(let i=0;i<=n;i++){ const t=i/n, s=(i%2?1:-1)*amp; out.push(x1+dx*t+nx*s, y1+dy*t+ny*s);} return out; }
@@ -1189,9 +1216,9 @@ window.exportPNG=function(){
   clearSel(); nodeEditEnd(); resetZoom();
   let opt={pixelRatio:2};
   if(frameMode!=='off'&&frameRect){ const r=frameRect.getClientRect(); opt.x=r.x;opt.y=r.y;opt.width=r.width;opt.height=r.height; }
-  if(frameRect)frameRect.visible(false); if(frameTr)frameTr.visible(false); guides.forEach(gl=>gl.visible(false)); layer.draw();
+  if(frameRect)frameRect.visible(false); if(frameTr)frameTr.visible(false); if(typeof axisLayer!=='undefined')axisLayer.visible(false); guides.forEach(gl=>gl.visible(false)); layer.draw();
   const url=stage.toDataURL(opt);
-  if(frameRect)frameRect.visible(true); if(frameTr)frameTr.visible(true); guides.forEach(gl=>gl.visible(true));
+  if(frameRect)frameRect.visible(true); if(frameTr)frameTr.visible(true); if(typeof axisLayer!=='undefined')axisLayer.visible(true); guides.forEach(gl=>gl.visible(true));
   stage.scale({x:_sc,y:_sc}); stage.position({x:_px,y:_py}); afterZoom();   // 화면 복원(줌 안 튐)
   layer.draw();
   return url;
@@ -1359,6 +1386,7 @@ function setFrame(mode){
   layer.batchDraw();
 }
 document.getElementById('frame-sel').addEventListener('change',e=>setFrame(e.target.value));
+document.getElementById('btn-mirror').addEventListener('click',toggleMirror);
 (function(){
   var sz=document.getElementById('frame-size'), val=document.getElementById('frame-size-val');
   if(!sz)return;
