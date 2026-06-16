@@ -909,7 +909,7 @@ function makeImageSymbol(x,y,s){
     layer.add(kn); pushUndo(kn); layer.draw();
   }; img.src=src;
 }
-function placePhotoURL(dataUrl){
+function placePhotoURL(dataUrl,cb){
   const img=new Image();
   img.onload=()=>{ const scale=Math.min((W||820)*0.92/img.width,(H||640)*0.92/img.height,1);
     const kn=new Konva.Image({image:img,x:(W||820)/2-img.width*scale/2,y:(H||640)/2-img.height*scale/2,
@@ -917,6 +917,7 @@ function placePhotoURL(dataUrl){
     kn.setAttr('kind','photo');
     kn.on('click tap',e=>{e.cancelBubble=true;selectNode(kn);});
     layer.add(kn); layer.draw();
+    if(typeof cb==='function')cb(kn);
   };
   img.src=dataUrl;
 }
@@ -1037,6 +1038,20 @@ window.exportPNG=function(){
   const url=stage.toDataURL(opt);
   if(frameRect)frameRect.visible(true); if(frameTr)frameTr.visible(true); guides.forEach(gl=>gl.visible(true)); layer.draw();
   return url;
+};
+/* 프레임 상태 내보내기/복원 (저장 시 함께 보관) */
+window.exportFrameState=function(){
+  if(frameMode==='off'||!frameRect)return {mode:'off'};
+  return {mode:frameMode, scale:frameScale, rect:{x:frameRect.x(),y:frameRect.y(),width:frameRect.width(),height:frameRect.height()}};
+};
+window.applyFrameState=function(fs){
+  if(!fs||!fs.mode||fs.mode==='off'){ setFrame('off'); return; }
+  if(typeof fs.scale==='number'){ frameScale=fs.scale;
+    var sv=document.getElementById('frame-size'), vv=document.getElementById('frame-size-val');
+    if(sv)sv.value=fs.scale; if(vv)vv.value=Math.round(fs.scale/1.4*100); }
+  setFrame(fs.mode);
+  if(fs.rect && frameRect){ frameRect.position({x:fs.rect.x,y:fs.rect.y}); frameRect.width(fs.rect.width); frameRect.height(fs.rect.height);
+    if(frameTr)frameTr.forceUpdate(); layer.batchDraw(); }
 };
 document.getElementById('btn-png').onclick=()=>{
   const url=window.exportPNG();
@@ -1418,7 +1433,8 @@ window._dosikProjId=null;
     var arr=JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]');
     var p=arr.find(function(x){return x.id===pid;});
     if(!p)return;
-    if(p.png){ loadTemplate('blank'); placePhotoURL(p.png); }
+    if(p.png){ loadTemplate('blank'); placePhotoURL(p.png,function(){ if(p.frame)window.applyFrameState(p.frame); }); }
+    else if(p.frame){ window.applyFrameState(p.frame); }
     var nm=document.getElementById('tpl-name'); if(nm&&p.name)nm.textContent=p.name;
   }catch(e){}
 })();
