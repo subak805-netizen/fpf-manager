@@ -809,12 +809,15 @@ function editText(node){
   const ta=document.createElement('textarea');
   ta.value=node.text(); document.body.appendChild(ta);
   Object.assign(ta.style,{position:'fixed',left:(box.left+pos.x)+'px',top:(box.top+pos.y)+'px',
-    fontSize:'15px',fontFamily:FONT_DRAW,border:'1px solid #185FA5',borderRadius:'4px',padding:'2px 4px',
-    background:'#fff',zIndex:9999,resize:'none',minWidth:'90px'});
-  ta.focus(); ta.select();
+    fontSize:'15px',lineHeight:'1.3',fontFamily:FONT_DRAW,border:'1px solid #185FA5',borderRadius:'4px',padding:'2px 4px',
+    background:'#fff',zIndex:9999,resize:'none',minWidth:'120px',overflow:'hidden',whiteSpace:'pre-wrap'});
+  const grow=()=>{ ta.style.height='auto'; ta.style.height=Math.max(24,ta.scrollHeight)+'px'; };
+  ta.addEventListener('input',grow);
+  ta.focus(); ta.select(); grow();
   const done=()=>{ node.text(ta.value||' '); layer.draw(); ta.remove(); };
   ta.addEventListener('blur',done);
-  ta.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ta.blur();} });
+  // Enter=줄바꿈(기본 동작), Esc=완료, 바깥 클릭=완료
+  ta.addEventListener('keydown',e=>{ if(e.key==='Escape'){e.preventDefault();ta.blur();} });
 }
 const SYM_LS='fpf_dosik_symbols';
 let symBank=[], symCatFilter='전체';
@@ -1358,14 +1361,22 @@ function renderSpecBank(){
   sel.value=specCatIdx;
   const cat=specs[specCatIdx];
   document.getElementById('spec-chips').innerHTML = (cat&&cat.items.length)
-    ? cat.items.map((t,j)=>'<span class="spec-chip" data-j="'+j+'">'+t+'<i class="sx" data-del="'+j+'">✕</i></span>').join('')
+    ? cat.items.map((t,j)=>'<span class="spec-chip" data-j="'+j+'">'+t
+        +'<i class="se" data-mv="up" data-j="'+j+'" title="앞으로">‹</i>'
+        +'<i class="se" data-ed="'+j+'" title="수정">✎</i>'
+        +'<i class="se" data-mv="dn" data-j="'+j+'" title="뒤로">›</i>'
+        +'<i class="sx" data-del="'+j+'" title="삭제">✕</i></span>').join('')
     : '<span class="muted">사양이 없어요. ＋사양 추가로 만들어요.</span>';
   document.querySelectorAll('#spec-chips .spec-chip').forEach(ch=>{
-    ch.addEventListener('click',e=>{ if(e.target.classList.contains('sx'))return; placeSpecText(specs[specCatIdx].items[+ch.dataset.j]); });
-    ch.addEventListener('dblclick',()=>{ const j=+ch.dataset.j; const v=prompt('사양 수정',specs[specCatIdx].items[j]); if(v!=null){specs[specCatIdx].items[j]=v; specSave(); renderSpecBank();} });
+    ch.addEventListener('click',e=>{ if(e.target.tagName==='I')return; placeSpecText(specs[specCatIdx].items[+ch.dataset.j]); });
+    ch.addEventListener('dblclick',e=>{ if(e.target.tagName==='I')return; const j=+ch.dataset.j; specEdit(j); });
   });
+  document.querySelectorAll('#spec-chips .se[data-ed]').forEach(b=>b.addEventListener('click',e=>{ e.stopPropagation(); specEdit(+b.dataset.ed); }));
+  document.querySelectorAll('#spec-chips .se[data-mv]').forEach(b=>b.addEventListener('click',e=>{ e.stopPropagation(); specMove(+b.dataset.j, b.dataset.mv==='up'?-1:1); }));
   document.querySelectorAll('#spec-chips .sx').forEach(x=>x.addEventListener('click',e=>{ e.stopPropagation(); specs[specCatIdx].items.splice(+x.dataset.del,1); specSave(); renderSpecBank(); }));
 }
+function specEdit(j){ const v=prompt('사양 수정',specs[specCatIdx].items[j]); if(v!=null){specs[specCatIdx].items[j]=v; specSave(); renderSpecBank();} }
+function specMove(j,dir){ const arr=specs[specCatIdx].items, k=j+dir; if(k<0||k>=arr.length)return; const t=arr[j]; arr[j]=arr[k]; arr[k]=t; specSave(); renderSpecBank(); }
 document.getElementById('spec-cat').addEventListener('change',e=>{ specCatIdx=+e.target.value; renderSpecBank(); });
 document.getElementById('spec-cat-add').onclick=()=>{ const n=prompt('새 양식 이름 (예: 소매양식)'); if(n){ specs.push({cat:n,items:[]}); specCatIdx=specs.length-1; specSave(); renderSpecBank(); } };
 document.getElementById('spec-cat-del').onclick=()=>{ if(!specs.length)return; if(confirm('"'+specs[specCatIdx].cat+'" 양식을 삭제할까요?')){ specs.splice(specCatIdx,1); specCatIdx=0; specSave(); renderSpecBank(); } };
