@@ -115,6 +115,19 @@
   .tsep{width:32px;height:1px;background:var(--card-bd);margin:5px auto;flex:0 0 auto}
   #stage-host{touch-action:none}
   input[type=range]{touch-action:none}
+  /* 도구 2열 + 정렬 */
+  .tools.cols2{flex-direction:row;flex-wrap:wrap;width:118px;flex:0 0 118px;align-content:flex-start;justify-content:center;gap:3px 4px}
+  .tools.cols2 .tool{width:52px}
+  .tools.cols2 .tsep{width:100%}
+  .tools.customorder .tsep{display:none}
+  #tools-cfg{width:100%;display:flex;justify-content:center;margin-bottom:4px;order:-1}
+  #tools-cfg button{font-size:10px;color:var(--t3);background:none;border:1px solid var(--card-bd);cursor:pointer;padding:3px 8px;border-radius:7px;font-family:inherit}
+  #tools-cfg button:hover{background:#f3f1ec;color:var(--text)}
+  .tool[draggable=true]{cursor:grab}
+  .tool.dragging,.psec.dragging{opacity:.35}
+  .tool.dragover{box-shadow:inset 0 0 0 2px var(--accent)}
+  .psec.dragover{box-shadow:0 -2px 0 0 var(--accent)}
+  #panel-default .psec h3{cursor:grab}
 </style>
 </head>
 <body>
@@ -1639,6 +1652,35 @@ function indexPanelSections(){
     panelSections.push(w);
   });
 }
+/* ---- 도구/패널 자유 배치: 2열 토글 + 드래그 정렬(순서 저장) ---- */
+function makeSortable(container,itemSel,onChange,handleSel){
+  var dragEl=null;
+  [].slice.call(container.querySelectorAll(itemSel)).forEach(function(it){
+    var handle=handleSel?it.querySelector(handleSel):it; if(handle)handle.setAttribute('draggable','true');
+    it.addEventListener('dragstart',function(e){ dragEl=it; it.classList.add('dragging'); if(e.dataTransfer){e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text','x');}catch(_){}} });
+    it.addEventListener('dragend',function(){ it.classList.remove('dragging'); [].slice.call(container.querySelectorAll(itemSel)).forEach(function(x){x.classList.remove('dragover');}); if(onChange)onChange(); dragEl=null; });
+    it.addEventListener('dragover',function(e){ if(!dragEl||dragEl===it)return; e.preventDefault(); it.classList.add('dragover'); });
+    it.addEventListener('dragleave',function(){ it.classList.remove('dragover'); });
+    it.addEventListener('drop',function(e){ e.preventDefault(); it.classList.remove('dragover'); if(!dragEl||dragEl===it)return;
+      var items=[].slice.call(container.querySelectorAll(itemSel)), di=items.indexOf(dragEl), ti=items.indexOf(it);
+      if(di<ti)it.parentNode.insertBefore(dragEl,it.nextSibling); else it.parentNode.insertBefore(dragEl,it);
+    });
+  });
+}
+function initToolPanelCustomize(){
+  var TK='fpf_dosik_toolorder', SK='fpf_dosik_sectorder', CK='fpf_dosik_tools2col';
+  var toolsEl=document.getElementById('tools'); if(!toolsEl)return;
+  var cfg=document.createElement('div'); cfg.id='tools-cfg'; var btn=document.createElement('button'); cfg.appendChild(btn); toolsEl.insertBefore(cfg,toolsEl.firstChild);
+  function applyCols(){ var on=localStorage.getItem(CK)==='1'; toolsEl.classList.toggle('cols2',on); btn.textContent=on?'☰ 1열':'⊞ 2열'; }
+  btn.addEventListener('click',function(){ localStorage.setItem(CK, localStorage.getItem(CK)==='1'?'0':'1'); applyCols(); });
+  applyCols();
+  try{ var ord=JSON.parse(localStorage.getItem(TK)||'null'); if(ord&&ord.length){ ord.forEach(function(dt){ var el=toolsEl.querySelector('.tool[data-tool="'+dt+'"]'); if(el)toolsEl.appendChild(el); }); toolsEl.classList.add('customorder'); } }catch(e){}
+  makeSortable(toolsEl,'.tool',function(){ toolsEl.classList.add('customorder'); try{ localStorage.setItem(TK,JSON.stringify([].slice.call(toolsEl.querySelectorAll('.tool')).map(function(t){return t.dataset.tool;}))); }catch(e){} });
+  var pd=document.getElementById('panel-default'); if(pd){
+    try{ var sord=JSON.parse(localStorage.getItem(SK)||'null'); if(sord&&sord.length){ sord.forEach(function(key){ var el=[].slice.call(pd.querySelectorAll('.psec')).filter(function(w){return w._key===key;})[0]; if(el)pd.appendChild(el); }); } }catch(e){}
+    makeSortable(pd,'.psec',function(){ try{ localStorage.setItem(SK,JSON.stringify([].slice.call(pd.querySelectorAll('.psec')).map(function(w){return w._key;}))); }catch(e){} },'h3');
+  }
+}
 const TOOL_SECTIONS={ node:['edit'], stitch:['stitch'], trace:['stitch'], symbol:['symbol'], text:['spec'], arrow:['arrow'], cut:['line'], curve:['line'] };
 function setPanelContext(t){
   if(!panelSections.length)return;
@@ -1646,7 +1688,7 @@ function setPanelContext(t){
   panelSections.forEach(w=>{ w.style.display=(t==='select'||!keys)?'':(keys.indexOf(w._key)>=0?'':'none'); });
 }
 
-lsLoad(); symLoad(); specLoad(); stitchLoad(); renderTplOptions(); renderStitchBank(); renderSymbolBank(); renderSpecBank(); indexPanelSections(); initAccordion(); setPanelContext('select');
+lsLoad(); symLoad(); specLoad(); stitchLoad(); renderTplOptions(); renderStitchBank(); renderSymbolBank(); renderSpecBank(); indexPanelSections(); initAccordion(); setPanelContext('select'); initToolPanelCustomize();
 loadTemplate('shirtF');
 
 /* ---------- 저장된 도식화 다시 열기 (?proj=프로젝트id) ---------- */
