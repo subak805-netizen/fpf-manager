@@ -147,6 +147,7 @@
       <span id="frame-size-wrap" title="프레임 크기 (비율 유지) · 슬라이더 더블클릭=기본 · 숫자 직접 입력 가능" style="display:none;align-items:center;gap:6px;font-size:12px;color:#6b6760">
         <input type="range" id="frame-size" min="0.5" max="4" step="0.01" value="1.4" style="width:96px">
         <input type="number" id="frame-size-val" min="30" max="300" step="1" value="100" style="width:50px;height:30px;padding:0 4px;border:1px solid var(--card-bd);border-radius:7px;font-size:12px;font-family:inherit;text-align:right;-moz-appearance:textfield"><span style="margin-left:-3px">%</span>
+        <span id="frame-fit-hint" style="display:none;font-size:11px;color:var(--t3);margin-left:2px">모서리 드래그로 자유조절</span>
       </span>
       <button class="btn" id="btn-save">💾 작지에 저장</button>
       <button class="btn primary" id="btn-png">⬇ PNG 내보내기</button>
@@ -1032,9 +1033,9 @@ window.exportPNG=function(){
   clearSel(); nodeEditEnd(); resetZoom();
   let opt={pixelRatio:2};
   if(frameMode!=='off'&&frameRect){ const r=frameRect.getClientRect(); opt.x=r.x;opt.y=r.y;opt.width=r.width;opt.height=r.height; }
-  if(frameRect)frameRect.visible(false); guides.forEach(gl=>gl.visible(false)); layer.draw();
+  if(frameRect)frameRect.visible(false); if(frameTr)frameTr.visible(false); guides.forEach(gl=>gl.visible(false)); layer.draw();
   const url=stage.toDataURL(opt);
-  if(frameRect)frameRect.visible(true); guides.forEach(gl=>gl.visible(true)); layer.draw();
+  if(frameRect)frameRect.visible(true); if(frameTr)frameTr.visible(true); guides.forEach(gl=>gl.visible(true)); layer.draw();
   return url;
 };
 document.getElementById('btn-png').onclick=()=>{
@@ -1090,11 +1091,13 @@ stage.on('touchmove',e=>{
 stage.on('touchend',()=>{ pinchDist=0; stage.draggable(true); });
 
 /* ---------- 작지 프레임 (가로/세로 구도 가이드 + 내보내기 크롭) ---------- */
-let frameMode='off', frameRect=null, frameScale=1.4;   // 1.4 = 기본(=100% 표시)
+let frameMode='off', frameRect=null, frameScale=1.4, frameTr=null;   // 1.4 = 기본(=100% 표시)
 function setFrame(mode){
   frameMode=mode;
   const sel=document.getElementById('frame-sel'); if(sel)sel.value=mode;
   const szWrap=document.getElementById('frame-size-wrap'); if(szWrap)szWrap.style.display=(mode==='off')?'none':'inline-flex';
+  const szHint=document.getElementById('frame-fit-hint'); if(szHint)szHint.style.display=(mode==='fit')?'inline':'none';
+  if(frameTr){frameTr.destroy();frameTr=null;}
   if(frameRect){frameRect.destroy();frameRect=null;}
   if(mode==='off'){layer.batchDraw();return;}
   // 프레임 기준 = 화면에 그려진 내용물 전체(템플릿·이미지·그림). 비어 있으면 기본 박스.
@@ -1110,7 +1113,21 @@ function setFrame(mode){
   let w=b.width*MARGIN, h=b.height*MARGIN;
   if(w/h<ar) w=h*ar; else h=w/ar;
   frameRect=new Konva.Rect({x:cx-w/2,y:cy-h/2,width:w,height:h,stroke:'#185FA5',strokeWidth:1.6,dash:[10,7],listening:false,cornerRadius:4});
-  layer.add(frameRect); layer.batchDraw();
+  layer.add(frameRect);
+  if(mode==='fit'){
+    // 내용 맞춤: 비율 강제 없이 손으로 자유롭게 이동·크기조절
+    frameRect.listening(true); frameRect.draggable(true); frameRect.hitStrokeWidth(18);
+    frameTr=new Konva.Transformer({nodes:[frameRect],rotateEnabled:false,keepRatio:false,ignoreStroke:true,
+      enabledAnchors:['top-left','top-center','top-right','middle-left','middle-right','bottom-left','bottom-center','bottom-right'],
+      anchorStroke:'#185FA5',anchorFill:'#fff',anchorSize:10,anchorCornerRadius:2,borderStroke:'#185FA5',borderDash:[4,4]});
+    frameRect.on('transformend',function(){
+      const sx=frameRect.scaleX(), sy=frameRect.scaleY();
+      frameRect.width(Math.max(20,frameRect.width()*sx)); frameRect.height(Math.max(20,frameRect.height()*sy));
+      frameRect.scaleX(1); frameRect.scaleY(1); frameRect.strokeWidth(1.6); layer.batchDraw();
+    });
+    layer.add(frameTr);
+  }
+  layer.batchDraw();
 }
 document.getElementById('frame-sel').addEventListener('change',e=>setFrame(e.target.value));
 (function(){
