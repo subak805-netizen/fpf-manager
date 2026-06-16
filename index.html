@@ -3474,6 +3474,47 @@ function migrateData(){
       }
     }
   }
+  // ★1회: 컬러/아이템명을 바꾸기 전에 만들어진 오더의 거래처 자재에 옛 컬러명이 박혀
+  //   effective-pcs·도미노(랍빠 등 부속 자재) 매칭이 끊긴 것 정리.
+  //   기존 colorName 마이그(아래 needColor 블록)는 qtyGrid가 옛 키일 때만 동작해서,
+  //   qtyGrid는 이미 새 컬러인데 자재 colorName만 옛 이름인 경우가 안 잡혔음.
+  //   → 분배보기에서 쓰는 fabricColor 역추적과 동일 방식으로 colorName을 현재 아이템 컬러로 영구 고정.
+  try{ if(!S._matColorResync){
+    var _rsCnt=0;
+    Object.values(S.orders||{}).forEach(function(o){
+      if(!o||!o.suppliers||!o.orderItems)return;
+      o.orderItems.forEach(function(oi){
+        var it=S.items[oi.itemId]; if(!it)return;
+        var cur=(it.colors&&it.colors.length)?it.colors:[''];
+        var resolve=function(oldName,fabColor,defs,fabId,nm){
+          if(oldName===undefined||oldName===null||oldName===''||cur.indexOf(oldName)>=0)return null;
+          var def=(defs||[]).find(function(d){return (d.id||d.name)===(fabId||nm);})||(defs||[]).find(function(d){return (d.name||'')===(nm||'');});
+          if(def&&def.colorLinks){
+            var lk=def.colorLinks.find(function(l){return (l.fabricColor||'')!==''&&(l.fabricColor||'')===(fabColor||'')&&cur.indexOf(l.itemColor)>=0;});
+            if(lk)return lk.itemColor;
+            var lk2=def.colorLinks.find(function(l){return cur.indexOf(l.itemColor)>=0&&((l.fabricColor||'')===(oldName||'')||(l.itemColor||'')===(oldName||''));});
+            if(lk2)return lk2.itemColor;
+          }
+          return null;
+        };
+        for(var sn in o.suppliers){
+          (o.suppliers[sn].materials||[]).forEach(function(m){
+            if(m.itemId!==oi.itemId)return;
+            var defs=(m.type==='fabric')?it.fabrics:it.trims;
+            var nn=resolve(m.colorName,m.fabricColor,defs,m.fabId,m.name);
+            if(nn&&nn!==m.colorName){
+              if(m.displayName&&m.displayName.indexOf('('+m.colorName+')')>=0)m.displayName=m.displayName.replace('('+m.colorName+')','('+nn+')');
+              m.colorName=nn;_rsCnt++;
+            }
+            var ni=resolve(m.itemColorName,m.fabricColor,defs,m.fabId,m.name);
+            if(ni&&ni!==m.itemColorName)m.itemColorName=ni;
+          });
+        }
+      });
+    });
+    S._matColorResync=true;
+    if(_rsCnt>0)setTimeout(function(){try{saveData();if(typeof showToast==='function')showToast('🔄 옛 오더 컬러명 '+_rsCnt+'건 현재 이름으로 정리됨');}catch(e){}},3000);
+  }}catch(e){console.warn('자재 컬러 재동기화 스킵:',e);}
   // Orders
   for(const o of Object.values(S.orders||{})){
     if(!o.payments)o.payments={};if(!o.factorySchedules)o.factorySchedules={};if(!o.trackBlocks)o.trackBlocks=[];
