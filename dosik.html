@@ -60,6 +60,7 @@
 
   <div class="modal" id="modal">
     <div class="mb"><div class="t" id="mtitle">🎨 도식화</div>
+      <span id="autosave-ind" style="font-size:12px;color:#1D9E75;opacity:0;transition:opacity .3s;margin-right:6px;white-space:nowrap">✓ 자동 저장됨</span>
       <button class="x" onclick="closeM()">닫기</button>
       <button class="save" onclick="saveM()">✓ 저장</button>
     </div>
@@ -103,8 +104,26 @@ function openM(id){ cur=id; const p=projects.find(x=>x.id===id); if(!p)return;
   document.getElementById('mtitle').textContent='🎨 '+p.name+(p.code?' · '+p.code:'');
   const f=document.getElementById('frame'); f.src='mockup-techsketch.html?proj='+encodeURIComponent(id);
   document.getElementById('modal').classList.add('open');
+  startAutoSave();
 }
-function closeM(){ document.getElementById('modal').classList.remove('open'); }
+function closeM(){ document.getElementById('modal').classList.remove('open'); stopAutoSave(); }
+/* ── 30초 자동 저장 (실수로 안 저장하고 닫아도 안전) ── */
+let _autoSaveTimer=null;
+function startAutoSave(){ stopAutoSave(); _autoSaveTimer=setInterval(autoSaveM,30000); }
+function stopAutoSave(){ if(_autoSaveTimer){clearInterval(_autoSaveTimer);_autoSaveTimer=null;} }
+function autoSaveFlash(){ const el=document.getElementById('autosave-ind'); if(!el)return; el.style.opacity='1'; setTimeout(()=>{el.style.opacity='0';},1400); }
+async function autoSaveM(){
+  if(!document.getElementById('modal').classList.contains('open'))return;
+  const f=document.getElementById('frame'); if(!f||!cur)return;
+  try{
+    if(!f.contentWindow||typeof f.contentWindow.exportPNG!=='function')return;
+    var png=f.contentWindow.exportPNG();
+    try{ png=await compressDataURL(png,2400,0.94); }catch(e){}
+    var fr=null; try{ fr=f.contentWindow.exportFrameState(); }catch(e){}
+    const p=projects.find(x=>x.id===cur); if(!p)return;
+    p.png=png; if(fr)p.frame=fr; p.updated=Date.now(); save(); render(); autoSaveFlash();
+  }catch(e){}
+}
 /* 저장 그림 압축: 큰 PNG → 적당한 크기 JPEG (불러오기·저장 속도↑) */
 function compressDataURL(dataUrl,maxPx,q){ return new Promise(function(res){ var img=new Image(); img.onload=function(){ var s=Math.min(1,maxPx/Math.max(img.width,img.height)); var w=Math.max(1,Math.round(img.width*s)), h=Math.max(1,Math.round(img.height*s)); var cv=document.createElement('canvas'); cv.width=w; cv.height=h; var ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h); var out=dataUrl; try{ var jpg=cv.toDataURL('image/jpeg',q||0.85); if(jpg.length<out.length)out=jpg; }catch(e){} try{ var png=cv.toDataURL('image/png'); if(png.length<out.length)out=png; }catch(e){} res(out); }; img.onerror=function(){ res(dataUrl); }; img.src=dataUrl; }); }
 async function saveM(){ const f=document.getElementById('frame'); try{ var png=f.contentWindow.exportPNG(); try{ png=await compressDataURL(png,2400,0.94); }catch(e){} var fr=null; try{ fr=f.contentWindow.exportFrameState(); }catch(e){} const p=projects.find(x=>x.id===cur); p.png=png; if(fr)p.frame=fr; p.updated=Date.now(); save(); render(); toast('"'+p.name+'" 저장됨 ✓ (닫기로 나가요)'); }catch(e){ toast('도식화 로딩 중이에요. 잠시 후 다시.'); } }
