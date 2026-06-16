@@ -140,6 +140,7 @@
       <button class="btn del" id="btn-del" title="선택 삭제">🗑 삭제</button>
       <select id="frame-sel" title="작지 프레임 (내보내기 영역)">
         <option value="off">프레임 없음</option>
+        <option value="fit">내용 맞춤</option>
         <option value="portrait">세로 프레임</option>
         <option value="landscape">가로 프레임</option>
       </select>
@@ -907,6 +908,17 @@ function makeImageSymbol(x,y,s){
     layer.add(kn); pushUndo(kn); layer.draw();
   }; img.src=src;
 }
+function placePhotoURL(dataUrl){
+  const img=new Image();
+  img.onload=()=>{ const scale=Math.min((W||820)*0.92/img.width,(H||640)*0.92/img.height,1);
+    const kn=new Konva.Image({image:img,x:(W||820)/2-img.width*scale/2,y:(H||640)/2-img.height*scale/2,
+      width:img.width*scale,height:img.height*scale,draggable:true});
+    kn.setAttr('kind','photo');
+    kn.on('click tap',e=>{e.cancelBubble=true;selectNode(kn);});
+    layer.add(kn); layer.draw();
+  };
+  img.src=dataUrl;
+}
 function addPhoto(file){
   const url=URL.createObjectURL(file); const img=new Image();
   img.onload=()=>{ const scale=Math.min(W*0.7/img.width,H*0.7/img.height,1);
@@ -1092,8 +1104,9 @@ function setFrame(mode){
     const p1=inv.point({x:ab.x,y:ab.y}), p2=inv.point({x:ab.x+ab.width,y:ab.y+ab.height});
     b={x:p1.x,y:p1.y,width:p2.x-p1.x,height:p2.y-p1.y};
   } else b={x:(W||820)*.2,y:(H||640)*.15,width:(W||820)*.6,height:(H||640)*.7};
-  const ar = mode==='portrait'?3/4:4/3, cx=b.x+b.width/2, cy=b.y+b.height/2;
-  const MARGIN=frameScale;                           // 옷 둘레 여백 (사용자 조절, 비율 유지)
+  // 내용 맞춤(fit)=그림 비율 그대로 / 세로=3:4 / 가로=4:3
+  const ar = mode==='fit'?(b.width/b.height||1):(mode==='portrait'?3/4:4/3), cx=b.x+b.width/2, cy=b.y+b.height/2;
+  const MARGIN=frameScale;                           // 둘레 여백 (사용자 조절, 비율 유지)
   let w=b.width*MARGIN, h=b.height*MARGIN;
   if(w/h<ar) w=h*ar; else h=w/ar;
   frameRect=new Konva.Rect({x:cx-w/2,y:cy-h/2,width:w,height:h,stroke:'#185FA5',strokeWidth:1.6,dash:[10,7],listening:false,cornerRadius:4});
@@ -1372,6 +1385,21 @@ function setPanelContext(t){
 
 lsLoad(); symLoad(); specLoad(); stitchLoad(); renderTplOptions(); renderStitchBank(); renderSymbolBank(); renderSpecBank(); indexPanelSections(); initAccordion(); setPanelContext('select');
 loadTemplate('shirtF');
+
+/* ---------- 저장된 도식화 다시 열기 (?proj=프로젝트id) ---------- */
+window._dosikProjId=null;
+(function restoreProject(){
+  try{
+    var pid=new URLSearchParams(location.search).get('proj');
+    if(!pid)return;
+    window._dosikProjId=pid;
+    var arr=JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]');
+    var p=arr.find(function(x){return x.id===pid;});
+    if(!p)return;
+    if(p.png){ loadTemplate('blank'); placePhotoURL(p.png); }
+    var nm=document.getElementById('tpl-name'); if(nm&&p.name)nm.textContent=p.name;
+  }catch(e){}
+})();
 </script>
 </body>
 </html>
