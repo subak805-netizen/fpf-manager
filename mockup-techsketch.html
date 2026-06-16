@@ -323,6 +323,7 @@ const TEMPLATES={
   blank:{name:'빈 캔버스',paths:[],dots:[]}
 };
 function loadTemplate(key){
+  window.__tplKey=key||'blank';
   if(key && key.indexOf('custom:')===0){ loadCustomTemplate(key.slice(7)); return; }
   nodeEditEnd(); resetZoom(); tplLayer.destroyChildren(); clearSel();
   const t=TEMPLATES[key]||TEMPLATES.blank;
@@ -628,7 +629,7 @@ function buildStitchInto(g,pts,pr){
 }
 function makeStitch(x1,y1,x2,y2,key){
   key=key||stitchPreset; const pr=getStitch(key);
-  const g=new Konva.Group({draggable:true}); g.setAttr('kind','stitch'); g.setAttr('preset',key);
+  const g=new Konva.Group({draggable:true}); g.setAttr('kind','stitch'); g.setAttr('preset',key); g.setAttr('seg',[x1,y1,x2,y2]);
   buildStitchInto(g,[x1,y1,x2,y2],pr);
   g.on('click tap',e=>{e.cancelBubble=true;selectNode(g);});
   layer.add(g); pushUndo(g);
@@ -637,7 +638,7 @@ function makeStitch(x1,y1,x2,y2,key){
     const a=inv.point({x:x1,y:y1}), b=inv.point({x:x2,y:y2});
     panelCopies([a.x,a.y,b.x,b.y]).forEach(cp=>{
       const p1=tr.point({x:cp[0],y:cp[1]}), p2=tr.point({x:cp[2],y:cp[3]});
-      const gg=new Konva.Group({draggable:true}); gg.setAttr('kind','stitch'); gg.setAttr('preset',key);
+      const gg=new Konva.Group({draggable:true}); gg.setAttr('kind','stitch'); gg.setAttr('preset',key); gg.setAttr('seg',[p1.x,p1.y,p2.x,p2.y]);
       buildStitchInto(gg,[p1.x,p1.y,p2.x,p2.y],pr); gg.on('click tap',e=>{e.cancelBubble=true;selectNode(gg);});
       layer.add(gg); pushUndo(gg);
     });
@@ -896,7 +897,7 @@ function makeSymbol(x,y,id){
   id=id||symbolType; const s=symEntry(id); if(!s)return;
   if(s.kind!=='glyph') return makeImageSymbol(x,y,s);
   const g=new Konva.Label({x:x-18,y:y-12,draggable:true});
-  g.setAttr('kind','symbol');
+  g.setAttr('kind','symbol'); g.setAttr('symId',id);
   g.add(new Konva.Tag({fill:'#fff',stroke:'#ccc',strokeWidth:1,cornerRadius:4}));
   g.add(new Konva.Text({text:(s.glyph||'●')+' '+s.name,fontSize:14,fontFamily:FONT_DRAW,fill:COLORS.ink,padding:4}));
   g.on('click tap',e=>{e.cancelBubble=true;selectNode(g);});
@@ -907,7 +908,7 @@ function makeImageSymbol(x,y,s){
   const img=new Image(); img.onload=()=>{
     const h=42, w=img.width*(h/(img.height||h));
     const kn=new Konva.Image({image:img,x:x-w/2,y:y-h/2,width:w,height:h,draggable:true});
-    kn.setAttr('kind','symbol');
+    kn.setAttr('kind','symbol'); kn.setAttr('symId',s.id); kn.setAttr('src',src);
     kn.on('click tap',e=>{e.cancelBubble=true;selectNode(kn);});
     layer.add(kn); pushUndo(kn); layer.draw();
   }; img.src=src;
@@ -917,12 +918,19 @@ function placePhotoURL(dataUrl,cb){
   img.onload=()=>{ const scale=Math.min((W||820)*0.92/img.width,(H||640)*0.92/img.height,1);
     const kn=new Konva.Image({image:img,x:(W||820)/2-img.width*scale/2,y:(H||640)/2-img.height*scale/2,
       width:img.width*scale,height:img.height*scale,draggable:true});
-    kn.setAttr('kind','photo');
+    kn.setAttr('kind','photo'); kn.setAttr('src',dataUrl);
     kn.on('click tap',e=>{e.cancelBubble=true;selectNode(kn);});
     layer.add(kn); layer.draw();
     if(typeof cb==='function')cb(kn);
   };
   img.src=dataUrl;
+}
+function imgToDataURL(img,maxPx,q){
+  const s=Math.min(1,maxPx/Math.max(img.width,img.height));
+  const w=Math.max(1,Math.round(img.width*s)), h=Math.max(1,Math.round(img.height*s));
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+  const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+  try{ return cv.toDataURL('image/jpeg',q||0.9); }catch(e){ return null; }
 }
 function addPhoto(file){
   const url=URL.createObjectURL(file); const img=new Image();
@@ -930,6 +938,7 @@ function addPhoto(file){
     const kn=new Konva.Image({image:img,x:W/2-img.width*scale/2,y:H/2-img.height*scale/2,
       width:img.width*scale,height:img.height*scale,draggable:true,opacity:0.92});
     kn.setAttr('kind','photo');
+    const d=imgToDataURL(img,1600,0.9); if(d)kn.setAttr('src',d);   // 저장·복원용 dataURL
     kn.on('click tap',e=>{e.cancelBubble=true;selectNode(kn);});
     tplLayer.add(kn);tplLayer.draw(); setTool('select'); selectNode(kn);
   };
@@ -1058,6 +1067,47 @@ window.applyFrameState=function(fs){
   setFrame(fs.mode);
   if(fs.rect && frameRect){ frameRect.position({x:fs.rect.x,y:fs.rect.y}); frameRect.width(fs.rect.width); frameRect.height(fs.rect.height);
     if(frameTr)frameTr.forceUpdate(); layer.batchDraw(); }
+};
+/* ===== 편집 가능 상태 저장/복원 (요소별로 저장 → 다시 열어도 개별 편집) ===== */
+window.serializeState=function(){
+  var tpl=window.__tplKey||'blank'; try{ if(!window.__tplKey)tpl=document.getElementById('tpl-select').value||'blank'; }catch(e){}
+  var objs=[];
+  function cap(n,lyr){
+    var k=n.getAttr&&n.getAttr('kind'); if(!k||k==='tracestitch')return;
+    var o={k:k,lyr:lyr,cls:n.getClassName(),x:n.x(),y:n.y(),rot:n.rotation()||0,sx:n.scaleX()||1,sy:n.scaleY()||1};
+    if(typeof n.points==='function')o.points=n.points();
+    ['stroke','strokeWidth','fill','tension','pointerLength','pointerWidth','pointerAtBeginning','pointerAtEnding','width','height','opacity','lineCap','lineJoin'].forEach(function(a){ if(typeof n[a]==='function'){ try{var v=n[a](); if(v!==undefined&&v!==null)o[a]=v;}catch(e){} } });
+    if(typeof n.dash==='function'){ var d=n.dash(); if(d&&d.length)o.dash=d; }
+    if(k==='text'){ o.text=n.text(); o.fontSize=n.fontSize(); }
+    if(k==='dim'){ o.labelText=n.getAttr('labelText'); o.labelOff=n.getAttr('labelOff'); }
+    if(k==='stitch'){ o.preset=n.getAttr('preset'); o.seg=n.getAttr('seg'); }
+    if(k==='symbol'&&o.cls==='Label'){ var tx=n.findOne&&n.findOne('Text'); o.symText=tx?tx.text():''; o.symId=n.getAttr('symId'); }
+    if((k==='symbol'||k==='photo')&&o.cls==='Image'){ o.src=n.getAttr('src')||(typeof n.image==='function'&&n.image()?n.image().src:''); o.symId=n.getAttr('symId'); }
+    objs.push(o);
+  }
+  try{ tplLayer.getChildren().forEach(function(n){ if(n!==window.__tplGroup)cap(n,'tpl'); }); }catch(e){}
+  try{ layer.getChildren().forEach(function(n){ if(n!==frameRect&&n!==frameTr)cap(n,'main'); }); }catch(e){}
+  return {v:1,tpl:tpl,objs:objs};
+};
+window.restoreState=function(st){
+  if(!st||!st.objs)return false;
+  var prevLink=linkOn; linkOn=false;            // 복원 중 자동 좌우연동 방지
+  loadTemplate(st.tpl||'blank');
+  // 혹시 남은 annotation 정리
+  try{ layer.getChildren().filter(function(n){return n!==frameRect&&n!==frameTr&&n.getAttr&&n.getAttr('kind');}).forEach(function(n){ var lb=n.getAttr&&n.getAttr('labelNode'); if(lb)lb.destroy(); n.destroy(); }); }catch(e){}
+  function applyTr(node,o){ if(node){ if(o.rot)node.rotation(o.rot); if(o.sx&&o.sx!==1)node.scaleX(o.sx); if(o.sy&&o.sy!==1)node.scaleY(o.sy); } }
+  st.objs.forEach(function(o){
+    var node=null;
+    if(o.k==='text'){ node=makeText(o.x,o.y,o.text); if(o.fontSize)node.fontSize(o.fontSize); if(o.fill)node.fill(o.fill); applyTr(node,o); }
+    else if(o.k==='arrow'){ node=new Konva.Arrow({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,fill:o.fill,pointerLength:o.pointerLength,pointerWidth:o.pointerWidth,pointerAtBeginning:o.pointerAtBeginning,pointerAtEnding:o.pointerAtEnding,hitStrokeWidth:14}); node.setAttr('kind','arrow'); node.on('click tap',function(e){e.cancelBubble=true;selectNode(node);}); layer.add(node); applyTr(node,o); }
+    else if(o.k==='cut'){ node=new Konva.Line({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,hitStrokeWidth:14,lineCap:'round'}); node.setAttr('kind','cut'); node.on('click tap',function(e){e.cancelBubble=true;selectNode(node);}); layer.add(node); applyTr(node,o); }
+    else if(o.k==='curve'){ node=new Konva.Line({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,tension:0.5,lineCap:'round',lineJoin:'round',hitStrokeWidth:14,draggable:true}); node.setAttr('kind','curve'); node.on('click tap',function(e){e.cancelBubble=true;selectNode(node);}); layer.add(node); applyTr(node,o); }
+    else if(o.k==='dim'&&o.points){ node=makeLine('dim',o.points[0],o.points[1],o.points[2],o.points[3]); if(o.labelText){ node.setAttr('labelText',o.labelText); var lb=node.getAttr('labelNode'); if(lb)lb.text(o.labelText); } if(o.labelOff)node.setAttr('labelOff',o.labelOff); positionDimLabel(node); }
+    else if(o.k==='stitch'&&o.seg){ node=makeStitch(o.seg[0],o.seg[1],o.seg[2],o.seg[3],o.preset); if(o.x||o.y)node.position({x:o.x,y:o.y}); applyTr(node,o); }
+    else if(o.k==='symbol'&&o.cls==='Label'){ var g=new Konva.Label({x:o.x,y:o.y,draggable:true}); g.setAttr('kind','symbol'); if(o.symId)g.setAttr('symId',o.symId); g.add(new Konva.Tag({fill:'#fff',stroke:'#ccc',strokeWidth:1,cornerRadius:4})); g.add(new Konva.Text({text:o.symText||'●',fontSize:14,fontFamily:FONT_DRAW,fill:COLORS.ink,padding:4})); g.on('click tap',function(e){e.cancelBubble=true;selectNode(g);}); layer.add(g); applyTr(g,o); }
+    else if((o.k==='symbol'||o.k==='photo')&&o.src){ var im=new Image(); im.onload=function(){ var kn=new Konva.Image({image:im,x:o.x,y:o.y,width:o.width,height:o.height,draggable:true,opacity:(o.opacity!=null?o.opacity:1)}); kn.setAttr('kind',o.k); kn.setAttr('src',o.src); if(o.symId)kn.setAttr('symId',o.symId); kn.on('click tap',function(e){e.cancelBubble=true;selectNode(kn);}); (o.lyr==='tpl'?tplLayer:layer).add(kn); applyTr(kn,o); (o.lyr==='tpl'?tplLayer:layer).draw(); }; im.src=o.src; }
+  });
+  linkOn=prevLink; layer.draw(); tplLayer.draw(); return true;
 };
 document.getElementById('btn-png').onclick=()=>{
   const url=window.exportPNG();
@@ -1464,7 +1514,8 @@ window._dosikProjId=null;
     var arr=JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]');
     var p=arr.find(function(x){return x.id===pid;});
     if(!p)return;
-    if(p.png){ loadTemplate('blank'); placePhotoURL(p.png,function(){ if(p.frame)window.applyFrameState(p.frame); }); }
+    if(p.state&&p.state.objs){ window.restoreState(p.state); if(p.frame)window.applyFrameState(p.frame); }   // 편집 가능 복원
+    else if(p.png){ loadTemplate('blank'); placePhotoURL(p.png,function(){ if(p.frame)window.applyFrameState(p.frame); }); }   // 옛 방식(납작 사진) 폴백
     else if(p.frame){ window.applyFrameState(p.frame); }
     var nm=document.getElementById('tpl-name'); if(nm&&p.name)nm.textContent=p.name;
   }catch(e){}
