@@ -1362,9 +1362,8 @@ function renderSpecBank(){
   const cat=specs[specCatIdx];
   document.getElementById('spec-chips').innerHTML = (cat&&cat.items.length)
     ? cat.items.map((t,j)=>'<span class="spec-chip" data-j="'+j+'">'+t
-        +'<i class="se" data-mv="up" data-j="'+j+'" title="앞으로">‹</i>'
         +'<i class="se" data-ed="'+j+'" title="수정">✎</i>'
-        +'<i class="se" data-mv="dn" data-j="'+j+'" title="뒤로">›</i>'
+        +'<i class="se" data-grp="'+j+'" title="다른 그룹으로 이동">📁</i>'
         +'<i class="sx" data-del="'+j+'" title="삭제">✕</i></span>').join('')
     : '<span class="muted">사양이 없어요. ＋사양 추가로 만들어요.</span>';
   document.querySelectorAll('#spec-chips .spec-chip').forEach(ch=>{
@@ -1372,11 +1371,29 @@ function renderSpecBank(){
     ch.addEventListener('dblclick',e=>{ if(e.target.tagName==='I')return; const j=+ch.dataset.j; specEdit(j); });
   });
   document.querySelectorAll('#spec-chips .se[data-ed]').forEach(b=>b.addEventListener('click',e=>{ e.stopPropagation(); specEdit(+b.dataset.ed); }));
-  document.querySelectorAll('#spec-chips .se[data-mv]').forEach(b=>b.addEventListener('click',e=>{ e.stopPropagation(); specMove(+b.dataset.j, b.dataset.mv==='up'?-1:1); }));
+  document.querySelectorAll('#spec-chips .se[data-grp]').forEach(b=>b.addEventListener('click',e=>{ e.stopPropagation(); specToGroup(+b.dataset.grp, b); }));
   document.querySelectorAll('#spec-chips .sx').forEach(x=>x.addEventListener('click',e=>{ e.stopPropagation(); specs[specCatIdx].items.splice(+x.dataset.del,1); specSave(); renderSpecBank(); }));
 }
 function specEdit(j){ const v=prompt('사양 수정',specs[specCatIdx].items[j]); if(v!=null){specs[specCatIdx].items[j]=v; specSave(); renderSpecBank();} }
-function specMove(j,dir){ const arr=specs[specCatIdx].items, k=j+dir; if(k<0||k>=arr.length)return; const t=arr[j]; arr[j]=arr[k]; arr[k]=t; specSave(); renderSpecBank(); }
+function specToGroup(j,anchorEl){
+  const others=specs.map((s,i)=>({i:i,cat:s.cat})).filter(o=>o.i!==specCatIdx);
+  const old=document.getElementById('spec-move-menu'); if(old)old.remove();
+  if(!others.length){ hint('이동할 다른 그룹이 없어요'); setTimeout(()=>hint(''),1800); return; }
+  const menu=document.createElement('div'); menu.id='spec-move-menu';
+  menu.style.cssText='position:fixed;z-index:10000;background:#fff;border:1px solid var(--card-bd);border-radius:10px;box-shadow:0 8px 24px rgba(40,36,30,.18);padding:6px;min-width:130px;max-height:60vh;overflow:auto;font-family:inherit';
+  menu.innerHTML='<div style="font-size:11px;color:var(--t3);padding:3px 8px 6px">어느 그룹으로?</div>'+
+    others.map(o=>'<button data-to="'+o.i+'" style="display:block;width:100%;text-align:left;border:none;background:transparent;padding:8px;border-radius:7px;font-size:13px;font-family:inherit;cursor:pointer;color:var(--text)">📁 '+o.cat+'</button>').join('');
+  document.body.appendChild(menu);
+  const r=anchorEl.getBoundingClientRect();
+  menu.style.left=Math.max(8,Math.min(r.left, window.innerWidth-menu.offsetWidth-8))+'px';
+  menu.style.top=Math.min(r.bottom+4, window.innerHeight-menu.offsetHeight-8)+'px';
+  menu.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('mouseenter',()=>b.style.background='#f3f1ec');
+    b.addEventListener('mouseleave',()=>b.style.background='transparent');
+    b.addEventListener('click',()=>{ const to=+b.dataset.to; const item=specs[specCatIdx].items.splice(j,1)[0]; specs[to].items.push(item); specSave(); menu.remove(); renderSpecBank(); hint('"'+specs[to].cat+'" 그룹으로 옮겼어요'); setTimeout(()=>hint(''),1800); });
+  });
+  setTimeout(()=>{ const close=ev=>{ if(!menu.contains(ev.target)){ menu.remove(); document.removeEventListener('mousedown',close); } }; document.addEventListener('mousedown',close); },0);
+}
 document.getElementById('spec-cat').addEventListener('change',e=>{ specCatIdx=+e.target.value; renderSpecBank(); });
 document.getElementById('spec-cat-add').onclick=()=>{ const n=prompt('새 양식 이름 (예: 소매양식)'); if(n){ specs.push({cat:n,items:[]}); specCatIdx=specs.length-1; specSave(); renderSpecBank(); } };
 document.getElementById('spec-cat-del').onclick=()=>{ if(!specs.length)return; if(confirm('"'+specs[specCatIdx].cat+'" 양식을 삭제할까요?')){ specs.splice(specCatIdx,1); specCatIdx=0; specSave(); renderSpecBank(); } };
