@@ -6114,7 +6114,7 @@ function renderItemsList(){
       </div>
       <div class="im-actions">
         <span class="im-stat">원단 ${(it.fabrics||[]).length} · 부자재 ${(it.trims||[]).length}</span>
-        <div class="im-arow"><button class="im-btn im-fn" onclick="tpOpen('${it.id}')" title="작업지시서 작성·인쇄" style="background:#eef4ff">📋 작지</button><button class="im-btn im-fn" onclick="dosikOpen('${it.id}')" title="도식화 그리기" style="background:#eef7ef">🎨 도식화</button>${itemStatToggle(it,'instrDone','instrDoneAt','작지')}</div>
+        <div class="im-arow"><button class="im-btn im-fn" onclick="tpOpen('${it.id}')" title="작업지시서 작성·인쇄" style="background:#eef4ff">📋 작지</button>${itemStatToggle(it,'instrDone','instrDoneAt','작지')}</div>
         <div class="im-arow"><button class="im-btn im-fn" onclick="showItemCost('${it.id}')" title="원가계산서">원가</button><button class="im-btn im-tog" onclick="toggleCostSent('${it.id}')" title="${it.costSent?('원가 업체 전달 완료'+(it.costSentAt?' · '+esc(it.costSentAt):'')+' — 눌러서 해제'):'원가를 업체에 전달했으면 눌러 체크'}" style="${it.costSent?'background:#dcfce7;border-color:#86efac;color:#166534':'color:#9ca3af'}">${it.costSent?'✅ 전달':'📤 미전달'}</button></div>
         <div class="im-arow sm">${itemStatToggle(it,'gradingDone','gradingDoneAt','그래이딩')}${itemNeedsKc(it)?itemKcHTML(it):''}${itemStatToggle(it,'photoReady','photoReadyAt','촬영용')}</div>
         <div class="im-mini"><button class="im-btn im-mini-b" onclick="showItemForm('${it.id}')" title="수정">수정</button><button class="im-btn im-mini-b" onclick="dupItem('${it.id}')" title="복제">복제</button><button class="im-btn im-mini-b danger" onclick="delItem('${it.id}')" title="삭제">삭제</button></div>
@@ -25878,21 +25878,32 @@ function dosikOpen(itemId){
 function _dosikLib(){ try{return JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]');}catch(e){return [];} }
 function dosikPick(slot){
   var lib=_dosikLib().sort(function(a,b){return (b.updated||0)-(a.updated||0);});
+  window._dosikPickSlot=slot; window._dosikPickLib=lib;
   var o=document.getElementById('dosik-pick'); if(o)o.remove();
   var ov=document.createElement('div'); ov.id='dosik-pick';
   ov.style.cssText='position:fixed;inset:0;z-index:100060;background:rgba(20,18,16,.45);display:flex;align-items:center;justify-content:center;padding:20px;font-family:Pretendard,sans-serif';
-  var cards = lib.length ? lib.map(function(p){
-    return '<div onclick="dosikChoose(\''+slot+'\',\''+p.id+'\')" style="border:1px solid #e7e3dc;border-radius:11px;overflow:hidden;cursor:pointer;width:150px">'
-      +'<div style="height:104px;background:#fbfaf8;display:flex;align-items:center;justify-content:center;overflow:hidden">'+(p.png?'<img src="'+p.png+'" style="max-width:100%;max-height:100%;object-fit:contain">':'<span style="color:#a6a199;font-size:12px">그리기 전</span>')+'</div>'
-      +'<div style="padding:8px 10px;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(p.name||'')+'</div>'
-      +'<div style="padding:0 10px 9px;font-size:11px;color:#6b6760">'+esc(p.code||'')+'</div></div>';
-  }).join('') : '<div style="color:#a6a199;padding:30px;text-align:center;width:100%">도식화 탭에서 먼저 그려주세요.</div>';
   ov.innerHTML='<div style="background:#fff;border-radius:16px;width:640px;max-width:96vw;max-height:86vh;display:flex;flex-direction:column;overflow:hidden">'
     +'<div style="padding:15px 18px;border-bottom:1px solid #e7e3dc;display:flex;align-items:center;gap:10px"><div style="font-size:15px;font-weight:600;flex:1">📂 도식화 불러오기</div>'
-    +'<button onclick="dosikOpen()" style="height:34px;padding:0 12px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:8px;cursor:pointer;font-family:inherit">＋ 새로 그리기</button>'
     +'<button onclick="var x=document.getElementById(\'dosik-pick\');if(x)x.remove();" style="height:34px;padding:0 12px;border:1px solid #e7e3dc;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit">닫기</button></div>'
-    +'<div style="padding:16px 18px;overflow:auto;display:flex;flex-wrap:wrap;gap:13px">'+cards+'</div></div>';
+    +'<div style="padding:14px 18px 0"><input id="dosik-pick-q" oninput="dosikPickFilter()" placeholder="🔍 품명·품번 검색" autocomplete="off" style="width:100%;height:38px;padding:0 13px;border:1px solid #e7e3dc;border-radius:9px;font-size:13px;font-family:inherit;background:#fff;-webkit-appearance:none"></div>'
+    +'<div id="dosik-pick-grid" style="padding:16px 18px;overflow:auto;display:flex;flex-wrap:wrap;gap:13px"></div></div>';
   document.body.appendChild(ov);
+  dosikPickFilter();
+  setTimeout(function(){ var q=document.getElementById('dosik-pick-q'); if(q)q.focus(); },50);
+}
+function dosikPickCardHTML(p,slot){
+  return '<div onclick="dosikChoose(\''+slot+'\',\''+p.id+'\')" style="border:1px solid #e7e3dc;border-radius:11px;overflow:hidden;cursor:pointer;width:150px">'
+    +'<div style="height:104px;background:#fbfaf8;display:flex;align-items:center;justify-content:center;overflow:hidden">'+(p.png?'<img src="'+p.png+'" style="max-width:100%;max-height:100%;object-fit:contain">':'<span style="color:#a6a199;font-size:12px">그리기 전</span>')+'</div>'
+    +'<div style="padding:8px 10px;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(p.name||'')+'</div>'
+    +'<div style="padding:0 10px 9px;font-size:11px;color:#6b6760">'+esc(p.code||'')+'</div></div>';
+}
+function dosikPickFilter(){
+  var el=document.getElementById('dosik-pick-q'); var q=el?(el.value||'').trim().toLowerCase():'';
+  var slot=window._dosikPickSlot, lib=window._dosikPickLib||[];
+  var list=q?lib.filter(function(p){return ((p.name||'')+' '+(p.code||'')).toLowerCase().indexOf(q)>=0;}):lib;
+  var grid=document.getElementById('dosik-pick-grid'); if(!grid)return;
+  grid.innerHTML=list.length?list.map(function(p){return dosikPickCardHTML(p,slot);}).join('')
+    :'<div style="color:#a6a199;padding:30px;text-align:center;width:100%">'+(q?'검색 결과가 없어요.':'도식화 탭에서 먼저 그려주세요.')+'</div>';
 }
 function dosikChoose(slot,id){
   var p=_dosikLib().find(function(x){return x.id===id;});

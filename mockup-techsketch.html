@@ -143,6 +143,10 @@
         <option value="portrait">세로 프레임</option>
         <option value="landscape">가로 프레임</option>
       </select>
+      <span id="frame-size-wrap" title="프레임 크기 (비율 유지) · 더블클릭=기본" style="display:none;align-items:center;gap:6px;font-size:12px;color:#6b6760">
+        <input type="range" id="frame-size" min="0.6" max="3.5" step="0.1" value="1.4" style="width:90px">
+        <span id="frame-size-val" style="min-width:30px;text-align:right;font-variant-numeric:tabular-nums">100%</span>
+      </span>
       <button class="btn" id="btn-save">💾 작지에 저장</button>
       <button class="btn primary" id="btn-png">⬇ PNG 내보내기</button>
     </div>
@@ -1073,10 +1077,11 @@ stage.on('touchmove',e=>{
 stage.on('touchend',()=>{ pinchDist=0; stage.draggable(true); });
 
 /* ---------- 작지 프레임 (가로/세로 구도 가이드 + 내보내기 크롭) ---------- */
-let frameMode='off', frameRect=null;
+let frameMode='off', frameRect=null, frameScale=1.4;   // 1.4 = 기본(=100% 표시)
 function setFrame(mode){
   frameMode=mode;
   const sel=document.getElementById('frame-sel'); if(sel)sel.value=mode;
+  const szWrap=document.getElementById('frame-size-wrap'); if(szWrap)szWrap.style.display=(mode==='off')?'none':'inline-flex';
   if(frameRect){frameRect.destroy();frameRect=null;}
   if(mode==='off'){layer.batchDraw();return;}
   let b; const g=window.__tplGroup;
@@ -1085,13 +1090,20 @@ function setFrame(mode){
     b={x:p1.x,y:p1.y,width:p2.x-p1.x,height:p2.y-p1.y}; }
   else b={x:(W||820)*.2,y:(H||640)*.15,width:(W||820)*.6,height:(H||640)*.7};
   const ar = mode==='portrait'?3/4:4/3, cx=b.x+b.width/2, cy=b.y+b.height/2;
-  const MARGIN=1.8;                                  // 옷 둘레로 메모 쓸 여백 (비율 유지하며 키움)
+  const MARGIN=frameScale;                           // 옷 둘레 여백 (사용자 조절, 비율 유지)
   let w=b.width*MARGIN, h=b.height*MARGIN;
   if(w/h<ar) w=h*ar; else h=w/ar;
   frameRect=new Konva.Rect({x:cx-w/2,y:cy-h/2,width:w,height:h,stroke:'#185FA5',strokeWidth:1.6,dash:[10,7],listening:false,cornerRadius:4});
   layer.add(frameRect); layer.batchDraw();
 }
 document.getElementById('frame-sel').addEventListener('change',e=>setFrame(e.target.value));
+(function(){
+  var sz=document.getElementById('frame-size'), val=document.getElementById('frame-size-val');
+  if(!sz)return;
+  function upd(){ frameScale=+sz.value; if(val)val.textContent=Math.round(frameScale/1.4*100)+'%'; if(frameMode!=='off')setFrame(frameMode); }
+  sz.addEventListener('input',upd);
+  sz.addEventListener('dblclick',function(){ sz.value=1.4; upd(); });
+})();
 
 /* ---------- 부위 편집: 점(앵커) + 좌우 대칭 ---------- */
 let nodeEdit=null, linkOn=false, guides=[], svgpathLib=null;
