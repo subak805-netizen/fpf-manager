@@ -128,7 +128,7 @@
   .tool.dragover{box-shadow:inset 0 0 0 2px var(--accent)}
   .psec.dragover{box-shadow:0 -2px 0 0 var(--accent)}
   #panel-default .psec h3{cursor:grab}
-  #btn-mirror.on{background:var(--accent-bg);border-color:var(--accent-bd);color:var(--accent)}
+  #btn-mirror.on,#btn-snap.on,#btn-grid.on{background:var(--accent-bg);border-color:var(--accent-bd);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -153,6 +153,8 @@
       <button class="btn" id="btn-undo" title="실행취소">↶</button>
       <button class="btn del" id="btn-del" title="선택 삭제">🗑 삭제</button>
       <button class="btn" id="btn-mirror" title="좌우 대칭 그리기 — 반쪽만 그리면 반대쪽 자동 생성">↔ 대칭</button>
+      <button class="btn" id="btn-snap" title="스냅 — 끝점·수평/수직/45°에 착 붙어 반듯하게">🧲 스냅</button>
+      <button class="btn" id="btn-grid" title="격자 표시·스냅">▦ 격자</button>
       <select id="frame-sel" title="작지 프레임 (내보내기 영역)">
         <option value="off">프레임 없음</option>
         <option value="fit">내용 맞춤</option>
@@ -686,6 +688,7 @@ stage.on('mousedown touchstart',function(e){
   if(e.evt&&e.evt.preventDefault)e.evt.preventDefault();
   var s=uiS();
   if(penA.length>=2 && penDist(pos,penA[0])<11*s){ penFinish(true); return; }
+  pos=snapPoint(pos, penA.length?penA[penA.length-1]:null);
   penA.push({x:pos.x,y:pos.y,hIn:null,hOut:null}); penIdx=penA.length-1; penDrag=true;
   penRedraw(pos); hint('드래그=곡선 핸들 · 첫 점 클릭/더블클릭=완료 · Esc=취소');
 });
@@ -693,6 +696,7 @@ stage.on('mousemove touchmove',function(){
   if(tool!=='pen')return;
   var pos=stage.getRelativePointerPosition(); if(!pos)return;
   if(penDrag&&penIdx>=0){ var a=penA[penIdx]; a.hOut={x:pos.x,y:pos.y}; a.hIn={x:2*a.x-pos.x,y:2*a.y-pos.y}; }
+  else pos=snapPoint(pos, penA.length?penA[penA.length-1]:null);
   penRedraw(pos);
 });
 stage.on('mouseup touchend',function(){ if(tool==='pen')penDrag=false; });
@@ -767,6 +771,35 @@ function mirrorSelected(node){ var k=node.getAttr&&node.getAttr('kind');
   if(mirrorAxisX==null)mirrorAxisX=mirrorCenterX();
   var o=_capObj(node, node.getLayer()===tplLayer?'tpl':'main'); if(!o)return; var copy=buildFromObj(o,null);
   if(copy){ mirrorNodeX(copy,mirrorAxisX); layer.draw(); tplLayer.draw(); hint('좌우 대칭 복사 완료'); setTimeout(function(){hint('');},1200); } }
+/* ---- 스냅 & 격자: 끝점·수평/수직/45°·격자에 착 붙어 반듯하게 ---- */
+let snapOn=(localStorage.getItem('fpf_dosik_snap')!=='0'), gridOn=(localStorage.getItem('fpf_dosik_grid')==='1'), gridShape=null;
+const GRID=20;
+function _lineEndpoints(){
+  var pts=[], sinv=stage.getAbsoluteTransform().copy().invert();
+  layer.getChildren().forEach(function(n){ if(n===frameRect||n===frameTr)return; var k=n.getAttr&&n.getAttr('kind'); if(!k)return;
+    if(['cut','curve','arrow','dim'].indexOf(k)>=0 && typeof n.points==='function'){ var p=n.points(); if(p.length>=4){ var t=n.getAbsoluteTransform(); pts.push(sinv.point(t.point({x:p[0],y:p[1]}))); pts.push(sinv.point(t.point({x:p[p.length-2],y:p[p.length-1]}))); } }
+    else if(k==='pen' && n.getLength){ try{ var t2=n.getAbsoluteTransform(); pts.push(sinv.point(t2.point(n.getPointAtLength(0)))); pts.push(sinv.point(t2.point(n.getPointAtLength(n.getLength())))); }catch(e){} }
+  });
+  return pts;
+}
+function snapPoint(pos, fromPt){
+  if(!snapOn||!pos)return pos;
+  var s=uiS(), TH=11*s, out={x:pos.x,y:pos.y};
+  var eps=_lineEndpoints(), best=null, bd=TH*TH;
+  eps.forEach(function(e){ var dx=e.x-pos.x,dy=e.y-pos.y,dd=dx*dx+dy*dy; if(dd<bd){bd=dd;best=e;} });
+  if(best)return {x:best.x,y:best.y,snapped:1};
+  if(gridOn){ out.x=Math.round(out.x/GRID)*GRID; out.y=Math.round(out.y/GRID)*GRID; }
+  if(fromPt){ var dx=out.x-fromPt.x, dy=out.y-fromPt.y, len=Math.hypot(dx,dy); if(len>4){ var step=Math.PI/4, ang=Math.atan2(dy,dx), sa=Math.round(ang/step)*step, df=Math.abs(((ang-sa+Math.PI)%(2*Math.PI))-Math.PI); if(df<(9*Math.PI/180)){ out.x=fromPt.x+len*Math.cos(sa); out.y=fromPt.y+len*Math.sin(sa); } } }
+  return out;
+}
+function drawGrid(){ if(gridShape){gridShape.destroy();gridShape=null;} if(!gridOn)return;
+  gridShape=new Konva.Group({listening:false}); var x0=-400,y0=-400,x1=(W||820)+800,y1=(H||640)+800, col='rgba(24,95,165,0.11)';
+  for(var x=Math.ceil(x0/GRID)*GRID;x<x1;x+=GRID)gridShape.add(new Konva.Line({points:[x,y0,x,y1],stroke:col,strokeWidth:1,listening:false}));
+  for(var y=Math.ceil(y0/GRID)*GRID;y<y1;y+=GRID)gridShape.add(new Konva.Line({points:[x0,y,x1,y],stroke:col,strokeWidth:1,listening:false}));
+  axisLayer.add(gridShape); gridShape.moveToBottom(); axisLayer.batchDraw();
+}
+function toggleSnap(){ snapOn=!snapOn; localStorage.setItem('fpf_dosik_snap',snapOn?'1':'0'); var b=document.getElementById('btn-snap'); if(b)b.classList.toggle('on',snapOn); hint(snapOn?'스냅 ON · 끝점·수평/수직/45°에 착':'스냅 OFF'); setTimeout(function(){hint('');},1300); }
+function toggleGrid(){ gridOn=!gridOn; localStorage.setItem('fpf_dosik_grid',gridOn?'1':'0'); var b=document.getElementById('btn-grid'); if(b)b.classList.toggle('on',gridOn); drawGrid(); }
 /* ---- 스티치 렌더 (직선/곡선 공통) ---- */
 function offsetSeg(pts,o){ const[x1,y1,x2,y2]=pts; const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1; const nx=-dy/L*o,ny=dx/L*o; return [x1+nx,y1+ny,x2+nx,y2+ny]; }
 function zigzagPts(pts,amp,freq){ const[x1,y1,x2,y2]=pts; const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1; const ux=dx/L,uy=dy/L,nx=-uy,ny=ux; const n=Math.max(2,Math.round(L/freq)); const out=[]; for(let i=0;i<=n;i++){ const t=i/n, s=(i%2?1:-1)*amp; out.push(x1+dx*t+nx*s, y1+dy*t+ny*s);} return out; }
@@ -1119,11 +1152,12 @@ stage.on('click tap',e=>{
   if(tool==='symbol'){ makeSymbol(pos.x,pos.y,symbolType); return; }
   if(tool==='curve'){ curveAddPoint(pos); hint('점 추가 · 더블클릭/Enter 완료 · Esc 취소'); return; }
   if(tool==='dim'||tool==='stitch'||tool==='arrow'||tool==='cut'){
-    if(!pendingStart){ pendingStart={x:pos.x,y:pos.y}; startTwoPoint(pos); hint('끝점을 한 번 더 탭하세요'); }
-    else{ if(tool==='dim') makeLine('dim',pendingStart.x,pendingStart.y,pos.x,pos.y);
-          else if(tool==='arrow') makeArrow(pendingStart.x,pendingStart.y,pos.x,pos.y);
-          else if(tool==='cut') makeCut(pendingStart.x,pendingStart.y,pos.x,pos.y);
-          else makeStitch(pendingStart.x,pendingStart.y,pos.x,pos.y);
+    if(!pendingStart){ pendingStart=snapPoint(pos,null); startTwoPoint(pendingStart); hint('끝점을 한 번 더 탭하세요'); }
+    else{ var ep=snapPoint(pos,pendingStart);
+          if(tool==='dim') makeLine('dim',pendingStart.x,pendingStart.y,ep.x,ep.y);
+          else if(tool==='arrow') makeArrow(pendingStart.x,pendingStart.y,ep.x,ep.y);
+          else if(tool==='cut') makeCut(pendingStart.x,pendingStart.y,ep.x,ep.y);
+          else makeStitch(pendingStart.x,pendingStart.y,ep.x,ep.y);
           pendingStart=null; endTwoPoint(); hint(''); }
     return;
   }
@@ -1138,9 +1172,10 @@ function startTwoPoint(p){ const s=uiS();
 }
 function endTwoPoint(){ if(previewLine&&previewLine.getLayer())previewLine.destroy(); if(startDot&&startDot.getLayer())startDot.destroy(); previewLine=null; startDot=null; ui.batchDraw(); }
 function moveHover(p){ const s=uiS();
+  p=snapPoint(p, pendingStart||null);
   if(hoverDot&&!hoverDot.getLayer())hoverDot=null;
   if(!hoverDot){ hoverDot=new Konva.Circle({stroke:COLORS.dim,strokeWidth:1.4*s,fill:'rgba(216,90,48,0.15)',listening:false}); ui.add(hoverDot); }
-  hoverDot.position(p); hoverDot.radius(4*s); hoverDot.strokeWidth(1.4*s); hoverDot.visible(true);
+  hoverDot.position(p); hoverDot.radius((p&&p.snapped?6:4)*s); hoverDot.stroke(p&&p.snapped?'#1D9E75':COLORS.dim); hoverDot.fill(p&&p.snapped?'rgba(29,158,117,0.18)':'rgba(216,90,48,0.15)'); hoverDot.strokeWidth(1.6*s); hoverDot.visible(true);
   if(previewLine&&previewLine.getLayer()){ const a=previewLine.points(); previewLine.points([a[0],a[1],p.x,p.y]); }
   ui.batchDraw();
 }
@@ -1387,6 +1422,9 @@ function setFrame(mode){
 }
 document.getElementById('frame-sel').addEventListener('change',e=>setFrame(e.target.value));
 document.getElementById('btn-mirror').addEventListener('click',toggleMirror);
+document.getElementById('btn-snap').addEventListener('click',toggleSnap);
+document.getElementById('btn-grid').addEventListener('click',toggleGrid);
+(function(){ var bs=document.getElementById('btn-snap'); if(bs)bs.classList.toggle('on',snapOn); var bg=document.getElementById('btn-grid'); if(bg)bg.classList.toggle('on',gridOn); if(gridOn)drawGrid(); })();
 (function(){
   var sz=document.getElementById('frame-size'), val=document.getElementById('frame-size-val');
   if(!sz)return;
