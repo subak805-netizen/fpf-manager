@@ -10919,9 +10919,22 @@ function renderPoTab(o){
         var q=t.calc?(t.calc.isRoll?(t.calc.rolls+'롤'):(t.calc.isJeol?(t.calc.jeol+'절'):(r2(t.calc.qty)+(t.calc.unit||'')))):'';
         return '<div style="border-top:1px dashed #e2e8f0;padding:5px 0;font-size:11px"><b>'+esc(t.name)+(clr?' <span style="color:#64748b">('+esc(clr)+')</span>':'')+'</b><div style="color:#334155;font-variant-numeric:tabular-nums">개당 '+_yo(yo)+' × '+pcs+'장 = <b>'+q+'</b></div></div>';
       }).filter(Boolean).join('');
+      // 원단부족/초과로 생산수량이 조정된 아이템 요약 (계산식 상단) — 아래 부자재·부속원단 수량의 근거
+      // (발주서엔 안 나가고, 이 계산식 박스 안에서만 "왜 이 수량인지"를 보여줌)
+      var _adjHtml='';
+      (function(){var _seen={};(sup.materials||[]).forEach(function(_mm){
+        if(!_mm.itemId||_seen[_mm.itemId])return;_seen[_mm.itemId]=true;
+        var _oi=(o.orderItems||[]).find(function(x){return x.itemId===_mm.itemId;});if(!_oi)return;
+        var _bd=(typeof getEffectivePcsBreakdown==='function')?getEffectivePcsBreakdown(o,_oi):null;
+        if(!_bd||!_bd.diff)return;
+        var _nm=(S.items[_mm.itemId]&&S.items[_mm.itemId].name)||_oi.itemName||'';
+        var _tone=_bd.isMixed?'#9333ea':(_bd.isShortage?'#dc2626':'#0369a1');
+        var _per=(_bd.colors||[]).map(function(c){var r=(_bd.colorRatios&&_bd.colorRatios[c])||1;var p=Math.round((r-1)*100);if(p===0)return null;return esc(c||'기본')+' '+(p>0?'+':'')+p+'%';}).filter(Boolean).join(' / ');
+        _adjHtml+='<div style="border-top:1px dashed #e2e8f0;padding:6px 0;font-size:11px"><b style="color:'+_tone+'">⚠ 원단 조정 — '+esc(_nm)+' '+_bd.origTotal+'장 → '+_bd.effTotal+'장 ('+(_bd.diff>0?'+':'')+_bd.diff+'장)</b>'+(_per?'<div style="color:#475569;margin-top:2px;font-variant-numeric:tabular-nums">'+_per+'</div>':'')+'<div style="color:#94a3b8;font-size:10px;margin-top:1px">→ 아래 부자재·부속 원단 수량은 이 조정수량 기준</div></div>';
+      });})();
       // 항상 닫힌 채로 렌더(기본 닫힘). 보고 싶을 때 직접 펼치고, 재렌더(발송완료 등)되면 다시 닫힘.
       // (open 상태를 저장하면 <details open> 재삽입 때 ontoggle이 발화돼 발송완료마다 펼쳐지는 문제가 있어 저장 안 함)
-      var detailHtml=(fabDetail+trimDetail)?('<details style="margin-bottom:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:4px 10px"><summary style="font-size:11px;font-weight:700;color:#475569;cursor:pointer">🧮 계산식 (발주수량 맞는지 확인용 · 발주서엔 안 나감)</summary>'+fabDetail+trimDetail+'</details>'):'';
+      var detailHtml=(_adjHtml+fabDetail+trimDetail)?('<details style="margin-bottom:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:4px 10px"><summary style="font-size:11px;font-weight:700;color:#475569;cursor:pointer">🧮 계산식 (발주수량 맞는지 확인용 · 발주서엔 안 나감)</summary>'+_adjHtml+fabDetail+trimDetail+'</details>'):'';
       return detailHtml;
     })();
     const poText=genPoText(o,sn);
