@@ -3634,6 +3634,11 @@ function migrateData(){
     S.brandConfig._arCareYMNone=true;
     setTimeout(function(){try{saveData();}catch(e){}},2500);
   } }catch(e){}
+  // 출고완료 자동 완료탭이동 폐지 → 기존 출고완료 항목은 1회 '완료로 보냄' 스탬프(전환 시 진행탭 폭주 방지)
+  try{ if(!S.brandConfig)S.brandConfig={}; if(!S.brandConfig._dashDoneMig){
+    Object.keys(S.orders||{}).forEach(function(oid){var o=S.orders[oid];if(!o||!o.orderItems)return;o.orderItems.forEach(function(oi){if(!oi||oi._dashDone!==undefined)return;var it=S.items[oi.itemId];if(!it||!it.sewingFcId)return;var sch=(o.factorySchedules||{})[it.sewingFcId];if(sch&&sch.shipDone)oi._dashDone=true;});});
+    S.brandConfig._dashDoneMig=true;
+  } }catch(e){}
   // 운임/택배/박스 등 결제 부대비용(payFees) VAT 미포함 1회 전환 — 보통 VAT 미포함라, 명시 안 한(noVat 미설정) 기존 항목을 VAT 미포함으로. 과세로 둔 것(noVat:false 명시)은 보존
   try{Object.values(S.orders||{}).forEach(function(o){if(o&&o.payFees)Object.keys(o.payFees).forEach(function(k){(o.payFees[k]||[]).forEach(function(f){if(f&&f.noVat===undefined)f.noVat=true;});});});}catch(e){}
   // SSOT 일정 통합(1회성): 오더상세 공장카드마다 흩어져 있던 예정일을 역할 공장 스케줄로 모음
@@ -13852,7 +13857,7 @@ function renderProdDash(){
         });
       }
       shipDates.sort((a,b)=>cmpDate(a).localeCompare(cmpDate(b)));
-      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,effTotal,effColors,effSizeGrid,shipTotal,shipColors,shipSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped});
+      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,effTotal,effColors,effSizeGrid,shipTotal,shipColors,shipSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped,dashDone:!!(oi&&oi._dashDone)});
     }
   }
   if(!rows.length){
@@ -13868,8 +13873,8 @@ function renderProdDash(){
   });
   // 보기 모드 (상태 박스 = 필터 탭): 'active'(진행) | 'urgent'(긴급) | 'shipped'(출고완료)
   const viewMode=window._pdViewMode||'active';
-  const activeRows=rows.filter(r=>!r.shipDone);          // 진행 중 (출고완료 제외)
-  const shippedRows=rows.filter(r=>r.shipDone);           // 출고 완료
+  const activeRows=rows.filter(r=>!r.dashDone);          // 진행 중 (완료로 보낸 것 제외 — 출고완료여도 버튼 누르기 전엔 진행)
+  const shippedRows=rows.filter(r=>r.dashDone);           // 완료로 보낸 것
   const urgentRows=activeRows.filter(r=>r.dday!==null&&r.dday<=3);
   // 원단 컨펌일(confirmDate) 임박: 입고완료 안 된 원단처 중 컨펌예정 D-3 이내(지남 포함)
   const _confDday=(r)=>{var best=null;var sups=(r.o&&r.o.suppliers)||{};var pc=(r.o&&r.o._prepConfirmed)||{};var pa=(r.o&&r.o._prepArrived)||{};(r.it.fabrics||[]).forEach(function(f){var sn=f.supplier;if(!sn)return;var sp=sups[sn];if(!sp||sp.arrived||pa[sn]||sp.confirmDone||pc[sn]||!sp.confirmDate)return;var dd=null;try{dd=Math.ceil((new Date(sp.confirmDate)-new Date(todayISO()))/86400000);}catch(e){}if(dd!==null&&(best===null||dd<best))best=dd;});return best;};
@@ -14284,7 +14289,7 @@ function renderProdDashRow(r){
   const _eta2=(r.sewSch&&(r.sewSch.shipExpectedDate||r.sewSch.shippingDate))||r.o.shippingDate||'';
   const _shipShort=_eta2?(typeof toISO==='function'?String(toISO(_eta2)).slice(5).replace('-','.'):_eta2):'미정';
   const _rid=esc(r.o.id)+'::'+esc(r.it.id);
-  return `<div class="pdc${r.shipDone?' shipped':''}${window._pdOpenId===_rid?' open':''}" data-rowid="${_rid}" data-bid="${esc(r.brandId||'')}">
+  return `<div class="pdc${r.dashDone?' shipped':''}${window._pdOpenId===_rid?' open':''}" data-rowid="${_rid}" data-bid="${esc(r.brandId||'')}">
     <div class="pdc-head" onclick="pdToggleRow(this)">
       <div class="pdc-h1"><span class="pdc-nm">${esc(r.it.name)}</span>${code?'<span class="pdc-code">'+esc(code)+'</span>':''}${ddayHtml}</div>
       <div class="pdc-h2">
@@ -14326,9 +14331,22 @@ function renderProdDashRow(r){
       <div class="ptab">${prepCell('fab',fabSup,'입고완료','원자재')}${prepCell('trim',trimSup,'입고완료','부자재')}${prepCell('jisi',sewFcNm,'전달완료','지시서')}</div>
       <div class="pdc-sech">✂️ 공정별 수량 · 사이즈/컬러</div>
       <div class="ptab">${cell('재단',fcSew,schSew,pdCutQty(schSew,r.it.id,r.o.orderItems.length===1),'cuttingDate','cuttingDone')}${cell('외주',fcExt,schExt,pdShipQty(schExt,r.it.id,r.o.orderItems.length===1),'shippingDate','shipDone')}${cell('봉제',fcSew,schSew,r.shipTotal,'sewingCompleteDate','sewingDone')}${cell('완성',fcFin,schFin,pdShipQty(schFin,r.it.id,r.o.orderItems.length===1),'shippingDate','finishingDone')}${cell('검품',fcInsp,schInsp,pdShipQty(schInsp,r.it.id,r.o.orderItems.length===1),'inspectionDate','inspectionDone')}${cell('출고',fcSew,schSew,r.shipTotal,'shipExpectedDate','shipDone')}</div>
-      <div class="pdc-foot"><span class="pd-stage-lbl" style="margin:0">결제</span>${payStateHtml}<button class="pd-btn" style="margin-left:auto;padding:6px 12px;background:#1f2937;color:#fff;border:none;font-weight:600;border-radius:8px" onclick="switchTab('pay')">결제 보기</button></div>
+      <div class="pdc-foot"><span class="pd-stage-lbl" style="margin:0">결제</span>${payStateHtml}<span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${(!r.dashDone&&r.shipDone)?`<button class="pd-btn" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;font-weight:700;border-radius:8px" onclick="event.stopPropagation();pdSendToDone('${esc(r.o.id)}','${esc(r.it.id)}')">📦 완료 탭으로 보내기</button>`:''}${r.dashDone?`<button class="pd-btn" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid var(--bd);font-weight:600;border-radius:8px" onclick="event.stopPropagation();pdUnsendDone('${esc(r.o.id)}','${esc(r.it.id)}')">↩ 진행으로</button>`:''}<button class="pd-btn" style="padding:6px 12px;background:#1f2937;color:#fff;border:none;font-weight:600;border-radius:8px" onclick="event.stopPropagation();switchTab('pay')">결제 보기</button></span></div>
     </div>
   </div>`;
+}
+// 출고완료 항목을 '출고 완료' 탭으로 보내기 (자동 이동 대신 수동)
+function pdSendToDone(oid,itemId){
+  var o=S.orders[oid];if(!o)return;
+  (o.orderItems||[]).forEach(function(oi){if(oi&&oi.itemId===itemId)oi._dashDone=true;});
+  saveData(); if(typeof renderProdDash==='function')renderProdDash();
+  if(typeof showToast==='function')showToast('📦 출고 완료 탭으로 보냈어요');
+}
+function pdUnsendDone(oid,itemId){
+  var o=S.orders[oid];if(!o)return;
+  (o.orderItems||[]).forEach(function(oi){if(oi&&oi.itemId===itemId)oi._dashDone=false;});
+  saveData(); if(typeof renderProdDash==='function')renderProdDash();
+  if(typeof showToast==='function')showToast('↩ 진행으로 되돌렸어요');
 }
 
 // 카드 펼침/접힘 (한 번에 하나만 펼침)
