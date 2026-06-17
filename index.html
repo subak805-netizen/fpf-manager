@@ -9434,6 +9434,15 @@ function getMatOrigQty(m){
 function hasMatOverride(m){
   return m&&m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''&&+m.actualOrderedQty!==getMatOrigQty(m);
 }
+// 거래처 확인 "계산수량" 표시용: 원래 오더수량 기준 고정값(도미노/effective 미반영). 원단만 base 보유, 없으면 기존값 폴백
+function getMatBaseQty(m){
+  if(!m)return 0;
+  if(m.type==='fabric'){
+    if(m.pricingUnit==='kg')return (m.baseTotalKg!=null?m.baseTotalKg:m.totalKg)||0;
+    return (m.baseTotalYards!=null?m.baseTotalYards:m.totalYards)||0;
+  }
+  return getMatOrigQty(m);
+}
 
 function calcSups(orderItems,opts){
   // opts.fabricEffectivePcs: true (기본) — 원단 계산에도 effective pcs 적용 여부
@@ -9514,6 +9523,8 @@ function calcSups(orderItems,opts){
         // 컬러 링크 있고 유효하면 해당 컬러만
         if(useLinks&&!f.colorLinks.find(l=>l.itemColor===c))continue;
         const calc=calcFabYards(f,qty,(_ovrF?colorSizeQtys[c]:effColorSizeQtys[c]),c);
+        // 거래처 확인 "계산수량" 고정 표시용: 원래 오더수량(colorQtys) 기준 — 다른 원단 발주량(도미노)에 안 흔들림
+        const _calcBase=(qty===(colorQtys[c]||0))?calc:calcFabYards(f,colorQtys[c]||0,colorSizeQtys[c],c);
         const _fl=useLinks?f.colorLinks.find(l=>l.itemColor===c):null;
         const fabColorName=_fl?(_fl.fabricColor||''):(f.fabricColor||'');
         const _clPriceF=(_fl&&_fl.price!==undefined&&_fl.price!==''&&+_fl.price>0)?+_fl.price:0; // 컬러별 단가(야드)
@@ -9528,7 +9539,7 @@ function calcSups(orderItems,opts){
           if(a.applyTo==='colors'&&a.colors&&a.colors.indexOf(c)>=0)return true;
           return false;
         }).map(function(a){return {name:a.name||'가산',price:+a.price||0};});
-        sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,totalYards:calc.ty,totalKg:calc.tk||null,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',part:f.part||'',fabId:f.id,itemId:oi.itemId,itemName:it.name,memo:f.memo||'',addPerUnit:calc.addPerUnit||0,appliedAdditions:appliedAdditions,effectivePcsApplied:effectivePcsForTrim});
+        sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,totalYards:calc.ty,totalKg:calc.tk||null,baseTotalYards:_calcBase.ty,baseTotalKg:_calcBase.tk||null,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',part:f.part||'',fabId:f.id,itemId:oi.itemId,itemName:it.name,memo:f.memo||'',addPerUnit:calc.addPerUnit||0,appliedAdditions:appliedAdditions,effectivePcsApplied:effectivePcsForTrim});
       }
     }
     for(const t of it.trims||[]){
@@ -11777,12 +11788,12 @@ function renderCheckTab(o,onlySn){
       let negotiated=m.negotiatedPrice!==undefined?m.negotiatedPrice:'';
       // 협상가가 발주단가(컬러별 단가 포함)와 같으면 자동 오인값 → 빈 값 처리 (잘못 채워진 것 정리)
       if(negotiated!==''&&+negotiated===+orderPrice){negotiated='';if(m.negotiatedPrice!==undefined)delete m.negotiatedPrice;}
-      // 실제 발주 수량 표시값
-      const origQty=getMatOrigQty(m);
+      // 실제 발주 수량 표시값 — 계산수량은 원래 오더 기준 고정값(getMatBaseQty): 다른 원단 발주량(도미노)에 안 흔들림
+      const origQty=parseFloat((getMatBaseQty(m)||0).toFixed(2));
       const origUnit=isKg?'kg':m.type==='fabric'?'y':(m.calc?.isRoll?'롤':(m.calc?.unit||'개'));
       const actualOrd=m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''?m.actualOrderedQty:'';
       const actualCost=getMatActualCost(m);
-      const origCost=getMatOrigQty(m)*(m.pricingUnit==='kg'?(m.pricePerKg||0):(m.unitPrice||0));
+      const origCost=getMatBaseQty(m)*(m.pricingUnit==='kg'?(m.pricePerKg||0):(m.unitPrice||0));
       const costDiff=actualCost-origCost;
       return`<tr${isSkippedMat(o,sn,m)?' style="opacity:.5"':''}>
         <td style="font-size:11px;padding:4px 6px">${isSkippedMat(o,sn,m)?'<span style="text-decoration:line-through">':''}${esc(_dispName)}${isSkippedMat(o,sn,m)?'</span>':''}${m.part?' <span style="font-size:9px;background:#eef2ff;color:#4338ca;padding:1px 6px;border-radius:4px;font-weight:700;white-space:nowrap">'+esc(m.part)+'</span>':''}${isKg?' <span class="badge b2" style="font-size:9px">KG</span>':''}${m.type!=='fabric'&&m.calc?.isRoll?' <span class="badge b3" style="font-size:9px">롤</span>':''}${m.type!=='fabric'&&!m.calc?.isRoll&&m.calc?.unit==='개'?'':''}<br><span style="font-size:9px;color:var(--t2)">${_vColor?'#'+esc(_vColor):''}</span><br><label style="display:inline-flex;align-items:center;gap:3px;font-size:9px;color:${isSkippedMat(o,sn,m)?'var(--red)':'var(--t2)'};margin-top:2px;cursor:pointer"><input type="checkbox" ${isSkippedMat(o,sn,m)?'checked':''} onchange="toggleSkipBilling('${o.id}','${encodeURIComponent(sn)}','${encodeURIComponent(matName)}','${encodeURIComponent(m.colorName||'')}')" style="width:13px;height:13px"> 발주안함(결제 제외)</label></td>
