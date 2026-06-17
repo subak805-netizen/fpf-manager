@@ -423,6 +423,9 @@ html[data-theme="retro"] #pane-items .trim-add-grid .btn:active{box-shadow:none;
 .qty-grid td.tot{background:var(--bg3);font-weight:700;}
 .qty-grid input{width:50px;padding:3px 4px;font-size:12px;text-align:center;border:1px solid var(--bd);border-radius:4px;}
 .qty-grid input:focus{outline:none;border-color:var(--blue);}
+/* 발주 생성 인라인 패널 (모달 아님) */
+.onew-inline{margin:0 0 8px;}
+.onew-inline .modal{max-width:none;border:var(--card-border);box-shadow:var(--card-shadow);padding:11px;}
 /* 오더수량 배수 계산기 (인라인) — 스킨 토큰으로 레트로/기본 자동 적응 */
 .ocalc{margin:0 0 8px;background:var(--surface,#fff);border:var(--card-border);border-radius:var(--radius-skin,8px);box-shadow:var(--card-shadow);overflow:hidden;display:none;}
 .ocalc.open{display:block;}
@@ -1354,32 +1357,65 @@ tryInitFirebase();
   <div id="pane-orders" class="split" style="display:none">
     <div class="sl">
       <div class="fr" style="gap:6px;margin-bottom:8px">
-        <button class="btn p" onclick="showModal('o-new-modal')" style="flex:1;font-weight:800;font-size:14px">＋ 발주 생성</button>
+        <button class="btn p" id="o-new-btn" onclick="toggleNewOrder()" style="flex:1;font-weight:800;font-size:14px">＋ 발주 생성</button>
         <button class="btn" onclick="ocalcToggle()" title="사이즈 비율로 오더수량 나눠주는 계산기" style="font-weight:700;font-size:13px;white-space:nowrap;background:var(--neon-blue);border:2px solid var(--ink)">🧮 수량계산</button>
+      </div>
+      <div id="o-new-modal" class="onew-inline" style="display:none">
+        <div class="modal">
+          <div class="fb" style="margin-bottom:10px;position:sticky;top:0;background:var(--bg);z-index:5;padding-bottom:8px;border-bottom:1px solid var(--bd)">
+            <b>＋ 새 오더 생성</b>
+            <div class="fr" style="gap:6px;align-items:center">
+              <button class="btn s" onclick="closeModal('o-new-modal')">닫기</button>
+              <button class="btn p s ok" onclick="createOrder()">✓ 오더 생성</button>
+            </div>
+          </div>
+          <div class="g3" style="margin-bottom:8px">
+            <div class="fg" style="margin-bottom:0">
+              <label>🏷 브랜드</label>
+              <select id="on-brand-flt" onchange="renderOrderNewItems()"><option value="">전체 브랜드</option></select>
+            </div>
+            <div class="fg" style="margin-bottom:0">
+              <label>시즌</label>
+              <select id="on-season-flt" onchange="renderOrderNewItems()"><option value="">전체 시즌</option></select>
+            </div>
+            <div class="fg" style="margin-bottom:0">
+              <label>검색</label>
+              <input id="on-search" placeholder="아이템명..." oninput="renderOrderNewItems()">
+            </div>
+          </div>
+          <div class="sec"><span>아이템 선택 및 수량 입력</span></div>
+          <div id="o-new-items" style="max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
+          <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="closeModal('o-new-modal')">닫기</button><button class="btn p ok" onclick="createOrder()">✓ 오더 생성</button></div>
+        </div>
       </div>
       <div class="ocalc" id="ocalc">
         <div class="ocalc-hd"><span class="t">🧮 오더수량 배수 계산기</span><span class="x" onclick="ocalcToggle()">✕ 닫기</span></div>
         <div class="ocalc-bd">
           <div class="field">
-            <label class="fl">아이템 <span class="sub">고르면 사이즈 자동 · 안 고르면 직접입력</span></label>
-            <select id="oc-item" onchange="ocalcPickItem()"></select>
+            <label class="fl">아이템 <span class="sub">검색해서 고르면 사이즈 자동 · 안 고르면 직접입력</span></label>
+            <input class="szinput" id="oc-item-search" list="oc-item-dl" placeholder="🔍 아이템명·품번 검색" autocomplete="off" oninput="ocalcResolveItem()">
+            <datalist id="oc-item-dl"></datalist>
+            <input type="hidden" id="oc-item">
           </div>
           <div class="field">
             <label class="fl">사이즈 <span class="sub">쉼표로 구분</span></label>
-            <input class="szinput" id="oc-sizes" placeholder="S, M, L, XL" oninput="ocalcBuildRows()">
+            <input class="szinput" id="oc-sizes" placeholder="S, M, L, XL" oninput="ocalcBuildRows();ocalcCalc()">
             <div class="presets">
               <span class="preset" onclick="ocalcSetSizes('S, M, L')">S·M·L</span>
               <span class="preset" onclick="ocalcSetSizes('S, M, L, XL')">S·M·L·XL</span>
               <span class="preset" onclick="ocalcSetSizes('XS, S, M, L, XL')">XS~XL</span>
             </div>
           </div>
-          <div class="field" id="oc-color-field" style="display:none">
-            <label class="fl">채울 컬러 <span class="sub">그리드 어느 컬러에</span></label>
-            <select id="oc-color"></select>
-          </div>
-          <div class="field">
+          <div class="field" id="oc-total-field">
             <label class="fl">합계 오더수량</label>
             <input class="totinput" id="oc-total" type="number" inputmode="numeric" placeholder="0" oninput="ocalcCalc()">
+          </div>
+          <div class="field" id="oc-colortotals-field" style="display:none">
+            <label class="fl" style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+              <span>컬러별 합계 <span class="sub">컬러마다 수량 다르게 · 빈칸은 안 채움</span></span>
+              <span class="preset" onclick="ocalcSameTotal()" style="margin:0">＝ 전체 같게</span>
+            </label>
+            <div id="oc-colortotals"></div>
           </div>
           <div class="field">
             <label class="fl">사이즈별 설정 <span class="sub">비율(나눠줌) ↔ 🔒고정(이 수량 그대로)</span></label>
@@ -2029,39 +2065,6 @@ body.tp-capturing #tp-modal .tp-hdate::-webkit-calendar-picker-indicator{display
     <div class="g2"><div class="fg"><label>전화</label><input id="fc-phone"></div><div class="fg"><label>이메일</label><input id="fc-email" type="email"></div></div>
     <div class="fg"><label>입금 계좌 <span class="muted" style="font-weight:400;font-size:10px">결제서에 자동 표시</span></label><input id="fc-bank" placeholder="은행명 계좌번호 예금주 (예: 국민은행 123-456-789 홍길동)"></div>
     <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:10px"><button class="btn" onclick="closeModal('fc-modal')">취소</button><button class="btn p" onclick="saveFc()">저장</button></div>
-  </div>
-</div>
-<div class="overlay" id="o-new-modal" style="display:none" onclick="if(event.target===this)closeModal('o-new-modal')">
-  <div class="modal">
-    <div class="fb" style="margin-bottom:10px;position:sticky;top:0;background:var(--bg);z-index:5;padding-bottom:8px;border-bottom:1px solid var(--bd)">
-      <b>새 오더 생성</b>
-      <div class="fr" style="gap:6px;align-items:center">
-        <button class="btn s" onclick="closeModal('o-new-modal')">취소</button>
-        <button class="btn p s" onclick="createOrder()">✓ 오더 생성</button>
-        <button class="btn s g" onclick="closeModal('o-new-modal')" style="margin-left:2px">✕</button>
-      </div>
-    </div>
-    <div class="g3" style="margin-bottom:8px">
-      <div class="fg" style="margin-bottom:0">
-        <label>🏷 브랜드</label>
-        <select id="on-brand-flt" onchange="renderOrderNewItems()">
-          <option value="">전체 브랜드</option>
-        </select>
-      </div>
-      <div class="fg" style="margin-bottom:0">
-        <label>시즌</label>
-        <select id="on-season-flt" onchange="renderOrderNewItems()">
-          <option value="">전체 시즌</option>
-        </select>
-      </div>
-      <div class="fg" style="margin-bottom:0">
-        <label>검색</label>
-        <input id="on-search" placeholder="아이템명..." oninput="renderOrderNewItems()">
-      </div>
-    </div>
-    <div class="sec"><span>아이템 선택 및 수량 입력</span></div>
-    <div id="o-new-items" style="height:46vh;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
-    <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="closeModal('o-new-modal')">취소</button><button class="btn p" onclick="createOrder()">✓ 오더 생성</button></div>
   </div>
 </div>
 <div id="toast"></div>
@@ -4148,8 +4151,14 @@ function importData(file){
 /* ===== COMPANY ===== */
 function renderCoSel(){const s=document.getElementById('co-sel');if(!s)return;s.innerHTML=Object.values(companies).map(c=>`<option value="${c.id}"${c.id===curCoId?' selected':''}>${esc(c.name)}</option>`).join('');}
 function onCoChange(id){curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();startRealtimeSync();}
-function showModal(id){const el=document.getElementById(id);if(!el)return;el.style.display='flex';if(id==='o-new-modal'){window._onPage=0;window._ncChecked={};window._ncQtyCache={};const bs=document.getElementById('on-brand-flt');if(bs)bs.dataset.populated='';renderOrderNewItems();}if(id==='cloud-modal')updateCloudModal();}
-function closeModal(id){const el=document.getElementById(id);if(el)el.style.display='none';}
+function showModal(id){const el=document.getElementById(id);if(!el)return;el.style.display=(id==='o-new-modal'?'block':'flex');if(id==='o-new-modal'){window._onPage=0;window._ncChecked={};window._ncQtyCache={};const bs=document.getElementById('on-brand-flt');if(bs)bs.dataset.populated='';renderOrderNewItems();var b=document.getElementById('o-new-btn');if(b){b.textContent='✕ 발주 생성 닫기';}}if(id==='cloud-modal')updateCloudModal();}
+function closeModal(id){const el=document.getElementById(id);if(el)el.style.display='none';if(id==='o-new-modal'){var b=document.getElementById('o-new-btn');if(b){b.textContent='＋ 발주 생성';}}}
+// 발주 생성 인라인 패널 토글
+function toggleNewOrder(){
+  var el=document.getElementById('o-new-modal');if(!el)return;
+  if(el.style.display&&el.style.display!=='none'){ closeModal('o-new-modal'); }
+  else { showModal('o-new-modal'); setTimeout(function(){el.scrollIntoView({behavior:'smooth',block:'start'});},60); }
+}
 function addCo(){const nm=document.getElementById('new-co-nm').value.trim();if(!nm){alert('회사명(사업자명)을 입력하세요');return;}const id='co_'+uid();companies[id]={id,name:nm};lsSet('fpm_cos',companies);closeModal('add-co-modal');curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();}
 function addDemoData(){
   console.log('[데모] addDemoData 호출됨');
@@ -9065,36 +9074,87 @@ function ocalcToggle(){
   if(c.classList.contains('open')){ ocalcBuildItemList(); ocalcBuildRows(); ocalcCalc(); }
 }
 function ocalcBuildItemList(){
-  var sel=document.getElementById('oc-item');if(!sel)return;
-  var cur=sel.value;
+  var dl=document.getElementById('oc-item-dl');if(!dl)return;
   var items=Object.values(S.items||{}).filter(function(it){return (it.sizes&&it.sizes.length);});
   items.sort(function(a,b){return String(a.code||'￿').localeCompare(String(b.code||'￿'),'ko',{numeric:true});});
-  var html='<option value="">— 직접입력 (아이템 안 고름) —</option>';
-  html+=items.map(function(it){return '<option value="'+it.id+'">'+esc((it.code?it.code+' · ':'')+it.name)+'</option>';}).join('');
-  sel.innerHTML=html;
-  if(cur)sel.value=cur;
+  window._ocItemMap={};
+  dl.innerHTML=items.map(function(it){
+    var label=(it.code?it.code+' · ':'')+it.name;
+    window._ocItemMap[label.toLowerCase()]=it.id;
+    if(it.name)window._ocItemMap[it.name.toLowerCase()]=it.id;
+    if(it.code)window._ocItemMap[it.code.toLowerCase()]=it.id;
+    return '<option value="'+esc(label)+'"></option>';
+  }).join('');
+}
+// 검색 입력 → 아이템 해석 (정확매칭 우선, 부분일치 폴백). 못 찾으면 직접입력 모드
+function ocalcResolveItem(){
+  var q=(document.getElementById('oc-item-search').value||'').trim().toLowerCase();
+  var map=window._ocItemMap||{};
+  var id=q?(map[q]||''):'';
+  if(!id&&q){ var ids={};Object.keys(map).forEach(function(k){if(k.indexOf(q)>=0)ids[map[k]]=1;}); var uniq=Object.keys(ids); if(uniq.length===1)id=uniq[0]; }
+  document.getElementById('oc-item').value=id;
+  ocalcPickItem();
 }
 function ocalcPickItem(){
   var id=document.getElementById('oc-item').value;
-  var cf=document.getElementById('oc-color-field');
-  var csel=document.getElementById('oc-color');
-  if(!id){ if(cf)cf.style.display='none'; ocalcBuildRows(); ocalcCalc(); return; }
-  var it=S.items[id];if(!it){ if(cf)cf.style.display='none'; return; }
+  if(!id){ ocalcSetColors([]); ocalcBuildRows(); ocalcCalc(); return; }
+  var it=S.items[id];if(!it){ ocalcSetColors([]); return; }
   document.getElementById('oc-sizes').value=(it.sizes||[]).join(', ');
-  // 컬러 선택칸 채우기
-  var colors=(it.colors&&it.colors.length)?it.colors:[];
-  if(colors.length){
-    csel.innerHTML=colors.map(function(c){return '<option value="'+encodeURIComponent(c)+'">'+esc(c)+'</option>';}).join('')
-      +(colors.length>1?'<option value="__ALL__">모든 컬러 동일하게</option>':'');
-    cf.style.display='';
-  }else{ cf.style.display='none'; csel.innerHTML=''; }
+  ocalcSetColors((it.colors&&it.colors.length)?it.colors.slice():[]);
   ocalcBuildRows(); ocalcCalc();
 }
 function ocalcSetSizes(s){
   document.getElementById('oc-item').value='';
-  var cf=document.getElementById('oc-color-field');if(cf)cf.style.display='none';
+  var si=document.getElementById('oc-item-search');if(si)si.value='';
+  ocalcSetColors([]);
   document.getElementById('oc-sizes').value=s;
   ocalcBuildRows(); ocalcCalc();
+}
+// 컬러 2개 이상이면 컬러별 합계칸, 아니면 단일 합계칸
+function ocalcSetColors(colors){
+  colors=colors||[];
+  window._ocalcColors=colors;
+  var multi=colors.length>=2;
+  var tf=document.getElementById('oc-total-field');
+  var cf=document.getElementById('oc-colortotals-field');
+  if(tf)tf.style.display=multi?'none':'';
+  if(cf)cf.style.display=multi?'':'none';
+  if(multi){
+    var prev=window._ocalcColorTotals||{};
+    document.getElementById('oc-colortotals').innerHTML=colors.map(function(c,i){
+      var v=(prev[c]!=null?prev[c]:'');
+      return '<div class="szrow">'
+        +'<span class="szname" style="min-width:64px;font-size:9px">'+esc(c)+'</span>'
+        +'<input class="valinput" type="number" inputmode="numeric" placeholder="0" value="'+v+'" oninput="ocalcSetColorTotal('+i+',this.value)">'
+        +'<span style="font-family:var(--font-display);font-size:11px;color:var(--t2)">장</span>'
+        +'</div>';
+    }).join('');
+  }
+}
+function ocalcSetColorTotal(i,v){
+  var c=(window._ocalcColors||[])[i];if(c==null)return;
+  if(!window._ocalcColorTotals)window._ocalcColorTotals={};
+  window._ocalcColorTotals[c]=(v===''?'':+v);
+  ocalcCalc();
+}
+function ocalcSameTotal(){
+  var colors=window._ocalcColors||[];if(!colors.length)return;
+  var ct=window._ocalcColorTotals||{};var first=null;
+  for(var i=0;i<colors.length;i++){var v=ct[colors[i]];if(v!==''&&v!=null&&+v>0){first=+v;break;}}
+  if(first==null){showToast('먼저 한 컬러에 수량을 넣어주세요');return;}
+  if(!window._ocalcColorTotals)window._ocalcColorTotals={};
+  colors.forEach(function(c){window._ocalcColorTotals[c]=first;});
+  ocalcSetColors(colors);ocalcCalc();
+}
+// 계산 대상 = [{color,total}] (멀티컬러면 컬러별, 아니면 단일)
+function ocalcTargets(){
+  var colors=window._ocalcColors||[];
+  if(colors.length>=2){
+    var ct=window._ocalcColorTotals||{};
+    return colors.map(function(c){return {color:c,total:+ct[c]||0};});
+  }
+  var col=colors.length?colors[0]:'';
+  return [{color:col,total:+document.getElementById('oc-total').value||0}];
 }
 function ocalcBuildRows(){
   var raw=(document.getElementById('oc-sizes').value||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
@@ -9143,30 +9203,50 @@ function ocalcDistribute(total){
   out.clean=(remaining%wtot===0);
   return out;
 }
-function ocalcCalc(){
-  var rows=(window._ocalc&&window._ocalc.rows)||[];
-  var total=+document.getElementById('oc-total').value||0;
-  var el=document.getElementById('oc-result');if(!el)return;
-  if(!rows.length||total<=0){el.className='oc-result';el.innerHTML='';return;}
-  var o=ocalcDistribute(total);
-  var sum=Object.keys(o.res).reduce(function(a,k){return a+(o.res[k]||0);},0);
-  var html='<div class="rgrid">'+rows.map(function(r){
-    var q=o.res[r.name]!=null?o.res[r.name]:0;
+function ocalcChips(rows,res){
+  return '<div class="rgrid">'+rows.map(function(r){
+    var q=res[r.name]!=null?res[r.name]:0;
     return '<div class="rchip'+(r.mode==='fixed'?' locked':'')+'"><span class="s">'+esc(r.name)+(r.mode==='fixed'?' 🔒':'')+'</span><span class="q">'+q+'</span></div>';
   }).join('')+'</div>';
-  html+='<div class="rtot">합계 '+sum+'장'+((!o.warn&&(sum===total||!o.ratio.length))?' ✓':'')+'</div>';
-  if(o.warn){
-    html+='<div class="hint bad">⚠️ '+esc(o.warn)+'</div>';
-  }else if(o.ratio.length){
-    if(o.clean){
-      html+='<div class="hint clean">✅ <b>딱 떨어져요!</b> 비율대로 연단 '+(o.remaining/o.wtot)+'겹 쌓으면 재단 한 번에 끝나요.</div>';
+}
+function ocalcCalc(){
+  var rows=(window._ocalc&&window._ocalc.rows)||[];
+  var el=document.getElementById('oc-result');if(!el)return;
+  var multi=(window._ocalcColors||[]).length>=2;
+  var targets=ocalcTargets().filter(function(t){return t.total>0;});
+  if(!rows.length||!targets.length){el.className='oc-result';el.innerHTML='';return;}
+  var html='',grand=0,anyAdj=false,results={};
+  targets.forEach(function(t){
+    var o=ocalcDistribute(t.total);
+    var sum=Object.keys(o.res).reduce(function(a,k){return a+(o.res[k]||0);},0);
+    grand+=sum;results[t.color]=o.res;
+    if(multi){
+      var flag=o.warn?' ⚠️':(o.ratio.length?(o.clean?' ✅':' 🔧'):'');
+      html+='<div style="margin-bottom:9px">'
+        +'<div style="font-family:var(--font-display);font-weight:700;font-size:12px;margin-bottom:4px">'+esc(t.color)+' <span style="color:var(--t2);font-weight:400">'+sum+'장</span>'+flag+'</div>'
+        +ocalcChips(rows,o.res)
+        +(o.warn?'<div class="hint bad" style="margin-top:4px">⚠️ '+esc(o.warn)+'</div>':'')
+        +'</div>';
+      if(!o.warn&&o.ratio.length&&!o.clean)anyAdj=true;
     }else{
-      var down=o.fixedSum+Math.floor(o.remaining/o.wtot)*o.wtot;
-      var up=o.fixedSum+Math.ceil(o.remaining/o.wtot)*o.wtot;
-      html+='<div class="hint adj">🔧 비율 배수로 안 떨어져서 <b>반올림 분배</b>했어요. 깔끔히 하려면 합계를 맞춰보세요:<div style="margin-top:5px">'
-        +(down>o.fixedSum?'<span class="suggest" onclick="ocalcApplyTotal('+down+')">▼ '+down+'장</span>':'')
-        +'<span class="suggest" onclick="ocalcApplyTotal('+up+')">▲ '+up+'장</span></div></div>';
+      html+=ocalcChips(rows,o.res);
+      html+='<div class="rtot">합계 '+sum+'장'+((!o.warn&&(sum===t.total||!o.ratio.length))?' ✓':'')+'</div>';
+      if(o.warn){html+='<div class="hint bad">⚠️ '+esc(o.warn)+'</div>';}
+      else if(o.ratio.length){
+        if(o.clean){html+='<div class="hint clean">✅ <b>딱 떨어져요!</b> 비율대로 연단 '+(o.remaining/o.wtot)+'겹 쌓으면 재단 한 번에 끝나요.</div>';}
+        else{
+          var down=o.fixedSum+Math.floor(o.remaining/o.wtot)*o.wtot;
+          var up=o.fixedSum+Math.ceil(o.remaining/o.wtot)*o.wtot;
+          html+='<div class="hint adj">🔧 비율 배수로 안 떨어져서 <b>반올림 분배</b>했어요. 깔끔히 하려면 합계를 맞춰보세요:<div style="margin-top:5px">'
+            +(down>o.fixedSum?'<span class="suggest" onclick="ocalcApplyTotal('+down+')">▼ '+down+'장</span>':'')
+            +'<span class="suggest" onclick="ocalcApplyTotal('+up+')">▲ '+up+'장</span></div></div>';
+        }
+      }
     }
+  });
+  if(multi){
+    html+='<div class="rtot">전체 합계 '+grand+'장 · 컬러 '+targets.length+'개</div>';
+    if(anyAdj)html+='<div class="hint adj">🔧 일부 컬러는 비율 배수로 안 떨어져 반올림 분배했어요. 컬러별 합계를 비율 배수로 맞추면 깔끔해져요.</div>';
   }
   var hasItem=!!document.getElementById('oc-item').value;
   html+='<div class="oc-acts">'
@@ -9174,29 +9254,27 @@ function ocalcCalc(){
     +'<button class="btn p s ok" onclick="ocalcFill()"'+(hasItem?'':' disabled title="아이템을 골라야 채울 수 있어요"')+'>⬇ 그리드에 채우기</button>'
     +'</div>';
   el.className='oc-result show';el.innerHTML=html;
-  window._ocalcLast={res:o.res,sum:sum};
+  window._ocalcLast={results:results,grand:grand};
 }
 function ocalcApplyTotal(t){document.getElementById('oc-total').value=t;ocalcCalc();}
 function ocalcCopy(){
-  var rows=(window._ocalc&&window._ocalc.rows)||[];var last=window._ocalcLast;if(!last)return;
-  var line=rows.map(function(r){return r.name+' '+(last.res[r.name]||0);}).join(' · ')+' = 총 '+last.sum+'장';
-  try{ if(navigator.clipboard)navigator.clipboard.writeText(line); }catch(e){}
-  showToast('📋 복사됨: '+line);
+  var rows=(window._ocalc&&window._ocalc.rows)||[];var last=window._ocalcLast;if(!last||!last.results)return;
+  var lines=Object.keys(last.results).map(function(c){
+    var res=last.results[c];
+    var sum=Object.keys(res).reduce(function(a,k){return a+(res[k]||0);},0);
+    var part=rows.map(function(r){return r.name+' '+(res[r.name]||0);}).join(' · ');
+    return (c?c+': ':'')+part+' = '+sum+'장';
+  });
+  var txt=lines.join('\n');
+  try{ if(navigator.clipboard)navigator.clipboard.writeText(txt); }catch(e){}
+  showToast('📋 복사됨');
 }
 function ocalcFill(){
   var itemId=document.getElementById('oc-item').value;
   if(!itemId){showToast('아이템을 먼저 골라주세요');return;}
   var it=S.items[itemId];if(!it){showToast('아이템을 찾을 수 없어요');return;}
-  var rows=(window._ocalc&&window._ocalc.rows)||[];var last=window._ocalcLast;
-  if(!last||!rows.length){showToast('먼저 계산해 주세요');return;}
-  // 채울 컬러 결정
-  var colors=(it.colors&&it.colors.length)?it.colors:[''];
-  var pick=document.getElementById('oc-color').value;
-  var targetColors;
-  if(!it.colors||!it.colors.length){ targetColors=['']; }
-  else if(pick==='__ALL__'){ targetColors=colors.slice(); }
-  else if(pick){ targetColors=[decodeURIComponent(pick)]; }
-  else { targetColors=[colors[0]]; }
+  var last=window._ocalcLast;
+  if(!last||!last.results||!Object.keys(last.results).length){showToast('먼저 계산해 주세요');return;}
   // 모달 열려있지 않으면 열기(캐시 리셋됨), 현재 입력값 보존
   var modal=document.getElementById('o-new-modal');
   var isOpen=modal&&modal.style.display&&modal.style.display!=='none';
@@ -9206,16 +9284,18 @@ function ocalcFill(){
   if(!window._ncQtyCache)window._ncQtyCache={};
   window._ncChecked[itemId]=true;
   var itSizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
-  targetColors.forEach(function(c){
+  var filled=0;
+  Object.keys(last.results).forEach(function(c){
+    var res=last.results[c];filled++;
     itSizes.forEach(function(sz){
-      var q=last.res[sz];
-      if(q==null)return; // 계산기 사이즈와 아이템 사이즈가 다르면 그 칸은 건너뜀
+      var q=res[sz];
+      if(q==null)return; // 계산기 사이즈와 아이템 사이즈가 다르면 건너뜀
       window._ncQtyCache['q_'+itemId+'_'+encodeURIComponent(c)+'_'+sz]=q;
     });
   });
   if(typeof renderOrderNewItems==='function')renderOrderNewItems();
   setTimeout(function(){var g=document.getElementById('nc-grid-'+itemId);if(g)g.scrollIntoView({behavior:'smooth',block:'center'});},120);
-  showToast('⬇ '+esc(it.name)+' 그리드에 채웠어요 (확인 후 오더 생성)');
+  showToast('⬇ '+esc(it.name)+' '+filled+'개 컬러 채웠어요 (확인 후 오더 생성)');
 }
 
 /* ===== FABRIC CALC (PER-COLOR) ===== */
@@ -11684,8 +11764,11 @@ function renderCheckTab(o,onlySn){
     const pb=S.priceBook[sn]||{};
     // 협상 단가 섹션 - 자재별
     const matPriceRows=(sup.materials||[]).map((m,idx)=>{
-      const matName=m.displayName||m.name||'';
+      const matName=m.displayName||m.name||''; // ← 결제제외 키(matSkipKey)와 일치해야 하므로 절대 변경 금지
       if(!matName)return'';
+      // 표시용(키 아님): 원단은 원단처 컬러명(fabricColor) 우선, 없으면 아이템 컬러. 부자재는 colorName(발주용 컬러)
+      const _vColor=(m.type==='fabric'&&m.fabricColor)?m.fabricColor:(m.colorName||'');
+      const _dispName=(m.type==='fabric'&&m.fabricColor&&m.name)?(m.name+' ('+m.fabricColor+')'):matName;
       // 단가장에서 현재 저장된 단가 가져오기
       const pbMat=pb.materials?.[m.name]||{};
       const isKg=m.pricingUnit==='kg'||pbMat.pricingUnit==='kg';
@@ -11702,7 +11785,7 @@ function renderCheckTab(o,onlySn){
       const origCost=getMatOrigQty(m)*(m.pricingUnit==='kg'?(m.pricePerKg||0):(m.unitPrice||0));
       const costDiff=actualCost-origCost;
       return`<tr${isSkippedMat(o,sn,m)?' style="opacity:.5"':''}>
-        <td style="font-size:11px;padding:4px 6px">${isSkippedMat(o,sn,m)?'<span style="text-decoration:line-through">':''}${esc(matName)}${isSkippedMat(o,sn,m)?'</span>':''}${isKg?' <span class="badge b2" style="font-size:9px">KG</span>':''}${m.type!=='fabric'&&m.calc?.isRoll?' <span class="badge b3" style="font-size:9px">롤</span>':''}${m.type!=='fabric'&&!m.calc?.isRoll&&m.calc?.unit==='개'?'':''}<br><span style="font-size:9px;color:var(--t2)">${m.colorName?'#'+esc(m.colorName):''}</span><br><label style="display:inline-flex;align-items:center;gap:3px;font-size:9px;color:${isSkippedMat(o,sn,m)?'var(--red)':'var(--t2)'};margin-top:2px;cursor:pointer"><input type="checkbox" ${isSkippedMat(o,sn,m)?'checked':''} onchange="toggleSkipBilling('${o.id}','${encodeURIComponent(sn)}','${encodeURIComponent(matName)}','${encodeURIComponent(m.colorName||'')}')" style="width:13px;height:13px"> 발주안함(결제 제외)</label></td>
+        <td style="font-size:11px;padding:4px 6px">${isSkippedMat(o,sn,m)?'<span style="text-decoration:line-through">':''}${esc(_dispName)}${isSkippedMat(o,sn,m)?'</span>':''}${isKg?' <span class="badge b2" style="font-size:9px">KG</span>':''}${m.type!=='fabric'&&m.calc?.isRoll?' <span class="badge b3" style="font-size:9px">롤</span>':''}${m.type!=='fabric'&&!m.calc?.isRoll&&m.calc?.unit==='개'?'':''}<br><span style="font-size:9px;color:var(--t2)">${_vColor?'#'+esc(_vColor):''}</span><br><label style="display:inline-flex;align-items:center;gap:3px;font-size:9px;color:${isSkippedMat(o,sn,m)?'var(--red)':'var(--t2)'};margin-top:2px;cursor:pointer"><input type="checkbox" ${isSkippedMat(o,sn,m)?'checked':''} onchange="toggleSkipBilling('${o.id}','${encodeURIComponent(sn)}','${encodeURIComponent(matName)}','${encodeURIComponent(m.colorName||'')}')" style="width:13px;height:13px"> 발주안함(결제 제외)</label></td>
         <td style="text-align:right;font-size:10px;padding:4px 6px;color:var(--t2)">${origQty}${origUnit}<br><span style="font-size:9px">${num(orderPrice)}${isKg?'원/kg':'원'}</span></td>
         <td style="padding:4px 6px">
           <div style="display:flex;align-items:center;gap:3px">
