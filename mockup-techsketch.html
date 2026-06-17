@@ -1722,10 +1722,12 @@ async function startNodeEdit(node){
   hint('● 점=위치 이동 · ■ 핸들=곡선 휘기(일러처럼) · 빈 곳 탭하면 완료'+(linkOn?' · 연동 ON':''));
 }
 function prevEnd(si){ const segs=nodeEdit.segs; for(let i=si-1;i>=0;i--){ if(segs[i].end)return segs[i].end; } return segs[si].end; }
+/* 편집 중인 그 선의 실제 좌표계(local→world)로 점을 찍는다 — 템플릿(그룹 안)·펜(layer) 모두 정확 */
+function nodeWorldTf(node){ var inv=stage.getAbsoluteTransform().copy().invert(); return inv.multiply(node.getAbsoluteTransform()); }
 function buildAnchors(){
   ui.destroyChildren();
-  const g=window.__tplGroup; if(!g)return;
-  const tr=g.getTransform(); const z=stage.scaleX();
+  if(!nodeEdit||!nodeEdit.node)return;
+  const tr=nodeWorldTf(nodeEdit.node); const z=stage.scaleX();
   nodeEdit.handles=[]; nodeEdit.ctrls=[]; nodeEdit.clines=[];
   // 베지어 제어점 핸들 + 연결선 (일러스트레이터식)
   nodeEdit.segs.forEach((s,si)=>{
@@ -1741,7 +1743,7 @@ function buildAnchors(){
     a.on('dragmove',()=>onAnchorDrag(a,si));
     ui.add(a); nodeEdit.handles.push(a);
   });
-  ui.draw(); tplLayer.draw();
+  ui.draw(); (nodeEdit.node.getLayer()||tplLayer).draw();
 }
 function addCtrl(tr,z,si,which,anchorPt){
   const seg=nodeEdit.segs[si]; const cp=seg[which]; if(!cp)return;
@@ -1754,20 +1756,20 @@ function addCtrl(tr,z,si,which,anchorPt){
   ui.add(h); nodeEdit.ctrls.push(h);
 }
 function redrawNodeUI(active){
-  const g=window.__tplGroup; if(!g)return; const tr=g.getTransform(); const z=stage.scaleX();
+  if(!nodeEdit||!nodeEdit.node)return; const tr=nodeWorldTf(nodeEdit.node); const z=stage.scaleX();
   nodeEdit.handles.forEach(h=>{ if(h===active)return; const s=nodeEdit.segs[h.getAttr('si')]; if(s&&s.end)h.position(tr.point({x:s.end[0],y:s.end[1]})); });
   nodeEdit.ctrls.forEach(h=>{ if(h===active)return; const seg=nodeEdit.segs[h.getAttr('si')], cp=seg&&seg[h.getAttr('which')]; if(cp){ const c=tr.point({x:cp[0],y:cp[1]}); h.position({x:c.x-4/z,y:c.y-4/z}); } });
   nodeEdit.clines.forEach(o=>{ const seg=nodeEdit.segs[o.si], cp=seg&&seg[o.which]; if(!cp)return; const ap=o.which==='c2'?seg.end:prevEnd(o.si); const a=tr.point({x:ap[0],y:ap[1]}), c=tr.point({x:cp[0],y:cp[1]}); o.ln.points([a.x,a.y,c.x,c.y]); });
 }
 function onCtrlDrag(h){
-  const g=window.__tplGroup, z=stage.scaleX(); const inv=g.getTransform().copy().invert();
+  const z=stage.scaleX(); const inv=nodeWorldTf(nodeEdit.node).copy().invert();
   const loc=inv.point({x:h.x()+4/z, y:h.y()+4/z});
   const seg=nodeEdit.segs[h.getAttr('si')]; seg[h.getAttr('which')]=[loc.x,loc.y];
   applySegsTo(nodeEdit.node,nodeEdit.segs);
-  redrawNodeUI(h); tplLayer.batchDraw(); ui.batchDraw();
+  redrawNodeUI(h); (nodeEdit.node.getLayer()||tplLayer).batchDraw(); ui.batchDraw();
 }
 function onAnchorDrag(a,si){
-  const g=window.__tplGroup; const inv=g.getTransform().copy().invert();
+  const inv=nodeWorldTf(nodeEdit.node).copy().invert();
   const loc=inv.point(a.position());
   const seg=nodeEdit.segs[si]; nodeEdit.activeSi=si;
   const dx=loc.x-seg.end[0], dy=loc.y-seg.end[1];
@@ -1777,7 +1779,7 @@ function onAnchorDrag(a,si){
   applySegsTo(nodeEdit.node,nodeEdit.segs);
   if(linkOn) propagateEdit({x:loc.x-dx,y:loc.y-dy},dx,dy);
   redrawNodeUI(a);
-  tplLayer.batchDraw(); ui.batchDraw();
+  (nodeEdit.node.getLayer()||tplLayer).batchDraw(); ui.batchDraw();
 }
 function nodeEditEnd(keepHint){
   var _en=nodeEdit&&nodeEdit.node;
