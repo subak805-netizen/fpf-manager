@@ -6709,14 +6709,14 @@ function renderItemsList(){
     if(isS&&!IL.phS)return false;
     if(isM&&!IL.phM)return false;
     if(x.b.hold&&!IL.showHold)return false;
-    if(IL.seasonOff[x.it.season||'시즌 미지정'])return false;
+    if(!search&&IL.seasonOff[x.it.season||'시즌 미지정'])return false;
     return true;
   });
   // 시즌·과거 판단
   var seasonsAll=sortSeasonsDesc([...new Set(allItems.map(function(i){return i.season||'시즌 미지정';}))]);
   var maxKey=Math.max.apply(null,seasonsAll.map(function(s){return seasonKey(s);}).concat([-1]));
   var isPast=function(s){return seasonKey(s)>=0&&seasonKey(s)<maxKey;};
-  var isClosed=function(s){return IL.closed[s]!==undefined?IL.closed[s]:isPast(s);};
+  var isClosed=function(s){if(search)return false;return IL.closed[s]!==undefined?IL.closed[s]:isPast(s);};
   var sq=function(s){return String(s).replace(/'/g,"\\'");};
   // 필터 바 스타일+버튼
   var STY='<style>'
@@ -7205,7 +7205,7 @@ function showItemForm(id){
   _itemListScrollY=window.scrollY||0;
   document.getElementById('ipl').style.display='none';document.getElementById('ipf').style.display='';
   window.scrollTo(0,0);
-  window._autoWorkRoute=''; // 자동경로 추적 초기화
+  window._autoWorkRoute='';window._wrManual=!!(it&&it.workRouteManual); // 자동경로 추적 초기화 + 수동입력 플래그
   updateSupDL();const p=it||{};
   // 임시저장 있는지 확인 (신규 작성 시에만)
   const draft=!id?lsGet(DRAFT_KEY):null;
@@ -7245,7 +7245,7 @@ function showItemForm(id){
     ${COST_DEFS.map(([ck,lbl,fk,ft])=>`<div class="fr" style="margin-bottom:8px;align-items:flex-end;gap:8px"><div style="flex:1"><label>${lbl} (원/pcs)</label><input id="f-${ck}" type="number" value="${p[ck]||0}" min="0" oninput="scheduleDraft()"></div><div style="flex:1.6"><label>${ft}</label><select id="f-${fk}" onchange="scheduleDraft();refreshWorkRoute()">${fcOpts(p[fk]||'',ft)}</select></div></div>`).join('')}
     <div class="sec" style="margin-top:14px"><span>🧭 작업경로 <span class="muted" style="font-weight:400;font-size:10px">— 여기서 정하면 작업지시서에 자동으로 들어가요</span></span></div>
     <div class="info-box">💡 위에 연결한 공장들로 만든 경로가 <b>이미 적혀 있어요</b> — 그대로 두거나 자유롭게 고치면 돼요. 작업지시서에 <b>그대로 자동 표시</b>돼요. (싹 비우면 공장 연결로 다시 자동)</div>
-    <div class="fr" style="margin-bottom:8px"><input id="f-workRoute" style="flex:1;font-size:14px;padding:9px 11px" value="${esc(p.workRoute||(p.techpack&&p.techpack.head&&p.techpack.head.route)||(typeof tpAutoRoute==='function'?tpAutoRoute(p).join(' → '):''))}" placeholder="예: 원단 광진나비 → 봉제 엄지 → 출고 더프루토" oninput="scheduleDraft()"></div>
+    <div class="fr" style="margin-bottom:8px"><input id="f-workRoute" style="flex:1;font-size:14px;padding:9px 11px" value="${esc(p.workRoute||(p.techpack&&p.techpack.head&&p.techpack.head.route)||(typeof tpAutoRoute==='function'?tpAutoRoute(p).join(' → '):''))}" placeholder="예: 원단 광진나비 → 봉제 엄지 → 출고 더프루토" oninput="window._wrManual=this.value.trim()!=='';if(!window._wrManual)refreshWorkRoute();scheduleDraft()"></div>
 
     <!-- 1. 원단 -->
     <div class="sec" style="margin-top:12px"><span>원단</span><div class="fr" style="gap:4px;flex-wrap:wrap"><button class="btn s" type="button" onclick="addFabRow()">＋ 추가</button><button class="btn s" type="button" onclick="addBiasFromFabric()" style="background:#ffe4e6;border-color:#fda4af">✂️ 재단(바이어스)</button></div></div>
@@ -7313,7 +7313,7 @@ function refreshWorkRoute(){
   var el=document.getElementById('f-workRoute');if(!el)return;
   var cur=el.value.trim();
   // 직전 자동생성값 저장 — 공장이 바뀌면 자동값이면 덮어씀, 직접 입력한 커스텀이면 유지
-  if(cur&&cur!==(window._autoWorkRoute||''))return;
+  if(window._wrManual)return; // 직접 입력한 경로면 자동 갱신 안 함(아니면 공장·원단처 따라 자동 갱신)
   var parts=[];
   // 원단 거래처 (formFabs에서 직접)
   var fabSups=[];
@@ -8822,7 +8822,7 @@ function saveItemForm(){
   if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup&&!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}
   const item={id,name:nm,code:document.getElementById('f-cd').value.trim(),client:document.getElementById('f-cl').value.trim(),season:document.getElementById('f-ss').value.trim(),notes:document.getElementById('f-notes').value.trim(),careInstructions:document.getElementById('f-care').value.trim(),colors:[...formColors],sizes:[...formSizes],fabrics:formFabs.map(f=>({...f,id:f.id||uid()})),trims:formTrims.map(t=>({...t,id:t.id||uid()})),trimCosts:formTrimCosts.map(tc=>({...tc,id:tc.id||uid()}))};
   COST_DEFS.forEach(([ck,,fk])=>{item[ck]=+document.getElementById('f-'+ck)?.value||0;item[fk]=document.getElementById('f-'+fk)?.value||'';});
-  item.workRoute=document.getElementById('f-workRoute')?.value?.trim()||'';
+  item.workRoute=document.getElementById('f-workRoute')?.value?.trim()||'';item.workRouteManual=!!window._wrManual;
   item.patternCost=+document.getElementById('f-patternCost')?.value||0;
   item.sampleCost=+document.getElementById('f-sampleCost')?.value||0;
   item.onceCost=+document.getElementById('f-onceCost')?.value||0;
@@ -26708,7 +26708,8 @@ function tpRender(){
   function on(t){return active===t?' on':'';}
   // 작업경로: 아이템에 적은 workRoute 우선 → 레거시 head.route → 연결 공장 자동(tpAutoRoute). 지시서에선 읽기전용.
   var _route=tpAutoRoute(it);
-  var _routeVal=(it.workRoute&&it.workRoute.trim())?it.workRoute.trim():(tpGet('head.route','')||_route.join(' → '));
+  // 수동 입력 경로만 그대로, 아니면 현재 연결 공장·원단처로 자동 생성(아이템에서 바뀐 게 작지에도 반영되게)
+  var _routeVal=(it.workRoute&&it.workRoute.trim()&&it.workRouteManual)?it.workRoute.trim():(_route.join(' → ')||(it.workRoute||'').trim()||tpGet('head.route',''));
   var PROC={cut:'재단',sew:'봉제',pack:'완성',cs:'지시서',emb:'자수',prt:'나염',spat:'샘플·패턴'};
   window._tpIsPromo=isPromo; window._tpProc=PROC;
   var _activeSheet=_dsheets.find(function(s){return s.k===active;});
