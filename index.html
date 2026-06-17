@@ -2144,6 +2144,13 @@ async function cloudSet(key,value){
   }catch(e){console.error('cloudSet '+key+':',e);return false;}
 }
 
+// 어떤 객체든 인라인 dataURL 문자열을 깊이 제거(클라우드 문서 축소용). 로컬 원본은 안 건드림.
+function _stripDataUrlsDeep(v,cnt){
+  if(typeof v==='string'){ if(v.indexOf('data:')===0){ if(cnt)cnt.n++; return ''; } return v; }
+  if(Array.isArray(v)){ var a=new Array(v.length); for(var i=0;i<v.length;i++)a[i]=_stripDataUrlsDeep(v[i],cnt); return a; }
+  if(v&&typeof v==='object'){ var o={}; for(var k in v){ if(Object.prototype.hasOwnProperty.call(v,k))o[k]=_stripDataUrlsDeep(v[k],cnt); } return o; }
+  return v;
+}
 // 클라우드 저장용: 작업지시서 dataURL 사진은 문서를 1MB 넘겨 동기화를 깨므로 제외 (URL은 유지). 로컬엔 원본 보존.
 function tpStripDataUrls(items){
   var out={}, stripped=0;
@@ -2473,18 +2480,25 @@ async function cloudSyncSave(){
       brandConfig:S.brandConfig||{},
       deductions:S.deductions||[]
     };
-    // 사진은 위 auto-migrate에서 Storage URL로 이미 변환됨 → coData엔 가벼운 URL만 들어있음(정석).
-    // 문서 크기 사전 점검 (Firestore 1MB 한도)
-    var _coSize=0;try{_coSize=JSON.stringify(coData).length;}catch(e){}
+    // 인라인 dataURL 사진은 클라우드 문서에 넣지 않음(로컬엔 보존) — Firestore 1MB(바이트) 초과 방지
+    var _stripCnt={n:0};
+    coData=_stripDataUrlsDeep(coData,_stripCnt);
+    var sharedData=_stripDataUrlsDeep({factories:S.factories,priceBook:S.priceBook},_stripCnt);
+    function _docBytes(o){try{return new Blob([JSON.stringify(o)]).size;}catch(e){try{return JSON.stringify(o).length;}catch(e2){return 0;}}}
+    function _topKeys(o){try{return Object.keys(o).map(function(k){return [k,_docBytes(o[k])];}).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(x){return x[0]+' '+Math.round(x[1]/1024)+'KB';}).join('·');}catch(e){return '';}}
+    var _coBytes=_docBytes(coData),_shBytes=_docBytes(sharedData);
     var _coRes=await Promise.all([
       cloudSet('fpm_cos',companies),
       cloudSet('fpm_'+curCoId,coData),
-      cloudSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook})
+      cloudSet('fpm_shared',sharedData)
     ]);
     if(_coRes.indexOf(false)>=0){
-      setCloudInd('err','문서 용량 초과 가능('+Math.round(_coSize/1024)+'KB) — 인라인 사진이 많거나 권한/네트워크');
-      if(typeof showToast==='function')showToast('⚠ 동기화 실패 — 데이터가 너무 큼('+Math.round(_coSize/1024)+'KB)'+(_coSize>900000?' · 사진 많음':''));
-      console.error('[cloudSyncSave] cloudSet 실패. coData 크기≈'+_coSize+'B');
+      var _over=(_coBytes>1000000||_shBytes>1000000);
+      var _detail=(_coBytes>=_shBytes)?('회사데이터 '+Math.round(_coBytes/1024)+'KB('+_topKeys(coData)+')'):('공유데이터 '+Math.round(_shBytes/1024)+'KB('+_topKeys(sharedData)+')');
+      var _why=(_over?'문서 1MB 초과 — ':'저장 실패(권한/네트워크 가능) — ')+_detail;
+      setCloudInd('err',_why);
+      if(typeof showToast==='function')showToast('⚠ 동기화 실패 — '+_why,9000);
+      console.error('[cloudSyncSave] cloudSet 실패. coBytes='+_coBytes+' shBytes='+_shBytes+' coTop='+_topKeys(coData)+' shTop='+_topKeys(sharedData));
     }else{
       setCloudInd('ok');
     }
