@@ -740,7 +740,20 @@ function penRedraw(cursor){
   penA.forEach(function(a,i){ penUI.add(new Konva.Circle({x:a.x,y:a.y,radius:(i===0?6:5)*s,fill:(i===0?COLORS.stitch:'#fff'),stroke:COLORS.stitch,strokeWidth:2*s})); });
   ui.add(penUI); ui.batchDraw();
 }
+/* 펜 끝낼 때: 곡선 핸들 있는 점·꺾임은 살리고, 거의 일직선상에 몰린 군더더기 점만 솎아냄(모양 유지, 점 적게) */
+function _penSimplify(A,tol){
+  if(A.length<=2)return A;
+  var n=A.length, keep=new Array(n).fill(false); keep[0]=keep[n-1]=true;
+  for(var i=0;i<n;i++){ if(A[i].hIn||A[i].hOut)keep[i]=true; }   // 곡선 핸들 있는 점은 무조건 유지
+  function dp(lo,hi){ if(hi-lo<2)return; var x1=A[lo].x,y1=A[lo].y,dx=A[hi].x-x1,dy=A[hi].y-y1,L=Math.hypot(dx,dy)||1,mi=-1,md=-1;
+    for(var i=lo+1;i<hi;i++){ if(keep[i])continue; var d=Math.abs((A[i].x-x1)*dy-(A[i].y-y1)*dx)/L; if(d>md){md=d;mi=i;} }
+    if(mi>=0&&md>tol){ keep[mi]=true; dp(lo,mi); dp(mi,hi); } }
+  var idxs=[]; for(var i=0;i<n;i++)if(keep[i])idxs.push(i);
+  for(var k=0;k<idxs.length-1;k++)dp(idxs[k],idxs[k+1]);
+  return A.filter(function(a,i){return keep[i];});
+}
 function penFinish(close){
+  penA=_penSimplify(penA, 6*uiS());
   if(penA.length>=2){
     var node=new Konva.Path({data:penData(penA,close),stroke:COLORS.ink,strokeWidth:lineWidth,lineJoin:'round',lineCap:'round',hitStrokeWidth:14,draggable:true});
     node.setAttr('kind','pen');
