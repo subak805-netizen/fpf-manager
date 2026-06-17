@@ -2263,6 +2263,16 @@ function _stripDataUrlsDeep(v,cnt){
   if(v&&typeof v==='object'){ var o={}; for(var k in v){ if(Object.prototype.hasOwnProperty.call(v,k))o[k]=_stripDataUrlsDeep(v[k],cnt); } return o; }
   return v;
 }
+
+// 클라우드가 빈칸('')으로 보낸 자리에, 로컬에 남은 dataURL 사진을 되살림 (_stripDataUrlsDeep의 역연산 — 동기화로 사진 유실 방지)
+function _restoreLocalDataUrls(inc,local){
+  try{
+    if(typeof inc==='string'){ return (inc===''&&typeof local==='string'&&local.indexOf('data:')===0)?local:inc; }
+    if(Array.isArray(inc)){ if(Array.isArray(local))for(var i=0;i<inc.length;i++)inc[i]=_restoreLocalDataUrls(inc[i],local[i]); return inc; }
+    if(inc&&typeof inc==='object'){ if(local&&typeof local==='object')for(var k in inc){ if(Object.prototype.hasOwnProperty.call(inc,k))inc[k]=_restoreLocalDataUrls(inc[k],local[k]); } return inc; }
+    return inc;
+  }catch(e){return inc;}
+}
 // 클라우드 저장용: 작업지시서 dataURL 사진은 문서를 1MB 넘겨 동기화를 깨므로 제외 (URL은 유지). 로컬엔 원본 보존.
 function tpStripDataUrls(items){
   var out={}, stripped=0;
@@ -2323,12 +2333,14 @@ function tpPreserveLocalContent(inc,old){
     // 공장 배정(프로모션·봉제·검품 등)이 원격에서 비어있는데 로컬에 있으면 로컬 값 보존 (동기화 덮어쓰기로 사라지는 것 방지)
     FC.forEach(function(k){ if((ni[k]==null||ni[k]==='')&&oi[k]){ ni[k]=oi[k]; console.warn('[sync] '+k+' 로컬 보존:',oi.name||id); } });
   });
-  return tpMergeLocalImages(inc,old);
+  inc=tpMergeLocalImages(inc,old);
+  try{inc=_restoreLocalDataUrls(inc,old);}catch(e){}
+  return inc;
 }
 function applyRemoteCoData(data){
   if(!data)return;
   var _oldItems=S.items||{};
-  S.items=tpPreserveLocalContent(data.items||{},_oldItems);S.orders=data.orders||{};S.brands=data.brands||[];
+  S.items=tpPreserveLocalContent(data.items||{},_oldItems);S.orders=data.orders||{};S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
   S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=data.tasks||[];
   S.brandConfig=data.brandConfig||{};S.deductions=data.deductions||[];
   S.trimLedger=data.trimLedger||S.trimLedger||{};S.trimLedgerPaid=data.trimLedgerPaid||S.trimLedgerPaid||{};S.courierLedger=data.courierLedger||S.courierLedger||{bank:'',entries:[]};S.refData=data.refData||S.refData||{};
@@ -3496,7 +3508,7 @@ async function cloudSyncLoad(id,opts){
       S={
         items:(typeof tpPreserveLocalContent==='function')?tpPreserveLocalContent(d.items||{},S.items||{}):(d.items||S.items||{}),
         orders:d.orders||S.orders||{},
-        brands:d.brands||S.brands||[],
+        brands:_restoreLocalDataUrls(d.brands||S.brands||[],S.brands||[]),
         sampleOrders:d.sampleOrders||S.sampleOrders||[],
         pickups:d.pickups||S.pickups||[],
         packages:d.packages||S.packages||[],todoBoard:d.todoBoard||S.todoBoard||{},
@@ -3506,7 +3518,7 @@ async function cloudSyncLoad(id,opts){
         brandConfig:d.brandConfig||S.brandConfig||{},
         deductions:d.deductions||S.deductions||[],
         factories:sh.factories||S.factories||{},
-        priceBook:sh.priceBook||S.priceBook||{},
+        priceBook:_restoreLocalDataUrls(sh.priceBook||S.priceBook||{},S.priceBook||{}),
         _compMigrated:d._compMigrated||S._compMigrated||false
       };
       // 로컬 캐시도 모든 필드로 업데이트
