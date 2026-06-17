@@ -590,6 +590,9 @@ function selectNode(node){
       op.addEventListener('input',()=>{ node.opacity(+op.value); if(opv)opv.textContent=Math.round(op.value*100)+'%'; const ly=node.getLayer(); if(ly)ly.batchDraw(); });
     } else body.innerHTML='<div class="muted">모서리를 끌어 크기·회전 조절, 가운데를 끌어 이동</div>';
   }
+  var dupb=document.createElement('button'); dupb.className='btn'; dupb.textContent='⧉ 복제 (Cmd+D)';
+  dupb.style.cssText='width:100%;margin-top:8px'; dupb.onclick=function(){ duplicateNode(node); };
+  body.appendChild(dupb);
   if(['pen','cut','curve','arrow','stitch','symbol','dim'].indexOf(kind)>=0){
     var mb=document.createElement('button'); mb.className='btn'; mb.textContent='↔ 좌우 대칭 복사';
     mb.style.cssText='width:100%;margin-top:8px;background:#eef5fc;border-color:#cfe0f3;color:#185FA5';
@@ -1309,11 +1312,26 @@ const TOOL_KEYS={v:'select',l:'dim',r:'arrow',c:'cut',p:'curve',n:'pen',f:'free'
 document.addEventListener('keydown',e=>{
   var ae=document.activeElement, tg=ae&&ae.tagName;
   if(tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT'||(ae&&ae.isContentEditable))return;
-  if(e.metaKey||e.ctrlKey){ if(e.key==='z'||e.key==='Z'){ e.preventDefault(); var u=document.getElementById('btn-undo'); if(u)u.click(); } return; }
+  if(e.metaKey||e.ctrlKey){
+    if(e.key==='z'||e.key==='Z'){ e.preventDefault(); var u=document.getElementById('btn-undo'); if(u)u.click(); return; }
+    if(e.key==='c'||e.key==='C'){ if(selected){ _clip=_capObj(selected, selected.getLayer()===tplLayer?'tpl':'main'); hint('복사됨 · Cmd/Ctrl+V로 붙여넣기'); setTimeout(function(){hint('');},1400);} return; }
+    if(e.key==='d'||e.key==='D'){ e.preventDefault(); if(selected)duplicateNode(selected); return; }
+    return;   // Cmd+V는 paste 이벤트가 처리
+  }
   if(e.altKey)return;
   var k=e.key.toLowerCase();
   if(TOOL_KEYS[k]){ e.preventDefault(); setTool(TOOL_KEYS[k]); }
   else if(e.key==='Escape'){ clearSel(); setTool('select'); }
+});
+/* ---- 클립보드 붙여넣기: 일러/이미지 복사 → Cmd+V (SVG=벡터, 이미지=밑그림) / 내부 복사본도 붙여넣기 ---- */
+document.addEventListener('paste',function(e){
+  var ae=document.activeElement, tg=ae&&ae.tagName; if(tg==='INPUT'||tg==='TEXTAREA'||(ae&&ae.isContentEditable))return;
+  var dt=e.clipboardData; if(!dt)return;
+  var items=dt.items||[];
+  for(var i=0;i<items.length;i++){ var it=items[i]; if(it.kind==='file'&&/image\//.test(it.type)){ var f=it.getAsFile(); if(f){ e.preventDefault(); var rd=new FileReader(); rd.onload=function(){ placePhotoURL(rd.result); setTool('select'); hint('붙여넣기 이미지 ✓ (투명도 낮춰 밑그림으로)'); setTimeout(function(){hint('');},2000); }; rd.readAsDataURL(f); return; } } }
+  var txt=dt.getData('text/plain')||dt.getData('text/html')||'';
+  if(/<svg[\s>]/i.test(txt)){ var m=txt.match(/<svg[\s\S]*<\/svg>/i); if(m){ e.preventDefault(); importSvgVector(m[0]); return; } }
+  if(_clip){ e.preventDefault(); var copy=buildFromObj(_clip,{dx:18,dy:18}); if(copy)selectNode(copy); layer.draw(); tplLayer.draw(); }
 });
 /* ── 슬라이더 더블클릭 = 기본값 리셋 (라이트룸식) ── */
 const RANGE_DEF={'se-width':1.2,'se-dash':6,'se-gap':1.6,'seam-off':6,'arr-size':10,'arr-width':1.6,'line-width':1.8};
@@ -1404,6 +1422,9 @@ function savePartFromNode(node){
   symSave(); renderSymbolBank(); hint('"'+name+'" 부품 저장됨 ✓ (기호·부품 스탬프에서 사용)'); setTimeout(function(){hint('');},1800);
 }
 function stampPart(x,y,part){ if(!part||!part.obj)return; buildFromObj(part.obj, {dx:x-(part.ox||0), dy:y-(part.oy||0)}); layer.draw(); tplLayer.draw(); }
+/* ---- 복사·붙여넣기 / 복제 ---- */
+let _clip=null;
+function duplicateNode(node,off){ if(!node)return null; var o=_capObj(node, node.getLayer()===tplLayer?'tpl':'main'); if(!o)return null; var copy=buildFromObj(o, off||{dx:18,dy:18}); if(copy)selectNode(copy); layer.draw(); tplLayer.draw(); return copy; }
 document.getElementById('btn-png').onclick=()=>{
   const url=window.exportPNG();
   const a=document.createElement('a');a.href=url;a.download='도식화.png';a.click();
