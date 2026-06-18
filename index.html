@@ -13056,10 +13056,36 @@ function openInspectionFromOrder(oid){
 }
 function openExtraOrder(oid,itemId,extraDefault){
   window._extraOrderCtx={oid:oid,itemId:itemId};
-  window._extraAddGrid={};
   window._extraMode='cut';window._extraPartSel='';window._extraPartGrid={};
+  // 재단 추가분: 재단−오더(컬러·사이즈별) 자동 채움 (수정 가능). 재단=오더거나 미입력이면 빈칸.
+  window._extraAddGrid=extraCutPrefill(oid,itemId);
   renderExtraOrder();
   var m=document.getElementById('extra-order-modal');if(m)m.style.display='flex';
+}
+// 재단 추가분 자동입력값: 컬러·사이즈별 max(0, 재단수량 − 오더수량)
+function extraCutPrefill(oid,itemId){
+  var o=S.orders[oid];var it=S.items[itemId];if(!o||!it)return {};
+  if(typeof pdCutCSGrid!=='function'||typeof pdOrderCSGrid!=='function')return {};
+  var cutG=pdCutCSGrid(it,o),ordG=pdOrderCSGrid(it,o);
+  var colors=it.colors&&it.colors.length?it.colors:[''];
+  var sizes=it.sizes&&it.sizes.length?it.sizes:[''];
+  var realSizes=sizes.filter(function(z){return z&&z!=='free';});
+  var g={};
+  colors.forEach(function(c){
+    if(realSizes.length){
+      realSizes.forEach(function(z){
+        var add=(+((cutG[c]&&cutG[c][z]))||0)-(+((ordG[c]&&ordG[c][z]))||0);
+        if(add>0){if(!g[c])g[c]={};g[c][z]=add;}
+      });
+    }else{
+      var key=sizes[0]||'free',cutT=0,ordT=0;
+      Object.values(cutG[c]||{}).forEach(function(v){cutT+=+v||0;});
+      Object.values(ordG[c]||{}).forEach(function(v){ordT+=+v||0;});
+      var add=cutT-ordT;
+      if(add>0){if(!g[c])g[c]={};g[c][key]=add;}
+    }
+  });
+  return g;
 }
 function openExtraOrderFromTab(oid){var o=S.orders[oid];if(!o||!o.orderItems||!o.orderItems.length){showToast('아이템이 없어요');return;}openExtraOrder(oid,o.orderItems[0].itemId);}
 function extraGridTotal(){var g=window._extraAddGrid||{},t=0;Object.keys(g).forEach(function(c){Object.keys(g[c]).forEach(function(z){t+=+g[c][z]||0;});});return t;}
@@ -13067,7 +13093,15 @@ function extraGridChange(){var g={};document.querySelectorAll('#extra-order-body
 function _exGridSum(g){var parts=[];Object.keys(g||{}).forEach(function(c){var zs=Object.keys(g[c]).filter(function(z){return +g[c][z]>0;});if(!zs.length)return;parts.push((c&&c!==''?c+' ':'')+zs.map(function(z){return (z&&z!=='free'?z:'')+g[c][z];}).join('·'));});return parts.join(' / ');}
 function extraGridSummary(){return _exGridSum(window._extraAddGrid);}
 // ===== 부분 재발주 (부자재·원단만 골라서 개수 발주 — 불량 재발주용) =====
-function extraSetMode(m){window._extraMode=m;renderExtraOrder();}
+function extraSetMode(m){
+  var prev=window._extraMode||'cut';window._extraMode=m;
+  // 수량/재단 모드 전환 시 수량 그리드 재설정: 재단=자동채움, 수량=빈칸(직접입력)
+  if(m!==prev&&(m==='cut'||m==='qty')){
+    var ctx=window._extraOrderCtx||{};
+    window._extraAddGrid=(m==='cut')?extraCutPrefill(ctx.oid,ctx.itemId):{};
+  }
+  renderExtraOrder();
+}
 function extraSetPartSel(v){window._extraPartSel=v;window._extraPartGrid={};renderExtraOrder();}
 function extraPartGridChange(){var g={};document.querySelectorAll('#extra-order-body input[data-epg]').forEach(function(inp){var ps=inp.dataset.epg.split('|'),v=+inp.value||0;if(v>0){if(!g[ps[0]])g[ps[0]]={};g[ps[0]][ps[1]]=v;}});window._extraPartGrid=g;renderExtraOrder();}
 function extraPartList(it){
@@ -13161,7 +13195,7 @@ function renderExtraOrder(){
     var extraQty=extraGridTotal();
     var summary=extraGridSummary();
     var bySup=extraOrderBySupplier(ctx.oid,ctx.itemId,extraQty);
-    html+='<div style="font-size:12px;color:var(--t2);margin-bottom:8px">'+(isQty?'추가된 수량만큼 <b>오더 수량이 늘어나요</b>. 발주서·원가에 자동 반영돼요 (거래처가 더 주문할 때).':'메인 수량은 그대로 두고 <b>추가분만</b> 별도 발주서로 보냅니다 (재단 여유분·보충).')+'</div>';
+    html+='<div style="font-size:12px;color:var(--t2);margin-bottom:8px">'+(isQty?'추가된 수량만큼 <b>오더 수량이 늘어나요</b>. 발주서·원가에 자동 반영돼요 (거래처가 더 주문할 때).':'재단한 수량이 오더보다 많은 만큼 <b>자동 입력</b>됐어요 (수정 가능). 메인 수량은 그대로 두고 <b>추가분만</b> 별도 발주서로 나가요.')+'</div>';
     html+='<table class="qty-grid" style="margin-bottom:8px"><thead><tr>'+(hasC?'<th>컬러</th>':'')+sCols.map(function(z){return '<th>'+esc(z)+'</th>';}).join('')+'<th>추가합계</th></tr></thead><tbody>';
     colors.forEach(function(c){
       var ct=0;
