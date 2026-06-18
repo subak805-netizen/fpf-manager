@@ -912,19 +912,19 @@ html[data-theme="retro"] #dash-body .ptab.ptab2 .pcellw:nth-child(even){border-l
 .ptab .prow-acts .pa-chk input{width:17px;height:17px;accent-color:#0ca678}
 .ptab .prow-acts .pdc2-prepdday,.ptab .p-stg .pd-prep-dday{font-size:9px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:4px}
 .ptab .pd-prep-dday.warn{background:#fef3c7;color:#92400e}.ptab .pd-prep-dday.late{background:#fee2e2;color:#b91c1c}
-/* 원·부자재 입고 = 단계별 카드 */
-#dash-body .pdc-prep-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:10px;margin-bottom:11px}
+/* 원·부자재 입고 = 단계별 카드 (행은 .ptab.pc-body로 감싸 기존 .ptab 컴포넌트 스타일 재사용) */
+#dash-body .pdc-prep-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-bottom:11px}
 #dash-body .prepcard{background:#fff;border:1px solid #e6e9ec;border-radius:11px;padding:10px 12px}
-#dash-body .prepcard .pc-h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:800;color:#191f28;margin-bottom:6px}
+#dash-body .prepcard .pc-h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:800;color:#191f28;margin-bottom:4px}
 #dash-body .prepcard .pc-h .cnt{margin-left:auto;font-size:10px;font-weight:700;color:#8b95a1;background:#f3f5f7;border-radius:20px;padding:1px 8px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#dash-body .prepcard .prow{gap:6px;padding:6px 0;border-top:1px solid #f3f5f7;flex-wrap:nowrap}
-#dash-body .prepcard .prow:first-of-type{border-top:0}
-#dash-body .prepcard .p-stg{width:auto;flex:0 0 auto}
-#dash-body .prepcard .p-fc.p-sup{flex:1;min-width:0;font-size:12px}
-#dash-body .prepcard .p-date{flex:0 0 114px;height:32px;font-size:11.5px;padding:0 6px}
-#dash-body .prepcard .p-chk{width:26px;height:26px}
-#dash-body .prepcard .prow-acts{padding:7px 0 2px;border-top:1px dashed #eef1f4;margin-top:4px}
+#dash-body .prepcard .ptab.pc-body{border:0;background:transparent;border-radius:0;margin:0;overflow:visible}
+#dash-body .prepcard .ptab.pc-body .prow{padding:7px 0}
+#dash-body .prepcard .ptab.pc-body .p-stg{width:auto;flex:0 0 auto}
+#dash-body .prepcard .ptab.pc-body .p-fc.p-sup{flex:1;min-width:0;font-size:12px}
+#dash-body .prepcard .ptab.pc-body .p-date{flex:0 0 118px;height:34px;font-size:11.5px;padding:0 7px}
+#dash-body .prepcard .ptab.pc-body .prow-acts{background:transparent}
 html[data-theme="retro"] #dash-body .prepcard{border:2px solid var(--ink);border-radius:0}
+html[data-theme="retro"] #dash-body .prepcard .ptab.pc-body{border:0}
 /* 레트로 */
 html[data-theme="retro"] #dash-body .ptab{border:2px solid var(--ink);border-radius:0}
 html[data-theme="retro"] .ptab .p-date,html[data-theme="retro"] .ptab .p-qty,html[data-theme="retro"] .ptab .p-chk{border-radius:0;border-color:var(--ink)}
@@ -14592,12 +14592,19 @@ function renderProdDash(){
     el.innerHTML='<div class="empty" style="padding:60px 20px;text-align:center;color:#9ca3af">진행 중인 오더가 없어요</div>';
     return;
   }
-  // 정렬: 디데이 임박한 순 (지연 > D-0 > D-N > 디데이 없음)
+  // 정렬: ① 출고임박(디데이 작은 순, 미정은 뒤) → ② 진행률 높은 순 → ③ 오더일 오래된 순
+  rows.forEach(function(r){r._prog=pdRowProgress(r);r._ord=(typeof toISO==='function'?(toISO(r.o.createdAt||'')||''):String(r.o.createdAt||''));});
   rows.sort(function(a,b){
-    if(a.dday===null&&b.dday===null)return 0;
-    if(a.dday===null)return 1;
-    if(b.dday===null)return -1;
-    return a.dday-b.dday;
+    // ① 출고일 임박: 디데이 작은 순(지연·임박 먼저), 미정(null)은 맨 뒤
+    var ad=a.dday,bd=b.dday;
+    if((ad===null)!==(bd===null))return ad===null?1:-1;
+    if(ad!==null&&bd!==null&&ad!==bd)return ad-bd;
+    // ② 진행률 높은 순
+    if(a._prog!==b._prog)return b._prog-a._prog;
+    // ③ 오더일 오래된 순 (날짜 있는 게 먼저, 그 안에선 과거가 위)
+    if(a._ord&&b._ord){if(a._ord!==b._ord)return a._ord<b._ord?-1:1;return 0;}
+    if(a._ord!==b._ord)return a._ord?-1:1;
+    return 0;
   });
   // 보기 모드 (상태 박스 = 필터 탭): 'active'(진행) | 'urgent'(긴급) | 'shipped'(출고완료)
   const viewMode=window._pdViewMode||'active';
@@ -14840,6 +14847,30 @@ function pdShipQty(sch,itemId,isSingleOrder){
   }
   return t;
 }
+// 진행 단계 배열 [{k,d}] — 진행바·트래커·정렬에서 공용 (한 곳에서만 정의해 진행률 표시와 정렬이 항상 일치)
+function pdRowStages(r){
+  var it=r.it,o=r.o,fs=o.factorySchedules||{};
+  var fcSew=it.sewingFcId||'';
+  var fcExt=it.embroideryFcId||it.printingFcId||it.washingFcId||'';
+  var fcFin=it.finishingFcId||'';
+  var fcInsp=it.inspectionFcId||'';
+  var schSew=fcSew?fs[fcSew]:null,schExt=fcExt?fs[fcExt]:null,schFin=fcFin?fs[fcFin]:null,schInsp=fcInsp?fs[fcInsp]:null;
+  var prep=o._prep||{};
+  var allArr=function(mats){var ss=[...new Set((mats||[]).map(function(m){return m&&m.supplier;}).filter(Boolean))];if(!ss.length)return true;return ss.every(function(sn){var sp=(o.suppliers||{})[sn]||{};return !!((o._prepArrived&&o._prepArrived[sn])||sp.arrived);});};
+  var stg=[];
+  stg.push({k:'원자재',d:allArr(it.fabrics)});
+  stg.push({k:'부자재',d:allArr(it.trims)});
+  stg.push({k:'지시서',d:!!prep.jisiDone});
+  stg.push({k:'재단',d:!!(schSew&&schSew.cuttingDone)});
+  if(fcExt)stg.push({k:'외주',d:!!(schExt&&schExt.shipDone)});
+  stg.push({k:'봉제',d:!!(schSew&&schSew.sewingDone)});
+  if(fcFin)stg.push({k:'완성',d:!!(schFin&&schFin.finishingDone)});
+  if(fcInsp)stg.push({k:'검품',d:!!(schInsp&&schInsp.inspectionDone)});
+  stg.push({k:'출고',d:!!(schSew&&schSew.shipDone)});
+  return stg;
+}
+// 진행률(0~1) — 완료 단계 ÷ 전체 단계
+function pdRowProgress(r){var st=pdRowStages(r);return st.length?st.filter(function(s){return s.d;}).length/st.length:0;}
 function renderProdDashRow(r){
   const colorStr=(co)=>Object.entries(co).filter(([k,v])=>v>0).map(([k,v])=>(k||'')+v).join(' ');
   // 컬러별 사이즈 분해: "아이 S5·M10·L15  블랙 S8·M15·L17"
@@ -14907,8 +14938,8 @@ function renderProdDashRow(r){
       <span class="p-more" onclick="pdRowMore(this)">⋯</span>
     </div>
     <div class="prow-acts">
-      ${isShip?'':`<a onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}','${esc(fcId||'')}')">📞 공장</a>`}
-      <a onclick="pdKakaoBrand('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}')">📣 브랜드</a>
+      ${isShip?'':`<a onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}','${esc(fcId||'')}')">공장</a>`}
+      <a onclick="pdKakaoBrand('${esc(r.o.id)}','${esc(r.it.id)}','${esc(role)}')">브랜드</a>
       ${isShip?`<a onclick="openInspectionFromOrder('${esc(r.o.id)}')" title="검사 신청서 (검품공장 전달)">📋 검사신청서</a>`:''}
     </div></div>`;
   };
@@ -14963,8 +14994,8 @@ function renderProdDashRow(r){
         <div class="prow-acts">
           ${poBadge}
           ${kind==='fab'?`<span class="pa-conf">컨펌<input type="date" value="${esc(cd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="confirmDate" data-kind="${kind}" onchange="pdSaveSupField(this)"><label class="pa-chk"><input type="checkbox" ${cdone?'checked':''} data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supconfirmed onchange="pdSaveSupConfirmed(this)">완료</label>${cBadge}</span>`:''}
-          <a onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}','')">📞 공장</a>
-          <a onclick="pdKakaoBrand('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}')">📣 브랜드</a>
+          <a onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}','')">공장</a>
+          <a onclick="pdKakaoBrand('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}')">브랜드</a>
         </div>`;
       }).join('');
       return rows;
@@ -14982,8 +15013,8 @@ function renderProdDashRow(r){
     </div>
     <div class="prow-acts">
       <span style="font-size:11px;color:#8b95a1">${esc(doneLbl)}</span>
-      <a onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}','')">📞 공장</a>
-      <a onclick="pdKakaoBrand('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}')">📣 브랜드</a>
+      <a onclick="pdKakaoFactory('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}','')">공장</a>
+      <a onclick="pdKakaoBrand('${esc(r.o.id)}','${esc(r.it.id)}','${esc(kind)}')">브랜드</a>
     </div>`;
   };
   // 원단/부자재/지시서 supplier 추출
@@ -14997,17 +15028,7 @@ function renderProdDashRow(r){
     ?'<span class="pd-pay-state done">완료</span>'
     :(r.shipTotal>0?'<span class="pd-pay-state partial">대기</span>':'<span class="pd-pay-state todo">미출고</span>');
   // ===== 진행 단계 계산 (요약 칩·진행바·트래커) — 표시용, 입력/저장과 무관 =====
-  const _allArr=(mats)=>{const ss=[...new Set((mats||[]).map(m=>m&&m.supplier).filter(Boolean))];if(!ss.length)return true;return ss.every(sn=>{var sp=(r.o.suppliers||{})[sn]||{};return !!((r.o._prepArrived&&r.o._prepArrived[sn])||sp.arrived);});};
-  const _STG=[];
-  _STG.push({k:'원자재',d:_allArr(r.it.fabrics)});
-  _STG.push({k:'부자재',d:_allArr(r.it.trims)});
-  _STG.push({k:'지시서',d:!!prep.jisiDone});
-  _STG.push({k:'재단',d:!!(schSew&&schSew.cuttingDone)});
-  if(fcExt)_STG.push({k:'외주',d:!!(schExt&&schExt.shipDone)});
-  _STG.push({k:'봉제',d:!!(schSew&&schSew.sewingDone)});
-  if(fcFin)_STG.push({k:'완성',d:!!(schFin&&schFin.finishingDone)});
-  if(fcInsp)_STG.push({k:'검품',d:!!(schInsp&&schInsp.inspectionDone)});
-  _STG.push({k:'출고',d:!!(schSew&&schSew.shipDone)});
+  const _STG=pdRowStages(r);
   const _doneN=_STG.filter(s=>s.d).length;
   const _curIdx=_STG.findIndex(s=>!s.d);
   const _isLate=r.dday!==null&&r.dday<0&&!r.shipDone;
@@ -15079,9 +15100,9 @@ function renderProdDashRow(r){
         var _supCnt=function(mats){return [...new Set((mats||[]).filter(_applies).map(function(m){return m&&m.supplier;}).filter(Boolean))].length;};
         var _fabN=_supCnt(r.it.fabrics),_trimN=_supCnt(r.it.trims);
         return '<div class="pdc-prep-cards">'
-          +'<div class="prepcard"><div class="pc-h">원자재<span class="cnt">'+(_fabN?_fabN+'곳':'—')+'</span></div>'+prepCell('fab',fabSup,'입고완료','원자재',true)+'</div>'
-          +'<div class="prepcard"><div class="pc-h">부자재<span class="cnt">'+(_trimN?_trimN+'곳':'—')+'</span></div>'+prepCell('trim',trimSup,'입고완료','부자재',true)+'</div>'
-          +'<div class="prepcard"><div class="pc-h">지시서<span class="cnt">'+esc(sewFcNm||'—')+'</span></div>'+prepCell('jisi',sewFcNm,'전달완료','지시서',true)+'</div>'
+          +'<div class="prepcard"><div class="pc-h">원자재<span class="cnt">'+(_fabN?_fabN+'곳':'—')+'</span></div><div class="ptab pc-body">'+prepCell('fab',fabSup,'입고완료','원자재',true)+'</div></div>'
+          +'<div class="prepcard"><div class="pc-h">부자재<span class="cnt">'+(_trimN?_trimN+'곳':'—')+'</span></div><div class="ptab pc-body">'+prepCell('trim',trimSup,'입고완료','부자재',true)+'</div></div>'
+          +'<div class="prepcard"><div class="pc-h">지시서<span class="cnt">'+esc(sewFcNm||'—')+'</span></div><div class="ptab pc-body">'+prepCell('jisi',sewFcNm,'전달완료','지시서',true)+'</div></div>'
           +'</div>';
       })()}
       <div class="pdc-sech">✂️ 공정별 수량 · 사이즈/컬러</div>
