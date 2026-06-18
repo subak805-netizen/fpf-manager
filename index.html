@@ -841,6 +841,24 @@ html[data-theme="retro"] .pdc-gbar{border-radius:0;border:1.5px solid var(--ink)
 .pdc-szx[open] summary::before{content:'▾ '}
 .pdc-szx .szrow{font-size:11.5px;color:#6b7280;margin-top:7px;line-height:1.6}
 .pdc-szx .szrow b{color:#454f5b;font-variant-numeric:tabular-nums}
+/* 사이즈별 매트릭스 (오더›재단›출고) */
+.pdc-sum-top .cut{font-size:13px;font-weight:600;color:#e8920c}
+.pdc-sum-top .cut b{font-size:17px;letter-spacing:-.02em}
+#dash-body .pdc-mtx{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums;margin-top:2px}
+#dash-body .pdc-mtx th,#dash-body .pdc-mtx td{padding:6px 6px;text-align:center;border-bottom:1px solid #f1f3f5}
+#dash-body .pdc-mtx th:first-child,#dash-body .pdc-mtx td:first-child{text-align:left;white-space:nowrap}
+#dash-body .pdc-mtx thead th{font-size:11px;color:#8b95a1;font-weight:700;border-bottom:1px solid #eceff2}
+#dash-body .pdc-mtx td.c{font-weight:600;color:#454f5b}
+#dash-body .pdc-mtx .tot{background:#f3f6f9}
+#dash-body .pdc-mtx tfoot td{border-top:1px solid #eceff2;border-bottom:none;font-weight:700}
+#dash-body .pdc-iv{font-size:11.5px;font-weight:600;white-space:nowrap}
+#dash-body .pdc-iv .o{color:#191f28}
+#dash-body .pdc-iv .ct{color:#e8920c}
+#dash-body .pdc-iv .sp{color:#3182f6}
+#dash-body .pdc-iv .sp.short{color:#e5484d}
+#dash-body .pdc-iv .miss{color:#c5ccd3}
+#dash-body .pdc-iv .ar{color:#cbd2d8;margin:0 1px}
+html[data-theme="retro"] #dash-body .pdc-mtx .tot{background:#F4ECD8}
 /* 가벼운 셀 */
 .pdc-cells .pd-proc.pdc2{padding:11px 12px;border:1px solid #eceff2;border-radius:11px}
 .pdc2 .pd-inner{display:block}
@@ -9638,6 +9656,23 @@ function getMatBaseQty(m){
   return getMatOrigQty(m);
 }
 
+// 결제용 부자재 사이즈별 실단가 가중평균(사이즈별 단가표×사이즈별 수량) → 총액=실제 사이즈별 합산과 동일
+function _trimWeightedPrice(t,sizeTotals){
+  if(!t||t.sizeMode!=='bySize'||!t.sizeRates||!t.sizeRates.length||!sizeTotals)return null;
+  var rates=t.sizeRates,sbz=t.sizeBySize||{},maxP=0;
+  rates.forEach(function(r){if(+r.price>maxP)maxP=+r.price;});
+  if(maxP<=0)return null;
+  var norm=function(x){return (x||'').toString().trim().toLowerCase();};
+  var sumQ=0,sumQP=0;
+  Object.keys(sizeTotals).forEach(function(sz){
+    var q=+sizeTotals[sz]||0;if(!q)return;
+    var spec=norm(sbz[sz]||''),pm=0;
+    if(spec){var m=rates.find(function(r){return norm(r.size)===spec;});if(m)pm=+m.price||0;}
+    if(pm<=0)pm=(+t.unitPrice>0?+t.unitPrice:maxP);
+    sumQ+=q;sumQP+=q*pm;
+  });
+  return sumQ?(sumQP/sumQ):null;
+}
 function calcSups(orderItems,opts){
   // opts.fabricEffectivePcs: true (기본) — 원단 계산에도 effective pcs 적용 여부
   //   - false면 원단은 원래 수량 기준으로 계산 (이번 작업에선 false 유지 — 원단은 이미 actualOrderedQty로 처리됨)
@@ -9655,6 +9690,7 @@ function calcSups(orderItems,opts){
       colorSizeQtys[c]={};
       sizes.forEach(function(sz){colorSizeQtys[c][sz]=+(oi.qtyGrid?.[c]?.[sz])||0;});
     });
+    const sizeTotals={};sizes.forEach(function(sz){var st=0;colors.forEach(function(c){st+=colorSizeQtys[c][sz]||0;});sizeTotals[sz]=st;});
     const totalQty=Object.values(colorQtys).reduce((s,v)=>s+v,0);
     
     // === 자재용 effective 수량 계산 (도미노 적용) - 컬러별 양방향 ===
@@ -9747,7 +9783,7 @@ function calcSups(orderItems,opts){
       // === 공통 사용 모드: 컬러 구분 없이 총수량으로 1번만 발주 ===
       // 도미노 적용: effTotalQty 사용 (effective pcs가 origPcs보다 작아진 경우 자동 축소된 값)
       if(t.isCommonUse){
-        const calc=calcTrimNeed(t,effTotalQty);
+        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},t,{unitPrice:_twp}):t,effTotalQty);
         sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',isCommonUse:true,commonForColors:colors.filter(function(c){return effColorQtys[c]>0;}),effectivePcsApplied:effectivePcsForTrim,calc});
         continue;
       }
@@ -9780,7 +9816,7 @@ function calcSups(orderItems,opts){
         }
       }else{
         // 단일 — 도미노 적용 effTotalQty
-        const calc=calcTrimNeed(t,effTotalQty);
+        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},t,{unitPrice:_twp}):t,effTotalQty);
         sups[t.supplier].materials.push({type:'trim',name:t.name,colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
       }
     }
@@ -15000,22 +15036,39 @@ function renderProdDashRow(r){
         var oT=useEff?r.effTotal:r.orderTotal;
         var oG=useEff?(r.effSizeGrid||{}):(r.orderSizeGrid||{});
         var sC=r.shipColors||{},sT=r.shipTotal||0,sG=r.shipSizeGrid||{};
+        var cutG=(typeof pdCutCSGrid==='function')?pdCutCSGrid(r.it,r.o):{};
+        var cutColor={},cutT=0;Object.keys(cutG).forEach(function(c){var t=0;Object.keys(cutG[c]||{}).forEach(function(z){t+=+cutG[c][z]||0;});cutColor[c]=t;cutT+=t;});
         var pct=oT?Math.round(sT/oT*100):0;
-        var cols=Object.keys(oC);
-        var ctab=cols.map(function(c){var o=oC[c]||0;var s=sC[c]||0;return '<tr><td class="c">'+esc(c||'-')+'</td><td class="o">'+o+'</td><td class="'+(s?'s':'miss')+'">'+(s||'—')+'</td></tr>';}).join('');
-        var sz=cols.map(function(c){
-          var og=oG[c]||{},sg=sG[c]||{};
-          var os=Object.keys(og).filter(function(k){return +og[k]>0;}).map(function(k){return esc(k)+' '+og[k];}).join(' · ');
-          var ss=Object.keys(sg).filter(function(k){return +sg[k]>0;}).map(function(k){return esc(k)+' '+sg[k];}).join(' · ');
-          if(!os&&!ss)return '';
-          return '<div class="szrow">'+esc(c||'-')+' · 오더 <b>'+(os||'—')+'</b> / 출고 <b>'+(ss||'—')+'</b></div>';
+        var cols=Object.keys(oC);if(!cols.length)cols=Object.keys(r.orderColors||{});
+        var realSizes=((r.it.sizes&&r.it.sizes.length)?r.it.sizes:[]).filter(function(z){return z&&z!=='free';});
+        var single=!realSizes.length;
+        var sizeCols=single?['수량']:realSizes;
+        // 한 칸: 오더›재단›출고 (재단=주황, 출고=파랑, 출고가 오더보다 모자라면 빨강)
+        var cell=function(o,ct,sp){
+          o=+o||0;ct=+ct||0;sp=+sp||0;
+          if(!o&&!ct&&!sp)return '<span class="pdc-iv"><span class="miss">—</span></span>';
+          var oT2='<span class="o">'+(o||'—')+'</span>';
+          var ctT=ct>0?'<span class="ct">'+ct+'</span>':'<span class="miss">—</span>';
+          var spT=sp>0?'<span class="sp'+(o&&sp<o?' short':'')+'">'+sp+'</span>':'<span class="miss">—</span>';
+          return '<span class="pdc-iv">'+oT2+'<span class="ar">›</span>'+ctT+'<span class="ar">›</span>'+spT+'</span>';
+        };
+        var chipOf=function(c){return (typeof qsColorChip==='function')?qsColorChip(c):'';};
+        var body=cols.map(function(c){
+          var tds;
+          if(single){tds='<td>'+cell(oC[c],cutColor[c],sC[c])+'</td>';}
+          else{var og=oG[c]||{},cg=cutG[c]||{},sg=sG[c]||{};tds=realSizes.map(function(z){return '<td>'+cell(og[z],cg[z],sg[z])+'</td>';}).join('');}
+          return '<tr><td class="c">'+chipOf(c)+esc(c||'-')+'</td>'+tds+'<td class="tot">'+cell(oC[c],cutColor[c],sC[c])+'</td></tr>';
         }).join('');
+        var footTds;
+        if(single){footTds='<td>'+cell(oT,cutT,sT)+'</td>';}
+        else{footTds=realSizes.map(function(z){var so=0,sc=0,ss=0;cols.forEach(function(c){so+=+((oG[c]||{})[z])||0;sc+=+((cutG[c]||{})[z])||0;ss+=+((sG[c]||{})[z])||0;});return '<td>'+cell(so,sc,ss)+'</td>';}).join('');}
+        var hdr='<tr><th>컬러</th>'+sizeCols.map(function(z){return '<th>'+esc(z)+'</th>';}).join('')+'<th class="tot">합계</th></tr>';
         return '<div class="pdc-sum">'
           +'<div class="pdc-sum-date">오더일 '+esc(orderDateStr)+(useEff&&r.effTotal!==r.orderTotal?' · <span style="color:#dc2626">원단부족 조정</span>':'')+'</div>'
-          +'<div class="pdc-sum-top"><span class="o">오더 <b>'+oT+'</b>장</span><span class="ar">→</span><span class="s">출고 <b>'+sT+'</b>장</span><span class="pct">'+pct+'%</span></div>'
+          +'<div class="pdc-sum-top"><span class="o">오더 <b>'+oT+'</b></span><span class="ar">→</span><span class="cut">재단 <b>'+cutT+'</b></span><span class="ar">→</span><span class="s">출고 <b>'+sT+'</b></span><span class="pct">'+pct+'%</span></div>'
           +'<div class="pdc-pbar"><i style="width:'+pct+'%"></i></div>'
-          +'<table class="pdc-ctab"><thead><tr><th>컬러</th><th>오더</th><th>출고</th></tr></thead><tbody>'+ctab+'</tbody><tfoot><tr><td>합계</td><td>'+oT+'</td><td>'+sT+'</td></tr></tfoot></table>'
-          +(sz?'<details class="pdc-szx"><summary>사이즈별 상세</summary>'+sz+'</details>':'')
+          +'<div style="overflow-x:auto"><table class="pdc-mtx"><thead>'+hdr+'</thead><tbody>'+body+'</tbody><tfoot><tr><td>합계</td>'+footTds+'<td class="tot">'+cell(oT,cutT,sT)+'</td></tr></tfoot></table></div>'
+          +'<div style="font-size:10.5px;color:#9aa0a6;margin-top:7px"><b style="color:#191f28">오더</b> › <b style="color:#e8920c">재단</b> › <b style="color:#3182f6">출고</b> 순서</div>'
           +'</div>';
       })()}
       <div class="pdc-track">${_trackHtml}</div>
@@ -19193,12 +19246,12 @@ function renderCS(){
   };
   // 부자재 단가: 기본 단가가 0이고 컬러별 단가가 있으면 가장 비싼 컬러별 단가 사용 (원가 보수적 계산)
   const trimUnitPrice=(t)=>{
-    if(t.unitPrice&&+t.unitPrice>0)return +t.unitPrice;
-    if(t.colorLinks&&t.colorLinks.length){
-      const prices=t.colorLinks.map(l=>+l.price||0).filter(p=>p>0);
-      if(prices.length)return Math.max(...prices);
-    }
-    return +t.unitPrice||0;
+    // 원가는 보수적: 기본단가·사이즈별단가·컬러별단가 중 MAX (제일 긴/비싼 사이즈 기준)
+    var cands=[];
+    if(+t.unitPrice>0)cands.push(+t.unitPrice);
+    if(t.sizeRates&&t.sizeRates.length)t.sizeRates.forEach(function(r){if(+r.price>0)cands.push(+r.price);});
+    if(t.colorLinks&&t.colorLinks.length)t.colorLinks.forEach(function(l){if(+l.price>0)cands.push(+l.price);});
+    return cands.length?Math.max.apply(null,cands):(+t.unitPrice||0);
   };
   const trimPure=(t,q)=>{var extras=trimExtrasCost(t,q);var up=trimUnitPrice(t);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q;const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return _applyMinSplit(t,{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*up+extras,extrasCost:extras,isRoll:true,_up:up},q);}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*q;return _applyMinSplit(t,{qty:parseFloat(ty.toFixed(2)),unit:(t.packUnit||'yard'),cost:ty*up+extras,extrasCost:extras,isYard:true,isRoll:false,_up:up},q);}if(t.orderType==='thread'){const perColor=t.threadQty||10;return _applyMinSplit(t,{qty:perColor,unit:'개',cost:perColor*up+extras,extrasCost:extras,isRoll:false,isThread:true,perColor:perColor,_up:up},q);}const n=(t.qtyPerPiece||1)*q;return _applyMinSplit(t,{qty:parseFloat(n.toFixed(2)),unit:t.unit||'yard',cost:n*up+extras,extrasCost:extras,isRoll:false,_up:up},q);};
   const trimWithLoss=(t,q,lp)=>{var up=trimUnitPrice(t);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q*(1+lp/100);const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return _applyMinSplit(t,{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*up,isRoll:true,_up:up},q);}if(t.orderType==='thread'){const perColor=t.threadQty||10;return _applyMinSplit(t,{qty:perColor,unit:'개',cost:perColor*up,isRoll:false,isThread:true,perColor:perColor,_up:up},q);}const n=Math.ceil((t.qtyPerPiece||1)*q*(1+lp/100));return _applyMinSplit(t,{qty:n,unit:t.unit||'yard',cost:n*up,isRoll:false,_up:up},q);};
