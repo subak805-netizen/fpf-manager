@@ -894,6 +894,19 @@ html[data-theme="retro"] #dash-body .ptab.ptab2 .pcellw:nth-child(even){border-l
 .ptab .prow-acts .pa-chk input{width:17px;height:17px;accent-color:#0ca678}
 .ptab .prow-acts .pdc2-prepdday,.ptab .p-stg .pd-prep-dday{font-size:9px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:4px}
 .ptab .pd-prep-dday.warn{background:#fef3c7;color:#92400e}.ptab .pd-prep-dday.late{background:#fee2e2;color:#b91c1c}
+/* 원·부자재 입고 = 단계별 카드 */
+#dash-body .pdc-prep-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:10px;margin-bottom:11px}
+#dash-body .prepcard{background:#fff;border:1px solid #e6e9ec;border-radius:11px;padding:10px 12px}
+#dash-body .prepcard .pc-h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:800;color:#191f28;margin-bottom:6px}
+#dash-body .prepcard .pc-h .cnt{margin-left:auto;font-size:10px;font-weight:700;color:#8b95a1;background:#f3f5f7;border-radius:20px;padding:1px 8px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dash-body .prepcard .prow{gap:6px;padding:6px 0;border-top:1px solid #f3f5f7;flex-wrap:nowrap}
+#dash-body .prepcard .prow:first-of-type{border-top:0}
+#dash-body .prepcard .p-stg{width:auto;flex:0 0 auto}
+#dash-body .prepcard .p-fc.p-sup{flex:1;min-width:0;font-size:12px}
+#dash-body .prepcard .p-date{flex:0 0 114px;height:32px;font-size:11.5px;padding:0 6px}
+#dash-body .prepcard .p-chk{width:26px;height:26px}
+#dash-body .prepcard .prow-acts{padding:7px 0 2px;border-top:1px dashed #eef1f4;margin-top:4px}
+html[data-theme="retro"] #dash-body .prepcard{border:2px solid var(--ink);border-radius:0}
 /* 레트로 */
 html[data-theme="retro"] #dash-body .ptab{border:2px solid var(--ink);border-radius:0}
 html[data-theme="retro"] .ptab .p-date,html[data-theme="retro"] .ptab .p-qty,html[data-theme="retro"] .ptab .p-chk{border-radius:0;border-color:var(--ink)}
@@ -14839,7 +14852,7 @@ function renderProdDashRow(r){
   // 데이터 저장 위치: o._prep = {fabDate, fabDone, trimDate, trimDone, jisiDate, jisiDone}
   if(!r.o._prep)r.o._prep={};
   const prep=r.o._prep;
-  const prepCell=(kind,supName,doneLbl,stageLbl)=>{
+  const prepCell=(kind,supName,doneLbl,stageLbl,card)=>{
     const dateField=kind+'Date';
     const doneField=kind+'Done';
     const synced=(kind==='fab'||kind==='trim');
@@ -14867,7 +14880,7 @@ function renderProdDashRow(r){
         var poDate=sp.sentAt?(typeof pdShortDate==='function'?pdShortDate(sp.sentAt):''):'';
         var poBadge=poSent?'<span class="po sent" style="font-size:10px;font-weight:700;background:#e6effc;color:#2563eb;border-radius:20px;padding:1px 8px">✓ 발주완료'+(poDate?' '+esc(poDate):'')+'</span>':'<span class="po no" style="font-size:10px;font-weight:700;background:#f3f4f6;color:#9ca3af;border-radius:20px;padding:1px 8px">발주 전</span>';
         return `<div class="prow">
-          <span class="p-stg">${_si===0?esc(stageLbl||'')+(alarm||''):''}</span>
+          <span class="p-stg">${_si===0?(card?(alarm||''):(esc(stageLbl||'')+(alarm||''))):''}</span>
           <span class="p-podot${poSent?' sent':''}" title="${poSent?'발주완료':'발주 전'}"></span>
           <span class="p-fc p-sup">${esc(sn||'—')}</span>
           <input class="p-date p-date-w" type="date" value="${esc(sd)}" data-oid="${esc(r.o.id)}" data-sup="${enc}" data-supfield="expectedShipDate" data-kind="${kind}" onchange="pdSaveSupField(this)">
@@ -14887,7 +14900,7 @@ function renderProdDashRow(r){
     const dateVal=prep[dateField]||'';
     const isDone=!!prep[doneField];
     return `<div class="prow">
-      <span class="p-stg">${esc(stageLbl||'')}</span>
+      <span class="p-stg">${card?'':esc(stageLbl||'')}</span>
       <span class="p-podot" style="visibility:hidden"></span>
       <span class="p-fc p-sup">${esc(supName||'—')}</span>
       <input class="p-date p-date-w" type="date" value="${esc(dateVal)}" data-oid="${esc(r.o.id)}" data-prepfield="${esc(dateField)}" data-prepkind="${kind}" onchange="pdSavePrep(this)">
@@ -14969,8 +14982,18 @@ function renderProdDashRow(r){
           +'</div>';
       })()}
       <div class="pdc-track">${_trackHtml}</div>
-      <div class="pdc-sech">📦 원·부자재 입고</div>
-      <div class="ptab">${prepCell('fab',fabSup,'입고완료','원자재')}${prepCell('trim',trimSup,'입고완료','부자재')}${prepCell('jisi',sewFcNm,'전달완료','지시서')}</div>
+      <div class="pdc-sech">원·부자재 입고</div>
+      ${(function(){
+        var _ordCols=Object.keys(r.orderColors||{});
+        var _applies=function(m){var L=(m&&m.colorLinks)||[];if(!L.length)return true;return L.some(function(l){return _ordCols.indexOf(l.itemColor)>=0;});};
+        var _supCnt=function(mats){return [...new Set((mats||[]).filter(_applies).map(function(m){return m&&m.supplier;}).filter(Boolean))].length;};
+        var _fabN=_supCnt(r.it.fabrics),_trimN=_supCnt(r.it.trims);
+        return '<div class="pdc-prep-cards">'
+          +'<div class="prepcard"><div class="pc-h">원자재<span class="cnt">'+(_fabN?_fabN+'곳':'—')+'</span></div>'+prepCell('fab',fabSup,'입고완료','원자재',true)+'</div>'
+          +'<div class="prepcard"><div class="pc-h">부자재<span class="cnt">'+(_trimN?_trimN+'곳':'—')+'</span></div>'+prepCell('trim',trimSup,'입고완료','부자재',true)+'</div>'
+          +'<div class="prepcard"><div class="pc-h">지시서<span class="cnt">'+esc(sewFcNm||'—')+'</span></div>'+prepCell('jisi',sewFcNm,'전달완료','지시서',true)+'</div>'
+          +'</div>';
+      })()}
       <div class="pdc-sech">✂️ 공정별 수량 · 사이즈/컬러</div>
       <div class="ptab ptab2">${cell('재단',fcSew,schSew,pdCutQty(schSew,r.it.id,r.o.orderItems.length===1),'cuttingDate','cuttingDone')}${cell('외주',fcExt,schExt,pdShipQty(schExt,r.it.id,r.o.orderItems.length===1),'shippingDate','shipDone')}${cell('봉제',fcSew,schSew,r.shipTotal,'sewingCompleteDate','sewingDone')}${cell('완성',fcFin,schFin,pdShipQty(schFin,r.it.id,r.o.orderItems.length===1),'shippingDate','finishingDone')}${cell('검품',fcInsp,schInsp,pdShipQty(schInsp,r.it.id,r.o.orderItems.length===1),'inspectionDate','inspectionDone')}${cell('출고',fcSew,schSew,r.shipTotal,'shipExpectedDate','shipDone')}</div>
       <div class="pdc-foot"><span class="pd-stage-lbl" style="margin:0">결제</span>${payStateHtml}<span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${(!r.dashDone&&r.shipDone)?`<button class="pd-btn" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;font-weight:700;border-radius:8px" onclick="event.stopPropagation();pdSendToDone('${esc(r.o.id)}','${esc(r.it.id)}')">📦 완료 탭으로 보내기</button>`:''}${r.dashDone?`<button class="pd-btn" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid var(--bd);font-weight:600;border-radius:8px" onclick="event.stopPropagation();pdUnsendDone('${esc(r.o.id)}','${esc(r.it.id)}')">↩ 진행으로</button>`:''}<button class="pd-btn" style="padding:6px 12px;background:#1f2937;color:#fff;border:none;font-weight:600;border-radius:8px" onclick="event.stopPropagation();switchTab('pay')">결제 보기</button></span></div>
