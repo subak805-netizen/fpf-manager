@@ -17264,6 +17264,24 @@ function trimLedgerAuto(){
         (bySup[sn]=bySup[sn]||[]).push(L);
       });
     });
+    // 가공비(＋가공비 = 염색비·바이어스재단비 등) — it.trimCosts, 가공처(factory)별로 거래처 원장에 합류
+    (o.orderItems||[]).forEach(function(oi){
+      var it=S.items[oi.itemId];if(!it||!it.trimCosts)return;
+      it.trimCosts.forEach(function(tc){
+        var sn=tc.factory;if(!sn)return; // 가공처(거래처) 없으면 원장에 못 넣음
+        var sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
+        var allColors=it.colors&&it.colors.length?it.colors:[''];
+        var hasLinks=tc.colorLinks&&tc.colorLinks.length>0;
+        var activeColors=hasLinks?allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):allColors;
+        var qty,unit,price,amount;
+        if(tc.costType==='perLot'){price=+tc.costPerLot||0;if(!price)return;var nC=activeColors.length||1;qty=nC;unit='컬러';amount=price*nC;}
+        else{price=+tc.costPerPcs||0;if(!price)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;qty=totQty;unit='pcs';amount=price*totQty;}
+        var brand=it.brandId?_tlBrandName(it.brandId):'';
+        var L={name:(tc.name||'가공비'),spec:'가공',qty:qty,unit:unit,price:price,amount:Math.round(amount),itemName:it.name||'',brand:brand,date:dISO,src:'auto',orderId:oid,orderName:o.name||'',inout:'out',isProc:true};
+        L.key='p|'+oid+'|'+(tc.id||tc.name||'')+'|'+(it.id||'');
+        (bySup[sn]=bySup[sn]||[]).push(L);
+      });
+    });
   });
   return bySup;
 }
