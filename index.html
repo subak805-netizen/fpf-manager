@@ -453,7 +453,14 @@ html[data-theme="minimal"] .ise-auto,html[data-theme="minimal"] .ise-flag,html[d
 .po-mtx th{background:var(--bg2,#f4f6f8);font-weight:700}
 .po-mtx td.c,.po-mtx th.c{text-align:left;font-weight:700}
 .po-mtx td.tt,.po-mtx th.tt{background:#eaf2ff;font-weight:800}
-.po-cl{font-size:11.5px;color:var(--t2,#6b7280);font-variant-numeric:tabular-nums;background:var(--bg2,#f4f6f8);border-radius:7px;padding:7px 10px}
+.po-cl{font-size:11.5px;color:var(--t2,#6b7280);font-variant-numeric:tabular-nums;background:var(--bg2,#f4f6f8);border-radius:7px;padding:7px 10px;margin-top:4px}
+.po-cc{padding:9px 0;border-top:1px dashed var(--bd)}
+.po-cc:first-child{border-top:none}
+.po-cc-h{font-weight:800;font-size:13px}
+.po-cc-eq{font-size:12.5px;color:var(--t2,#6b7280);margin-top:3px;font-variant-numeric:tabular-nums}
+.po-cc-eq b{color:var(--text);font-weight:800}
+.po-cc-bd{font-size:11px;color:var(--t3,#9aa0a6);margin-top:3px;font-variant-numeric:tabular-nums}
+.po-part{font-size:10px;color:var(--t3,#9aa0a6);font-weight:500}
 .po-cl b{color:#3182f6}
 .po-cm .mcl{color:var(--t2,#64748b);font-weight:500}
 .po-adj{margin-bottom:6px}
@@ -11749,19 +11756,30 @@ function renderPoTab(o){
       // 계산식 상세 (발주수량 검증용 — 노션 스타일)
       var r1=function(v){return Math.round((+v||0)*10)/10;};var r2=function(v){return Math.round((+v||0)*100)/100;};
       var FLP=(typeof FAB_LOSS_PCT!=='undefined')?FAB_LOSS_PCT:5;
+      // 원단별 그룹(이름) → 그 안에서 원단색(fabricColor)별 합산. (A1: 식 끝에 결과 진하게)
       var _fcG={},_fcGo=[];
-      fabs.forEach(function(f){var key=f.name||'';if(!_fcG[key]){var fc=(S.items[f.itemId]&&S.items[f.itemId].fabrics||[]).find(function(x){return x.id===f.fabId;});_fcG[key]={name:f.displayName||f.name,fc:fc,rows:[],sizes:[],final:0,raw:0,pcsNoSb:0};_fcGo.push(key);}
-        var g=_fcG[key];var fin=(f.actualOrderedQty!==undefined&&f.actualOrderedQty!=='')?+f.actualOrderedQty:(+f.totalYards||0);g.final+=fin;
-        var sb=f.sizeBreakdown||{};var rowq={};var tot=0;Object.keys(sb).forEach(function(sz){var e=sb[sz];if(!e||!e.qty)return;if(g.sizes.indexOf(sz)<0)g.sizes.push(sz);rowq[sz]=(rowq[sz]||0)+e.qty;tot+=e.qty;g.raw+=(+e.consumption||0)*e.qty;});
-        if(tot>0)g.rows.push({ic:(f.colorName||''),fc:(f.fabricColor||''),q:rowq,tot:tot});
-        else if(+f.garmentPcs>0){g.pcsNoSb+=Math.round(+f.garmentPcs);if(g.fc)g.raw+=(+g.fc.consumption||0)*(+f.garmentPcs);}
+      fabs.forEach(function(f){var key=f.name||'';
+        if(!_fcG[key]){var fc=(S.items[f.itemId]&&S.items[f.itemId].fabrics||[]).find(function(x){return x.id===f.fabId;});_fcG[key]={name:f.displayName||f.name,part:(f.part||''),fc:fc,colors:{},corder:[],final:0,raw:0};_fcGo.push(key);}
+        var g=_fcG[key];
+        var fin=(f.actualOrderedQty!==undefined&&f.actualOrderedQty!=='')?+f.actualOrderedQty:(+f.totalYards||0);g.final+=fin;
+        var sb=f.sizeBreakdown||{};var pcs=0,raw=0;Object.keys(sb).forEach(function(sz){var e=sb[sz];if(!e||!e.qty)return;pcs+=e.qty;raw+=(+e.consumption||0)*e.qty;});
+        if(!pcs&&+f.garmentPcs>0){pcs=Math.round(+f.garmentPcs);if(g.fc)raw=(+g.fc.consumption||0)*pcs;}
+        g.raw+=raw;
+        var fcol=f.fabricColor||f.colorName||'';
+        if(!g.colors[fcol]){g.colors[fcol]={pcs:0,raw:0,items:[]};g.corder.push(fcol);}
+        var cg=g.colors[fcol];cg.pcs+=pcs;cg.raw+=raw;
+        var ic=f.colorName||'';var ex=cg.items.find(function(x){return x.ic===ic;});if(ex)ex.pcs+=pcs;else cg.items.push({ic:ic,pcs:pcs});
       });
-      var fabDetail=_fcGo.map(function(k){var g=_fcG[k];if(!g.rows.length&&!g.pcsNoSb&&!g.final)return '';var buf=(g.fc&&g.fc.buffer!=null&&g.fc.buffer!=='')?+g.fc.buffer:FLP;
-        var totPcs=g.rows.reduce(function(a,r){return a+r.tot;},0)+g.pcsNoSb;
-        var tbl='';
-        if(g.sizes.length){tbl='<table class="po-mtx"><tr><th class="c">아이템 컬러 <span style="color:var(--t3,#9aa0a6);font-weight:500">(원단)</span></th>'+g.sizes.map(function(s){return '<th>'+esc(s)+'</th>';}).join('')+'<th class="tt">계</th></tr>'+g.rows.map(function(r){var _cl=esc(r.ic||r.fc||'기본')+((r.fc&&r.fc!==r.ic)?' <span style="color:var(--t3,#9aa0a6);font-weight:500;font-size:10px">('+esc(r.fc)+')</span>':'');return '<tr><td class="c">'+_cl+'</td>'+g.sizes.map(function(s){return '<td>'+(r.q[s]||'')+'</td>';}).join('')+'<td class="tt">'+r.tot+'</td></tr>';}).join('')+'</table>';}
-        var line='<div class="po-cl">총 '+totPcs+'장'+(g.raw?' · '+r1(g.raw)+'y':'')+' → 로스 '+buf+'% = <b>'+r1(g.final)+'y 발주</b></div>';
-        return '<div class="po-cm"><div class="po-cm-h" onclick="poCalcTog(this)"><span class="cnm">'+esc(g.name)+'</span><span class="cq">'+r1(g.final)+'y</span><span class="car">▸</span></div><div class="po-cm-d">'+tbl+line+'</div></div>';
+      var fabDetail=_fcGo.map(function(k){var g=_fcG[k];if(!g.corder.length&&!g.final)return '';var buf=(g.fc&&g.fc.buffer!=null&&g.fc.buffer!=='')?+g.fc.buffer:FLP;
+        var totPcs=0;
+        var blocks=g.corder.map(function(fcol){var cg=g.colors[fcol];totPcs+=cg.pcs;
+          var yo=cg.pcs?(Math.round((cg.raw/cg.pcs)*1000)/1000):0;
+          var bd=cg.items.filter(function(x){return x.pcs>0;}).map(function(x){return esc(x.ic||'기본')+' '+x.pcs;}).join(' + ');
+          return '<div class="po-cc"><div class="po-cc-h">'+esc(fcol||'기본')+'</div><div class="po-cc-eq">'+cg.pcs+'장 × 요척 '+yo+' = <b>'+r1(cg.raw)+'y</b></div>'+(bd?'<div class="po-cc-bd">'+bd+'</div>':'')+'</div>';
+        }).join('');
+        var head='<div class="po-cm-h" onclick="poCalcTog(this)"><span class="cnm">'+esc(g.name)+(g.part?' <span class="po-part">'+esc(g.part)+'</span>':'')+'</span><span class="cq">합 '+r1(g.final)+'y</span><span class="car">▸</span></div>';
+        var line='<div class="po-cl">총 '+totPcs+'장 · '+r1(g.raw)+'y → 로스 '+buf+'% = <b>'+r1(g.final)+'y 발주</b></div>';
+        return '<div class="po-cm">'+head+'<div class="po-cm-d">'+blocks+line+'</div></div>';
       }).filter(Boolean).join('');
       var trimDetail=trims.filter(function(t){return !(t.orderType==='careLabel'||t.orderType==='mainLabel'||t.orderType==='bias');}).map(function(t){
         var yo=(t.consumptionPerPiece!=null&&t.consumptionPerPiece!=='')?+t.consumptionPerPiece:((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?+t.qtyPerPiece:null);
