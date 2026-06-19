@@ -192,6 +192,7 @@
         <span id="frame-fit-hint" style="display:none;font-size:11px;color:var(--t3);margin-left:2px">모서리 드래그로 자유조절</span>
       </span>
       <button class="btn" id="btn-save">💾 작지에 저장</button>
+      <button class="btn" id="btn-copy" title="고화질 이미지를 클립보드에 복사 — 어디든 바로 붙여넣기(Cmd/Ctrl+V)">이미지 복사</button>
       <button class="btn primary" id="btn-png">⬇ PNG 내보내기</button>
     </div>
   </div>
@@ -1443,17 +1444,36 @@ document.addEventListener('dblclick',e=>{
   var t=e.target;
   if(t&&t.tagName==='INPUT'&&t.type==='range'){ var d=(t.id in RANGE_DEF)?RANGE_DEF[t.id]:(t.defaultValue||t.min); t.value=d; t.dispatchEvent(new Event('input',{bubbles:true})); }
 });
-window.exportPNG=function(){
+/* 고화질 캔버스 한 장 뽑기 (화면 줌·위치 보존). pr=픽셀배율(클수록 선명) */
+function _exportCanvas(pr){
   const _sc=stage.scaleX(), _px=stage.x(), _py=stage.y();   // 현재 화면(줌·위치) 보존
   clearSel(); nodeEditEnd(); resetZoom();
-  let opt={pixelRatio:2};
+  let opt={pixelRatio:pr||3};
   if(frameMode!=='off'&&frameRect){ const r=frameRect.getClientRect(); opt.x=r.x;opt.y=r.y;opt.width=r.width;opt.height=r.height; }
   if(frameRect)frameRect.visible(false); if(frameTr)frameTr.visible(false); if(typeof axisLayer!=='undefined')axisLayer.visible(false); guides.forEach(gl=>gl.visible(false)); layer.draw();
-  const url=stage.toDataURL(opt);
+  const cv=stage.toCanvas(opt);
   if(frameRect)frameRect.visible(true); if(frameTr)frameTr.visible(true); if(typeof axisLayer!=='undefined')axisLayer.visible(true); guides.forEach(gl=>gl.visible(true));
   stage.scale({x:_sc,y:_sc}); stage.position({x:_px,y:_py}); afterZoom();   // 화면 복원(줌 안 튐)
   layer.draw();
-  return url;
+  return cv;
+}
+window.exportPNG=function(pr){ return _exportCanvas(pr||3).toDataURL('image/png'); };
+/* 클립보드로 고화질 이미지 복사 → 카톡·문서 등 어디든 Cmd/Ctrl+V (붙여넣어도 안 깨짐) */
+function _imgCopyFallback(cv){
+  try{ var url=cv.toDataURL('image/png'); var a=document.createElement('a'); a.href=url; a.download='도식화.png'; a.click();
+    hint('복사가 막혀 고화질 PNG로 저장했어요'); setTimeout(function(){hint('');},2200); }catch(e){}
+}
+window.copyImage=function(){
+  try{
+    var cv=_exportCanvas(4);   // 복사는 더 선명하게 (4배)
+    if(navigator.clipboard && window.ClipboardItem){
+      // ClipboardItem에 Promise 전달 = Safari/아이폰도 동작 (사용자 클릭 안에서 동기 생성)
+      var item=new ClipboardItem({'image/png': new Promise(function(res){ cv.toBlob(function(b){res(b);},'image/png'); })});
+      navigator.clipboard.write([item]).then(function(){
+        hint('고화질 이미지 복사됨 · 어디든 붙여넣기(Cmd/Ctrl+V)'); setTimeout(function(){hint('');},1800);
+      }).catch(function(){ _imgCopyFallback(cv); });
+    } else { _imgCopyFallback(cv); }
+  }catch(e){ try{ _imgCopyFallback(_exportCanvas(4)); }catch(_e){} }
 };
 /* 프레임 상태 내보내기/복원 (저장 시 함께 보관) */
 window.exportFrameState=function(){
@@ -1536,6 +1556,7 @@ document.getElementById('btn-png').onclick=()=>{
   const url=window.exportPNG();
   const a=document.createElement('a');a.href=url;a.download='도식화.png';a.click();
 };
+document.getElementById('btn-copy').onclick=()=>window.copyImage();
 document.getElementById('btn-save').onclick=()=>{
   hint('작업지시서 · 봉제 도식화 슬롯에 저장됨 ✓ (PNG + 편집본)');
   setTimeout(()=>hint(''),1800);
