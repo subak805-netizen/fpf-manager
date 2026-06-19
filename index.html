@@ -570,6 +570,10 @@ html[data-theme="retro"] .po2-seg button.on{background:var(--neon-green);color:v
 #pane-items .tcd-auto{background:var(--bg2,#f7f9fb)}
 #pane-items .tcd-dbox{background:#fdf2f8;border-radius:8px;padding:8px;margin-bottom:6px}
 #pane-items .tcd-dbox .dh{font-size:10.5px;font-weight:700;color:#be185d;margin-bottom:5px}
+#pane-items .tcd-axrow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:10.5px;font-weight:700;margin-bottom:8px}
+#pane-items .tcd-axchip{font-size:10.5px;font-weight:700;padding:3px 9px;border:1px solid var(--bd);border-radius:7px;background:var(--card-bg,#fff);color:var(--t3,#8b95a1);cursor:pointer}
+#pane-items .tcd-axchip.on{background:#1f2430;color:#fff;border-color:#1f2430}
+html[data-theme="retro"] #pane-items .tcd-axchip.on{background:var(--ink);border-color:var(--ink)}
 #pane-items .tcd-prev{font-size:10.5px;color:var(--t2,#475569);background:var(--card-bg,#fafbfc);border:1px solid var(--bd2,#eef1f4);border-radius:7px;padding:7px 9px;line-height:1.5}
 @media(max-width:560px){#pane-items .tcd-split{flex-direction:column}#pane-items .tcd-calc{flex:auto;border-left:0;border-top:1px dashed var(--bd2,#eef1f4);padding-left:0;padding-top:8px}}
 html[data-theme="retro"] #pane-items .fab-row.tcd .tcd-tab.on{background:var(--ink);border-color:var(--ink)}
@@ -8053,6 +8057,23 @@ function trimUIState(t){var s=(t&&window._trimUI&&window._trimUI[t.id])||{};retu
 function trimToggleOpen(i){var t=formTrims[i];if(!t)return;window._trimUI=window._trimUI||{};var s=window._trimUI[t.id]=window._trimUI[t.id]||{};s.open=!s.open;var el=document.getElementById('tr-'+i);if(el)el.classList.toggle('tcd-open',s.open);var car=el&&el.querySelector('.tcd-car');if(car)car.textContent=s.open?'▾':'▸';}
 function trimSetTab(i,tab,ev){if(ev&&ev.stopPropagation)ev.stopPropagation();var t=formTrims[i];if(t){window._trimUI=window._trimUI||{};(window._trimUI[t.id]=window._trimUI[t.id]||{}).tab=tab;}var el=document.getElementById('tr-'+i);if(!el)return;el.querySelectorAll('.tcd-pane').forEach(function(p){p.classList.toggle('on',p.getAttribute('data-pane')===tab);});el.querySelectorAll('.tcd-tab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-tab')===tab);});}
 function trimDup(i){colTR();var t=formTrims[i];if(!t)return;var c=JSON.parse(JSON.stringify(t));c.id=uid();window._trimUI=window._trimUI||{};window._trimUI[c.id]={open:true,tab:'basic'};formTrims.splice(i+1,0,c);renderTrimRows();if(typeof showToast==='function')showToast('부자재 복제됨');}
+// #5 적용 탭: 단가 축선택(표시 정리) — 컬러별/사이즈별 단가표를 한 번에 하나만 보이게. 두 표 모두 DOM에 있어 colTR 수집·원가 계산은 불변(데이터 안전).
+function trimApplyPane(i,t,colorPart,sizeSec){
+  if(!sizeSec)return colorPart;
+  var hasC=(t.colorLinks||[]).some(function(l){return l&&+l.price>0;});
+  var hasS=((t.sizeRates||[]).length>0)||t.sizeMode==='bySize';
+  var mode=(hasC&&hasS)?'b':hasS?'s':'c';
+  var on=function(m){return mode===m?' on':'';};
+  var h='<div class="tcd-axrow"><span style="color:var(--t3,#8b95a1)">단가 기준</span>'
+    +'<button type="button" class="tcd-axchip'+on('c')+'" data-ax="c" onclick="trimAx('+i+',\'c\')">컬러별</button>'
+    +'<button type="button" class="tcd-axchip'+on('s')+'" data-ax="s" onclick="trimAx('+i+',\'s\')">사이즈별</button>'
+    +'<button type="button" class="tcd-axchip'+on('b')+'" data-ax="b" onclick="trimAx('+i+',\'b\')">둘 다</button>'
+    +'<button type="button" class="tcd-axchip'+on('n')+'" data-ax="n" onclick="trimAx('+i+',\'n\')">공통(숨김)</button></div>';
+  h+='<div class="tcd-axc"'+((mode==='c'||mode==='b')?'':' style="display:none"')+'>'+colorPart+'</div>';
+  h+='<div class="tcd-axs"'+((mode==='s'||mode==='b')?'':' style="display:none"')+'>'+sizeSec+'</div>';
+  return h;
+}
+function trimAx(i,m){var el=document.getElementById('tr-'+i);if(!el)return;var c=el.querySelector('.tcd-axc'),s=el.querySelector('.tcd-axs');if(c)c.style.display=(m==='c'||m==='b')?'':'none';if(s)s.style.display=(m==='s'||m==='b')?'':'none';el.querySelectorAll('.tcd-axrow .tcd-axchip').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-ax')===m);});}
 // 지퍼 새 4탭 카드 — id="tr-i"·모든 data-f 필드를 4탭에 한 번씩 렌더(비활성 탭도 DOM 유지 → colTR 수집 보존)
 function zipperCardNew(t,i,colorSec){
   var e=esc,st=trimUIState(t),tab=st.tab,T=function(n){return tab===n?' on':'';};
@@ -8083,7 +8104,7 @@ function zipperCardNew(t,i,colorSec){
     +'</div>'
     +'<div class="tcd-prev"><b>발주서 출력:</b> '+e(t.zipperSize||'?')+' '+e(t.zipperLength?t.zipperLength+' ':'')+e(t.zipperDirection||'')+' 지퍼 '+e(t.toothColor||'?')+'이빨 · 슬라이더 '+e(t.sliderModel||'?')+' #'+e(t.sliderColor||'?')+(t.hasSliderLogo&&t.sliderLogoText?' · 로고 "'+e(t.sliderLogoText)+'"':'')+'</div></div>';
   // 적용 / 옵션
-  h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+colorSec+mkTrimSizeSec(i,t,true)+'</div>';
+  h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+trimApplyPane(i,t,colorSec,mkTrimSizeSec(i,t,true))+'</div>';
   h+='<div class="tcd-pane'+T('opts')+'" data-pane="opts">'+mkTrimExtrasSec(i,t)+'</div>';
   h+='</div></div>';
   return h;
@@ -8143,7 +8164,7 @@ function trimCardNewGen(t,i,colorSec){
     +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>부자재명</label><input list="'+(isLoop?'dl-loop':'dl-tnm')+'" data-f="name" value="'+e(t.name||'')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'+sizeField+'<div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="흰색/검정" list="dl-clr"></div></div>'
     +'</div><div class="tcd-calc">'+calc+'</div></div>'
     +'</div>';
-  h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+applyPane+(isTh?'':mkTrimSizeSec(i,t,true))+'</div>';
+  h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+trimApplyPane(i,t,applyPane,isTh?'':mkTrimSizeSec(i,t,true))+'</div>';
   h+='<div class="tcd-pane'+T('opts')+'" data-pane="opts">'+mkTrimExtrasSec(i,t)+'</div>';
   h+='</div></div>';
   return h;
@@ -8181,7 +8202,7 @@ function snapCardNew(t,i,colorSec){
     +'<div style="font-size:10.5px;font-weight:700;color:#0369a1;margin-bottom:5px">면별 처리 <span style="font-weight:400;color:#0369a1">가공·색상·요척(비우면 기본)·🎨염색</span></div>'+sfRows
     +'<div class="tcd-dbox" style="background:#cffafe;margin-top:6px"><div class="dh" style="color:#0369a1"><label style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:10.5px;color:#0369a1;font-weight:700"><input type="checkbox" data-f="hasSnapLogo" '+(t.hasSnapLogo?'checked':'')+' style="width:15px;height:15px"> 로고</label></div><div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>로고 내용</label><input data-f="snapLogoText" value="'+e(t.snapLogoText||'')+'" placeholder="예: 12시 THE"></div></div></div>'
     +'<div class="tcd-prev"><b>'+e(t.snapSize||'?')+' '+e(t.name||'스냅')+'</b> · '+(prev||'면별 처리 입력')+'</div></div>';
-  h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+colorSec+mkTrimSizeSec(i,t)+'</div>';
+  h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+trimApplyPane(i,t,colorSec,mkTrimSizeSec(i,t))+'</div>';
   h+='<div class="tcd-pane'+T('opts')+'" data-pane="opts">'+mkTrimExtrasSec(i,t)+'</div>';
   h+='</div></div>';return h;
 }
@@ -8257,7 +8278,7 @@ function buttonCardNew(t,i,colorSec){
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>스타일</label><input data-f="buttonStyle" value="'+e(t.buttonStyle||'')+'" placeholder="예: 4구 흰색 / 스냅"></div></div>'
     +'<div class="tcd-dbox" style="background:#f3e8ff"><div class="dh" style="color:#6d28d9"><label style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:10.5px;color:#6d28d9;font-weight:700"><input type="checkbox" data-f="hasButtonLogo" '+(t.hasButtonLogo?'checked':'')+' style="width:15px;height:15px"> 로고 인쇄</label></div><div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>로고 내용 (브랜드별 저장)</label><input data-f="buttonLogoText" value="'+e(t.buttonLogoText||logoDef)+'" placeholder="예: 12시 THE / 6시 FRUTO"></div></div></div>'
     +'<div class="tcd-prev"><b>발주서 출력:</b> '+e(t.buttonSize||'?')+' '+e(t.buttonStyle||'')+(t.color?' #'+e(t.color):'')+(t.hasButtonLogo&&t.buttonLogoText?' · 로고 "'+e(t.buttonLogoText)+'"':'')+'</div></div>';
-  h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+colorSec+mkTrimSizeSec(i,t)+mkSizeRatesSec(i,t,'예: 15mm','11mm:50, 15mm:80, 20mm:120')+'</div>';
+  h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+trimApplyPane(i,t,colorSec,mkTrimSizeSec(i,t)+mkSizeRatesSec(i,t,'예: 15mm','11mm:50, 15mm:80, 20mm:120'))+'</div>';
   h+='<div class="tcd-pane'+T('opts')+'" data-pane="opts">'+mkTrimExtrasSec(i,t)+'</div>';
   h+='</div></div>';return h;
 }
