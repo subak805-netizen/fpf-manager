@@ -10282,12 +10282,12 @@ function _renderOTabKeepScroll(){
 }
 // 요청사항·출고 요청 옵션 토글 (스크롤 보존 재렌더)
 function togglePoReqOpt(oid,sn,key,checked){
-  var op=S.orders[oid]&&S.orders[oid].suppliers&&S.orders[oid].suppliers[sn]; if(!op)return;
+  var _o=poResolveOrder(oid);var op=_o&&_o.suppliers&&_o.suppliers[sn]; if(!op)return;
   op.poOpts=op.poOpts||{}; op.poOpts[key]=checked;
   savePoOptsDefault(sn,key,checked); saveData(); _renderOTabKeepScroll();
 }
 function togglePoAddrOpt(oid,sn,key,checked){
-  var op=S.orders[oid]&&S.orders[oid].suppliers&&S.orders[oid].suppliers[sn];
+  var _o=poResolveOrder(oid);var op=_o&&_o.suppliers&&_o.suppliers[sn];
   if(!op)return;
   op.poOpts=op.poOpts||{};
   op.poOpts[key]=checked;
@@ -12038,7 +12038,10 @@ function renderPoTab(o){
   }
   applyPoTypeDefaults(o);
   const sns=Object.keys(o.suppliers||{});if(!sns.length)return'<div class="empty">원부자재 정보 없음</div>';
-  return '<div class="po2-tray">'+sns.map(sn=>{
+  return '<div class="po2-tray">'+sns.map(function(sn){return poCardHTML(o,sn);}).join('')+'</div>'+(typeof extraOrdersSectionHTML==='function'?extraOrdersSectionHTML(o):'');  // 발주서 카드들 + 재단 추가 발주(별도 섹션)
+}
+// 거래처 발주 카드 1개 — 첫 발주(S.orders)·추가발주(orderLike) 공용. o는 실주문 또는 추가발주용 orderLike
+function poCardHTML(o,sn){
     const sup=o.suppliers[sn];if(!sup)return'';const sent=sup.status==='sent';const opts=sup.poOpts||{};const pb=S.priceBook[sn]||{};
     const fabs=sup.materials.filter(m=>m.type==='fabric');const trims=sup.materials.filter(m=>m.type==='trim');
     const _yo=v=>Math.round((+v||0)*1000)/1000;
@@ -12156,7 +12159,7 @@ function renderPoTab(o){
     const poText=genPoText(o,sn);
     return`<div class="sc po2"><div class="sc-h">
       <div class="po2-hd"><span class="po2-nm">${esc(sn)}</span><span class="badge ${sent?'b1':'b0'}">${sent?'발송':'미발송'}</span><span class="po2-acts"><button class="po2-ab copy" onclick="cpPO('${o.id}','${sn}')">복사</button><button class="po2-ab kakao" onclick="sharePoKakao('${o.id}','${sn}')">카톡</button><button class="po2-ab sub" onclick="sendPoEmail('${o.id}','${sn}')">메일</button><button class="po2-ab sub" onclick="sendPoSMS('${o.id}','${sn}')">문자</button>${!sent?`<button class="po2-ab done" onclick="markPoSent('${o.id}','${sn}')">발송완료</button>`:`<button class="po2-ab undo" onclick="unSent('${o.id}','${sn}')" title="발송 ${esc(sup.sentAt||'')}">발송취소</button>`}</span><button class="po2-del" onclick="deleteOrderSupplier('${o.id}','${sn}')" title="이 발주서 삭제">삭제</button></div>
-      <div class="po2-meta"><span class="m1">출고처 <select onchange="S.orders['${o.id}'].suppliers['${sn}'].deliveryFcId=this.value;saveData();renderOTab()">${fcOpts(sup.deliveryFcId||'')}</select></span>${pb.email||pb.phone?`<span class="m1 muted" style="color:var(--t3,#9aa0a6)">${pb.email?esc(pb.email)+' ':''}${pb.phone?esc(pb.phone):''}</span>`:''}</div>
+      <div class="po2-meta"><span class="m1">출고처 <select onchange="setPoDelivery('${o.id}','${sn}',this.value)">${fcOpts(sup.deliveryFcId||'')}</select></span>${pb.email||pb.phone?`<span class="m1 muted" style="color:var(--t3,#9aa0a6)">${pb.email?esc(pb.email)+' ':''}${pb.phone?esc(pb.phone):''}</span>`:''}</div>
     </div>
     <div class="sc-b">
       ${poParts.matTbl}
@@ -12176,14 +12179,17 @@ function renderPoTab(o){
         ${(()=>{window._poCheckOpen=(window._poCheckOpen&&typeof window._poCheckOpen==='object')?window._poCheckOpen:{};const _op=!!window._poCheckOpen[sn];return `<div class="po2-check"><button type="button" class="po2-check-h" onclick="window._poCheckOpen['${sn}']=!window._poCheckOpen['${sn}'];renderOTab()">${_op?'▾':'▸'} 거래처 확인 <span class="hint">협상단가·자재</span></button><div class="po2-check-b"${_op?'':' style="display:none"'}>${_op?renderCheckTab(o,sn):''}</div></div>`;})()}
       </div>
     </div></div>`;
-  }).join('')+'</div>'+(typeof extraOrdersSectionHTML==='function'?extraOrdersSectionHTML(o):'');  // 발주서 카드들 + 재단 추가 발주(별도 섹션). ②거래처확인은 카드 하단 토글
 }
 
 // 계산식 A안 — 자재 한 줄 클릭 시 그 자리에서 표 펼침/접힘
 function poCalcTog(el){var cm=el.closest&&el.closest('.po-cm');if(cm)cm.classList.toggle('open');}
 // 발주서(거래처) 삭제 — 잘못 생긴 추가발주 등을 직접 제거
+// 발주 카드용 주문 리졸버 — 실주문(S.orders) 또는 추가발주 orderLike(window._poExtraOrders)
+function poResolveOrder(oid){return (S.orders&&S.orders[oid])||(window._poExtraOrders&&window._poExtraOrders[oid])||null;}
+function setPoDelivery(oid,sn,val){var o=poResolveOrder(oid);if(!o||!o.suppliers||!o.suppliers[sn])return;o.suppliers[sn].deliveryFcId=val;saveData();if(typeof renderOTab==='function')renderOTab();}
 function deleteOrderSupplier(oid,sn){
-  var o=S.orders[oid];if(!o||!o.suppliers||!o.suppliers[sn])return;
+  var o=poResolveOrder(oid);if(!o||!o.suppliers||!o.suppliers[sn])return;
+  if(o._exId){var _pe=poDeleteExtraSupplier(o,sn);if(_pe)return;}
   var isExtra=sn.indexOf('(추가발주)')>=0;
   var msg='"'+sn+'" 발주서를 삭제할까요?\n\n'+(isExtra
     ?'※ 추가발주 항목이 사라지고, 자재는 다음 발주서 열람 시 원래 거래처로 다시 합쳐집니다.'
@@ -12210,12 +12216,14 @@ function sharePoKakao(oid,sn){
       .catch(()=>alert('복사 실패. 발주서 텍스트를 직접 선택해서 복사하세요.'));
   }
 }
-function cpPO(oid,sn){try{navigator.clipboard.writeText(genPoText(S.orders[oid],sn)).then(()=>showToast('발주서 복사 완료')).catch(()=>alert('복사 실패'));}catch(e){alert(e.message);}}
-function sendPoEmail(oid,sn){try{const o=S.orders[oid];const pb=S.priceBook[sn]||{};const txt=genPoText(o,sn);const subj=`[발주서] ${o.name} - ${sn}`;if(txt.length>1800){navigator.clipboard.writeText(txt).then(()=>showToast('클립보드 복사. 이메일에 붙여넣으세요.',3500));window.open(`mailto:${encodeURIComponent(pb.email||'')}?subject=${encodeURIComponent(subj)}`,'_blank');}else window.open(`mailto:${encodeURIComponent(pb.email||'')}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(txt)}`,'_blank');}catch(e){alert(e.message);}}
-function sendPoSMS(oid,sn){try{const o=S.orders[oid];const pb=S.priceBook[sn]||{};const phone=(pb.phone||'').replace(/-/g,'');const txt=genPoText(o,sn);if(txt.length>500){navigator.clipboard.writeText(txt).then(()=>showToast('클립보드 복사. 문자 앱에 붙여넣으세요.',3500));if(phone)window.open(`sms:${phone}`,'_blank');}else window.open(`sms:${phone}?body=${encodeURIComponent(txt)}`,'_blank');}catch(e){alert(e.message);}}
+function cpPO(oid,sn){try{navigator.clipboard.writeText(genPoText(poResolveOrder(oid),sn)).then(()=>showToast('발주서 복사 완료')).catch(()=>alert('복사 실패'));}catch(e){alert(e.message);}}
+function sendPoEmail(oid,sn){try{const o=poResolveOrder(oid);const pb=S.priceBook[sn]||{};const txt=genPoText(o,sn);const subj=`[발주서] ${o.name} - ${sn}`;if(txt.length>1800){navigator.clipboard.writeText(txt).then(()=>showToast('클립보드 복사. 이메일에 붙여넣으세요.',3500));window.open(`mailto:${encodeURIComponent(pb.email||'')}?subject=${encodeURIComponent(subj)}`,'_blank');}else window.open(`mailto:${encodeURIComponent(pb.email||'')}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(txt)}`,'_blank');}catch(e){alert(e.message);}}
+function sendPoSMS(oid,sn){try{const o=poResolveOrder(oid);const pb=S.priceBook[sn]||{};const phone=(pb.phone||'').replace(/-/g,'');const txt=genPoText(o,sn);if(txt.length>500){navigator.clipboard.writeText(txt).then(()=>showToast('클립보드 복사. 문자 앱에 붙여넣으세요.',3500));if(phone)window.open(`sms:${phone}`,'_blank');}else window.open(`sms:${phone}?body=${encodeURIComponent(txt)}`,'_blank');}catch(e){alert(e.message);}}
 function markPoSent(oid,sn){
-  const s=S.orders[oid].suppliers[sn];
+  const _mo=poResolveOrder(oid);if(!_mo||!_mo.suppliers[sn])return;
+  const s=_mo.suppliers[sn];
   s.status='sent';s.sentAt=today();s.orderDate=today();
+  if(_mo._exId){saveData();if(typeof renderOTab==='function')renderOTab();return;}
   // === 자동 연결 #5: PO 발송 → 픽업 자동 생성 ===
   if(!S.pickups)S.pickups=[];
   var o=S.orders[oid];
@@ -12261,7 +12269,7 @@ function markPoSent(oid,sn){
   if(typeof renderTasksPane==='function')renderTasksPane();
   showToast('✓ 발송완료'+(newPickups>0?(', 픽업 '+newPickups+'건 자동 생성'):''));
 }
-function unSent(oid,sn){const s=S.orders[oid].suppliers[sn];s.status='draft';s.orderDate='';s.sentAt='';saveData();renderOTab();renderOrderPane();updateNotifBadge();}
+function unSent(oid,sn){var _uo=poResolveOrder(oid);if(!_uo||!_uo.suppliers[sn])return;const s=_uo.suppliers[sn];if(_uo._exId){s.status='draft';s.orderDate='';s.sentAt='';saveData();if(typeof renderOTab==='function')renderOTab();return;}s.status='draft';s.orderDate='';s.sentAt='';saveData();renderOTab();renderOrderPane();updateNotifBadge();}
 
 // 발주안함: 결제서에서 제외할 자재 (거래처|자재명|색상 키)
 function matSkipKey(sn,m){return sn+'|'+(m.displayName||m.name||'')+'|'+(m.colorName||'');}
