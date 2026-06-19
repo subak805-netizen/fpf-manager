@@ -27663,10 +27663,15 @@ function dosikOpen(itemId){
   var w=window.open(url,'_blank');
   if(!w&&typeof showToast==='function')showToast('팝업이 막혔어요 — 브라우저 팝업 허용 후 다시 눌러주세요');
 }
-function _dosikLib(){ try{return JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]');}catch(e){return [];} }
+function _dosikLib(){ try{return JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]');}catch(e){return [];} }   // 레거시 폴백
+// 도식화 저장소(IndexedDB) — dosik.html·에디터와 공유. IDB 우선, 비었으면(이전 전) 레거시 localStorage
+function _dosikIdbOpen(){return new Promise(function(res,rej){try{var rq=indexedDB.open('fpfDosik',1);rq.onupgradeneeded=function(){var db=rq.result;if(!db.objectStoreNames.contains('projects'))db.createObjectStore('projects',{keyPath:'id'});};rq.onsuccess=function(){res(rq.result);};rq.onerror=function(){rej(rq.error);};}catch(e){rej(e);}});}
+function _dosikLibAsync(){ return _dosikIdbOpen().then(function(db){ return new Promise(function(res,rej){ var out=[],cr=db.transaction('projects','readonly').objectStore('projects').openCursor(); cr.onsuccess=function(){var c=cr.result;if(c){out.push(c.value);c.continue();}else res(out);}; cr.onerror=function(){rej(cr.error);}; }); }).then(function(rows){ return (rows&&rows.length)?rows:_dosikLib(); }).catch(function(){ return _dosikLib(); }); }
 function dosikPick(slot){
-  var lib=_dosikLib().sort(function(a,b){return (b.updated||0)-(a.updated||0);});
-  window._dosikPickSlot=slot; window._dosikPickLib=lib;
+  window._dosikPickSlot=slot;
+  _dosikLibAsync().then(function(lib){
+  lib=(lib||[]).slice().sort(function(a,b){return (b.updated||0)-(a.updated||0);});
+  window._dosikPickLib=lib;
   var o=document.getElementById('dosik-pick'); if(o)o.remove();
   var ov=document.createElement('div'); ov.id='dosik-pick';
   ov.style.cssText='position:fixed;inset:0;z-index:100060;background:rgba(20,18,16,.45);display:flex;align-items:center;justify-content:center;padding:20px;font-family:Pretendard,sans-serif';
@@ -27678,6 +27683,7 @@ function dosikPick(slot){
   document.body.appendChild(ov);
   dosikPickFilter();
   setTimeout(function(){ var q=document.getElementById('dosik-pick-q'); if(q)q.focus(); },50);
+  });
 }
 function dosikPickCardHTML(p,slot){
   return '<div onclick="dosikChoose(\''+slot+'\',\''+p.id+'\')" style="border:1px solid #e7e3dc;border-radius:11px;overflow:hidden;cursor:pointer;width:150px">'
@@ -27694,10 +27700,11 @@ function dosikPickFilter(){
     :'<div style="color:#a6a199;padding:30px;text-align:center;width:100%">'+(q?'검색 결과가 없어요.':'도식화 탭에서 먼저 그려주세요.')+'</div>';
 }
 function dosikChoose(slot,id){
-  var p=_dosikLib().find(function(x){return x.id===id;});
+  var p=(window._dosikPickLib||[]).find(function(x){return x.id===id;});
   var x=document.getElementById('dosik-pick'); if(x)x.remove();
   if(!p||!p.png){ if(typeof showToast==='function')showToast('그림이 없는 도식화예요'); return; }
   function local(){ tpSet('images.'+slot,p.png); tpRender(); if(typeof showToast==='function')showToast('도식화 불러옴 ✓'); }
+  if(!/^data:/.test(p.png)){ local(); return; }   // 이미 URL(클라우드 저장본) → 그대로 사용
   try{
     if(window.fbStorage&&window.fbUser&&_tpItemId){
       tpUpload(_dataUrlToBlob(p.png),_tpItemId,slot,true).then(function(url){ tpSet('images.'+slot,url); tpRender(); if(typeof showToast==='function')showToast('도식화 불러옴 ✓'); }).catch(local);

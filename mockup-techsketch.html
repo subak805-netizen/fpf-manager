@@ -2019,21 +2019,23 @@ wireBankEdit('sym-edit','symbol-chips');
 wireBankEdit('spec-edit','spec-chips');
 loadTemplate('shirtF');
 
+/* ---------- 도식화 저장소(IndexedDB) — dosik.html / index.html과 공유 ---------- */
+function _dosikIdbOpen(){return new Promise(function(res,rej){try{var rq=indexedDB.open('fpfDosik',1);rq.onupgradeneeded=function(){var db=rq.result;if(!db.objectStoreNames.contains('projects'))db.createObjectStore('projects',{keyPath:'id'});};rq.onsuccess=function(){res(rq.result);};rq.onerror=function(){rej(rq.error);};}catch(e){rej(e);}});}
+function _dosikIdbGet(id){return _dosikIdbOpen().then(function(db){return new Promise(function(res,rej){var rq=db.transaction('projects','readonly').objectStore('projects').get(id);rq.onsuccess=function(){res(rq.result||null);};rq.onerror=function(){rej(rq.error);};});});}
 /* ---------- 저장된 도식화 다시 열기 (?proj=프로젝트id) ---------- */
 window._dosikProjId=null;
 (function restoreProject(){
-  try{
-    var pid=new URLSearchParams(location.search).get('proj');
-    if(!pid)return;
-    window._dosikProjId=pid;
-    var arr=JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]');
-    var p=arr.find(function(x){return x.id===pid;});
+  var pid; try{ pid=new URLSearchParams(location.search).get('proj'); }catch(e){ return; }
+  if(!pid)return; window._dosikProjId=pid;
+  function apply(p){ try{
     if(!p)return;
     if(p.state&&p.state.objs){ window.restoreState(p.state); if(p.frame)window.applyFrameState(p.frame); }   // 편집 가능 복원
-    else if(p.png){ loadTemplate('blank'); placePhotoURL(p.png,function(){ if(p.frame)window.applyFrameState(p.frame); }); }   // 옛 방식(납작 사진) 폴백
+    else if(p.png){ loadTemplate('blank'); placePhotoURL(p.png,function(){ if(p.frame)window.applyFrameState(p.frame); }); }   // 옛 방식(납작 사진) 또는 클라우드 URL 폴백
     else { loadTemplate('blank'); if(p.frame)window.applyFrameState(p.frame); }   // 새/빈 프로젝트 → 빈 캔버스
     var nm=document.getElementById('tpl-name'); if(nm&&p.name)nm.textContent=p.name;
-  }catch(e){}
+  }catch(e){} }
+  function legacy(){ try{ var arr=JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]'); apply(arr.find(function(x){return x.id===pid;})); }catch(e){} }
+  _dosikIdbGet(pid).then(function(p){ if(p)apply(p); else legacy(); }).catch(legacy);   // IDB 우선, 이전 전이면 레거시 localStorage 폴백
 })();
 </script>
 </body>
