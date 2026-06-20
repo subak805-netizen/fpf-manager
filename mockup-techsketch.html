@@ -764,6 +764,7 @@ function penFinish(close){
   penReset(); hint('');
 }
 stage.on('mousedown touchstart',function(e){
+  if(_spacePan)return;
   if(tool!=='pen')return;
   var pos=stage.getRelativePointerPosition(); if(!pos)return;
   if(e.evt&&e.evt.preventDefault)e.evt.preventDefault();
@@ -781,7 +782,7 @@ stage.on('mousemove touchmove',function(){
   penRedraw(pos);
 });
 stage.on('mouseup touchend',function(){ if(tool==='pen')penDrag=false; if(tool==='free'&&freeing)finishFree(); });
-stage.on('mousedown touchstart',function(e){ if(tool!=='free')return; var p=stage.getRelativePointerPosition(); if(!p)return; if(e.evt&&e.evt.preventDefault)e.evt.preventDefault(); freeing=true; freePts=[p.x,p.y]; });
+stage.on('mousedown touchstart',function(e){ if(_spacePan)return; if(tool!=='free')return; var p=stage.getRelativePointerPosition(); if(!p)return; if(e.evt&&e.evt.preventDefault)e.evt.preventDefault(); freeing=true; freePts=[p.x,p.y]; });
 stage.on('mousemove touchmove',function(){ if(tool!=='free'||!freeing)return; var p=stage.getRelativePointerPosition(); if(!p)return; freePts.push(p.x,p.y);
   if(freePreview&&freePreview.getLayer())freePreview.destroy(); freePreview=new Konva.Line({points:freePts.slice(),stroke:COLORS.ink,strokeWidth:lineWidth,tension:0.4,lineCap:'round',lineJoin:'round',listening:false,opacity:.85}); ui.add(freePreview); ui.batchDraw();
 });
@@ -1293,6 +1294,7 @@ function addPhoto(file){
 
 /* ---------- 스테이지 입력 ---------- */
 stage.on('click tap',e=>{
+  if(_spacePan)return;
   const pos=stage.getRelativePointerPosition(); if(!pos)return;
   if(tool==='select'){ if(e.target===stage) clearSel(); return; }
   if(tool==='node'){ if(e.target===stage) nodeEditEnd(); return; }
@@ -1332,7 +1334,7 @@ function moveHover(p){ const s=uiS();
   ui.batchDraw();
 }
 function clearDrawAids(){ [previewLine,startDot,hoverDot].forEach(n=>{ if(n&&n.getLayer())n.destroy(); }); previewLine=startDot=hoverDot=null; ui.batchDraw(); }
-stage.on('mousemove',()=>{ const p=stage.getRelativePointerPosition(); if(!p)return;
+stage.on('mousemove',()=>{ if(_spacePan){ if(hoverDot)clearDrawAids(); return; } const p=stage.getRelativePointerPosition(); if(!p)return;
   if(DRAW_TOOLS.indexOf(tool)<0){ if(hoverDot){clearDrawAids();} return; } moveHover(p); });
 stage.on('mouseleave',()=>{ if(hoverDot&&hoverDot.getLayer())hoverDot.visible(false); ui.batchDraw(); });
 stage.on('dblclick dbltap',()=>{ if(tool==='curve'){ curvePts.splice(-2); finishCurve(); } else if(tool==='pen'){ if(penA.length)penA.pop(); penFinish(false); } });
@@ -1425,6 +1427,28 @@ document.addEventListener('keydown',e=>{
   if(TOOL_KEYS[e.code]){ e.preventDefault(); setTool(TOOL_KEYS[e.code]); }
   else if(e.key==='Escape'){ clearSel(); setTool('select'); }
 });
+/* ── 스페이스바 = 손 도구(화면 이동), 일러스트레이터식 ──
+   누르고 있는 동안만 화면 끌기(팬), 떼면 원래 도구로 복귀. 그리기 클릭과 충돌 안 나게 도형 listening 잠시 끔. */
+let _spacePan=false;
+function _endSpacePan(){ if(!_spacePan)return; _spacePan=false;
+  try{ layer.listening(true); tplLayer.listening(true); ui.listening(true); }catch(_){}
+  try{ stage.draggable(tool==='select'); }catch(_){}
+  try{ stage.container().style.cursor=''; }catch(_){} }
+document.addEventListener('keydown',function(e){
+  if(e.code!=='Space'||e.repeat)return;
+  var ae=document.activeElement, tg=ae&&ae.tagName;
+  if(tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT'||(ae&&ae.isContentEditable))return;   // 글자 입력 중엔 그냥 띄어쓰기
+  e.preventDefault();
+  if(_spacePan)return;
+  _spacePan=true;
+  try{ layer.listening(false); tplLayer.listening(false); ui.listening(false); }catch(_){}   // 도형 위에서도 화면만 끌리게
+  try{ stage.draggable(true); }catch(_){}
+  try{ stage.container().style.cursor='grab'; }catch(_){}
+});
+document.addEventListener('keyup',function(e){ if(e.code==='Space')_endSpacePan(); });
+window.addEventListener('blur',_endSpacePan);   // 창 벗어나면 팬 풀기(스페이스 눌린 채 멈춤 방지)
+stage.on('dragstart',function(){ if(_spacePan){ try{ stage.container().style.cursor='grabbing'; }catch(_){} } });
+stage.on('dragend',function(){ if(_spacePan){ try{ stage.container().style.cursor='grab'; }catch(_){} } });
 /* ---- 클립보드 붙여넣기: 일러/이미지 복사 → Cmd+V (SVG=벡터, 이미지=밑그림) / 내부 복사본도 붙여넣기 ---- */
 document.addEventListener('paste',function(e){
   var ae=document.activeElement, tg=ae&&ae.tagName; if(tg==='INPUT'||tg==='TEXTAREA'||(ae&&ae.isContentEditable))return;
