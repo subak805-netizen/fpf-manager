@@ -6897,21 +6897,24 @@ function renderItemsList(){
   const sortBtn=document.getElementById('item-sort-btn');if(sortBtn)sortBtn.textContent=(window._itemSortDir==='asc')?'↑ 오름차순':'↓ 내림차순';
   const el=document.getElementById('i-list');if(!el)return;
   if(!items.length){if(!allItems.length){el.innerHTML='<div class="empty" style="line-height:1.9"><div style="font-size:15px;font-weight:700;margin-bottom:8px">👋 첫 아이템을 등록해보세요</div><div style="font-size:12px;color:var(--t2)">① 공장/처 등록 → ② 아이템 추가(원단·부자재 포함) → ③ 오더 생성<br>오른쪽 위 <b>＋ 아이템 추가</b> 또는 <b>📋 작지 가져오기</b>로 시작하세요!</div><div style="margin-top:12px"><button class="btn s" onclick="switchTab(\'factories\')">🏭 공장/처 먼저 등록</button> <button class="btn p s" onclick="showItemForm(null)">＋ 아이템 추가</button></div></div>';}else{el.innerHTML='<div class="empty">조건에 맞는 아이템 없음</div>';}return;}
-  // 한 아이템 행 HTML
+  // 한 아이템 행 HTML — 모바일·레트로 정리안 카드 (기능은 전부 보존, 겉만 정리)
   function itemRowHTML(it){
     const fcName=it.sewingFcId&&S.factories[it.sewingFcId]?S.factories[it.sewingFcId].name:'';
     const brandNm=it.brandId?getBrandName(it.brandId):'';
     const colors=(it.colors||[]).filter(Boolean);
     const sizes=(it.sizes||[]).filter(Boolean);
     const fabSup=(it.fabrics||[]).map(f=>f.supplier).filter(Boolean)[0]||'';
-    const parts=[];
-    if(fabSup)parts.push('<span><span class="im-lbl">원단처</span>'+esc(fabSup)+'</span>');
-    if(colors.length)parts.push('<span><span class="im-lbl">색상</span>'+colors.map(esc).join(' / ')+'</span>');
-    if(sizes.length)parts.push('<span><span class="im-lbl">사이즈</span>'+sizes.map(esc).join(' / ')+'</span>');
-    if(fcName)parts.push('<span><span class="im-lbl">봉제</span>'+esc(fcName)+'</span>');
-    if(it.client)parts.push('<span><span class="im-lbl">거래처</span>'+esc(it.client)+'</span>');
-    if(it.careInstructions)parts.push('<span><span class="im-lbl">취급</span>'+esc(it.careInstructions.substring(0,20))+'</span>');
-    // 가공비(공임·워싱·검품 등)는 본문 ·줄에서 분리 → 라벨 우정렬 그리드로 가지런히
+    // 스펙 한 줄(압축·말줄임) — 정보 항목은 하나도 빼지 않고 우선순위만 둠
+    const specBits=[];
+    if(fabSup)specBits.push('<b>'+esc(fabSup)+'</b>');
+    if(colors.length)specBits.push(colors.map(esc).join(' / '));
+    if(fcName)specBits.push('봉제 '+esc(fcName));
+    if(sizes.length)specBits.push(sizes.map(esc).join(' / '));
+    if(it.client)specBits.push(esc(it.client));
+    if(it.careInstructions)specBits.push(esc(it.careInstructions.substring(0,20)));
+    specBits.push('원단'+(it.fabrics||[]).length+' 부자재'+(it.trims||[]).length);
+    const specLine=specBits.join('<span class="nc-sep">·</span>');
+    // 가공비 — 토글로 접고 펴되 편집 인풋 그대로(setItemCost 유지)
     var costParts=[itemLaborInline(it)];
     if(typeof COST_DEFS!=='undefined')COST_DEFS.forEach(function(cd){
       if(cd[0]==='laborCost')return;
@@ -6919,26 +6922,47 @@ function renderItemsList(){
       var c=+it[cd[0]]||0, miss=c<=0;
       costParts.push('<span class="im-labor"><span class="im-lbl">'+esc(cd[1])+'</span><input type="number" inputmode="numeric" value="'+(c||'')+'" placeholder="미입력" onclick="event.stopPropagation()" onchange="setItemCost(\''+it.id+'\',\''+cd[0]+'\',this.value)" class="im-labor-in'+(miss?' miss':'')+'">원</span>');
     });
-    const infoLine=parts.join('<span class="im-sep">·</span>');
-    const costLine=costParts.join('');
-    const brandMark=brandNm?'<span class="im-brand">'+esc(brandNm)+'</span>':'';
-    const seasonCol='<span class="im-season'+(it.season?'':' blank')+'">'+esc(it.season||'—')+'</span>';
-    const codeCol='<span class="im-code'+(it.code?'':' im-code-blank')+'">'+esc(it.code||'—')+'</span>';
+    var costBody=costParts.join('');
+    var costCount=costParts.length;
+    // 상태 칩 — 기존 토글 함수 그대로 호출(toggleItemStat/toggleCostSent/openKcModal). 빨강=대기(중요), 초록=완료
+    function chip(key,atKey,label,important){
+      var on=!!it[key];
+      var cls=on?' on':(important?' warn':'');
+      return '<button type="button" class="nc-st'+cls+'" onclick="event.stopPropagation();toggleItemStat(\''+it.id+'\',\''+key+'\',\''+atKey+'\',\''+label+'\')" title="'+esc(label)+(on?' 완료 — 눌러서 대기로':' 대기 — 눌러서 완료로')+'"><i class="nc-dot"></i>'+esc(label)+'</button>';
+    }
+    var chips=chip('instrDone','instrDoneAt','작지',true);
+    chips+='<button type="button" class="nc-st'+(it.costSent?' on':' warn')+'" onclick="event.stopPropagation();toggleCostSent(\''+it.id+'\')" title="'+(it.costSent?('원가 전달 완료'+(it.costSentAt?' · '+esc(it.costSentAt):'')+' — 눌러서 해제'):'원가 업체 전달했으면 눌러 체크')+'"><i class="nc-dot"></i>원가 '+(it.costSent?'전달':'미전달')+'</button>';
+    chips+=chip('gradingDone','gradingDoneAt','그래이딩',false);
+    if(itemNeedsKc(it)){
+      var kst=itemKcState(it);
+      chips+='<button type="button" class="nc-st'+(kst.all?' on':' warn')+'" onclick="event.stopPropagation();openKcModal(\''+it.id+'\')" title="KC 인증(컬러별) — 눌러서 확인"><i class="nc-dot"></i>KC'+(kst.single?'':(' '+kst.done+'/'+kst.total))+'</button>';
+    }
+    chips+=chip('photoReady','photoReadyAt','촬영용',false);
+    const brandMark=brandNm?'<span class="nc-brand">'+esc(brandNm)+'</span>':'';
+    const seasonCol='<span class="nc-season'+(it.season?'':' blank')+'">'+esc(it.season||'—')+'</span>';
+    const codeCol='<span class="nc-code">'+esc(it.code||'—')+'</span>';
     const editorOpen=window._itemEditOpen&&window._itemEditOpen[it.id];
-    return `<div class="im-row">
-      <div class="im-head">${seasonCol}${codeCol}<div class="im-headdate">${itemStartDateHTML(it)}</div><div class="im-badge-row">${itemBadgeHTML(it)}</div></div>
-      <div class="im-info">
-        <div class="im-name">${brandMark}${esc(it.name)}</div>
-        <div class="im-line">${infoLine}</div>${costLine?('<div class="im-costs">'+costLine+'</div>'):''}
+    return `<div class="nc-card">
+      <div class="nc-top">${seasonCol}${codeCol}<div class="nc-date">${itemStartDateHTML(it)}</div></div>
+      <div class="nc-phaserow">${itemBadgeHTML(it)}</div>
+      <div class="nc-name">${brandMark}${esc(it.name)}</div>
+      <div class="nc-spec">${specLine}</div>
+      <div class="nc-status">${chips}</div>
+      <div class="nc-cost">
+        <button type="button" class="nc-cost-tg" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('open');var o=this.nextElementSibling.classList.contains('open');this.textContent='가공비 ${costCount} '+(o?'▴':'▾')">가공비 ${costCount} ▾</button>
+        <div class="nc-cost-body">${costBody}</div>
       </div>
-      <div class="im-actions">
-        <span class="im-stat">원단 ${(it.fabrics||[]).length} · 부자재 ${(it.trims||[]).length}</span>
-        <div class="im-arow"><button class="im-btn im-fn" onclick="tpOpen('${it.id}')" title="작업지시서 작성·인쇄" style="background:#eef4ff">📋 작지</button>${itemStatToggle(it,'instrDone','instrDoneAt','작지')}</div>
-        <div class="im-arow"><button class="im-btn im-fn" onclick="showItemCost('${it.id}')" title="원가계산서">원가</button><button class="im-btn im-tog" onclick="toggleCostSent('${it.id}')" title="${it.costSent?('원가 업체 전달 완료'+(it.costSentAt?' · '+esc(it.costSentAt):'')+' — 눌러서 해제'):'원가를 업체에 전달했으면 눌러 체크'}" style="${it.costSent?'background:#dcfce7;border-color:#86efac;color:#166534':'color:#9ca3af'}">${it.costSent?'✅ 전달':'📤 미전달'}</button></div>
-        <div class="im-arow sm">${itemStatToggle(it,'gradingDone','gradingDoneAt','그래이딩')}${itemNeedsKc(it)?itemKcHTML(it):''}${itemStatToggle(it,'photoReady','photoReadyAt','촬영용')}</div>
-        <div class="im-mini"><button class="im-btn im-mini-b" onclick="showItemForm('${it.id}')" title="수정">수정</button><button class="im-btn im-mini-b" onclick="dupItem('${it.id}')" title="복제">복제</button><button class="im-btn im-mini-b danger" onclick="delItem('${it.id}')" title="삭제">삭제</button></div>
+      <div class="nc-acts">
+        <button type="button" class="nc-ab" onclick="tpOpen('${it.id}')" title="작업지시서 작성·인쇄">작지</button>
+        <button type="button" class="nc-ab ghost" onclick="showItemCost('${it.id}')" title="원가계산서">원가</button>
+        <button type="button" class="nc-ab ghost" onclick="showItemForm('${it.id}')" title="수정">수정</button>
+        <button type="button" class="nc-ab ghost nc-more" onclick="event.stopPropagation();this.closest('.nc-card').querySelector('.nc-more-row').classList.toggle('open')" title="더보기(복제·삭제)">⋯</button>
       </div>
-      ${editorOpen?('<div class="im-editor">'+itemStatusEditorHTML(it)+'</div>'):''}
+      <div class="nc-more-row">
+        <button type="button" class="nc-mb" onclick="dupItem('${it.id}')" title="복제">복제</button>
+        <button type="button" class="nc-mb danger" onclick="delItem('${it.id}')" title="삭제">삭제</button>
+      </div>
+      ${editorOpen?('<div class="im-editor nc-editor-wrap">'+itemStatusEditorHTML(it)+'</div>'):''}
     </div>`;
   }
   // ===== 필터 상태(영속) =====
@@ -6984,6 +7008,56 @@ function renderItemsList(){
     +'.il-dot.s{background:#FFF6B8;}.il-dot.m{background:#A5E6BA;}'
     +'.season-h .sh-chev{margin-right:6px;font-size:11px;}.season-h .sh-cnt{font-size:11px;font-weight:600;color:var(--t2);}'
     +'.season-h{cursor:pointer;}'
+    +'.nc-card{background:#FFFCF7;border:2.5px solid #0B0A05;box-shadow:3px 3px 0 rgba(11,10,5,.18);padding:11px 12px;margin-bottom:11px;}'
+    +'.nc-card:hover{box-shadow:4px 5px 0 #A5E6BA;}'
+    +'.nc-top{display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;}'
+    +'.nc-season{font-size:11px;font-weight:800;background:#B0DBF0;border:2px solid #0B0A05;padding:2px 8px;}'
+    +'.nc-season.blank{opacity:.5;}'
+    +'.nc-code{font-size:13px;font-weight:800;color:#111;}'
+    +'.nc-date{margin-left:auto;display:flex;align-items:center;}'
+    +'.nc-phaserow{margin:2px 0 5px;}'
+    +'.nc-name{font-size:15.5px;font-weight:800;color:#111;line-height:1.25;margin:0 0 6px;letter-spacing:-.3px;}'
+    +'.nc-brand{font-size:11px;font-weight:600;color:#6b7280;margin-right:6px;}'
+    +'.nc-spec{font-size:11.5px;color:#374151;line-height:1.5;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'
+    +'.nc-spec .nc-sep{color:#cbd0d8;margin:0 6px;}'
+    +'.nc-status{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px;}'
+    +'.nc-st{font-family:inherit;font-size:10.5px;font-weight:700;padding:3px 8px;border:2px solid #0B0A05;background:#fff;color:#3a3528;display:inline-flex;align-items:center;gap:5px;cursor:pointer;box-shadow:1.5px 1.5px 0 #0B0A05;white-space:nowrap;}'
+    +'.nc-st .nc-dot{width:8px;height:8px;border:1.5px solid currentColor;display:inline-block;}'
+    +'.nc-st.on{background:#A5E6BA;color:#0B0A05;}'
+    +'.nc-st.on .nc-dot{background:#0B0A05;border-color:#0B0A05;}'
+    +'.nc-st.warn{border-color:#c0392b;color:#c0392b;}'
+    +'.nc-cost{margin-bottom:9px;}'
+    +'.nc-cost-tg{font-family:inherit;font-size:11px;font-weight:700;padding:4px 10px;border:2px solid #0B0A05;background:#fff;color:#3a3528;cursor:pointer;box-shadow:1.5px 1.5px 0 #0B0A05;}'
+    +'.nc-cost-body{display:none;margin-top:7px;padding:8px 10px;background:#EAF3F8;border:2px solid #0B0A05;font-size:12px;color:#374151;}'
+    +'.nc-cost-body.open{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;}'
+    +'.nc-cost-body .im-labor{display:inline-flex;align-items:center;gap:3px;}'
+    +'.nc-cost-body .im-lbl{color:#9ca3af;min-width:30px;text-align:right;}'
+    +'.nc-cost-body .im-labor-in{width:74px;text-align:right;font-variant-numeric:tabular-nums;}'
+    +'.nc-acts{display:flex;gap:7px;align-items:stretch;}'
+    +'.nc-ab{flex:1;font-family:inherit;font-size:12.5px;font-weight:800;padding:9px 0;border:2.5px solid #0B0A05;background:#B0DBF0;color:#0B0A05;cursor:pointer;box-shadow:2px 2px 0 #0B0A05;}'
+    +'.nc-ab.ghost{background:#fff;}'
+    +'.nc-ab:active{transform:translate(2px,2px);box-shadow:0 0 0 #0B0A05;}'
+    +'.nc-more{flex:0 0 44px;font-size:16px;font-weight:800;}'
+    +'.nc-more-row{display:none;gap:6px;margin-top:7px;justify-content:flex-end;}'
+    +'.nc-more-row.open{display:flex;}'
+    +'.nc-mb{font-family:inherit;font-size:11px;font-weight:700;padding:6px 12px;border:2px solid #0B0A05;background:#fff;cursor:pointer;box-shadow:1.5px 1.5px 0 #0B0A05;}'
+    +'.nc-mb.danger{color:#c0392b;border-color:#c0392b;}'
+    +'.nc-editor-wrap{margin-top:10px;padding-top:10px;border-top:2px dashed #0B0A05;}'
+    +'html[data-theme="minimal"] .nc-card{border:1px solid var(--bd);box-shadow:0 1px 3px rgba(0,0,0,.06);border-radius:10px;}'
+    +'html[data-theme="minimal"] .nc-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08);}'
+    +'html[data-theme="minimal"] .nc-season{background:#eef2f7;border:1px solid var(--bd);border-radius:6px;color:#475569;}'
+    +'html[data-theme="minimal"] .nc-st{border:1px solid var(--bd);box-shadow:none;border-radius:999px;color:#6b7280;}'
+    +'html[data-theme="minimal"] .nc-st .nc-dot{border-radius:999px;}'
+    +'html[data-theme="minimal"] .nc-st.on{background:#dcfce7;border-color:#86efac;color:#166534;}'
+    +'html[data-theme="minimal"] .nc-st.warn{border-color:#ef9a9a;color:#c0392b;background:#fff;}'
+    +'html[data-theme="minimal"] .nc-cost-tg{border:1px solid var(--bd);box-shadow:none;border-radius:6px;}'
+    +'html[data-theme="minimal"] .nc-cost-body{background:#f8fafc;border:1px solid var(--bd);border-radius:8px;}'
+    +'html[data-theme="minimal"] .nc-ab{border:1px solid var(--bd);box-shadow:none;border-radius:8px;background:#185FA5;color:#fff;}'
+    +'html[data-theme="minimal"] .nc-ab.ghost{background:#fff;color:#1f2937;}'
+    +'html[data-theme="minimal"] .nc-ab:active{transform:none;box-shadow:none;}'
+    +'html[data-theme="minimal"] .nc-more{background:#fff;color:#1f2937;}'
+    +'html[data-theme="minimal"] .nc-mb{border:1px solid var(--bd);box-shadow:none;border-radius:6px;}'
+    +'html[data-theme="minimal"] .nc-editor-wrap{border-top:1px dashed var(--bd);}'
     +'</style>';
   var _fopen=!!IL.filterOpen;
   var _activeCnt=(IL.phS?0:1)+(IL.phM?0:1)+(IL.showHold?1:0)+Object.keys(IL.seasonOff||{}).filter(function(k){return IL.seasonOff[k];}).length;
