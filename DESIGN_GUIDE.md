@@ -310,7 +310,7 @@
 
 - 2026-06-15: **뒤로가기/되돌리기 + 아이디어보드 2단계 + 택배시재 + 원단라이브러리 + 참고탭 (5건).** ①앱 뒤로가기/나가기/되돌리기: 헤더 ←/↩/↪, popstate 트랩(작지→모달→오버레이→아이템폼→이전탭), saveData 스냅샷 20단계(undo), Esc=닫기. ②아이디어 상세(openIdeaDetail, .overlay): 영감·소재·핏·목표가 + 예산계산 + 일정역산(ymAdd) + 레퍼런스(tpCompress/tpUpload) + 샘플승격(statusManual.auto=true). ③**택배 시재**=결제 서브탭 '🚚 택배 시재'(renderCourierLedger): 빠른입력 한줄(clParseNL)/버튼칩, 브랜드별 묶음·미정산/정산완료·이미지(html2canvas), S.courierLedger={bank,entries} 전 영속지점 미러링. ④**원단 라이브러리**=단가장 토글 '🧵 원단 라이브러리'(renderFabricLib): 검색·필터(사용/이슈), 카드, 상세(스와치업로드·태그·이슈·장단점·쓴아이템 자동), 데이터=priceBook material/supplier(savePB). ⑤**참고 탭**='📌 참고'(renderRefTab): 브랜드별/공장별/공통체크리스트, 그레이딩표·패턴이미지·주의체크·장단점·연결아이템 자동, S.refData={brands,factories,checklists} 전 영속지점 미러링. 전부 두 테마 토큰 대응, JSC SYNTAX OK 후 push.
 
-- 2026-06-18: **★부자재 폼 재구조 — 확정안 (미구현, 다음 작업).** 사용자와 시안 합의 완료. 아직 코드 미반영. **목표:** 부자재 카드가 길고 인라인스타일로 어긋남 → 일관 골격+컴팩트.
+- 2026-06-18: **★부자재 폼 재구조 — 확정안 (✅2026-06-19 전체 구현 완료).** 사용자와 시안 합의 완료 → **13개 타입 새 카드 전부 적용·검증·푸시 끝**(구현 상세는 아래 2026-06-19 항목). 아래 확정안은 합의 원본 보존용. **목표:** 부자재 카드가 길고 인라인스타일로 어긋남 → 일관 골격+컴팩트.
   - **공용 4탭 골격 (모든 타입 동일):** ①기본(정체+계산 2분할) ②(타입)디테일 ③적용 ④옵션. 평소 핵심(기본)만 보이고 나머지 접힘/탭. 타입 바뀌어도 위치 동일. 인라인스타일→공용클래스(.trow/.tedit/.frow/.calc 등)로 통일.
   - **렌더형:** 행 리스트(한 줄=타입칩·이름·거래처·요척·단가·상태배지)→누르면 탭 편집. (시안 trim-redesign-mock2/3/4, trim-zipdetail-mock, trim-apply-mock — /tmp/fpf-preview)
   - **기본 탭 배치(핵심):** 짧은칸(용도·단위·동·호수·크기·색상)=내용크기 고정폭, 긴칸(거래처·부자재명)만 flex. **정체(왼쪽 넓게) | 계산(오른쪽 좁은 칼럼: 요척·단가·로스)** 2분할(≤560px 세로쌓임). 계산 칼럼에 **변환 한 줄**(롤·절·봉지·단추고리: 예 "0.5×310=155y ÷롤당200y=1롤").
@@ -327,3 +327,19 @@
   - **CSS는 `.nc-*` 새 클래스**로 분리(렌더 시 STY에 주입) → 기존 `.im-*` 안 건드림. 레트로 기본 + `html[data-theme="minimal"]` 오버라이드로 **두 테마 일관**(둥근/알약형). il-pin·시즌그룹은 itemRowHTML 재사용이라 자동 반영.
   - **검증:** JSC SYNTAX OK, 옛 함수 16개 호출 grep 확인(누락 0), 미리보기 양 테마·375px에서 가공비 토글(공임·워싱 편집 인풋)·배지→편집기·KC 0/2·메인중 ✎ 모두 동작 확인.
   - **교훈(사용자 강력 명시):** 디자인 변경 시 겉만 바꾸지 말 것. 기존 버튼·인풋·기능이 존재하는 이유를 코드로 먼저 확인하고, 옛→새 1:1 매핑표(누락0)를 만들어 확인받은 뒤 변경. (배지를 처음에 "표시만"으로 오판해 누락할 뻔함 → 코드 확인으로 바로잡음.)
+
+- 2026-06-19: **★부자재(트림) 폼 재구조 — 전체 구현 완료 (위 2026-06-18 확정안의 실제 코드 반영).** 13개 타입 전부 새 카드로 전환·round-trip 검증·푸시.
+  - **공용 카드 시스템:** 상태=`window._trimUI[trim.id]{open,tab}`, 조작=`trimToggleOpen/trimSetTab/trimDup`(복제), 적용탭 축선택=`trimApplyPane/trimAx`. **핵심 패턴: 4탭(기본/디테일/적용/옵션)을 전부 DOM에 렌더하되 비활성 탭은 CSS로 숨김** → `colTR()` 수집이 보존됨(탭 안 보여도 값 안 날아감). CSS는 `.tcd*` 클래스(`#pane-items` 스코프).
+  - **타입별 카드 함수:** `zipperCardNew`·`trimCardNewGen`(롤/야드/실/개수/레이스/절/단추고리/봉지 8종 공용)·`buttonCardNew`·`biasCardNew`·`snapCardNew`(4면 grid+로고)·`labelShell`+`careLabelCardNew`+`mainLabelCardNew`(브랜드칩·완성부자재 체크=finishSel). `trimRowHTML`이 타입별로 분기해 호출(옛 블록은 `if(0){}` 죽은코드로 보존).
+  - **타입 통합(확정 반영):** 봉지→단추고리 카드(단위 봉/봉지 입력), 레이스→롤 카드(레이스 체크), 절→롤(단위 절+÷30). 추가버튼 12→9개. colTR에 isLace/packUnit additive 수집. 기존 데이터 호환.
+  - **3단계 개선 적용:** #8 기본 부자재처(`it.defaultTrimSup`→새 부자재 자동채움, 바이어스 제외) · #6 용어 자동(지퍼·단추·스냅 "요척"→"벌당개수") · #5 적용탭 단가 축선택(공통/컬러별/사이즈별/컬러×사이즈 토글, **표시만**—두 표 DOM 유지로 colTR·원가 불변) · 작지 부자재표(`tpTrimTableHTML`)에 로고/염색 칸(`tpLogoDyeStr`). 단가 미입력 빨강경고는 `trimHasPrice(t)`(sizeRates·슬라이더·로고 단가까지 고려)로 통일.
+  - **안전:** 계산함수(calcTrimNeed·calcSups·genPoText)·data-f 필드명 불변 → 발주서·원가·단가장·결제 보존. 13개 타입 전부 lexical formTrims round-trip 검증(⚠️`window.formTrims`≠lexical `formTrims`라 반드시 lexical로 검증).
+
+- 2026-06-19(2): **★발주서 카드 — 5버튼을 거래처명 옆 한 줄로 + 담당 제거(출고처만) (A안 적용).** 기존: 본문 아래 큰 버튼 5개 세로 쌓임(자리 낭비). 변경: 거래처명 줄(`po2-hd`)에 `.po2-acts`(복사·카톡·메일·문자·발송완료) + 삭제 버튼을 한 줄로. `po2-meta`는 **출고처만**(담당 제거).
+  - **CSS:** `.po2-acts`(flex·gap)·`.po2-ab`(작은 버튼, 복사=파랑/카톡=노랑/발송완료=초록 색 유지). 모바일 `@media(max-width:600px){.po2-acts{width:100%;order:3} .po2-del{order:2;margin-left:auto}}` + `.po2-hd{flex-wrap:wrap}` → 폰에선 이름줄/버튼줄 자동 2줄. 출고처 select는 `white-space:nowrap;width:auto;min-width:90px`.
+  - 본문·발주내용선택·계산식·거래처확인은 아래 그대로 유지.
+
+- 2026-06-19(3): **★생산 대시보드 — 정렬 규칙 + 행 펼침 A2 매트릭스 + 입고 단계별 카드(D안).** (사용자 요청 3건)
+  - **정렬 우선순위(확정):** ①출고 임박(출고예정일 가까운 순) → ②진행률 높은 순 → ③오더일 오래된 순. 헬퍼 `pdRowStages(r)`(단계 계산 추출)·`pdRowProgress(r)`(0~1). 정렬 전 `rows.forEach(r=>{r._prog=pdRowProgress(r);r._ord=toISO(r.o.createdAt)})` 후 comparator.
+  - **A2 매트릭스(행 펼침 상세):** `renderProdDashRow` detail에 **오더›재단›출고** 인라인 매트릭스(컬러×사이즈). `pdCutCSGrid` 재사용, CSS `.pdc-mtx`/`.pdc-iv`. 요약(대시보드 셀)엔 재단도 포함.
+  - **입고 단계별 카드(D안):** 원·부자재 입고 줄이 좌우로 길게 늘어지던 문제 → `prepCell`에 `card` 파라미터로 단계별 카드. CSS `.pdc-prep-cards`/`.prepcard`. **함정: 카드를 `.ptab.pc-body`로 감싸야** `#dash-body .ptab .prow{display:flex}` 컴포넌트 스타일이 먹어서 세로로 안 쌓임(처음에 카드가 `.ptab` 밖이라 세로로 쌓이는 버그 있었음).
