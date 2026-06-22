@@ -370,3 +370,7 @@
   - **부자재 override 전 타입 통일:** 기존엔 실(thread)만 반영, 롤/야드/단추는 trimPure가 csQtyOvr를 안 읽어 무시됨. `_yf`(타입별 요척필드: thread=threadQty / roll·yard=consumptionPerPiece / 그외=qtyPerPiece)로 tEff 만들어 trimPure에 전달. 죽은코드 qs/ovrInput/trimOvr 제거.
   - **KG 단가 야드 환산:** kg단가 원단은 단가칸에 `= round(effPrice/yardsPerKg)/y 환산` 파란 줄 추가(표시만).
   - **함정:** 요척을 읽는 곳이 6+군데 복붙이라 표시·계산이 어긋났던 이력(단추 요척 버그, 12225/12269). 원가 셀은 cp.ty(실제 쓰는 값)를 표시하도록 정직화. **금액 계산식 자체는 불변.** 미리보기 수치검증 필수.
+- 2026-06-22(2): **케어라벨 제조국/시장 선택 + 발주서 출력.** (사용자 요청)
+  - 폼: `careLabelCardNew`(@8408) 제조 연월 셀렉트 옆에 `<select data-f="madeIn">` (표시 안 함/메이드인 코리아=KR/메이드인 차이나=CN/미국용=US, 기본='').
+  - 출력=**한글**, 미국용은 별도 한 줄. 발주서 `genPoText` 케어라벨 블록(@제조연월 뒤)에 `{KR:'메이드인 코리아',CN:'메이드인 차이나',US:'미국용'}[cl.madeIn]` 한 줄(manufactureYM='none'이어도 독립 출력).
+  - 연결 6곳: 폼·수집(colTR @careLabel분기)·기본값(newRow/타입변환 @9381/9426)·자재전달(calcSups material push, manufactureYM 옆)·발주출력·단가장(saveToPB @5076 / autofill 고정필드배열). **케어라벨만**(메인라벨 미적용). 계산 불변.
