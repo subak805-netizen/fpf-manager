@@ -6427,6 +6427,10 @@ function seasonRestore(val){
 }
 
 /* ===== ITEM FORM ===== */
+// 색 톤 조절(HSL): 연=밝게 / 진=어둡게 / 형광=채도↑
+function _hx2hsl(hex){var c=hex.replace('#','');if(c.length===3)c=c.split('').map(function(x){return x+x;}).join('');var r=parseInt(c.slice(0,2),16)/255,g=parseInt(c.slice(2,4),16)/255,b=parseInt(c.slice(4,6),16)/255;var mx=Math.max(r,g,b),mn=Math.min(r,g,b),h=0,s=0,l=(mx+mn)/2;if(mx!==mn){var dd=mx-mn;s=l>0.5?dd/(2-mx-mn):dd/(mx+mn);if(mx===r)h=(g-b)/dd+(g<b?6:0);else if(mx===g)h=(b-r)/dd+2;else h=(r-g)/dd+4;h/=6;}return [h*360,s*100,l*100];}
+function _hsl2hx(h,s,l){h=((h%360)+360)%360/360;s=Math.max(0,Math.min(100,s))/100;l=Math.max(0,Math.min(100,l))/100;var r,g,b;if(s===0){r=g=b=l;}else{var hue=function(p,q,t){if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};var q=l<0.5?l*(1+s):l+s-l*s,p=2*l-q;r=hue(p,q,h+1/3);g=hue(p,q,h);b=hue(p,q,h-1/3);}var to=function(x){var v=Math.round(x*255);return (v<16?'0':'')+v.toString(16);};return '#'+to(r)+to(g)+to(b);}
+function _shadeC(hex,mode){if(!/^#/.test(hex))return hex;var a=_hx2hsl(hex),h=a[0],s=a[1],l=a[2];if(mode==='light'){l=Math.min(93,l+22);s=Math.max(0,s-8);}else if(mode==='dark'){l=Math.max(10,l-20);s=Math.min(100,s+6);}else if(mode==='neon'){s=Math.min(100,s+38);l=Math.max(50,Math.min(72,l+4));}return _hsl2hx(h,s,l);}
 function colorToHex(name){
   if(!name)return '#cbd5e1';
   var n=(''+name).toLowerCase().replace(/\s/g,'');
@@ -6441,6 +6445,8 @@ function colorToHex(name){
     [['밤색','밤','적갈','chestnut'],'#5c4033'],
     [['초콜','choco','갈','브라운','brown'],'#8b5e3c'],
     [['차콜','챠콜','charcoal'],'#4b4f56'],
+    [['골드','금색','gold'],'#c9a227'],
+    [['실버','은색','silver'],'#c8ccd0'],
     [['회','그레이','gray','grey'],'#9aa0a6'],
     [['빨','레드','red','적색'],'#e03131'],
     [['주황','오렌지','orange'],'#ff922b'],
@@ -6449,7 +6455,8 @@ function colorToHex(name){
     [['카키','khaki'],'#6b8e23'],
     [['올리브','olive'],'#808000'],
     [['피스타치오','pistachio'],'#a3c585'],
-    [['연두','연녹','라임','lime','yellowgreen'],'#94c11f'],
+    [['라임','lime'],'#c5e21a'],
+    [['연두','연녹','yellowgreen'],'#94c11f'],
     [['청록','틸','teal','에메랄드','emerald'],'#0ca678'],
     [['살구','코랄','coral','연주황','피치','peach'],'#ff8787'],
     [['민트','mint'],'#63e6be'],
@@ -6463,17 +6470,44 @@ function colorToHex(name){
     [['분홍','핑크','pink'],'#f06595'],
     [['와인','버건디','burgundy','wine'],'#842029'],
   ];
-  for(var k=0;k<map.length;k++){for(var j=0;j<map[k][0].length;j++){if(n.indexOf(map[k][0][j])>=0)return map[k][1];}}
-  var h=0;for(var c=0;c<n.length;c++)h=(h*31+n.charCodeAt(c))%360;
-  return 'hsl('+h+',55%,68%)';
+  var hex=null,pos=-1,klen=0;
+  for(var k=0;k<map.length&&hex==null;k++){for(var j=0;j<map[k][0].length;j++){var kw=map[k][0][j],idx=n.indexOf(kw);if(idx>=0){hex=map[k][1];pos=idx;klen=kw.length;break;}}}
+  if(hex==null){var h=0;for(var c=0;c<n.length;c++)h=(h*31+n.charCodeAt(c))%360;return 'hsl('+h+',55%,68%)';}
+  var rest=n.slice(0,pos)+n.slice(pos+klen); // 매칭된 색이름을 뺀 나머지 = 톤 수식어(연/진/형광)
+  if(/형광|네온|neon|쨍/.test(rest))return _shadeC(hex,'neon');
+  if(/진|짙|딥|deep|다크|dark|찐/.test(rest))return _shadeC(hex,'dark');
+  if(/연|라이트|light|파스텔|pastel|옅|뽀|애시|ash/.test(rest))return _shadeC(hex,'light');
+  return hex;
 }
 function colorDot(name){var base='display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid rgba(0,0,0,.18);margin-right:5px;vertical-align:-1px;';var parts=String(name||'').split(/[\/·]/).map(function(x){return x.trim();}).filter(Boolean);if(parts.length<=1)return '<span style="'+base+'background:'+colorToHex(name)+'"></span>';var n=parts.length,seg=[];for(var i=0;i<n;i++){var c=colorToHex(parts[i]);seg.push(c+' '+Math.round(i*100/n)+'%',c+' '+Math.round((i+1)*100/n)+'%');}return '<span style="'+base+'background:linear-gradient(90deg,'+seg.join(',')+')"></span>';}
-function moveColor(i,dir){var j=i+dir;if(j<0||j>=formColors.length)return;var t=formColors[i];formColors[i]=formColors[j];formColors[j]=t;renderColorChips();}
-function renderColorChips(){const el=document.getElementById('color-chips');if(!el)return;el.innerHTML=formColors.map((c,i)=>`<span class="chip">${colorDot(c)}<span onclick="renameColor(${i})" style="cursor:pointer" title="클릭해서 컬러명 수정 (연결된 원단·부자재 컬러도 따라감)">${esc(c)}</span>${i>0?`<button onclick="moveColor(${i},-1)" title="앞으로 이동" style="color:var(--t2);font-size:11px">◀</button>`:''}${i<formColors.length-1?`<button onclick="moveColor(${i},1)" title="뒤로 이동" style="color:var(--t2);font-size:11px">▶</button>`:''}<button onclick="removeColor(${i})" title="삭제">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">단색 (추가하면 컬러별 발주)</span>';}
+// 컬러 칩 드래그 순서변경 (터치+마우스 = 포인터 이벤트)
+function colorDragStart(e,i){
+  if(e.target.closest('button'))return; // ×버튼은 드래그 시작 안 함
+  window._colDrag={i:i,sx:e.clientX,sy:e.clientY,active:false};
+  document.addEventListener('pointermove',colorDragMove,{passive:false});
+  document.addEventListener('pointerup',colorDragEnd,{once:true});
+  document.addEventListener('pointercancel',colorDragEnd,{once:true});
+}
+function colorDragMove(e){
+  var d=window._colDrag;if(!d)return;
+  if(!d.active){ if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<7)return; d.active=true; var el0=document.getElementById('color-chips'); if(el0)el0.classList.add('dragging'); }
+  e.preventDefault();
+  var tgt=document.elementFromPoint(e.clientX,e.clientY); var chip=tgt&&tgt.closest&&tgt.closest('[data-ci]');
+  if(!chip)return; var ti=+chip.getAttribute('data-ci'); if(isNaN(ti)||ti===d.i)return;
+  var moved=formColors.splice(d.i,1)[0]; formColors.splice(ti,0,moved); d.i=ti; renderColorChips();
+}
+function colorDragEnd(){
+  document.removeEventListener('pointermove',colorDragMove);
+  var d=window._colDrag; window._colDrag=null;
+  var el=document.getElementById('color-chips'); if(el)el.classList.remove('dragging');
+  if(d&&d.active)window._colDragEnd=Date.now(); // 드래그 직후 rename(click) 억제용
+}
+function renderColorChips(){const el=document.getElementById('color-chips');if(!el)return;el.innerHTML=formColors.map((c,i)=>`<span class="chip" data-ci="${i}" onpointerdown="colorDragStart(event,${i})" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none" title="드래그해서 순서 변경">${colorDot(c)}<span onclick="renameColor(${i})" style="cursor:pointer" title="클릭해서 컬러명 수정 (연결된 원단·부자재 컬러도 따라감)">${esc(c)}</span><button onpointerdown="event.stopPropagation()" onclick="removeColor(${i})" title="삭제">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">단색 (추가하면 컬러별 발주)</span>';}
 function renderSizeChips(){const el=document.getElementById('size-chips');if(!el)return;el.innerHTML=formSizes.map((s,i)=>`<span class="chip"><span onclick="renameSize(${i})" style="cursor:pointer" title="클릭해서 사이즈명 수정">${esc(s)}</span><button onclick="removeSize(${i})">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">프리사이즈</span>';}
 function addColor(){const inp=document.getElementById('color-input');const v=inp.value.trim();if(!v||formColors.includes(v)){inp.value='';return;}formColors.push(v);inp.value='';renderColorChips();}
 function removeColor(i){formColors.splice(i,1);renderColorChips();}
 function renameColor(i){
+  if(window._colDragEnd&&Date.now()-window._colDragEnd<300){window._colDragEnd=0;return;} // 드래그 직후의 클릭은 무시
   var old=formColors[i]; if(old==null)return;
   var v=prompt('컬러명 수정',old); if(v==null)return; v=v.trim();
   if(!v||v===old)return;
