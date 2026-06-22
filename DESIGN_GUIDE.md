@@ -377,3 +377,10 @@
 - 2026-06-22(3): **컬러칩 드래그 순서변경 + 컬러 톤 세분화.**
   - 순서변경: `renderColorChips` 칩에 `onpointerdown="colorDragStart"` + `touch-action:none` (포인터 이벤트=터치+마우스). colorDragMove가 elementFromPoint로 대상칩 찾아 formColors splice 재배열·재렌더. 탭=renameColor 유지(드래그 직후 `_colDragEnd` 타임스탬프로 클릭 억제). HTML5 draggable은 iOS 터치 미지원이라 안 씀.
   - 컬러 톤: `colorToHex`가 매칭된 색이름 **뒤(나머지) 접두어**로 톤 판별 — 연/라이트/파스텔/옅=`_shadeC light`, 진/짙/딥/다크=dark, 형광/네온=neon(HSL 채도↑). 기존 색이름(연두 등)은 키워드 자체매칭이라 영향X. 라임을 연두에서 분리(#c5e21a), 골드·실버 추가. **스와치는 colorToHex 사용**(tpColorHex 아님 — 두 맵 불일치 주의).
+- 2026-06-22(4): **작업지시서 완성·포장·검품 3탭 분리 + 편집형 리스트.** (사용자 확정, mockup `mockups/instruction-split.html`)
+  - 탭: 지시서·샘플패턴·**완성(pack)·포장(pack2)·검품(insp)**·(자수/나염…). PROC/_validTabs/tabs/doc.innerHTML(tpRender ~27780~27914)에 pack2·insp 추가.
+  - **완성(pack)**: 앞/뒤 사진 + 완성작업 편집리스트(워싱·시야게·나나인치·단추·스냅·마도메·바텍·큐큐) + 출고수량 + 메모. (기존 택SET·완성부자재사진·포장은 이동/제거)
+  - **포장(pack2)**: 포장·접는법 사진 + 택/부자재 실물사진(finTbl) + 포장사양(폴리백·접는법·옷걸이·택부착위치·**사이즈스티커·바코드스티커=텍스트**) + 박스정보 + 출고수량.
+  - **검품(insp)**: 검사항목 편집리스트(사이즈스펙·꼬임·봉탈·원단불량·실밥·부자재) + 합격기준 + tpSpecSecHTML 치수표 + 검사대상수량 + 검사결과란. (라벨위치 사진 없음)
+  - **편집형 리스트 공용**: `tpEditList(path,defs,opts)` + `tpRowsEnsure/Add/Del/Set/Toggle/Move` + 포인터 드래그 `tpRowDragStart/Move/End`(drop시 elementFromPoint로 대상행→tpRowMove). 데이터 d.pack.ops / d.insp.checks = [{name,on,detail}]. CSS=#tp-modal .tp-elist/.tp-li/.tp-lck/.tp-lx/.tp-ladd/.tp-drag.
+  - ⚠️ 검품지시서(뭘 검사)≠검사신청서(언제·몇 개 신청, 대시보드 INS폼). 별개.
