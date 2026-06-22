@@ -984,13 +984,11 @@ html[data-theme="retro"] #dash-body .pdc-mtx .tot{background:#F4ECD8}
 .pdc-h2 .pdc-q{font-size:12px;font-weight:700;color:#454f5b;font-variant-numeric:tabular-nums;white-space:nowrap}
 #dash-body .ptab{background:#fff;border:1px solid #e6e9ec;border-radius:11px;overflow:hidden;margin-bottom:11px}
 #dash-body .ptab .prow{display:flex;align-items:center;gap:7px;padding:8px 11px;border-top:1px solid #f3f5f7}
-/* 1번: 공정별 수량 2열 그리드(데스크탑) — 가로 빈공간 줄이기 */
+/* 공정별 수량: 위아래(1열)로 — 재단→외주→봉제→완성→검품→출고 흐름순 */
 @media(min-width:680px){
-  #dash-body .ptab.ptab2{display:grid;grid-template-columns:1fr 1fr;align-items:start}
-  #dash-body .ptab.ptab2 .pcellw:nth-child(even){border-left:1px solid #f3f5f7}
-  #dash-body .ptab.ptab2 .pcellw:nth-child(-n+2) .prow{border-top:none}
+  #dash-body .ptab.ptab2{display:grid;grid-template-columns:1fr;align-items:start}
+  #dash-body .ptab.ptab2 .pcellw:first-child .prow{border-top:none}
 }
-html[data-theme="retro"] #dash-body .ptab.ptab2 .pcellw:nth-child(even){border-left:2px solid var(--ink)}
 #dash-body .ptab .prow:first-child{border-top:0}
 #dash-body .ptab .prow.done{background:#fafdfb}
 .ptab .p-stg{font-size:13px;font-weight:700;width:54px;flex:0 0 auto;white-space:nowrap}
@@ -9517,6 +9515,18 @@ function saveItemForm(){
     var sizesChanged=JSON.stringify(oldSizes)!==JSON.stringify(newSizes);
     var colorsChanged=JSON.stringify(oldColors)!==JSON.stringify(newColors);
     if(sizesChanged||colorsChanged){
+      // 발주서/오더가 이미 있는 아이템의 컬러·사이즈 "구성"(추가/삭제/이름변경)이 바뀌면 경고.
+      // 순서만 바꾼 건(같은 구성) 안전하므로 경고하지 않음.
+      var _setChg=function(a,b){return JSON.stringify(a.slice().sort())!==JSON.stringify(b.slice().sort());};
+      if(_setChg(oldColors,newColors)||_setChg(oldSizes,newSizes)){
+        var _ordList=[];for(var _oid in S.orders){var _o=S.orders[_oid];if((_o.orderItems||[]).some(function(x){return x.itemId===editItemId;}))_ordList.push(_o.name||_oid);}
+        if(_ordList.length>0){
+          var _names=_ordList.slice(0,5).join(', ')+(_ordList.length>5?(' 외 '+(_ordList.length-5)+'건'):'');
+          if(!confirm('주의: 이 아이템은 이미 발주서/오더 '+_ordList.length+'건에 들어가 있어요.\n('+_names+')\n\n컬러·사이즈를 추가/삭제/이름변경하면 그 오더들의 수량이 새 구성에 맞춰 자동 재배치돼요.\n- 이름만 바꾼 컬러·사이즈: 수량 그대로 따라감\n- 삭제한 컬러·사이즈: 그 수량은 남은 첫 항목으로 합쳐짐\n- 추가한 컬러·사이즈: 0장으로 시작(발주서엔 안 나옴)\n\n계속할까요?')){
+            return; // 저장 취소 — 폼은 그대로 두고 사용자가 되돌릴 수 있게
+          }
+        }
+      }
       var migratedOrders=0;
       // 이름 우선 매핑: 이름이 그대로 있으면 그 자리 유지(=재정렬해도 수량 불변),
       // 사라진 이름만 새로 생긴 이름으로 순서대로 옮김(=이름변경 추정, s/m/l→1/2/3 일괄변경도 처리).
