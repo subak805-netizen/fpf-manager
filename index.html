@@ -15596,7 +15596,7 @@ function renderProdDashRow(r){
       })()}
       <div class="pdc-sech">공정별 수량 · 사이즈/컬러</div>
       <div class="ptab ptab2">${cell('재단',fcSew,schSew,pdCutQty(schSew,r.it.id,r.o.orderItems.length===1),'cuttingDate','cuttingDone')}${cell('외주',fcExt,schExt,pdShipQty(schExt,r.it.id,r.o.orderItems.length===1),'shippingDate','shipDone')}${cell('봉제',fcSew,schSew,r.shipTotal,'sewingCompleteDate','sewingDone')}${cell('완성',fcFin,schFin,pdShipQty(schFin,r.it.id,r.o.orderItems.length===1),'shippingDate','finishingDone')}${cell('검품',fcInsp,schInsp,pdShipQty(schInsp,r.it.id,r.o.orderItems.length===1),'inspectionDate','inspectionDone')}${cell('출고',fcSew,schSew,r.shipTotal,'shipExpectedDate','shipDone')}</div>
-      <div class="pdc-foot"><span class="pd-stage-lbl" style="margin:0">결제</span>${payStateHtml}<span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${(!r.dashDone&&r.shipDone)?`<button class="pd-btn" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;font-weight:700;border-radius:8px" onclick="event.stopPropagation();pdSendToDone('${esc(r.o.id)}','${esc(r.it.id)}')">완료 탭으로 보내기</button>`:''}${r.dashDone?`<button class="pd-btn" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid var(--bd);font-weight:600;border-radius:8px" onclick="event.stopPropagation();pdUnsendDone('${esc(r.o.id)}','${esc(r.it.id)}')">↩ 진행으로</button>`:''}<button class="pd-btn" style="padding:6px 12px;background:#1f2937;color:#fff;border:none;font-weight:600;border-radius:8px" onclick="event.stopPropagation();switchTab('pay')">결제 보기</button></span></div>
+      <div class="pdc-foot"><span class="pd-stage-lbl" style="margin:0">결제</span>${payStateHtml}<span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${(!r.dashDone&&r.shipDone)?`<button class="pd-btn" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;font-weight:700;border-radius:8px" onclick="event.stopPropagation();pdSendToDone('${esc(r.o.id)}','${esc(r.it.id)}')">완료 탭으로 보내기</button>`:''}${r.dashDone?`<button class="pd-btn" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid var(--bd);font-weight:600;border-radius:8px" onclick="event.stopPropagation();pdUnsendDone('${esc(r.o.id)}','${esc(r.it.id)}')">↩ 진행으로</button>`:''}<button class="pd-btn" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid var(--bd);font-weight:600;border-radius:8px" onclick="event.stopPropagation();openInspReq('${esc(r.o.id)}','${esc(r.it.id)}')">검사신청서</button><button class="pd-btn" style="padding:6px 12px;background:#1f2937;color:#fff;border:none;font-weight:600;border-radius:8px" onclick="event.stopPropagation();switchTab('pay')">결제 보기</button></span></div>
     </div>
   </div>`;
 }
@@ -15614,6 +15614,74 @@ function pdUnsendDone(oid,itemId){
   if(typeof showToast==='function')showToast('↩ 진행으로 되돌렸어요');
 }
 
+// ===== 검사 신청서 (검품공장 전달용 A4 문서) — 목업 mockups/inspection-request.html 구현 =====
+function _irGet(o){if(!o.inspReq)o.inspReq={};var r=o.inspReq;if(r.method==null)r.method='full';if(!r.checks)r.checks={'치수':1,'봉제':1,'오염':1,'부자재':1,'워싱':0,'라벨':1};return r;}
+function _irFcName(id){return id&&S.factories[id]?(S.factories[id].name||''):'';}
+function _irBrand(it){var b=(typeof getBrands==='function')?getBrands().find(function(x){return x.id===it.brandId;}):null;return b?(b.name||''):'';}
+function _irGrid(it,oi,o){var colors=(it.colors&&it.colors.length)?it.colors:['기본'];var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE'];var bd=(typeof getEffectivePcsBreakdown==='function')?getEffectivePcsBreakdown(o,oi):null;var grid=(bd&&bd.effGrid)?bd.effGrid:(oi.qtyGrid||{});return {colors:colors,sizes:sizes,grid:grid};}
+function openInspReq(oid,itemId){var o=S.orders[oid],it=S.items[itemId];if(!o||!it){alert('데이터를 찾을 수 없어요');return;}var oi=(o.orderItems||[]).find(function(x){return x.itemId===itemId;});if(!oi){alert('이 오더에 아이템이 없어요');return;}window._irCtx={oid:oid,itemId:itemId};var ov=document.getElementById('insp-req-modal');if(!ov){ov=document.createElement('div');ov.id='insp-req-modal';document.body.appendChild(ov);}ov.innerHTML=irModalHTML({o:o,it:it,oi:oi});ov.style.cssText='position:fixed;inset:0;z-index:100030;background:rgba(0,0,0,.55);overflow:auto;padding:16px 12px';document.body.style.overflow='hidden';}
+function closeInspReq(){var ov=document.getElementById('insp-req-modal');if(ov){ov.style.display='none';ov.innerHTML='';}document.body.style.overflow='';window._irCtx=null;}
+function irToggleCheck(key,el){var c=window._irCtx;if(!c)return;var o=S.orders[c.oid];var r=_irGet(o);r.checks[key]=r.checks[key]?0:1;el.classList.toggle('on',!!r.checks[key]);try{saveData();}catch(e){}}
+function irSetMethod(m){var c=window._irCtx;if(!c)return;var o=S.orders[c.oid];_irGet(o).method=m;try{saveData();}catch(e){}var box=document.getElementById('ir-method');if(box){box.querySelectorAll('[data-m]').forEach(function(s){s.classList.toggle('on',s.getAttribute('data-m')===m);});}}
+function irSetField(f,v){var c=window._irCtx;if(!c)return;var o=S.orders[c.oid];_irGet(o)[f]=v;try{saveData();}catch(e){}}
+function irSaveImg(){var el=document.getElementById('ir-sheet');if(!el||typeof html2canvas==='undefined'){alert('이미지 저장을 쓸 수 없어요');return;}html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true}).then(function(cv){var c=window._irCtx,it=c?S.items[c.itemId]:null;var a=document.createElement('a');a.download='검사신청서_'+((it&&it.code)||'')+'.png';a.href=cv.toDataURL('image/png');a.click();if(typeof showToast==='function')showToast('검사신청서 이미지 저장됨');}).catch(function(){if(typeof showToast==='function')showToast('이미지 저장 실패');});}
+function irPrint(){document.body.classList.add('ir-printing');var clean=function(){document.body.classList.remove('ir-printing');window.removeEventListener('afterprint',clean);};window.addEventListener('afterprint',clean);setTimeout(function(){try{window.print();}catch(e){clean();}},120);}
+function irModalHTML(d){
+  var o=d.o,it=d.it,oi=d.oi,r=_irGet(o);
+  var brand=_irBrand(it),insp=_irFcName(it.inspectionFcId)||'검품소',sew=_irFcName(it.sewingFcId)||'—';
+  var sewSch=(o.factorySchedules||{})[it.sewingFcId]||{};
+  var shipExp=sewSch.shipExpectedDate||sewSch.shippingDate||'';
+  var fk=function(v){return v?((typeof fmtKoDate==='function')?fmtKoDate(toISO(v)):v):'';};
+  var todayS=(typeof todayISO==='function')?todayISO():'';
+  var dateStr=fk(todayS)||todayS;
+  var no=r.no||('INS-'+String(todayS).replace(/-/g,'').slice(2)+'-01');
+  var applicant=(r.applicant!=null&&r.applicant!=='')?r.applicant:'박수빈';
+  var g=_irGrid(it,oi,o);
+  var sizeTot={},grand=0;
+  var bodyRows=g.colors.map(function(c){var rt=0;var tds=g.sizes.map(function(s){var q=+((g.grid[c]||{})[s])||0;rt+=q;sizeTot[s]=(sizeTot[s]||0)+q;return '<td>'+(q||'')+'</td>';}).join('');grand+=rt;return '<tr><td>'+esc(c)+'</td>'+tds+'<td style="font-weight:700">'+rt+'</td></tr>';}).join('');
+  var totRow='<tr><th>TOTAL</th>'+g.sizes.map(function(s){return '<th>'+(sizeTot[s]||0)+'</th>';}).join('')+'<th style="background:#eef2f7">'+grand+'</th></tr>';
+  var CHK=[['치수','치수(스펙)'],['봉제','봉제 상태'],['오염','오염·이염'],['부자재','부자재 부착'],['워싱','워싱 상태'],['라벨','라벨·택']];
+  var chkHtml=CHK.map(function(p){return '<span class="ir-chk'+(r.checks[p[0]]?' on':'')+'" onclick="irToggleCheck(\''+p[0]+'\',this)"><i></i>'+p[1]+'</span>';}).join('');
+  var style='<style>'
+    +'#insp-req-modal .ir-sheet{width:194mm;max-width:100%;margin:0 auto;background:#fff;border:1px solid #9ca3af;padding:10mm 9mm;color:#1f2937;font-size:12px;font-family:inherit}'
+    +'#insp-req-modal .ir-sheet table{border-collapse:collapse;width:100%}'
+    +'#insp-req-modal .ir-sheet td,#insp-req-modal .ir-sheet th{border:1px solid #9ca3af;padding:5px 7px;font-size:12px;text-align:center;vertical-align:middle}'
+    +'#insp-req-modal .ir-sheet th{background:#f3f4f6;font-weight:700}'
+    +'#insp-req-modal .ir-htop{display:flex;align-items:center;gap:14px;border-bottom:2px solid #1f2937;padding-bottom:8px;margin-bottom:4px}'
+    +'#insp-req-modal .ir-logo{min-width:96px;height:42px;border:1px solid #9ca3af;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:10px;text-align:center}'
+    +'#insp-req-modal .ir-ttl{flex:1;font-size:26px;font-weight:700;letter-spacing:8px;text-align:center}'
+    +'#insp-req-modal .ir-meta{text-align:right;font-size:11px;color:#6b7280;line-height:1.7;min-width:130px}'
+    +'#insp-req-modal .ir-sec{background:#f3f4f6;font-weight:700;padding:4px 8px;border:1px solid #9ca3af;border-bottom:none;font-size:12px;margin-top:12px}'
+    +'#insp-req-modal .ir-l{text-align:left!important}'
+    +'#insp-req-modal .ir-fill{color:#1d4ed8;font-weight:600}'
+    +'#insp-req-modal .ir-chk{display:inline-flex;align-items:center;gap:4px;margin-right:14px;font-size:12px;cursor:pointer;user-select:none}'
+    +'#insp-req-modal .ir-chk i{width:13px;height:13px;border:1.4px solid #1f2937;display:inline-block}'
+    +'#insp-req-modal .ir-chk.on i{background:#1f2937}'
+    +'#insp-req-modal .ir-ta{width:100%;border:1px solid #9ca3af;border-top:none;font:inherit;font-size:12px;padding:6px 8px;resize:vertical;min-height:22mm;box-sizing:border-box}'
+    +'#insp-req-modal .ir-ctrl{width:194mm;max-width:100%;margin:0 auto 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:#fff}'
+    +'#insp-req-modal .ir-gbtn{font:inherit;font-size:13px;padding:7px 15px;border:1px solid #cfd5da;background:#fff;color:#1f2937;cursor:pointer;border-radius:7px;font-weight:600}'
+    +'#insp-req-modal .ir-gbtn.dark{background:#1f2937;color:#fff;border-color:#1f2937}'
+    +'@media print{body.ir-printing>*{display:none!important}body.ir-printing #insp-req-modal{display:block!important;position:static!important;inset:auto!important;background:#fff!important;padding:0!important;overflow:visible!important}body.ir-printing #insp-req-modal .ir-ctrl{display:none!important}body.ir-printing #insp-req-modal .ir-sheet{width:100%!important;border:none!important;padding:0!important}}'
+    +'</style>';
+  return style
+    +'<div class="ir-ctrl"><b style="font-size:14px">검사 신청서</b><span style="opacity:.85">검품공장 전달용 · 이미지 저장 또는 인쇄</span><span style="margin-left:auto;display:flex;gap:6px"><button class="ir-gbtn" onclick="irSaveImg()">이미지 저장</button><button class="ir-gbtn dark" onclick="irPrint()">인쇄</button><button class="ir-gbtn" onclick="closeInspReq()">닫기</button></span></div>'
+    +'<div class="ir-sheet" id="ir-sheet">'
+    +'<div class="ir-htop"><div class="ir-logo">'+(brand?esc(brand):'＋ 브랜드<br>로고')+'</div><div class="ir-ttl">검 사 신 청 서</div><div class="ir-meta">신청일 <b class="ir-fill">'+esc(dateStr)+'</b><br>신청자 <b>'+esc(applicant)+'</b><br>No. <b>'+esc(no)+'</b></div></div>'
+    +'<div class="ir-sec">신청 정보</div>'
+    +'<table><tr><th style="width:74px">수신 (검품)</th><td class="ir-fill">'+esc(insp)+'</td><th style="width:62px">브랜드</th><td>'+esc(brand||'—')+'</td><th style="width:54px">시즌</th><td>'+esc(it.season||'—')+'</td></tr>'
+    +'<tr><th>품번</th><td>'+esc(it.code||'—')+'</td><th>품명</th><td colspan="3" class="ir-l">'+esc(it.name||'—')+'</td></tr>'
+    +'<tr><th>봉제공장</th><td>'+esc(sew)+'</td><th>출고예정일</th><td class="ir-fill">'+(shipExp?esc(fk(shipExp)):'—')+'</td><th>납품처</th><td>'+esc(brand||it.client||'—')+'</td></tr></table>'
+    +'<div class="ir-sec">검사 기준</div>'
+    +'<table><tr><th style="width:90px">검사 방식</th><td class="ir-l" id="ir-method"><span class="ir-chk'+(r.method==='full'?' on':'')+'" data-m="full" onclick="irSetMethod(\'full\')"><i></i>전수검사</span><span class="ir-chk'+(r.method==='aql'?' on':'')+'" data-m="aql" onclick="irSetMethod(\'aql\')"><i></i>AQL 샘플</span></td></tr>'
+    +'<tr><th>검사 항목</th><td class="ir-l">'+chkHtml+'</td></tr></table>'
+    +'<div class="ir-sec">검사 수량 (= 재단 장수 · 전수)</div>'
+    +'<table><tr><th>컬러웨이</th>'+g.sizes.map(function(s){return '<th>'+esc(s)+'</th>';}).join('')+'<th>합계</th></tr>'+bodyRows+totRow+'</table>'
+    +'<div class="ir-sec">검사 포인트 / 특이사항</div>'
+    +'<textarea class="ir-ta" placeholder="중점 검사 부위, 합격 기준, 불량 처리 방법 등" onchange="irSetField(\'points\',this.value)">'+esc(r.points||'')+'</textarea>'
+    +'<div class="ir-sec">검사 결과 (검품소 작성)</div>'
+    +'<table><tr><th style="width:90px">검사일</th><td></td><th style="width:90px">검사자</th><td></td></tr><tr><th>합격</th><td></td><th>불량</th><td></td></tr><tr><th>불량 내용</th><td colspan="3" style="height:16mm"></td></tr></table>'
+    +'</div>';
+}
 // 카드 펼침/접힘 (한 번에 하나만 펼침)
 // 공정/입고 한 줄 행의 ⋯ → 공장·브랜드·컨펌 등 펼침
 function pdRowMore(el){var a=el.closest('.prow').nextElementSibling;if(a&&a.classList.contains('prow-acts'))a.classList.toggle('on');}
