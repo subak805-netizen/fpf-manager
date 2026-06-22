@@ -9516,6 +9516,11 @@ function saveItemForm(){
     var colorsChanged=JSON.stringify(oldColors)!==JSON.stringify(newColors);
     if(sizesChanged||colorsChanged){
       var migratedOrders=0;
+      // 이름 우선 매핑: 이름이 그대로 있으면 그 자리 유지(=재정렬해도 수량 불변),
+      // 사라진 이름만 새로 생긴 이름으로 순서대로 옮김(=이름변경 추정, s/m/l→1/2/3 일괄변경도 처리).
+      var _buildIdMap=function(oldArr,newArr){var map={},gone=[],added=[];oldArr.forEach(function(o){if(newArr.indexOf(o)>=0)map[o]=o;else gone.push(o);});newArr.forEach(function(nw){if(oldArr.indexOf(nw)<0)added.push(nw);});gone.forEach(function(o,i){map[o]=(i<added.length?added[i]:(newArr.length>0?newArr[0]:o));});return map;};
+      var sizeMap=_buildIdMap(oldSizes,newSizes);
+      var colorMap=_buildIdMap(oldColors,newColors);
       // 모든 오더 순회하여 이 아이템의 qtyGrid 변환
       for(var oid in S.orders){
         var ord=S.orders[oid];if(!ord.orderItems)continue;
@@ -9523,29 +9528,7 @@ function saveItemForm(){
           if(oi2.itemId!==editItemId)continue;
           if(!oi2.qtyGrid)continue;
           var newGrid={};
-          // 사이즈 매핑: 같은 개수면 인덱스로, 같은 이름이면 그대로 유지
-          var sizeMap={};
-          if(oldSizes.length===newSizes.length){
-            // 인덱스 매핑 (s→1, m→2, l→3 등)
-            oldSizes.forEach(function(os,i){sizeMap[os]=newSizes[i];});
-          }else{
-            // 같은 이름은 그대로, 사라진 사이즈는 첫 번째 새 사이즈로
-            oldSizes.forEach(function(os){
-              if(newSizes.indexOf(os)>=0)sizeMap[os]=os;
-              else if(newSizes.length>0)sizeMap[os]=newSizes[0];
-            });
-          }
-          // 컬러 매핑: 같은 개수면 인덱스로
-          var colorMap={};
-          if(oldColors.length===newColors.length){
-            oldColors.forEach(function(oc,i){colorMap[oc]=newColors[i];});
-          }else{
-            oldColors.forEach(function(oc){
-              if(newColors.indexOf(oc)>=0)colorMap[oc]=oc;
-              else if(newColors.length>0)colorMap[oc]=newColors[0];
-            });
-          }
-          // qtyGrid 변환
+          // qtyGrid 변환 (sizeMap/colorMap = 이름 우선, 오더 루프 밖에서 1회 계산)
           for(var oldC in oi2.qtyGrid){
             var newC=colorMap[oldC]||oldC;
             if(!newGrid[newC])newGrid[newC]={};
@@ -9582,14 +9565,11 @@ function saveItemForm(){
       if(sizesChanged){
         (item.trims||[]).forEach(function(t){
           if(!t.sizeRates||!t.sizeRates.length)return;
-          if(oldSizes.length===newSizes.length){
-            // 인덱스 매핑
-            t.sizeRates=t.sizeRates.map(function(sr){
-              var oldIdx=oldSizes.indexOf(sr.size);
-              if(oldIdx>=0&&newSizes[oldIdx])return {size:newSizes[oldIdx],price:sr.price};
-              return sr;
-            });
-          }
+          // 이름 우선 sizeMap 사용(재정렬엔 불변, 이름변경만 옮김)
+          t.sizeRates=t.sizeRates.map(function(sr){
+            var ns=sizeMap[sr.size];
+            return (ns&&ns!==sr.size)?Object.assign({},sr,{size:ns}):sr;
+          });
         });
       }
       if(migratedOrders>0)showToast(''+migratedOrders+'개 오더의 사이즈/컬러 자동 마이그레이션됨');
