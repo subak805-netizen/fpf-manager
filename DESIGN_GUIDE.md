@@ -374,3 +374,6 @@
   - 폼: `careLabelCardNew`(@8408) 제조 연월 셀렉트 옆에 `<select data-f="madeIn">` (표시 안 함/메이드인 코리아=KR/메이드인 차이나=CN/미국용=US, 기본='').
   - 출력=**한글**, 미국용은 별도 한 줄. 발주서 `genPoText` 케어라벨 블록(@제조연월 뒤)에 `{KR:'메이드인 코리아',CN:'메이드인 차이나',US:'미국용'}[cl.madeIn]` 한 줄(manufactureYM='none'이어도 독립 출력).
   - 연결 6곳: 폼·수집(colTR @careLabel분기)·기본값(newRow/타입변환 @9381/9426)·자재전달(calcSups material push, manufactureYM 옆)·발주출력·단가장(saveToPB @5076 / autofill 고정필드배열). **케어라벨만**(메인라벨 미적용). 계산 불변.
+- 2026-06-22(3): **컬러칩 드래그 순서변경 + 컬러 톤 세분화.**
+  - 순서변경: `renderColorChips` 칩에 `onpointerdown="colorDragStart"` + `touch-action:none` (포인터 이벤트=터치+마우스). colorDragMove가 elementFromPoint로 대상칩 찾아 formColors splice 재배열·재렌더. 탭=renameColor 유지(드래그 직후 `_colDragEnd` 타임스탬프로 클릭 억제). HTML5 draggable은 iOS 터치 미지원이라 안 씀.
+  - 컬러 톤: `colorToHex`가 매칭된 색이름 **뒤(나머지) 접두어**로 톤 판별 — 연/라이트/파스텔/옅=`_shadeC light`, 진/짙/딥/다크=dark, 형광/네온=neon(HSL 채도↑). 기존 색이름(연두 등)은 키워드 자체매칭이라 영향X. 라임을 연두에서 분리(#c5e21a), 골드·실버 추가. **스와치는 colorToHex 사용**(tpColorHex 아님 — 두 맵 불일치 주의).
