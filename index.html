@@ -19661,12 +19661,18 @@ function renderCS(){
     const fabInfo=[f.width?f.width+'"':'',f.composition?fmtComp(f.composition):''].filter(Boolean).join(' ');
     const ovrVal=csGetOverride(id,'fab',f.id);
     return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td class="muted" style="font-size:12px">${esc(f.supplier||'')}</td><td><b>${esc(f.name)}</b>${f.pricingUnit==='kg'?' <span class="badge b2" style="font-size:10px">KG</span>':''}${fabInfo?`<br><span class="muted" style="font-size:12px">${esc(fabInfo)}</span>`:''}</td><td class="muted" style="font-size:13px">${(function(){
+      var _ovr=csGetOverride(id,'fab',f.id);
+      var _autoTy=+cp.origTy||0;   // 작지 요척 × 수량
+      var _effTy=+cp.ty||0;        // 수정값 있으면 그 값
+      var _maxNote='';
       if(f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0){
         var _ents=Object.entries(f.consumptionBySize).map(function(e){return [e[0],+e[1]||0];});
         var _mx=_ents.reduce(function(a,b){return b[1]>a[1]?b:a;},_ents[0]); // 요척 가장 큰 사이즈 = 제일 큰 사이즈
-        return _mx[1].toFixed(2)+'y × '+qty+'<br><span style="font-size:9px;color:var(--t3,#9ca3af)">최대 '+esc(_mx[0])+' 기준</span>';
+        _maxNote=' · 최대 '+esc(_mx[0])+' 기준';
       }
-      return f.consumption+'y × '+qty;
+      return '<div style="font-weight:700;font-size:12px">'+_effTy.toFixed(2)+'y × '+qty+(_ovr!==undefined?' <span style="color:#047857;font-size:9px;font-weight:700">수정</span>':'')+'</div>'
+        +'<div class="cs-hide-on-img" style="font-size:9px;color:var(--t3,#9ca3af);margin-top:1px">작지 '+_autoTy.toFixed(2)+'y'+_maxNote+'</div>'
+        +'<input type="number" class="cs-hide-on-img" value="'+(_ovr!==undefined?_ovr:'')+'" placeholder="'+_autoTy.toFixed(2)+'" min="0" step="0.01" style="width:62px;font-size:10px;padding:1px 4px;margin-top:2px;'+(_ovr!==undefined?'background:#ecfdf5;border-color:#10b981;font-weight:700':'')+'" onchange="csSetOverride(\''+id+'\',\'fab\',\''+f.id+'\',this.value)" title="요척 원가용 (비우면 작지 요척 적용)">';
     })()}</td><td style="text-align:right;font-size:12px">${(function(){
       const storePrice=cp.isKg?(f.pricePerKg||0):fabBasePrice(f);
       const nego=getNegotiatedForMat(f.name,f.id);
@@ -19675,6 +19681,7 @@ function renderCS(){
       const effPrice=(poVal!==undefined&&poVal!=='')?(+poVal):storePrice;
       return `<div style="font-weight:700;font-size:12px">${num(effPrice)}<span style="font-size:10px;color:var(--t2)">${unit}</span></div>`
         +`<div class="cs-hide-on-img" style="font-size:10px;margin-top:1px;white-space:nowrap;color:var(--t2)">매장 ${num(storePrice)}${nego>0?` · <span style="color:var(--amber)">협상 ${num(nego)}</span>`:''}</div>`
+        +(cp.isKg&&f.yardsPerKg>0?`<div style="font-size:9px;margin-top:1px;color:#2563eb;font-weight:600;white-space:nowrap">= ${num(Math.round(effPrice/f.yardsPerKg))}/y 환산</div>`:'')
         +`<input type="number" class="cs-hide-on-img" value="${poVal!==undefined?poVal:''}" placeholder="${num(storePrice)}" min="0" style="width:72px;font-size:10px;padding:1px 4px;margin-top:1px;${poVal!==undefined?'background:#ecfdf5;border-color:var(--green);font-weight:700':''}" onchange="csSetPriceOverride('${id}','fab','${f.id}',this.value)" title="원가용 단가 (비우면 매장가 적용)">`;
     })()}</td><td style="text-align:center;color:var(--t3,#9ca3af);font-size:12px">–</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div></td><td style="text-align:right">${fabLoss>0?`<div class="cs-amt" style="font-size:12px;color:var(--blue);text-align:right">${num(Math.round(cl.cost))}원</div><div class="cs-hide-on-img" style="font-size:10px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 6px;display:inline-block;margin-top:2px;font-weight:600">+${fabLoss}%</div>`:'<span class="muted">–</span>'}</td></tr>`;}).join('');
   // 부자재 순수원가/로스반영 계산
@@ -19713,25 +19720,34 @@ function renderCS(){
   const trimWithLoss=(t,q,lp)=>{var up=trimUnitPrice(t);if(t.orderType==='roll'){const ty=t.consumptionPerPiece*q*(1+lp/100);const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return _applyMinSplit(t,{rolls,ty,ay:rolls*(t.yardsPerRoll||1),cost:rolls*up,isRoll:true,_up:up},q);}if(t.orderType==='thread'){const perColor=t.threadQty||10;return _applyMinSplit(t,{qty:perColor,unit:'개',cost:perColor*up,isRoll:false,isThread:true,perColor:perColor,_up:up},q);}const n=Math.ceil((t.qtyPerPiece||1)*q*(1+lp/100));return _applyMinSplit(t,{qty:n,unit:t.unit||'yard',cost:n*up,isRoll:false,_up:up},q);};
   const tr=it.trims.map(t=>{
     let cp,cl,minNote='';
-    if(t.orderType==='thread'){
-      // 실: 컬러당 개수 원가용 오버라이드 적용 후 trimPure (미니멈은 useMinSplit으로 처리)
-      const csOvr=csGetOverride(id,'trim',t.id);
-      const tt2={...t};
-      if(csOvr!==undefined)tt2.threadQty=csOvr;
-      cp=trimPure(tt2,qty);cl={...cp,cost:cp.cost*(1+trimLoss/100)};
-      cp.isOverride=csOvr!==undefined;cp.origQty=t.threadQty||10;
-    }else{cp=trimPure(t,qty);cl={...cp,cost:cp.cost*(1+trimLoss/100)};}
+    // 원가용 요척 수정값(override)을 전 타입에 적용: 타입별 요척 필드를 그 값으로 교체 후 계산
+    const csOvr=csGetOverride(id,'trim',t.id);
+    const _yf=(t.orderType==='thread')?'threadQty':((t.orderType==='roll'||t.orderType==='yard')?'consumptionPerPiece':'qtyPerPiece');
+    const _yDef=(t.orderType==='thread')?10:((t.orderType==='yard')?0.5:((t.orderType==='roll')?0:1));
+    const _origYo=(t[_yf]!=null&&t[_yf]!=='')?+t[_yf]:_yDef;
+    const tEff=(csOvr!==undefined)?Object.assign({},t,{[_yf]:csOvr}):t;
+    cp=trimPure(tEff,qty);cl={...cp,cost:cp.cost*(1+trimLoss/100)};
+    cp.isOverride=csOvr!==undefined;cp.origQty=_origYo;cp.origYo=_origYo;
     const k='t-'+t.id;const inc=!isEx(k);if(inc){tt+=cp.cost;ttL+=cl.cost;}
     const _isLoopT=t.orderType==='yard'&&(t.isButtonLoop||(t.loopPerYard&&t.loopPerPiece));
     const _perL=t.consumptionPerPiece||((t.loopPerYard&&t.loopPerPiece)?(t.loopPerPiece/t.loopPerYard):0)||0;
     const _ordY=cp.lotYards!=null?cp.lotYards:(_perL>0?Math.ceil(_perL*qty):0);
-    const trimOvr=csGetOverride(id,'trim',t.id);
-    const qs=cp.isRoll?`${cp.rolls}${(t.rollUnit||'롤')}(${cp.ay}y)`:cp.isThread?`${cp.isOverride?`<b style="color:var(--blue)">${cp.perColor}개/색</b><br><span style="font-size:9px;color:var(--t2);text-decoration:line-through">${cp.origQty}개</span>`:`${cp.perColor}개/색`}`:_isLoopT?`<span style="white-space:nowrap">${t.loopPerPiece||'?'}개 → ${_ordY}y</span>`:`<span style="white-space:nowrap">${cp.qty}${(cp.unit||'y').replace('yard','y')}</span>`;
-    const ovrInput=(t.orderType==='thread')?`<br><input type="number" class="cs-hide-on-img" value="${trimOvr!==undefined?trimOvr:''}" placeholder="실제" min="0" step="1" style="width:55px;font-size:11px;padding:2px 4px;margin-top:2px;${trimOvr!==undefined?'background:#f0f7ff;border-color:var(--blue)':''}" onchange="csSetOverride('${id}','trim','${t.id}',this.value)" title="원가용 실제 발주개수">`:'';
     // 미니멈 나누기 버튼 (전체 부자재 통일 — 실/롤도 포함)
     const canMinSplit=true;
     const msBtn=canMinSplit?`<span class="cs-hide-on-img" style="display:inline-flex;gap:3px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:3px"><button onclick="toggleCsMinSplit('${id}','${t.id}')" style="padding:2px 7px;font-size:10px;border-radius:100px;cursor:pointer;border:1px solid ${t.useMinSplit?'#10b981':'var(--bd)'};background:${t.useMinSplit?'#ecfdf5':'var(--bg)'};color:${t.useMinSplit?'#047857':'var(--t2)'};font-weight:600;white-space:nowrap">${t.useMinSplit?`✓ ÷${t.minSplitQty||30}`:'미니멈'}</button>${t.useMinSplit?`<input type="number" value="${t.minSplitQty||30}" min="1" onchange="setCsMinSplitQty('${id}','${t.id}',this.value)" style="width:38px;font-size:10px;padding:1px 3px" title="미니멈 장수">`:''}</span>`:'';
-    return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td class="muted" style="font-size:12px">${esc(t.supplier||'')}</td><td><b style="word-break:keep-all;line-height:1.25">${esc(t.name)}</b>${t.size?` <span class="muted" style="font-size:11px">${esc(t.size)}</span>`:''}${t.orderType==='roll'?` <span class="badge b3" style="font-size:9px">${t.isLace?'컷':(t.rollUnit||'롤')}</span>`:''}${t.orderType==='thread'?' <span class="badge b3" style="font-size:9px">실</span>':''}${minNote}</td><td class="muted" style="font-size:13px">${t.orderType==='roll'?`${t.consumptionPerPiece}y/pcs`:t.orderType==='thread'?`${cp.perColor}개/색×${num(cp._up!==undefined?cp._up:(t.unitPrice||0))}원${cp.isOverride?' <span style="color:var(--blue)">(실제)</span>':''}`:t.orderType==='button'?`${cp.qty}개`:t.orderType==='yard'?(_isLoopT?`${t.loopPerPiece||'?'}개÷${t.loopPerYard||'?'}개/y`:`${cp.qty}y × ${num(cp._up!==undefined?cp._up:(t.unitPrice||0))}원`):`${(t.qtyPerPiece||1)}×${qty}`}</td><td style="text-align:right;font-size:13px">${num(Math.round(cp._up!==undefined?cp._up:(t.unitPrice||0)))}원${cp._isMaxPrice?'<br><span class="cs-hide-on-img" style="font-size:9px;color:var(--t2)">최고가</span>':''}</td><td style="text-align:center">${t.useMinSplit?`<span class="badge" style="font-size:10px;background:#ecfdf5;color:#047857;white-space:nowrap">÷${t.minSplitQty||30} 분배</span>`:'<span class="muted" style="font-size:12px">–</span>'}${msBtn}</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div></td><td style="text-align:right">${trimLoss>0?`<div class="cs-amt" style="font-size:12px;color:var(--blue);text-align:right">${num(Math.round(cl.cost))}원</div><div class="cs-hide-on-img" style="font-size:10px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 6px;display:inline-block;margin-top:2px;font-weight:600">+${trimLoss}%</div>`:'<span class="muted">–</span>'}</td></tr>`;}).join('');
+    return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td class="muted" style="font-size:12px">${esc(t.supplier||'')}</td><td><b style="word-break:keep-all;line-height:1.25">${esc(t.name)}</b>${t.size?` <span class="muted" style="font-size:11px">${esc(t.size)}</span>`:''}${t.orderType==='roll'?` <span class="badge b3" style="font-size:9px">${t.isLace?'컷':(t.rollUnit||'롤')}</span>`:''}${t.orderType==='thread'?' <span class="badge b3" style="font-size:9px">실</span>':''}${minNote}</td><td class="muted" style="font-size:13px;text-align:left">${(function(){
+      var _eff=(csOvr!==undefined)?csOvr:_origYo;
+      var _unit=(t.orderType==='thread')?'개/색':((t.orderType==='roll'||t.orderType==='yard')?'y/벌':'개/벌');
+      var _txt;
+      if(t.orderType==='roll')_txt=_eff+'y/pcs';
+      else if(t.orderType==='thread')_txt=cp.perColor+'개/색×'+num(cp._up!==undefined?cp._up:(t.unitPrice||0))+'원';
+      else if(t.orderType==='button')_txt=cp.qty+'개';
+      else if(t.orderType==='yard')_txt=_isLoopT?((t.loopPerPiece||'?')+'개÷'+(t.loopPerYard||'?')+'개/y'):(cp.qty+'y × '+num(cp._up!==undefined?cp._up:(t.unitPrice||0))+'원');
+      else _txt=_eff+'×'+qty;
+      return '<div style="font-weight:700;font-size:12px">'+_txt+(csOvr!==undefined?' <span style="color:#047857;font-size:9px;font-weight:700">수정</span>':'')+'</div>'
+        +(csOvr!==undefined?'<div class="cs-hide-on-img" style="font-size:9px;color:var(--t3,#9ca3af);margin-top:1px">작지 '+_origYo+_unit+'</div>':'')
+        +(_isLoopT?'':'<input type="number" class="cs-hide-on-img" value="'+(csOvr!==undefined?csOvr:'')+'" placeholder="'+_origYo+'" min="0" step="0.01" style="width:58px;font-size:10px;padding:1px 4px;margin-top:2px;'+(csOvr!==undefined?'background:#ecfdf5;border-color:#10b981;font-weight:700':'')+'" onchange="csSetOverride(\''+id+'\',\'trim\',\''+t.id+'\',this.value)" title="요척 원가용 ('+_unit+', 비우면 작지값)">');
+    })()}</td><td style="text-align:right;font-size:13px">${num(Math.round(cp._up!==undefined?cp._up:(t.unitPrice||0)))}원${cp._isMaxPrice?'<br><span class="cs-hide-on-img" style="font-size:9px;color:var(--t2)">최고가</span>':''}</td><td style="text-align:center">${t.useMinSplit?`<span class="badge" style="font-size:10px;background:#ecfdf5;color:#047857;white-space:nowrap">÷${t.minSplitQty||30} 분배</span>`:'<span class="muted" style="font-size:12px">–</span>'}${msBtn}</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div></td><td style="text-align:right">${trimLoss>0?`<div class="cs-amt" style="font-size:12px;color:var(--blue);text-align:right">${num(Math.round(cl.cost))}원</div><div class="cs-hide-on-img" style="font-size:10px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 6px;display:inline-block;margin-top:2px;font-weight:600">+${trimLoss}%</div>`:'<span class="muted">–</span>'}</td></tr>`;}).join('');
   // 가공비
   const pArr=COST_DEFS.map(([k,l,fk])=>{const v=it[k]||0;if(!v)return null;const fcNm=it[fk]&&S.factories[it[fk]]?S.factories[it[fk]].name:'';return{ck:k,lbl:l,val:v,fcNm};}).filter(Boolean);
   let pt=0;for(const p of pArr){if(!isEx('p-'+p.ck))pt+=p.val*qty;}
