@@ -365,3 +365,8 @@
   - **정렬 우선순위(확정):** ①출고 임박(출고예정일 가까운 순) → ②진행률 높은 순 → ③오더일 오래된 순. 헬퍼 `pdRowStages(r)`(단계 계산 추출)·`pdRowProgress(r)`(0~1). 정렬 전 `rows.forEach(r=>{r._prog=pdRowProgress(r);r._ord=toISO(r.o.createdAt)})` 후 comparator.
   - **A2 매트릭스(행 펼침 상세):** `renderProdDashRow` detail에 **오더›재단›출고** 인라인 매트릭스(컬러×사이즈). `pdCutCSGrid` 재사용, CSS `.pdc-mtx`/`.pdc-iv`. 요약(대시보드 셀)엔 재단도 포함.
   - **입고 단계별 카드(D안):** 원·부자재 입고 줄이 좌우로 길게 늘어지던 문제 → `prepCell`에 `card` 파라미터로 단계별 카드. CSS `.pdc-prep-cards`/`.prepcard`. **함정: 카드를 `.ptab.pc-body`로 감싸야** `#dash-body .ptab .prow{display:flex}` 컴포넌트 스타일이 먹어서 세로로 안 쌓임(처음에 카드가 `.ptab` 밖이라 세로로 쌓이는 버그 있었음).
+- 2026-06-22: **★원가계산서 — 요척 원가용 직접 수정 입력칸 + KG 단가 야드 환산.** (사용자 요청)
+  - **요척 원가용 입력칸:** 단가 원가용(초록 알약)과 동일 패턴으로 계산식 칸에 `<input>` 추가 → `csSetOverride(id,'fab'|'trim',matId,값)`. 비우면 작지 요척, 입력시 그 값으로 원가. 활성=연두배경(#ecfdf5)+초록보더(#10b981)+"수정" 배지+작지 원래값 병기. renderCS 원단 셀(~19663)·부자재 셀(~19738).
+  - **부자재 override 전 타입 통일:** 기존엔 실(thread)만 반영, 롤/야드/단추는 trimPure가 csQtyOvr를 안 읽어 무시됨. `_yf`(타입별 요척필드: thread=threadQty / roll·yard=consumptionPerPiece / 그외=qtyPerPiece)로 tEff 만들어 trimPure에 전달. 죽은코드 qs/ovrInput/trimOvr 제거.
+  - **KG 단가 야드 환산:** kg단가 원단은 단가칸에 `= round(effPrice/yardsPerKg)/y 환산` 파란 줄 추가(표시만).
+  - **함정:** 요척을 읽는 곳이 6+군데 복붙이라 표시·계산이 어긋났던 이력(단추 요척 버그, 12225/12269). 원가 셀은 cp.ty(실제 쓰는 값)를 표시하도록 정직화. **금액 계산식 자체는 불변.** 미리보기 수치검증 필수.
