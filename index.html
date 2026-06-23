@@ -10710,9 +10710,10 @@ function genPoText(order,sn){
     const itemNames=[...new Set((order.orderItems||[]).map(oi=>S.items[oi.itemId]?.name).filter(Boolean))];
     // 품명은 아이템명 중심 — 오더명의 산문(아이템명과 중복)은 빼고 날짜 괄호만 덧붙인다 (품명에 이름 2개로 보이던 문제 해결)
     let orderSuffix=(shortName(order.name||'').match(/\([^)]*\d[^)]*\)/)||[''])[0];
-    if(itemNames.length===1){L.push('품명 '+itemNames[0]+(orderSuffix?' '+orderSuffix:''));}
-    else if(itemNames.length>1){L.push('품명 '+itemNames[0]);itemNames.slice(1).forEach(nm=>L.push('      '+nm));if(orderSuffix)L.push('      ('+orderSuffix+')');}
-    else L.push('품명 '+shortName(order.name));
+    var _exTag=order._isExtra?' 추가발주':'';
+    if(itemNames.length===1){L.push('품명 '+itemNames[0]+(orderSuffix?' '+orderSuffix:'')+_exTag);}
+    else if(itemNames.length>1){L.push('품명 '+itemNames[0]+(orderSuffix?' '+orderSuffix:'')+_exTag);itemNames.slice(1).forEach(nm=>L.push('      '+nm));}
+    else L.push('품명 '+shortName(order.name)+_exTag);
     L.push('');
   }
   // 원단: 아이템별로 섹션 구분
@@ -12163,6 +12164,11 @@ function dismissCTA(oid,key){
 function renderOTab(){
   const o=S.orders[curOid];if(!o)return;const el=document.getElementById('od-tab');if(!el)return;
   if(curOTab==='check'||curOTab==='paysht'||curOTab==='arr')curOTab='po'; // 거래처확인=발주서 통합, 결제서=결제관리 이동, 입고탭=제거
+  // 스크롤 보존 — 버튼/토글이 renderOTab을 직접 불러도 위로 안 튀게 (스크롤 컨테이너 탐색)
+  var _sc=el.parentElement;
+  while(_sc&&_sc!==document.body&&_sc!==document.documentElement){var oy=getComputedStyle(_sc).overflowY;if((oy==='auto'||oy==='scroll')&&_sc.scrollHeight>_sc.clientHeight+2)break;_sc=_sc.parentElement;}
+  var _useWin=(!_sc||_sc===document.body||_sc===document.documentElement);
+  var _top=_useWin?(window.scrollY||document.documentElement.scrollTop||0):_sc.scrollTop;
   try{
     if(curOTab==='po')el.innerHTML=renderPoTab(o);
     else if(curOTab==='check')el.innerHTML=renderCheckTab(o);
@@ -12171,6 +12177,7 @@ function renderOTab(){
     else if(curOTab==='paysht')el.innerHTML=renderPayShtTab(o);
     else if(curOTab==='memo')el.innerHTML=renderMemoTab(o);
   }catch(err){el.innerHTML=`<div class="warn-box">오류: ${esc(err.message)}</div><pre style="font-size:10px;overflow:auto">${esc(err.stack||'')}</pre>`;}
+  if(_useWin)window.scrollTo(0,_top);else _sc.scrollTop=_top;
 }
 
 // 발주서 진입 시 최신 아이템 정의(로스율·요척 등)로 자재 재계산
@@ -13979,8 +13986,12 @@ function exBuildSuppliers(o,ex){
 function exOrderLike(o,ex){
   var it=S.items[ex.itemId]||{};
   var vid=o.id+'__ex__'+ex.id;
+  // 품명 날짜 = 부모 오더 날짜(M/D)로 통일 (추가발주 생성일이 아니라). 없으면 오더 생성일에서.
+  var _sn=function(name){return String(name||'').replace(/\d{4}\.\s*(\d{1,2})\.\s*(\d{1,2})\./g,function(_,m,d){return (+m)+'/'+(+d);});};
+  var _suf=(_sn(o.name).match(/\([^)]*\d[^)]*\)/)||[''])[0];
+  if(!_suf){var _iso=(typeof toISO==='function')?toISO(o.createdAt):String(o.createdAt||'');var _mm=_iso.match(/-(\d{1,2})-(\d{1,2})/);if(_mm)_suf='('+(+_mm[1])+'/'+(+_mm[2])+')';}
   window._poExtraOrders=window._poExtraOrders||{};
-  window._poExtraOrders[vid]={id:vid,_exId:ex.id,_parentId:o.id,name:(ex.itemName||it.name||'')+' 추가('+(ex.date||'')+')',createdAt:ex.date||o.createdAt,suppliers:ex.suppliers,orderItems:[{itemId:ex.itemId,qtyGrid:ex.addGrid||{},grandTotal:ex.qty||0}],brandId:it.brandId||o.brandId||'',factorySchedules:o.factorySchedules||{}};
+  window._poExtraOrders[vid]={id:vid,_exId:ex.id,_parentId:o.id,_isExtra:true,name:(ex.itemName||it.name||'')+(_suf?(' '+_suf):''),createdAt:o.createdAt||ex.date,suppliers:ex.suppliers,orderItems:[{itemId:ex.itemId,qtyGrid:ex.addGrid||{},grandTotal:ex.qty||0}],brandId:it.brandId||o.brandId||'',factorySchedules:o.factorySchedules||{}};
   return window._poExtraOrders[vid];
 }
 function poDeleteExtraSupplier(ol,sn){
