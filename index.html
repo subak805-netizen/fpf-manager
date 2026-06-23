@@ -593,6 +593,11 @@ html[data-theme="retro"] .po2-chip.on{background:var(--neon-green);color:var(--i
 @media(max-width:560px){.lp-res{display:none}.lp-nm{font-size:12px}.lp-seg{padding:6px 7px}}
 .lp-chip.on{background:var(--ink,#222);color:#fff}
 .lp-hint2{font-size:11px;color:#888;margin:-4px 0 8px 2px}
+.lp-barrow{display:flex;align-items:center;gap:8px;margin:9px 0 2px}
+.lp-barrow .lp-hint2{flex:1;margin:0}
+.lp-editbtn{border:2px solid #2563eb;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;background:#eef5ff;color:#2563eb;cursor:pointer;white-space:nowrap}
+.lp-editbtn.on{background:var(--ink,#222);color:#fff;border-color:var(--ink,#222)}
+.lp-presets.editing .lp-chip{border-style:dashed;background:#fffdf4}
 .lp-ed{margin-top:10px;border:2px solid var(--ink,#222);background:#fffef9;border-radius:9px;padding:11px}
 .lp-ed-h{font-size:12px;font-weight:800;margin-bottom:9px}
 .lp-ed-row{display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap}
@@ -12437,8 +12442,9 @@ function saveLossPresets(a){try{localStorage.setItem('fpm_lossPresets',JSON.stri
 function applyLossPreset(oid,idx){var o=S.orders[oid];if(!o)return;var ps=lossPresets()[idx];if(!ps)return;if(!o.loss)o.loss={};(o.orderItems||[]).forEach(function(oi){var it=S.items[oi.itemId];if(!it)return;if(!o.loss[oi.itemId])o.loss[oi.itemId]={};[].concat((it.fabrics||[]).map(function(f){return f.id;}),(it.trims||[]).map(function(t){return t.id;})).forEach(function(mid){if(!mid)return;var ty=lossMatType(it,mid);if(ps.t==='all'||ps.t===ty)o.loss[oi.itemId][mid]=lossEnc(ps.m,ps.v);});});saveData();if(typeof renderOTab==='function')renderOTab();showToast('"'+ps.name+'" 적용됨');}
 // 프리셋 인라인 에디터 (물음창 4번 → 칩 눌러 한 카드에서 적용·수정·삭제)
 var _LP_TGS=[['all','전체'],['fab','원단'],['trim','부자재'],['label','라벨'],['button','단추·스냅'],['zipper','지퍼']];
-function lpOpenEdit(oid,idx){var ps=lossPresets();if(idx>=0&&ps[idx]){var p=ps[idx];window._lpEdit={idx:idx,name:p.name||'',m:p.m||'pct',v:(p.v!=null?p.v:0),t:p.t||'all'};}else{window._lpEdit={idx:-1,name:'',m:'pct',v:5,t:'all'};}if(typeof renderOTab==='function')renderOTab();}
+function lpOpenEdit(oid,idx){window._lpEditMode=true;var ps=lossPresets();if(idx>=0&&ps[idx]){var p=ps[idx];window._lpEdit={idx:idx,name:p.name||'',m:p.m||'pct',v:(p.v!=null?p.v:0),t:p.t||'all'};}else{window._lpEdit={idx:-1,name:'',m:'pct',v:5,t:'all'};}if(typeof renderOTab==='function')renderOTab();}
 function lpEditClose(){window._lpEdit=null;if(typeof renderOTab==='function')renderOTab();}
+function lpToggleEditMode(oid){window._lpEditMode=!window._lpEditMode;if(!window._lpEditMode)window._lpEdit=null;if(typeof renderOTab==='function')renderOTab();}
 function lpEditField(f,val){if(!window._lpEdit)return;if(f==='v')window._lpEdit.v=+val||0;else window._lpEdit[f]=val;}
 function lpEditToggle(f,val){if(!window._lpEdit)return;window._lpEdit[f]=val;if(typeof renderOTab==='function')renderOTab();}
 function _lpAutoName(e){if(e.name&&String(e.name).trim())return String(e.name).trim();var tg=({all:'전체',fab:'원단',trim:'부자재',label:'라벨',button:'단추',zipper:'지퍼'})[e.t]||'';var rv=(e.m==='pct'?((+e.v||0)+'%'):(e.m==='set'?((+e.v||0)+'벌치'):('+'+(+e.v||0)+'개')));return (tg?tg+' ':'')+rv;}
@@ -12460,14 +12466,15 @@ function lpEditorHTML(oid){
     +'<div class="lp-ed-row"><label>방식</label><span class="lp-seg-wrap">'+seg+'</span><input class="lp-ed-val" type="number" min="0" value="'+(+e.v||0)+'" oninput="lpEditField(\'v\',this.value)"><span class="lp-ed-unit">'+unit+'</span></div>'
     +'<div class="lp-ed-row" style="align-items:flex-start"><label style="padding-top:5px">대상</label><div class="lp-tgs">'+tgs+'</div></div>'
     +'<div class="lp-live">'+esc(tgLbl)+' 자재에 '+esc(resTxt)+' 적용</div>'
-    +'<div class="lp-acts">'+delBtn+'<span style="flex:1"></span><button type="button" class="lp-b" onclick="lpEditClose()">취소</button><button type="button" class="lp-b" onclick="lpEditSave(\''+oid+'\')">저장</button><button type="button" class="lp-b save" onclick="lpEditApply(\''+oid+'\')">적용</button></div>'
+    +'<div class="lp-acts">'+delBtn+'<span style="flex:1"></span><button type="button" class="lp-b" onclick="lpEditClose()">취소</button><button type="button" class="lp-b save" onclick="lpEditSave(\''+oid+'\')">저장</button></div>'
     +'</div>';
 }
 function delLossPreset(idx){var arr=lossPresets();if(!arr[idx])return;if(!confirm('프리셋 "'+arr[idx].name+'" 삭제?'))return;arr.splice(idx,1);saveLossPresets(arr);if(typeof renderOTab==='function')renderOTab();}
-function lossPresetBarHTML(o){var ps=lossPresets();
-  var chips=ps.map(function(p,i){return '<span class="lp-chip'+((window._lpEdit&&window._lpEdit.idx===i)?' on':'')+'" onclick="lpOpenEdit(\''+o.id+'\','+i+')">'+esc(p.name)+'</span>';}).join('');
-  return '<div class="lp-presets"><span class="lp-pl">프리셋</span>'+chips+'<button class="lp-add" onclick="lpOpenEdit(\''+o.id+'\',-1)">＋ 프리셋</button></div>'
-    +'<div class="lp-hint2">칩을 누르면 적용·수정·삭제</div>'+lpEditorHTML(o.id);}
+function lossPresetBarHTML(o){var ps=lossPresets();var em=!!window._lpEditMode;
+  var chips=ps.map(function(p,i){var act=em?('lpOpenEdit(\''+o.id+'\','+i+')'):('applyLossPreset(\''+o.id+'\','+i+')');return '<span class="lp-chip'+((window._lpEdit&&window._lpEdit.idx===i)?' on':'')+'" onclick="'+act+'">'+esc(p.name)+'</span>';}).join('');
+  return '<div class="lp-presets'+(em?' editing':'')+'"><span class="lp-pl">프리셋</span>'+chips+'<button class="lp-add" onclick="lpOpenEdit(\''+o.id+'\',-1)">＋ 프리셋</button></div>'
+    +'<div class="lp-barrow"><span class="lp-hint2">'+(em?'고칠 프리셋을 누르세요 · ＋프리셋=새로 만들기':'칩을 누르면 그 발주서에 바로 적용')+'</span><button class="lp-editbtn'+(em?' on':'')+'" onclick="lpToggleEditMode(\''+o.id+'\')">'+(em?'수정 완료':'프리셋 수정')+'</button></div>'
+    +(em?lpEditorHTML(o.id):'');}
 function orderLossPanelHTML(o){
   if(typeof ensureOrderLoss==='function')ensureOrderLoss(o);
   var open=!!window._poLossOpen;var rows='';
