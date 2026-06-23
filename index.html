@@ -13943,17 +13943,37 @@ function rmExtraLine(oid,exId,sup,idx){
   saveData();renderOTab();
 }
 // 추가발주 → 전체 자재구조 생성(첫 발주와 같은 calcSups). 원단 제외(ex.excl, fabId기준) 반영. 결제용 bySupplier와 별개(중복X).
-function exBuildSuppliers(o,ex){
-  if(typeof calcSups!=='function'||!ex||!ex.itemId)return {};
-  var sups={};
-  try{sups=calcSups([{itemId:ex.itemId,qtyGrid:ex.addGrid||{},grandTotal:ex.qty||0}])||{};}catch(e){return {};}
-  var excl=ex.excl||{};
+// 추가발주 제외(체크 해제) 항목을 발주서 자재에 적용 — 원단=fabId, 부자재=trimId→(이름|규격|색|타입) 매칭(calcSups 자재엔 trimId가 없음), x:이름
+function exApplyExcl(it,excl,sups){
+  it=it||{};excl=excl||{};
+  var _ot=function(x){return x||'count';};
+  var exclFab={},exclTrimSig={},exclName={};
+  Object.keys(excl).forEach(function(k){
+    if(!excl[k])return;
+    if(k.indexOf('fab:')===0)exclFab[k.slice(4)]=true;
+    else if(k.indexOf('trim:')===0){
+      var t=(it.trims||[]).find(function(x){return x.id===k.slice(5);});
+      if(t)exclTrimSig[(t.name||'')+'|'+(t.size||'')+'|'+(t.color||'')+'|'+_ot(t.orderType)]=true;
+    }
+    else if(k.indexOf('x:')===0)exclName[k.slice(2)]=true;
+  });
+  var isExcl=function(m){
+    if(m.type==='fabric')return !!(m.fabId&&exclFab[m.fabId]);
+    var sig=(m.name||'')+'|'+(m.size||'')+'|'+(m.color||'')+'|'+_ot(m.orderType);
+    return !!(exclTrimSig[sig]||exclName[m.name||'']);
+  };
   Object.keys(sups).forEach(function(sn){
-    var mats=(sups[sn].materials||[]).filter(function(m){return !(m.fabId&&excl['fab:'+m.fabId]);});
+    var mats=(sups[sn].materials||[]).filter(function(m){return !isExcl(m);});
     if(mats.length){sups[sn].materials=mats;if(!sups[sn].poOpts)sups[sn].poOpts={};if(sups[sn].status===undefined)sups[sn].status='';}
     else delete sups[sn];
   });
   return sups;
+}
+function exBuildSuppliers(o,ex){
+  if(typeof calcSups!=='function'||!ex||!ex.itemId)return {};
+  var sups={};
+  try{sups=calcSups([{itemId:ex.itemId,qtyGrid:ex.addGrid||{},grandTotal:ex.qty||0}])||{};}catch(e){return {};}
+  return exApplyExcl(S.items[ex.itemId]||{},ex.excl||{},sups);
 }
 // 추가발주용 가상 주문(orderLike) 만들고 등록 → poCardHTML/핸들러가 첫 발주처럼 처리
 function exOrderLike(o,ex){
@@ -13981,6 +14001,7 @@ function extraOrdersSectionHTML(o){
     // 재단 추가분(비-불량): 첫 발주와 동일한 풀 po2 카드로 렌더
     if(!ex.partial){
       if(!ex.suppliers||!Object.keys(ex.suppliers).length)ex.suppliers=exBuildSuppliers(o,ex);
+      else if(ex.excl)exApplyExcl(S.items[ex.itemId]||{},ex.excl,ex.suppliers); // 기존 발주서도 제외 재적용(버그 자가치유)
       var ol=exOrderLike(o,ex);
       h+='<div style="display:flex;align-items:center;gap:6px;margin:4px 0 6px;font-size:12px"><b style="color:var(--amber)">'+esc(ex.itemName||'')+' · 추가 '+(ex.qty||0)+'장</b><span style="color:var(--t2);font-size:10px">'+esc(fmtKoDate(ex.date))+'</span><button class="btn s d" style="padding:2px 7px;font-size:10px;margin-left:auto" onclick="rmExtraOrder(\''+o.id+'\',\''+ex.id+'\')">추가발주 전체삭제</button></div>';
       var sns=Object.keys(ex.suppliers||{});
