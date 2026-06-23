@@ -2880,9 +2880,10 @@ async function cloudSyncSave(){
 
     try{
       var cloudCurrent=await cloudGet('fpm_'+curCoId);
+      var _cloudOrdDoc=await cloudGet('fpm_'+curCoId+'__orders'); // orders 별도 문서(쪼개기)
       if(cloudCurrent){
         var cloudItems=Object.keys(cloudCurrent.items||{}).length;
-        var cloudOrders=Object.keys(cloudCurrent.orders||{}).length;
+        var cloudOrders=Object.keys((_cloudOrdDoc&&_cloudOrdDoc.orders)||cloudCurrent.orders||{}).length;
         var cloudBrands=(cloudCurrent.brands||[]).length;
         var cloudImgs=_countTpImages(cloudCurrent.items||{});
         var cloudHas=(cloudItems>0||cloudOrders>0||cloudBrands>0);
@@ -2934,7 +2935,6 @@ async function cloudSyncSave(){
     // 회사별 데이터 전체 (작업지시서 dataURL 사진은 클라우드 문서에서 제외 — 1MB 초과로 동기화 깨짐 방지)
     var coData={
       items:tpStripDataUrls(S.items||{}),
-      orders:S.orders||{},
       brands:S.brands||[],
       sampleOrders:S.sampleOrders||[],
       pickups:S.pickups||[],
@@ -2949,18 +2949,21 @@ async function cloudSyncSave(){
     // 인라인 dataURL 사진은 클라우드 문서에 넣지 않음(로컬엔 보존) — Firestore 1MB(바이트) 초과 방지
     var _stripCnt={n:0};
     coData=_stripDataUrlsDeep(coData,_stripCnt);
+    var ordersData=_stripDataUrlsDeep({orders:S.orders||{}},_stripCnt); // orders 별도 문서(쪼개기)로 분리
     var sharedData=_stripDataUrlsDeep({factories:S.factories,priceBook:S.priceBook},_stripCnt);
     function _docBytes(o){try{return new Blob([JSON.stringify(o)]).size;}catch(e){try{return JSON.stringify(o).length;}catch(e2){return 0;}}}
     function _topKeys(o){try{return Object.keys(o).map(function(k){return [k,_docBytes(o[k])];}).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(x){return x[0]+' '+Math.round(x[1]/1024)+'KB';}).join('·');}catch(e){return '';}}
-    var _coBytes=_docBytes(coData),_shBytes=_docBytes(sharedData);
+    var _coBytes=_docBytes(coData),_shBytes=_docBytes(sharedData),_ordBytes=_docBytes(ordersData);
     var _coRes=await Promise.all([
       cloudSet('fpm_cos',companies),
       cloudSet('fpm_'+curCoId,coData),
+      cloudSet('fpm_'+curCoId+'__orders',ordersData),
       cloudSet('fpm_shared',sharedData)
     ]);
     if(_coRes.indexOf(false)>=0){
-      var _over=(_coBytes>1000000||_shBytes>1000000);
-      var _detail=(_coBytes>=_shBytes)?('회사데이터 '+Math.round(_coBytes/1024)+'KB('+_topKeys(coData)+')'):('공유데이터 '+Math.round(_shBytes/1024)+'KB('+_topKeys(sharedData)+')');
+      var _over=(_coBytes>1000000||_shBytes>1000000||_ordBytes>1000000);
+      var _big=Math.max(_coBytes,_shBytes,_ordBytes);
+      var _detail=(_big===_ordBytes)?('발주서데이터 '+Math.round(_ordBytes/1024)+'KB'):((_big===_coBytes)?('회사데이터 '+Math.round(_coBytes/1024)+'KB('+_topKeys(coData)+')'):('공유데이터 '+Math.round(_shBytes/1024)+'KB('+_topKeys(sharedData)+')'));
       var _why=(_over?'문서 1MB 초과 — ':('저장 거부['+(window._cloudLastErr||'?')+'] — '))+_detail;
       setCloudInd('err',_why);
       if(typeof showToast==='function')showToast('동기화 실패 — '+_why,9000);
@@ -3813,12 +3816,14 @@ async function cloudSyncLoad(id,opts){
   if(!isCloudOn())return false;
   setCloudInd('sync');
   try{
-    const[coData,sharedData,cosData]=await Promise.all([
-      cloudGet('fpm_'+id),cloudGet('fpm_shared'),cloudGet('fpm_cos')
+    const[coData,sharedData,cosData,ordersDoc]=await Promise.all([
+      cloudGet('fpm_'+id),cloudGet('fpm_shared'),cloudGet('fpm_cos'),cloudGet('fpm_'+id+'__orders')
     ]);
     let changed=false;
     if(cosData){companies={...cosData};lsSet('fpm_cos',companies);changed=true;}
     const d=coData||{};const sh=sharedData||{};
+    // orders는 별도 문서(쪼개기)에서 — 없으면 옛 위치(d.orders) 폴백
+    const _ord=(ordersDoc&&ordersDoc.orders&&Object.keys(ordersDoc.orders).length)?ordersDoc.orders:(d.orders||{});
     // 데이터 손실 방지 + ⑤ 멀티기기 최신 우선:
     // 자동 로드 때 로컬에 데이터가 있으면 기본은 로컬 보호.
     // 단, 클라우드가 "모든 항목(아이템·오더·작업지시서 사진)에서 로컬보다 ≥ 이고 하나라도 더 많으면"
@@ -3831,7 +3836,7 @@ async function cloudSyncLoad(id,opts){
       var _localHas=(_localItems>0||_localOrders>0||((S.brands||[]).length>0));
       if(_localHas){
         var _cloudItems=Object.keys(d.items||{}).length;
-        var _cloudOrders=Object.keys(d.orders||{}).length;
+        var _cloudOrders=Object.keys(_ord).length;
         var _cloudImgs=_countTpImages(d.items||{});
         var _cloudMoreComplete=(_cloudItems>=_localItems&&_cloudOrders>=_localOrders&&_cloudImgs>=_localImgs&&
                                 (_cloudItems>_localItems||_cloudOrders>_localOrders||_cloudImgs>_localImgs));
@@ -3849,7 +3854,7 @@ async function cloudSyncLoad(id,opts){
       // 모든 필드를 복원한다 (이전엔 items, orders만 받고 brands 등을 통째로 날려버렸음)
       S={
         items:(typeof tpPreserveLocalContent==='function')?tpPreserveLocalContent(d.items||{},S.items||{}):(d.items||S.items||{}),
-        orders:d.orders||S.orders||{},
+        orders:(Object.keys(_ord).length?_ord:(S.orders||{})),
         brands:_restoreLocalDataUrls(d.brands||S.brands||[],S.brands||[]),
         sampleOrders:d.sampleOrders||S.sampleOrders||[],
         pickups:d.pickups||S.pickups||[],
@@ -4746,6 +4751,7 @@ async function deleteCo(){
       await cloudSet('fpm_cos', companies);
       // 2) 삭제된 회사의 데이터 문서도 빈 값으로 덮어쓰기 (완전 제거가 어려우면 빈 데이터로)
       await cloudSet('fpm_'+deletedCoId, {items:{},orders:{},brands:[],sampleOrders:[],pickups:[],tasks:[],brandConfig:{},deductions:[],_deleted:true,_deletedAt:new Date().toISOString()});
+      await cloudSet('fpm_'+deletedCoId+'__orders', {orders:{},_deleted:true,_deletedAt:new Date().toISOString()});
       setCloudInd('ok');
       console.log('[deleteCo] 클라우드에서도 회사 제거 완료:', deletedCoId);
     }catch(e){
