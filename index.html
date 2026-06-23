@@ -10270,8 +10270,9 @@ function calcSups(orderItems,opts){
     // 몸판(발주량 직접 수정=actualOrderedQty 있는 원단)은 원래 수량 유지, 그 외 원단(카라·에리 등 부속)은 부자재처럼 보정(effective) 수량으로 산출
     var overriddenFab={};{var _co=null;for(var _oid in S.orders){if(S.orders[_oid].orderItems&&S.orders[_oid].orderItems.includes(oi)){_co=S.orders[_oid];break;}}if(_co&&_co.suppliers){for(var _sn in _co.suppliers){(_co.suppliers[_sn].materials||[]).forEach(function(_m){if(_m.type==='fabric'&&_m.itemId===oi.itemId&&_m.actualOrderedQty!==undefined&&_m.actualOrderedQty!==''&&_m.actualOrderedQty!==null)overriddenFab[(_m.fabId||_m.name)+'|'+(_m.colorName||'')]=true;});}}}
     if(_co&&typeof ensureOrderLoss==='function')ensureOrderLoss(_co);
-    var _effBuf=function(mid,fb){try{var e=_co&&_co.loss&&_co.loss[oi.itemId]&&_co.loss[oi.itemId][mid];if(typeof e==='number')return e;if(e&&e.m==='pct'&&e.v!=null&&e.v!=='')return +e.v;}catch(_e){}return fb;};
-    for(const f of it.fabrics||[]){if(!f.supplier)continue;if(!sups[f.supplier])sups[f.supplier]=mkSupWithDefaults(f.supplier);var _fb=_effBuf(f.id,f.buffer);var ff=(_fb!==f.buffer)?Object.assign({},f,{buffer:_fb}):f;
+    // 로스 2단계: pct(숫자) / 벌치("Nb"→addG 벌수) / +개("Na"→addG=N÷벌당사용량). 구버전{m,v}·미설정 폴백
+    var _effLoss=function(mid,fb,perPiece){var raw=(_co&&_co.loss&&_co.loss[oi.itemId])?_co.loss[oi.itemId][mid]:undefined;if(raw===undefined||raw===null)return {buffer:fb,addG:0};var _m='pct',_v=0;if(typeof raw==='number'){_v=raw;}else if(typeof raw==='string'){var _ch=raw.slice(-1);_v=parseFloat(raw)||0;if(_ch==='b')_m='set';else if(_ch==='a')_m='add';}else if(raw&&raw.m){_m=raw.m;_v=+raw.v||0;}if(_m==='set')return {buffer:0,addG:_v};if(_m==='add'){var _pp=+perPiece||0;return {buffer:0,addG:_pp>0?(_v/_pp):_v};}return {buffer:_v,addG:0};};
+    for(const f of it.fabrics||[]){if(!f.supplier)continue;if(!sups[f.supplier])sups[f.supplier]=mkSupWithDefaults(f.supplier);var _fL=_effLoss(f.id,f.buffer,f.consumption);var ff=(_fL.buffer!==f.buffer)?Object.assign({},f,{buffer:_fL.buffer}):f;
       const hasLinks=f.colorLinks&&f.colorLinks.length>0;
       // colorLinks의 itemColor가 실제 아이템 컬러와 하나도 안 맞으면(데이터 불일치) 링크 무시하고 전체 적용
       let linksValid=true;
@@ -10312,11 +10313,11 @@ function calcSups(orderItems,opts){
       }
       if(!t.supplier)continue;
       if(!sups[t.supplier])sups[t.supplier]=mkSupWithDefaults(t.supplier);
-      var _tb=_effBuf(t.id,t.buffer);var tt=(_tb!==t.buffer)?Object.assign({},t,{buffer:_tb}):t;
+      var _L=_effLoss(t.id,t.buffer,(t.orderType==='count'?(t.qtyPerPiece||1):(t.consumptionPerPiece||1)));var _tb=_L.buffer;var tt=(_tb!==t.buffer)?Object.assign({},t,{buffer:_tb}):t;
       // === 공통 사용 모드: 컬러 구분 없이 총수량으로 1번만 발주 ===
       // 도미노 적용: effTotalQty 사용 (effective pcs가 origPcs보다 작아진 경우 자동 축소된 값)
       if(t.isCommonUse){
-        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},tt,{unitPrice:_twp}):tt,effTotalQty);
+        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},tt,{unitPrice:_twp}):tt,effTotalQty+_L.addG);
         sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',isCommonUse:true,commonForColors:colors.filter(function(c){return effColorQtys[c]>0;}),effectivePcsApplied:effectivePcsForTrim,calc});
         continue;
       }
@@ -10338,7 +10339,7 @@ function calcSups(orderItems,opts){
           if(_grpM[_gk0].price===undefined&&_p0!==undefined)_grpM[_gk0].price=_p0;
         }
         for(const _G of _grp){
-          const calc=calcTrimNeed(tt,_G.qty);
+          const calc=calcTrimNeed(tt,_G.qty+(_L.addG?_L.addG*(effTotalQty>0?_G.qty/effTotalQty:0):0));
           const clNm=_G.clNm;
           const _icName=_G.itemColors.join(', ');
           const _icArr=_G.itemColors.slice();
@@ -10349,7 +10350,7 @@ function calcSups(orderItems,opts){
         }
       }else{
         // 단일 — 도미노 적용 effTotalQty
-        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},tt,{unitPrice:_twp}):tt,effTotalQty);
+        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},tt,{unitPrice:_twp}):tt,effTotalQty+_L.addG);
         sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
       }
     }
