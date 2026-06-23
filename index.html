@@ -468,6 +468,18 @@ html[data-theme="minimal"] .ise-auto,html[data-theme="minimal"] .ise-flag,html[d
 .po-mtbl .rt{text-align:right;white-space:nowrap}
 .po-mtbl .mq{font-weight:800;font-variant-numeric:tabular-nums;font-size:13px}
 .po-mtbl .pr{font-size:11px;color:#16a34a;font-weight:700;margin-top:2px}
+/* 자재요약 행에 계산식 합침 — 행 누르면 그 밑에 펼침 */
+.po-mtbl .mitem{border-top:1px solid var(--bd)}
+.po-mtbl .mitem:first-child{border-top:none}
+.po-mtbl .mitem.hasf .mr{cursor:pointer}
+.po-mtbl .car{color:var(--t3,#9aa0a6);font-size:11px;width:13px;text-align:center;flex:0 0 auto;transition:transform .15s}
+.po-mtbl .mitem.open .car{transform:rotate(90deg);color:var(--text)}
+.po-mtbl .mfml{display:none;padding:0 11px 9px}
+.po-mtbl .mitem.open .mfml{display:block}
+.po-mtbl .mr-adj{padding:7px 11px;background:#eff6ff;font-size:11px}
+html[data-theme="retro"] .po-mtbl .mitem{border-top:1.5px solid var(--ink)}
+html[data-theme="retro"] .po-mtbl .mfml .po-cl{background:#F4ECD8;border:1.5px solid var(--ink);border-radius:0}
+html[data-theme="retro"] .po-mtbl .mr-adj{background:#eaf3fb;border-bottom:1.5px solid var(--ink)}
 .po2 .po-body{margin-bottom:10px;border:1px solid var(--bd);border-radius:9px;overflow:hidden}
 .po2 .po-body>summary{cursor:pointer;font-size:13px;font-weight:700;padding:10px 12px;list-style:none}
 .po2 .po-body>summary::-webkit-details-marker{display:none}
@@ -12495,6 +12507,85 @@ function poCardHTML(o,sn){
     const fabs=sup.materials.filter(m=>m.type==='fabric');const trims=sup.materials.filter(m=>m.type==='trim');
     const _yo=v=>Math.round((+v||0)*1000)/1000;
     const poParts=(function(){
+      var r1=function(v){return Math.round((+v||0)*10)/10;};var r2=function(v){return Math.round((+v||0)*100)/100;};
+      var FLP=(typeof FAB_LOSS_PCT!=='undefined')?FAB_LOSS_PCT:5;
+      // 요약행 ↔ 계산식 짝짓기 키 (tMap 키와 동일하게)
+      var _tKey=function(t){
+        var lbl=esc(t.name);
+        if(t.orderType==='careLabel')lbl=esc(t.labelName||'케어라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');
+        else if(t.orderType==='mainLabel')lbl=esc(t.labelName||t.midSize||'메인라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');
+        var _isLabel=(t.orderType==='careLabel'||t.orderType==='mainLabel');
+        var col=_isLabel?'':(t.itemColorName||t.colorName||'');
+        return (t.name||'')+'|'+(t.size||'')+'|'+(t.orderType||'')+'|'+lbl+'|'+col;
+      };
+      // ===== 계산식 맵 (자재 요약 행 안에 끼워넣음) =====
+      var _fcG={},_fcGo=[];
+      fabs.forEach(function(f){var key=f.name||'';
+        if(!_fcG[key]){var fc=(S.items[f.itemId]&&S.items[f.itemId].fabrics||[]).find(function(x){return x.id===f.fabId;});_fcG[key]={name:(f.name||f.displayName||'').replace(/\s*\([^)]*\)\s*$/,''),part:(f.part||''),fc:fc,colors:{},corder:[],final:0,raw:0};_fcGo.push(key);}
+        var g=_fcG[key];
+        var fin=(f.actualOrderedQty!==undefined&&f.actualOrderedQty!=='')?+f.actualOrderedQty:(+f.totalYards||0);g.final+=fin;
+        var sb=f.sizeBreakdown||{};var pcs=0,raw=0;Object.keys(sb).forEach(function(sz){var e=sb[sz];if(!e||!e.qty)return;pcs+=e.qty;raw+=(+e.consumption||0)*e.qty;});
+        if(!pcs&&+f.garmentPcs>0){pcs=Math.round(+f.garmentPcs);if(g.fc)raw=(+g.fc.consumption||0)*pcs;}
+        g.raw+=raw;
+        var fcol=f.fabricColor||f.colorName||'';
+        if(!g.colors[fcol]){g.colors[fcol]={pcs:0,raw:0,items:[]};g.corder.push(fcol);}
+        var cg=g.colors[fcol];cg.pcs+=pcs;cg.raw+=raw;
+        var ic=f.colorName||'';var ex=cg.items.find(function(x){return x.ic===ic;});if(ex)ex.pcs+=pcs;else cg.items.push({ic:ic,pcs:pcs});
+      });
+      var fFml={};
+      _fcGo.forEach(function(k){var g=_fcG[k];if(!g.corder.length&&!g.final)return;var buf=(g.fc&&g.fc.buffer!=null&&g.fc.buffer!=='')?+g.fc.buffer:FLP;
+        var totPcs=0;
+        var _allIc=[];g.corder.forEach(function(fcol){(g.colors[fcol].items||[]).forEach(function(x){if(x.pcs>0&&_allIc.indexOf(x.ic)<0)_allIc.push(x.ic);});});
+        var icHdr='<div class="po-ich">'+(g.part?'('+esc(g.part)+') ':'')+_allIc.map(function(c){return '*'+esc(c||'기본');}).join(' ')+'</div>';
+        var blocks=icHdr+g.corder.map(function(fcol){var cg=g.colors[fcol];totPcs+=cg.pcs;
+          var yo=cg.pcs?(Math.round((cg.raw/cg.pcs)*1000)/1000):0;
+          var ics=cg.items.filter(function(x){return x.pcs>0;}).map(function(x){return esc(x.ic||'기본');});
+          var icTag=(ics.length>1)?' <span class="po-icp">('+ics.join('+')+')</span>':'';
+          return '<div class="po-cl2"><span class="po-fc2">#'+esc(fcol||'기본')+'</span> = '+cg.pcs+'장 × 요척 '+yo+' = <b>'+r1(cg.raw)+'y</b>'+icTag+'</div>';
+        }).join('');
+        var line='<div class="po-cl">총 '+totPcs+'장 · '+r1(g.raw)+'y → 로스 '+buf+'% = <b>'+r1(g.final)+'y 발주</b></div>';
+        fFml[g.name]=blocks+line;
+      });
+      var tFml={};
+      trims.filter(function(t){return !(t.orderType==='careLabel'||t.orderType==='mainLabel'||t.orderType==='bias');}).forEach(function(t){
+        var _qppType2=(t.orderType==='button'||t.orderType==='snap'||t.orderType==='zipper');
+        var yo=_qppType2?((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?+t.qtyPerPiece:null):((t.consumptionPerPiece!=null&&t.consumptionPerPiece!=='')?+t.consumptionPerPiece:((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?+t.qtyPerPiece:null));
+        var pcs=(t.calc&&t.calc.needPcs)?Math.round(t.calc.needPcs):0;
+        if(yo==null||!pcs)return;
+        var q=t.calc?(t.calc.isRoll?(t.calc.rolls+'롤'):(t.calc.isJeol?(t.calc.jeol+'절'):(r2(t.calc.qty)+(t.calc.unit||'')))):'';
+        var _detail;
+        if(t.isButtonLoop&&(+t.loopPerYard>0)){
+          var _lpy=+t.loopPerYard;
+          var _lpp=(+t.loopPerPiece>0)?+t.loopPerPiece:Math.round((+t.consumptionPerPiece||0)*_lpy);
+          var _bags=t.calc?(+t.calc.qty||0):0;
+          var _pu=t.packUnit||(t.calc&&t.calc.unit)||'봉지';
+          var _need=_lpp*pcs;var _ord=_bags*_lpy;
+          _detail='<div class="po-cl">벌당 '+_lpp+'개 × '+pcs+'장 = '+_need+'개 → <b>'+_bags+_pu+'</b> <span class="mcl">(1'+_pu+'='+_lpy+'개 · 발주 '+_ord+'개)</span></div>';
+        } else {
+          var _bu=(t.orderType==='roll'||t.orderType==='yard'||t.orderType==='bias')?'y':'개';
+          var _bpcs=(t.calc&&t.calc.basePcs!=null)?Math.round(t.calc.basePcs):pcs;
+          var _base=yo*_bpcs;
+          var _lm=(t.calc&&t.calc.lossM)||'pct';
+          var _lv=(t.calc&&t.calc.lossV!=null)?+t.calc.lossV:0;
+          var _pct=(t.buffer!=null&&t.buffer!=='')?+t.buffer:0;
+          var _lead='<div class="po-cl">'+_bpcs+'장 × 개당 '+_yo(yo);
+          if(_lm==='set'&&_lv>0){_detail=_lead+' = '+r2(_base)+_bu+' <span class="mcl">+ '+_lv+'벌치 (개당 '+_yo(yo)+'×'+_lv+'='+r2(yo*_lv)+_bu+')</span> → <b>'+q+'</b></div>';}
+          else if(_lm==='add'&&_lv>0){_detail=_lead+' = '+r2(_base)+_bu+' <span class="mcl">+ 여분 '+_lv+'개</span> → <b>'+q+'</b></div>';}
+          else if(_pct>0){_detail=_lead+' = '+r2(_base)+_bu+' <span class="mcl">→ 로스 '+_pct+'% = '+r2(_base*(1+_pct/100))+_bu+'</span> → <b>'+q+'</b></div>';}
+          else{_detail=_lead+' = <b>'+q+'</b> <span class="mcl">(로스 0%)</span></div>';}
+        }
+        var kk=_tKey(t);tFml[kk]=(tFml[kk]||'')+_detail;
+      });
+      trims.filter(function(t){return t.orderType==='careLabel'||t.orderType==='mainLabel';}).forEach(function(t){
+        var pcs=(t.calc&&t.calc.needPcs!=null)?Math.round(t.calc.needPcs):0;
+        if(!pcs)return;
+        var buf=(t.calc&&t.calc.qtyBuffer!=null)?+t.calc.qtyBuffer:((t.qtyBuffer!=null&&t.qtyBuffer!=='')?+t.qtyBuffer:10);
+        var fin=(t.calc&&t.calc.qty!=null)?t.calc.qty:(pcs+buf);
+        var q=fin+'개';var _d;
+        if(t.orderType==='mainLabel'){var qpp=(t.qtyPerPiece!=null&&+t.qtyPerPiece>0)?+t.qtyPerPiece:1;_d='<div class="po-cl">의뢰 '+pcs+'장'+(qpp>1?' × 벌당 '+qpp:'')+' <span class="mcl">+ 여분 '+buf+'개</span> = <b>'+q+'</b></div>';}
+        else{_d='<div class="po-cl">의뢰 '+pcs+'장 <span class="mcl">+ 여분 '+buf+'개</span> = <b>'+q+'</b></div>';}
+        var kk=_tKey(t);tFml[kk]=(tFml[kk]||'')+_d;
+      });
       // 원단: 같은 원단(이름+폭)끼리 합산 — 요척은 1번만 (컬러별 중복 제거)
       var fMap={},fOrder=[];
       fabs.forEach(function(f){
@@ -12511,7 +12602,8 @@ function poCardHTML(o,sn){
         var qty=parseFloat(m.yd.toFixed(2))+'yd'+(m.kg?' ('+parseFloat(m.kg.toFixed(2))+'kg)':'');
         var pr=m.price?'<div class="pr">'+_won(m.price)+(m.perKg?'/kg':'/yd')+'</div>':'';
         var _fnm=esc(m.name)+((m.colors&&m.colors.length)?' <span class="mcl">('+esc(m.colors.join('/'))+')</span>':'');
-        return '<div class="mr"><span class="mk f">원단</span><div class="mid"><div class="mn">'+_fnm+'</div>'+(sub?'<div class="sb">'+esc(sub)+'</div>':'')+'</div><div class="rt"><div class="mq">'+qty+'</div>'+pr+'</div></div>';}).join('');
+        var fml=fFml[m.name]||fFml[(m.name||'').replace(/\s*\([^)]*\)\s*$/,'')]||'';
+        return '<div class="mitem'+(fml?' hasf':'')+'"><div class="mr"'+(fml?' onclick="this.parentNode.classList.toggle(\'open\')"':'')+'><span class="mk f">원단</span><div class="mid"><div class="mn">'+_fnm+'</div>'+(sub?'<div class="sb">'+esc(sub)+'</div>':'')+'</div><div class="rt"><div class="mq">'+qty+'</div>'+pr+'</div>'+(fml?'<span class="car">▸</span>':'')+'</div>'+(fml?'<div class="mfml">'+fml+'</div>':'')+'</div>';}).join('');
       // 부자재: 같은 부자재(이름+크기+타입)끼리 합산 — 요척 1번만 (컬러별 중복 제거)
       // 부자재: 예측 쉽게 컬러별로 분리 (라벨류는 합산 유지)
       var tMap={},tOrder=[];
@@ -12521,7 +12613,7 @@ function poCardHTML(o,sn){
         else if(t.orderType==='mainLabel')lbl=esc(t.labelName||t.midSize||'메인라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');
         var _isLabel=(t.orderType==='careLabel'||t.orderType==='mainLabel');
         var col=_isLabel?'':(t.itemColorName||t.colorName||'');
-        var key=(t.name||'')+'|'+(t.size||'')+'|'+(t.orderType||'')+'|'+lbl+'|'+col;
+        var key=_tKey(t);
         // 단추·스냅·지퍼는 요척=qtyPerPiece로 계산(_calcTrimNeedRaw)되므로 표시도 qtyPerPiece 우선. (consumptionPerPiece에 옛 1이 남아 '요척 1'로 잘못 뜨던 버그 — 표시만, 계산 불변)
         var _qppType=(t.orderType==='button'||t.orderType==='snap'||t.orderType==='zipper');
         var tyo=_qppType?((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?_yo(t.qtyPerPiece):null):((t.consumptionPerPiece!=null&&t.consumptionPerPiece!=='')?_yo(t.consumptionPerPiece):((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?_yo(t.qtyPerPiece):null));
@@ -12534,94 +12626,9 @@ function poCardHTML(o,sn){
         var sub=(m.yo!=null)?(m.bySize?((jang?jang+'장 · ':'')+'사이즈별 요척'):((jang?jang+'장 · ':'')+'요척 '+m.yo)):'';
         var colTxt=m.col?' <span class="mcl">('+esc(m.col)+')</span>':'';
         var pr=m.price?'<div class="pr">'+_won(m.price)+'</div>':'';
-        return '<div class="mr"><span class="mk t">부자재</span><div class="mid"><div class="mn">'+m.lbl+colTxt+'</div>'+(sub?'<div class="sb">'+esc(sub)+'</div>':'')+'</div><div class="rt"><div class="mq">'+q+'</div>'+pr+'</div></div>';}).join('');
-      // 계산식 상세 (발주수량 검증용 — 노션 스타일)
-      var r1=function(v){return Math.round((+v||0)*10)/10;};var r2=function(v){return Math.round((+v||0)*100)/100;};
-      var FLP=(typeof FAB_LOSS_PCT!=='undefined')?FAB_LOSS_PCT:5;
-      // 원단별 그룹(이름) → 그 안에서 원단색(fabricColor)별 합산. (A1: 식 끝에 결과 진하게)
-      var _fcG={},_fcGo=[];
-      fabs.forEach(function(f){var key=f.name||'';
-        if(!_fcG[key]){var fc=(S.items[f.itemId]&&S.items[f.itemId].fabrics||[]).find(function(x){return x.id===f.fabId;});_fcG[key]={name:(f.name||f.displayName||'').replace(/\s*\([^)]*\)\s*$/,''),part:(f.part||''),fc:fc,colors:{},corder:[],final:0,raw:0};_fcGo.push(key);}
-        var g=_fcG[key];
-        var fin=(f.actualOrderedQty!==undefined&&f.actualOrderedQty!=='')?+f.actualOrderedQty:(+f.totalYards||0);g.final+=fin;
-        var sb=f.sizeBreakdown||{};var pcs=0,raw=0;Object.keys(sb).forEach(function(sz){var e=sb[sz];if(!e||!e.qty)return;pcs+=e.qty;raw+=(+e.consumption||0)*e.qty;});
-        if(!pcs&&+f.garmentPcs>0){pcs=Math.round(+f.garmentPcs);if(g.fc)raw=(+g.fc.consumption||0)*pcs;}
-        g.raw+=raw;
-        var fcol=f.fabricColor||f.colorName||'';
-        if(!g.colors[fcol]){g.colors[fcol]={pcs:0,raw:0,items:[]};g.corder.push(fcol);}
-        var cg=g.colors[fcol];cg.pcs+=pcs;cg.raw+=raw;
-        var ic=f.colorName||'';var ex=cg.items.find(function(x){return x.ic===ic;});if(ex)ex.pcs+=pcs;else cg.items.push({ic:ic,pcs:pcs});
-      });
-      var fabDetail=_fcGo.map(function(k){var g=_fcG[k];if(!g.corder.length&&!g.final)return '';var buf=(g.fc&&g.fc.buffer!=null&&g.fc.buffer!=='')?+g.fc.buffer:FLP;
-        var totPcs=0;
-        // 발주서 본문 양식 그대로: (몸판) *아이템컬러... 헤더 + #원단컬러 = 장수 × 요척 = 야드
-        var _allIc=[];g.corder.forEach(function(fcol){(g.colors[fcol].items||[]).forEach(function(x){if(x.pcs>0&&_allIc.indexOf(x.ic)<0)_allIc.push(x.ic);});});
-        var icHdr='<div class="po-ich">'+(g.part?'('+esc(g.part)+') ':'')+_allIc.map(function(c){return '*'+esc(c||'기본');}).join(' ')+'</div>';
-        var blocks=icHdr+g.corder.map(function(fcol){var cg=g.colors[fcol];totPcs+=cg.pcs;
-          var yo=cg.pcs?(Math.round((cg.raw/cg.pcs)*1000)/1000):0;
-          var ics=cg.items.filter(function(x){return x.pcs>0;}).map(function(x){return esc(x.ic||'기본');});
-          var icTag=(ics.length>1)?' <span class="po-icp">('+ics.join('+')+')</span>':'';
-          return '<div class="po-cl2"><span class="po-fc2">#'+esc(fcol||'기본')+'</span> = '+cg.pcs+'장 × 요척 '+yo+' = <b>'+r1(cg.raw)+'y</b>'+icTag+'</div>';
-        }).join('');
-        var head='<div class="po-cm-h" onclick="poCalcTog(this)"><span class="cnm">'+esc(g.name)+(g.part?' <span class="po-part">'+esc(g.part)+'</span>':'')+'</span><span class="cq">합 '+r1(g.final)+'y</span><span class="car">▸</span></div>';
-        var line='<div class="po-cl">총 '+totPcs+'장 · '+r1(g.raw)+'y → 로스 '+buf+'% = <b>'+r1(g.final)+'y 발주</b></div>';
-        return '<div class="po-cm">'+head+'<div class="po-cm-d">'+blocks+line+'</div></div>';
-      }).filter(Boolean).join('');
-      var trimDetail=trims.filter(function(t){return !(t.orderType==='careLabel'||t.orderType==='mainLabel'||t.orderType==='bias');}).map(function(t){
-        var _qppType2=(t.orderType==='button'||t.orderType==='snap'||t.orderType==='zipper'); // 단추·스냅·지퍼는 요척=qtyPerPiece (계산식과 일치)
-        var yo=_qppType2?((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?+t.qtyPerPiece:null):((t.consumptionPerPiece!=null&&t.consumptionPerPiece!=='')?+t.consumptionPerPiece:((t.qtyPerPiece!=null&&t.qtyPerPiece!=='')?+t.qtyPerPiece:null));
-        var pcs=(t.calc&&t.calc.needPcs)?Math.round(t.calc.needPcs):0;
-        if(yo==null||!pcs)return '';
-        var clr=t.itemColorName||t.colorName||'';
-        var q=t.calc?(t.calc.isRoll?(t.calc.rolls+'롤'):(t.calc.isJeol?(t.calc.jeol+'절'):(r2(t.calc.qty)+(t.calc.unit||'')))):'';
-        // 봉지(스냅)·단추고리(isButtonLoop): 0.03 대신 실제 개수로 — 벌당 N개 × 장수 = 총개수 → M봉지 (봉지당 K개)
-        var _nm=esc(t.name)+(clr?' <span class="mcl">('+esc(clr)+')</span>':'');var _detail;
-        if(t.isButtonLoop&&(+t.loopPerYard>0)){
-          var _lpy=+t.loopPerYard;
-          var _lpp=(+t.loopPerPiece>0)?+t.loopPerPiece:Math.round((+t.consumptionPerPiece||0)*_lpy);
-          var _bags=t.calc?(+t.calc.qty||0):0;
-          var _pu=t.packUnit||(t.calc&&t.calc.unit)||'봉지';
-          var _need=_lpp*pcs;
-          var _ord=_bags*_lpy;
-          _detail='<div class="po-cl">벌당 '+_lpp+'개 × '+pcs+'장 = '+_need+'개 → <b>'+_bags+_pu+'</b> <span class="mcl">(1'+_pu+'='+_lpy+'개 · 발주 '+_ord+'개)</span></div>';
-        } else {
-          // 오더수량 × 요척 → 여분(%/벌치/+개) → 최종 (검산되게 분리: 모드별로 다르게)
-          var _bu=(t.orderType==='roll'||t.orderType==='yard'||t.orderType==='bias')?'y':'개';
-          var _bpcs=(t.calc&&t.calc.basePcs!=null)?Math.round(t.calc.basePcs):pcs;
-          var _base=yo*_bpcs;
-          var _lm=(t.calc&&t.calc.lossM)||'pct';
-          var _lv=(t.calc&&t.calc.lossV!=null)?+t.calc.lossV:0;
-          var _pct=(t.buffer!=null&&t.buffer!=='')?+t.buffer:0;
-          var _lead='<div class="po-cl">'+_bpcs+'장 × 개당 '+_yo(yo);
-          if(_lm==='set'&&_lv>0){
-            _detail=_lead+' = '+r2(_base)+_bu+' <span class="mcl">+ '+_lv+'벌치 (개당 '+_yo(yo)+'×'+_lv+'='+r2(yo*_lv)+_bu+')</span> → <b>'+q+'</b></div>';
-          } else if(_lm==='add'&&_lv>0){
-            _detail=_lead+' = '+r2(_base)+_bu+' <span class="mcl">+ 여분 '+_lv+'개</span> → <b>'+q+'</b></div>';
-          } else if(_pct>0){
-            _detail=_lead+' = '+r2(_base)+_bu+' <span class="mcl">→ 로스 '+_pct+'% = '+r2(_base*(1+_pct/100))+_bu+'</span> → <b>'+q+'</b></div>';
-          } else {
-            _detail=_lead+' = <b>'+q+'</b> <span class="mcl">(로스 0%)</span></div>';
-          }
-        }
-        return '<div class="po-cm"><div class="po-cm-h" onclick="poCalcTog(this)"><span class="cnm">'+_nm+'</span><span class="cq">'+q+'</span><span class="car">▸</span></div><div class="po-cm-d">'+_detail+'</div></div>';
-      }).filter(Boolean).join('');
-      // 라벨·케어라벨 계산식 — 의뢰 N장 (+여분 M개) = 발주개수 (라벨은 여분이 +개라 % 대신 +개로 분리)
-      var labelDetail=trims.filter(function(t){return t.orderType==='careLabel'||t.orderType==='mainLabel';}).map(function(t){
-        var pcs=(t.calc&&t.calc.needPcs!=null)?Math.round(t.calc.needPcs):0;
-        if(!pcs)return '';
-        var buf=(t.calc&&t.calc.qtyBuffer!=null)?+t.calc.qtyBuffer:((t.qtyBuffer!=null&&t.qtyBuffer!=='')?+t.qtyBuffer:10);
-        var fin=(t.calc&&t.calc.qty!=null)?t.calc.qty:(pcs+buf);
-        var clr=t.itemColorName||t.colorName||'';
-        var _ln=esc(t.name||(t.orderType==='mainLabel'?'메인라벨':'케어라벨'))+(clr?' <span class="mcl">('+esc(clr)+')</span>':'');
-        var q=fin+'개';var _d;
-        if(t.orderType==='mainLabel'){
-          var qpp=(t.qtyPerPiece!=null&&+t.qtyPerPiece>0)?+t.qtyPerPiece:1;
-          _d='<div class="po-cl">의뢰 '+pcs+'장'+(qpp>1?' × 벌당 '+qpp:'')+' <span class="mcl">+ 여분 '+buf+'개</span> = <b>'+q+'</b></div>';
-        } else {
-          _d='<div class="po-cl">의뢰 '+pcs+'장 <span class="mcl">+ 여분 '+buf+'개</span> = <b>'+q+'</b></div>';
-        }
-        return '<div class="po-cm"><div class="po-cm-h" onclick="poCalcTog(this)"><span class="cnm">'+_ln+'</span><span class="cq">'+q+'</span><span class="car">▸</span></div><div class="po-cm-d">'+_d+'</div></div>';
-      }).filter(Boolean).join('');
+        var badge=m.isLabel?'라벨':'부자재';
+        var fml=tFml[k]||'';
+        return '<div class="mitem'+(fml?' hasf':'')+'"><div class="mr"'+(fml?' onclick="this.parentNode.classList.toggle(\'open\')"':'')+'><span class="mk t">'+badge+'</span><div class="mid"><div class="mn">'+m.lbl+colTxt+'</div>'+(sub?'<div class="sb">'+esc(sub)+'</div>':'')+'</div><div class="rt"><div class="mq">'+q+'</div>'+pr+'</div>'+(fml?'<span class="car">▸</span>':'')+'</div>'+(fml?'<div class="mfml">'+fml+'</div>':'')+'</div>';}).join('');
       // 원단부족/초과로 생산수량이 조정된 아이템 요약 (계산식 상단) — 아래 부자재·부속원단 수량의 근거
       // (발주서엔 안 나가고, 이 계산식 박스 안에서만 "왜 이 수량인지"를 보여줌)
       var _adjHtml='';
@@ -12635,13 +12642,12 @@ function poCardHTML(o,sn){
         var _per=(_bd.colors||[]).map(function(c){var r=(_bd.colorRatios&&_bd.colorRatios[c])||1;var p=Math.round((r-1)*100);if(p===0)return null;return esc(c||'기본')+' '+(p>0?'+':'')+p+'%';}).filter(Boolean).join(' / ');
         _adjHtml+='<div style="border-top:1px dashed #e2e8f0;padding:6px 0;font-size:11px"><b style="color:'+_tone+'">원단 조정 — '+esc(_nm)+' '+_bd.origTotal+'장 → '+_bd.effTotal+'장 ('+(_bd.diff>0?'+':'')+_bd.diff+'장)</b>'+(_per?'<div style="color:#475569;margin-top:2px;font-variant-numeric:tabular-nums">'+_per+'</div>':'')+'<div style="color:#94a3b8;font-size:10px;margin-top:1px">→ 아래 부자재·부속 원단 수량은 이 조정수량 기준</div></div>';
       });})();
-      // 항상 닫힌 채로 렌더(기본 닫힘). 보고 싶을 때 직접 펼치고, 재렌더(발송완료 등)되면 다시 닫힘.
-      // (open 상태를 저장하면 <details open> 재삽입 때 ontoggle이 발화돼 발송완료마다 펼쳐지는 문제가 있어 저장 안 함)
-      var detailHtml=(_adjHtml+fabDetail+trimDetail+labelDetail)?('<details class="po-calc"><summary>계산식 <span class="hint">발주수량 맞는지 확인용 · 발주서엔 안 나감</span></summary><div class="po-calc-b">'+(_adjHtml?'<div class="po-adj">'+_adjHtml+'</div>':'')+fabDetail+trimDetail+labelDetail+'</div></details>'):'';
-      // 자재 요약 표(원단·부자재 수량 + 단가) — 카드 상단 (이미 계산된 값만 표시, 계산 로직 불변)
-      var _matSumHtml=(fHtml+tHtml)?('<div class="po-mtbl">'+fHtml+tHtml+'</div>'):'';
+      // 계산식은 자재 요약 행 안으로 합쳐짐(별도 계산식 섹션 제거). 원단조정은 표 상단 배너로.
+      var _adjBanner=_adjHtml?'<div class="mr-adj">'+_adjHtml+'</div>':'';
+      // 자재 요약 표(원단·부자재 + 단가 + 줄 펼치면 계산식) — 카드 상단
+      var _matSumHtml=(fHtml+tHtml)?('<div class="po-mtbl">'+_adjBanner+fHtml+tHtml+'</div>'):'';
       var _optCount=PO_OPT_DEFS.filter(function(d){return opts[d.key];}).length;
-      return {matTbl:_matSumHtml,calcHtml:detailHtml,optCount:_optCount};
+      return {matTbl:_matSumHtml,calcHtml:'',optCount:_optCount};
     })();
     const poText=genPoText(o,sn);
     return`<div class="sc po2"><div class="sc-h">
