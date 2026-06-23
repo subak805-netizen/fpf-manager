@@ -13978,10 +13978,38 @@ function exApplyExcl(it,excl,sups){
   });
   return sups;
 }
+// 모달(증분: extraTrimNeed/fab 증분)에 실제로 잡히는 자재 집합 — 원단 fabId / 부자재 이름|규격|색|타입 시그니처
+function exIncrementalSet(o,ex){
+  var res={fab:{},trim:{},any:false};
+  var it=S.items[ex.itemId];if(!it||!o)return res;
+  var bySup;
+  try{bySup=extraOrderBySupplier(o.id,ex.itemId,ex.qty||0);}catch(e){return res;}
+  Object.keys(bySup||{}).forEach(function(sn){(bySup[sn].lines||[]).forEach(function(l){
+    res.any=true;
+    if(l.fabId)res.fab[l.fabId]=true;
+    else if(l.trimId){var t=(it.trims||[]).find(function(x){return x.id===l.trimId;});if(t)res.trim[(t.name||'')+'|'+(t.size||'')+'|'+(t.color||'')+'|'+(t.orderType||'count')]=true;}
+  });});
+  return res;
+}
+// calcSups 발주서 자재를 모달 증분 집합으로 필터 — 이미 재단분으로 커버돼 모달에 안 뜬 자재는 발주서에서도 제외(모달=발주서 일치)
+function exFilterIncremental(o,ex,sups){
+  var incl=exIncrementalSet(o,ex);
+  if(!incl.any)return sups; // 증분 계산 실패/빈값이면 안전하게 그대로 (잘못 비우지 않음)
+  Object.keys(sups).forEach(function(sn){
+    var mats=(sups[sn].materials||[]).filter(function(m){
+      if(m.type==='fabric')return !!incl.fab[m.fabId];
+      var sig=(m.name||'')+'|'+(m.size||'')+'|'+(m.color||'')+'|'+(m.orderType||'count');
+      return !!incl.trim[sig];
+    });
+    if(mats.length)sups[sn].materials=mats;else delete sups[sn];
+  });
+  return sups;
+}
 function exBuildSuppliers(o,ex){
   if(typeof calcSups!=='function'||!ex||!ex.itemId)return {};
   var sups={};
   try{sups=calcSups([{itemId:ex.itemId,qtyGrid:ex.addGrid||{},grandTotal:ex.qty||0}])||{};}catch(e){return {};}
+  sups=exFilterIncremental(o,ex,sups);
   return exApplyExcl(S.items[ex.itemId]||{},ex.excl||{},sups);
 }
 // 추가발주용 가상 주문(orderLike) 만들고 등록 → poCardHTML/핸들러가 첫 발주처럼 처리
@@ -14014,7 +14042,7 @@ function extraOrdersSectionHTML(o){
     // 재단 추가분(비-불량): 첫 발주와 동일한 풀 po2 카드로 렌더
     if(!ex.partial){
       if(!ex.suppliers||!Object.keys(ex.suppliers).length)ex.suppliers=exBuildSuppliers(o,ex);
-      else if(ex.excl)exApplyExcl(S.items[ex.itemId]||{},ex.excl,ex.suppliers); // 기존 발주서도 제외 재적용(버그 자가치유)
+      else { exFilterIncremental(o,ex,ex.suppliers); if(ex.excl)exApplyExcl(S.items[ex.itemId]||{},ex.excl,ex.suppliers); } // 기존 발주서도 증분필터+제외 재적용(버그 자가치유)
       var ol=exOrderLike(o,ex);
       h+='<div style="display:flex;align-items:center;gap:6px;margin:4px 0 6px;font-size:12px"><b style="color:var(--amber)">'+esc(ex.itemName||'')+' · 추가 '+(ex.qty||0)+'장</b><span style="color:var(--t2);font-size:10px">'+esc(fmtKoDate(ex.date))+'</span><button class="btn s d" style="padding:2px 7px;font-size:10px;margin-left:auto" onclick="rmExtraOrder(\''+o.id+'\',\''+ex.id+'\')">추가발주 전체삭제</button></div>';
       var sns=Object.keys(ex.suppliers||{});
