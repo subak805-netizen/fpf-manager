@@ -9436,7 +9436,7 @@ function renderCSSummary(){
     const fabCost=Math.round((it.fabrics||[]).reduce((s,f)=>s+calcFabYards(f,REP).cost,0)/REP);
     const trimCost=Math.round((it.trims||[]).reduce((s,t)=>s+calcTrimNeed(t,REP).cost,0)/REP);
     const processCost=COST_DEFS.reduce((s,[k])=>s+(it[k]||0),0);
-    const trimProcCost=(it.trimCosts||[]).reduce((s,tc)=>tc.costType==='perLot'?s:s+(tc.costPerPcs||0),0);
+    const trimProcCost=trimCostPerPcs(it);
     const finishCost=(it.finishCosts||[]).reduce((s,fc2)=>s+(fc2.costPerPcs||0),0);
     const total=fabCost+trimCost+processCost+trimProcCost+finishCost;
     const sewFc=it.sewingFcId&&S.factories[it.sewingFcId]?S.factories[it.sewingFcId].name:'';
@@ -11444,13 +11444,25 @@ function cloneOrder(oid){
   S.orders[nid]=clone;initTrackBlocks(nid);saveData();curOid=nid;switchTab('orders');showToast('오더 복사 완료. 날짜를 업데이트하세요.');
 }
 
+/* 부자재 가공비(trimCosts) 1장당 원가 — 원가계산서와 동일 공식: 개당=costPerPcs×(활성컬러/전체컬러), 컬러당(perLot)=costPerLot×활성컬러÷미니멈 */
+function trimCostPerPcs(it,minQty){
+  minQty=minQty||30;
+  var all=(it&&it.colors&&it.colors.length)?it.colors:[''];
+  return (it&&it.trimCosts||[]).reduce(function(s,tc){
+    var has=tc.colorLinks&&tc.colorLinks.length>0;
+    var active=has?all.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):all;
+    if(tc.costType==='perLot')return s+(tc.costPerLot||0)*active.length/minQty;
+    return s+(tc.costPerPcs||0)*(active.length/(all.length||1));
+  },0);
+}
 /* ===== 오더 총 원가 ===== */
 function calcOrderCost(o){
   let fab=0,trim=0,proc=0;
   for(const oi of o.orderItems||[]){const it=S.items[oi.itemId];if(!it)continue;const qty=oi.grandTotal||0;
     for(const f of it.fabrics||[])fab+=calcFabYards(f,qty).cost;
     for(const t of it.trims||[])trim+=calcTrimNeed(t,qty).cost;
-    COST_DEFS.forEach(([ck])=>proc+=(it[ck]||0)*qty);}
+    COST_DEFS.forEach(([ck])=>proc+=(it[ck]||0)*qty);
+    proc+=trimCostPerPcs(it)*qty;}
   return{fab,trim,proc,total:fab+trim+proc};
 }
 
