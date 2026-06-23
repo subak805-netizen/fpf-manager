@@ -558,6 +558,27 @@ html[data-theme="retro"] .po2-chip.on{background:var(--neon-green);color:var(--i
 /* 카드 B: 회색 캔버스(트레이) 위 흰 카드 → 경계 또렷 */
 .po2-tray{background:#eceef1;border-radius:14px;padding:12px;max-width:560px}
 .po2-tray .po2{max-width:none;margin-bottom:13px}
+/* 로스 설정 패널 */
+.lp-panel{max-width:560px;border:2px solid var(--ink,#0B0A05);background:#fff;margin-bottom:10px;border-radius:4px;overflow:hidden}
+.lp-head{display:block;width:100%;text-align:left;font:inherit;font-weight:800;font-size:13px;padding:9px 12px;background:#EFE8D4;border:0;cursor:pointer;color:var(--ink,#222)}
+.lp-hint{font-weight:400;color:#8a8170;font-size:11px;margin-left:5px}
+.lp-bd{padding:9px 11px}
+.lp-presets{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:9px;padding-bottom:8px;border-bottom:1px dashed var(--bd,#ddd)}
+.lp-pl{font-size:11px;font-weight:800;color:#666}
+.lp-chip{display:inline-flex;align-items:center;gap:2px;font-size:12px;font-weight:700;border:1.5px solid var(--ink,#222);border-radius:20px;padding:4px 6px 4px 10px;background:#fff;cursor:pointer}
+.lp-chipx{border:0;background:transparent;color:#c0392b;font-size:13px;cursor:pointer;padding:0;line-height:1}
+.lp-add{font-size:11px;font-weight:700;border:1.5px dashed #aaa;border-radius:7px;padding:4px 9px;background:#fff;cursor:pointer;color:#555}
+.lp-item{font-size:11px;font-weight:800;color:#888;margin:6px 0 3px}
+.lp-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0}
+.lp-row:last-child{border-bottom:0}
+.lp-nm{flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lp-seg-wrap{display:inline-flex;border:1.5px solid var(--ink,#222);border-radius:7px;overflow:hidden;flex:0 0 auto}
+.lp-seg{font:inherit;font-size:12px;font-weight:700;border:0;background:#fff;padding:6px 9px;cursor:pointer;border-right:1.5px solid var(--ink,#222);color:#555}
+.lp-seg:last-child{border-right:0}
+.lp-seg.on{background:var(--ink,#222);color:#fff}
+.lp-val{width:50px;border:1.5px solid var(--bd,#ccc);border-radius:6px;padding:6px;font-size:13px;text-align:right;flex:0 0 auto}
+.lp-res{font-size:12px;font-weight:800;color:#1f7a4d;min-width:62px;text-align:right;flex:0 0 auto}
+@media(max-width:560px){.lp-res{display:none}.lp-nm{font-size:12px}.lp-seg{padding:6px 7px}}
 .po2-tray .po2:last-child{margin-bottom:0}
 html[data-theme="retro"] .po2-tray{background:#E7DCC2;border:2px solid var(--ink);border-radius:0}
 .po2{max-width:560px;background:var(--card-bg,#fff);border:1px solid #e0e3e7;box-shadow:0 2px 8px rgba(16,24,40,.10);margin-bottom:13px;border-radius:12px}
@@ -12312,6 +12333,51 @@ function applyPoTypeDefaults(o){
   }
   if(changed&&typeof saveData==='function')saveData();
 }
+// ===== 로스 3단계: 발주서 로스 설정 패널 (자재별 % / 벌치 / +개 + 프리셋) =====
+function lossParse(raw){
+  if(raw===undefined||raw===null)return {m:'pct',v:0,set:false};
+  if(typeof raw==='number')return {m:'pct',v:raw,set:true};
+  if(typeof raw==='string'){var c=raw.slice(-1),n=parseFloat(raw)||0;if(c==='b')return {m:'set',v:n,set:true};if(c==='a')return {m:'add',v:n,set:true};return {m:'pct',v:n,set:true};}
+  if(raw&&raw.m)return {m:raw.m,v:+raw.v||0,set:true};
+  return {m:'pct',v:0,set:false};
+}
+function lossEnc(m,v){v=+v||0;return m==='set'?(v+'b'):(m==='add'?(v+'a'):v);}
+function lossResText(m,v){return m==='pct'?('로스 '+(+v||0)+'%'):(m==='set'?((+v||0)+'벌치'):('+'+(+v||0)+'개'));}
+function lossMatType(it,matId){
+  if((it.fabrics||[]).some(function(x){return x.id===matId;}))return 'fab';
+  var t=(it.trims||[]).find(function(x){return x.id===matId;});if(!t)return '';
+  if(t.orderType==='careLabel'||t.orderType==='mainLabel')return 'label';
+  if(t.orderType==='button'||t.orderType==='snap')return 'button';
+  if(t.orderType==='zipper')return 'zipper';
+  return 'trim';
+}
+function setOrderLoss(oid,itemId,matId,m,v){var o=S.orders[oid];if(!o)return;if(!o.loss)o.loss={};if(!o.loss[itemId])o.loss[itemId]={};o.loss[itemId][matId]=lossEnc(m,v);saveData();if(typeof renderOTab==='function')renderOTab();}
+function setOrderLossMode(oid,itemId,matId,m){var o=S.orders[oid];var cur=lossParse(((o.loss&&o.loss[itemId])||{})[matId]);setOrderLoss(oid,itemId,matId,m,cur.v);}
+function setOrderLossVal(oid,itemId,matId,v){var o=S.orders[oid];var cur=lossParse(((o.loss&&o.loss[itemId])||{})[matId]);setOrderLoss(oid,itemId,matId,cur.m,v);}
+function lossPresets(){try{var p=JSON.parse(localStorage.getItem('fpm_lossPresets'));if(Array.isArray(p))return p;}catch(e){}return [{name:'기본 5%',m:'pct',v:5,t:'all'},{name:'라벨 +10개',m:'add',v:10,t:'label'},{name:'단추 1벌치',m:'set',v:1,t:'button'}];}
+function saveLossPresets(a){try{localStorage.setItem('fpm_lossPresets',JSON.stringify(a));}catch(e){}}
+function applyLossPreset(oid,idx){var o=S.orders[oid];if(!o)return;var ps=lossPresets()[idx];if(!ps)return;if(!o.loss)o.loss={};(o.orderItems||[]).forEach(function(oi){var it=S.items[oi.itemId];if(!it)return;if(!o.loss[oi.itemId])o.loss[oi.itemId]={};[].concat((it.fabrics||[]).map(function(f){return f.id;}),(it.trims||[]).map(function(t){return t.id;})).forEach(function(mid){if(!mid)return;var ty=lossMatType(it,mid);if(ps.t==='all'||ps.t===ty)o.loss[oi.itemId][mid]=lossEnc(ps.m,ps.v);});});saveData();if(typeof renderOTab==='function')renderOTab();showToast('"'+ps.name+'" 적용됨');}
+function addLossPreset(){var nm=prompt('프리셋 이름 (예: 심지 3%)');if(!nm)return;var md=prompt('방식: pct(%) / set(벌치) / add(+개)','pct');if(!md)return;md=md.trim();if(['pct','set','add'].indexOf(md)<0){alert('pct·set·add 중 하나로 적어주세요');return;}var v=prompt('값 (숫자)','5');if(v===null)return;var tg=prompt('적용 대상: all(전체)/fab(원단)/trim(부자재)/label(라벨)/button(단추)/zipper(지퍼)','all')||'all';var arr=lossPresets();arr.push({name:nm,m:md,v:+v||0,t:tg.trim()});saveLossPresets(arr);if(typeof renderOTab==='function')renderOTab();showToast('프리셋 저장됨');}
+function delLossPreset(idx){var arr=lossPresets();if(!arr[idx])return;if(!confirm('프리셋 "'+arr[idx].name+'" 삭제?'))return;arr.splice(idx,1);saveLossPresets(arr);if(typeof renderOTab==='function')renderOTab();}
+function lossPresetBarHTML(o){var ps=lossPresets();return '<div class="lp-presets"><span class="lp-pl">프리셋</span>'+ps.map(function(p,i){return '<span class="lp-chip" onclick="applyLossPreset(\''+o.id+'\','+i+')">'+esc(p.name)+'<button class="lp-chipx" onclick="event.stopPropagation();delLossPreset('+i+')">×</button></span>';}).join('')+'<button class="lp-add" onclick="addLossPreset()">＋ 프리셋</button></div>';}
+function orderLossPanelHTML(o){
+  if(typeof ensureOrderLoss==='function')ensureOrderLoss(o);
+  var open=!!window._poLossOpen;var rows='';
+  (o.orderItems||[]).forEach(function(oi){
+    var it=S.items[oi.itemId];if(!it)return;
+    var mats=[].concat((it.fabrics||[]).filter(function(f){return f&&f.id&&f.supplier;}).map(function(f){return {id:f.id,name:(f.part?f.part+' ':'')+(f.name||'원단')};}),
+                       (it.trims||[]).filter(function(t){return t&&t.id&&t.supplier;}).map(function(t){return {id:t.id,name:(typeof trimLabel==='function'?trimLabel(t):(t.name||'부자재'))};}));
+    if(!mats.length)return;
+    if((o.orderItems||[]).length>1)rows+='<div class="lp-item">'+esc(it.name||'')+'</div>';
+    mats.forEach(function(mt){
+      var p=lossParse((((o.loss||{})[oi.itemId])||{})[mt.id]);
+      var seg=['pct','set','add'].map(function(md){var lbl=md==='pct'?'%':(md==='set'?'벌치':'+개');return '<button type="button" class="lp-seg'+(p.m===md?' on':'')+'" onclick="setOrderLossMode(\''+o.id+'\',\''+oi.itemId+'\',\''+mt.id+'\',\''+md+'\')">'+lbl+'</button>';}).join('');
+      rows+='<div class="lp-row"><span class="lp-nm">'+esc(mt.name)+'</span><span class="lp-seg-wrap">'+seg+'</span><input class="lp-val" type="number" min="0" value="'+p.v+'" onchange="setOrderLossVal(\''+o.id+'\',\''+oi.itemId+'\',\''+mt.id+'\',this.value)"><span class="lp-res">'+lossResText(p.m,p.v)+'</span></div>';
+    });
+  });
+  if(!rows)return '';
+  return '<div class="lp-panel"><button type="button" class="lp-head" onclick="window._poLossOpen=!window._poLossOpen;renderOTab()">'+(open?'▾':'▸')+' 로스 / 여분 <span class="lp-hint">자재별 % · 벌치 · +개 (이 발주서에만)</span></button><div class="lp-bd"'+(open?'':' style="display:none"')+'>'+lossPresetBarHTML(o)+rows+'</div></div>';
+}
 function renderPoTab(o){
   // 최신 아이템 정의(로스율 등) 반영 — actualOrderedQty/메타 보존하며 재계산
   refreshOrderSuppliers(o);
@@ -12325,7 +12391,7 @@ function renderPoTab(o){
   }
   applyPoTypeDefaults(o);
   const sns=Object.keys(o.suppliers||{});if(!sns.length)return'<div class="empty">원부자재 정보 없음</div>';
-  return '<div class="po2-tray">'+sns.map(function(sn){return poCardHTML(o,sn);}).join('')+'</div>'+(typeof extraOrdersSectionHTML==='function'?extraOrdersSectionHTML(o):'');  // 발주서 카드들 + 재단 추가 발주(별도 섹션)
+  return orderLossPanelHTML(o)+'<div class="po2-tray">'+sns.map(function(sn){return poCardHTML(o,sn);}).join('')+'</div>'+(typeof extraOrdersSectionHTML==='function'?extraOrdersSectionHTML(o):'');  // 로스 패널 + 발주서 카드들 + 재단 추가 발주
 }
 // 거래처 발주 카드 1개 — 첫 발주(S.orders)·추가발주(orderLike) 공용. o는 실주문 또는 추가발주용 orderLike
 function poCardHTML(o,sn){
