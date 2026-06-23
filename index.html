@@ -4080,6 +4080,8 @@ function loadCoData(id){
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
 function migrateData(){
+  // 로스 발주서 이동 1단계: 기존 발주서마다 현재 로스값 못 박기(스냅샷)
+  try{if(S.orders&&typeof ensureOrderLoss==='function')Object.keys(S.orders).forEach(function(k){ensureOrderLoss(S.orders[k]);});}catch(e){}
   // Pickups (새 기능)
   if(!S.pickups)S.pickups=[];
   if(!S.packages)S.packages=[];
@@ -10182,6 +10184,19 @@ function _trimWeightedPrice(t,sizeTotals){
   });
   return sumQ?(sumQP/sumQ):null;
 }
+// 로스 발주서 이동 1단계: 오더가 자기 로스를 갖게 — 현재 아이템 로스(효과값)를 오더에 스냅샷(없는 것만 채움=못 박기)
+function ensureOrderLoss(o){
+  if(!o||!o.orderItems)return;
+  if(!o.loss)o.loss={};
+  var FLP=(typeof FAB_LOSS_PCT!=='undefined')?FAB_LOSS_PCT:0, TLP=(typeof TRIM_LOSS_PCT!=='undefined')?TRIM_LOSS_PCT:2;
+  o.orderItems.forEach(function(oi){
+    var it=S.items[oi.itemId];if(!it)return;
+    if(!o.loss[oi.itemId])o.loss[oi.itemId]={};
+    var L=o.loss[oi.itemId];
+    (it.fabrics||[]).forEach(function(f){if(f&&f.id&&L[f.id]===undefined)L[f.id]={m:'pct',v:(f.buffer!=null&&f.buffer!==''?+f.buffer:FLP)};});
+    (it.trims||[]).forEach(function(t){if(t&&t.id&&L[t.id]===undefined)L[t.id]={m:'pct',v:(t.buffer!=null&&t.buffer!==''?+t.buffer:TLP)};});
+  });
+}
 function calcSups(orderItems,opts){
   // opts.fabricEffectivePcs: true (기본) — 원단 계산에도 effective pcs 적용 여부
   //   - false면 원단은 원래 수량 기준으로 계산 (이번 작업에선 false 유지 — 원단은 이미 actualOrderedQty로 처리됨)
@@ -10248,7 +10263,9 @@ function calcSups(orderItems,opts){
     }
     // 몸판(발주량 직접 수정=actualOrderedQty 있는 원단)은 원래 수량 유지, 그 외 원단(카라·에리 등 부속)은 부자재처럼 보정(effective) 수량으로 산출
     var overriddenFab={};{var _co=null;for(var _oid in S.orders){if(S.orders[_oid].orderItems&&S.orders[_oid].orderItems.includes(oi)){_co=S.orders[_oid];break;}}if(_co&&_co.suppliers){for(var _sn in _co.suppliers){(_co.suppliers[_sn].materials||[]).forEach(function(_m){if(_m.type==='fabric'&&_m.itemId===oi.itemId&&_m.actualOrderedQty!==undefined&&_m.actualOrderedQty!==''&&_m.actualOrderedQty!==null)overriddenFab[(_m.fabId||_m.name)+'|'+(_m.colorName||'')]=true;});}}}
-    for(const f of it.fabrics||[]){if(!f.supplier)continue;if(!sups[f.supplier])sups[f.supplier]=mkSupWithDefaults(f.supplier);
+    if(_co&&typeof ensureOrderLoss==='function')ensureOrderLoss(_co);
+    var _effBuf=function(mid,fb){try{var e=_co&&_co.loss&&_co.loss[oi.itemId]&&_co.loss[oi.itemId][mid];if(e&&e.m==='pct'&&e.v!=null&&e.v!=='')return +e.v;}catch(_e){}return fb;};
+    for(const f of it.fabrics||[]){if(!f.supplier)continue;if(!sups[f.supplier])sups[f.supplier]=mkSupWithDefaults(f.supplier);var _fb=_effBuf(f.id,f.buffer);var ff=(_fb!==f.buffer)?Object.assign({},f,{buffer:_fb}):f;
       const hasLinks=f.colorLinks&&f.colorLinks.length>0;
       // colorLinks의 itemColor가 실제 아이템 컬러와 하나도 안 맞으면(데이터 불일치) 링크 무시하고 전체 적용
       let linksValid=true;
@@ -10261,9 +10278,9 @@ function calcSups(orderItems,opts){
       for(const c of colors){const _ovrF=overriddenFab[(f.id||f.name)+'|'+c];const qty=(_ovrF?colorQtys[c]:effColorQtys[c])||0;if(!qty)continue;
         // 컬러 링크 있고 유효하면 해당 컬러만
         if(useLinks&&!f.colorLinks.find(l=>l.itemColor===c))continue;
-        const calc=calcFabYards(f,qty,(_ovrF?colorSizeQtys[c]:effColorSizeQtys[c]),c);
+        const calc=calcFabYards(ff,qty,(_ovrF?colorSizeQtys[c]:effColorSizeQtys[c]),c);
         // 거래처 확인 "계산수량" 고정 표시용: 원래 오더수량(colorQtys) 기준 — 다른 원단 발주량(도미노)에 안 흔들림
-        const _calcBase=(qty===(colorQtys[c]||0))?calc:calcFabYards(f,colorQtys[c]||0,colorSizeQtys[c],c);
+        const _calcBase=(qty===(colorQtys[c]||0))?calc:calcFabYards(ff,colorQtys[c]||0,colorSizeQtys[c],c);
         const _fl=useLinks?f.colorLinks.find(l=>l.itemColor===c):null;
         const fabColorName=_fl?(_fl.fabricColor||''):(f.fabricColor||'');
         const _clPriceF=(_fl&&_fl.price!==undefined&&_fl.price!==''&&+_fl.price>0)?+_fl.price:0; // 컬러별 단가(야드)
@@ -10289,11 +10306,12 @@ function calcSups(orderItems,opts){
       }
       if(!t.supplier)continue;
       if(!sups[t.supplier])sups[t.supplier]=mkSupWithDefaults(t.supplier);
+      var _tb=_effBuf(t.id,t.buffer);var tt=(_tb!==t.buffer)?Object.assign({},t,{buffer:_tb}):t;
       // === 공통 사용 모드: 컬러 구분 없이 총수량으로 1번만 발주 ===
       // 도미노 적용: effTotalQty 사용 (effective pcs가 origPcs보다 작아진 경우 자동 축소된 값)
       if(t.isCommonUse){
-        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},t,{unitPrice:_twp}):t,effTotalQty);
-        sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:t.buffer,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',isCommonUse:true,commonForColors:colors.filter(function(c){return effColorQtys[c]>0;}),effectivePcsApplied:effectivePcsForTrim,calc});
+        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},tt,{unitPrice:_twp}):tt,effTotalQty);
+        sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',isCommonUse:true,commonForColors:colors.filter(function(c){return effColorQtys[c]>0;}),effectivePcsApplied:effectivePcsForTrim,calc});
         continue;
       }
       const hasLinks=t.colorLinks&&t.colorLinks.length>0;
@@ -10314,19 +10332,19 @@ function calcSups(orderItems,opts){
           if(_grpM[_gk0].price===undefined&&_p0!==undefined)_grpM[_gk0].price=_p0;
         }
         for(const _G of _grp){
-          const calc=calcTrimNeed(t,_G.qty);
+          const calc=calcTrimNeed(tt,_G.qty);
           const clNm=_G.clNm;
           const _icName=_G.itemColors.join(', ');
           const _icArr=_G.itemColors.slice();
           const _colorPriceVal=(_G.price!==undefined)?_G.price:undefined;
           // 컬러별 단가: 묶음 그룹의 colorLinks price 우선, 없으면 기본 단가
           const clPrice=(_G.price!==undefined)?_G.price:(t.unitPrice||0);
-          sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:clNm,itemColorName:_icName,itemColors:_icArr,dye:!!_G.dye,swatch:!!_G.swatch,dyeNote:t.dyeNote||'',displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:clPrice,colorPrice:_colorPriceVal,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+          sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:clNm,itemColorName:_icName,itemColors:_icArr,dye:!!_G.dye,swatch:!!_G.swatch,dyeNote:t.dyeNote||'',displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:clPrice,colorPrice:_colorPriceVal,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
         }
       }else{
         // 단일 — 도미노 적용 effTotalQty
-        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},t,{unitPrice:_twp}):t,effTotalQty);
-        sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:t.buffer,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+        var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},tt,{unitPrice:_twp}):tt,effTotalQty);
+        sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:t.qtyBuffer,finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
       }
     }
   }return sups;
