@@ -11943,6 +11943,20 @@ function orderCutTotal(o){
   });
   return t;
 }
+// 아이템별 의뢰/조정/재단 그리드 모음 (재단수량 사이즈별 토글용)
+function _qsItemGrid(o,oi){
+  var it=S.items[oi.itemId];if(!it)return null;
+  var colors=(it.colors&&it.colors.length)?it.colors:[''];
+  var sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+  var realSizes=sizes.filter(function(s){return s&&s!=='free';});
+  var bd=(typeof getEffectivePcsBreakdown==='function')?getEffectivePcsBreakdown(o,oi):null;
+  var effGrid=(bd&&bd.effGrid)?bd.effGrid:null;
+  var single=o.orderItems.length===1;
+  var sch=(it.sewingFcId&&o.factorySchedules)?o.factorySchedules[it.sewingFcId]:null;
+  var cutGrid=(sch&&typeof pdCutSizeGrid==='function')?pdCutSizeGrid(sch,oi.itemId,single):{};
+  var anyCut=false;Object.keys(cutGrid||{}).forEach(function(c){Object.keys(cutGrid[c]||{}).forEach(function(s){if(+cutGrid[c][s]>0)anyCut=true;});});
+  return {it:it,colors:colors,sizes:sizes,realSizes:realSizes,effGrid:effGrid,cutGrid:cutGrid,anyCut:anyCut,qtyGrid:oi.qtyGrid||{}};
+}
 function renderQtyStrip(o){
   if(!o||!o.orderItems||o.orderItems.length===0)return '';
   let totalOrig=0;
@@ -12015,29 +12029,52 @@ function renderQtyStrip(o){
         +'</div>';})()
     +'</div>';
 
-  // 컬러×사이즈 수량 — 변경 없으면 간략 표로 항상 표시(수량 안 눌러도 보임)
-  if(!(hasShortage||hasExpansion)){
+  // 컬러×사이즈 수량 — 토글: 컬러 합계 / 사이즈별 (의뢰›조정›재단, 가로 스크롤)
+  (function(){
+    if(window._qtyBySize===undefined){try{window._qtyBySize=localStorage.getItem('fpm_qtyBySize')==='1';}catch(e){window._qtyBySize=false;}}
+    var bySize=!!window._qtyBySize;
+    var sep=' <span style="color:#cbd5e1;font-size:9px">›</span> ';
+    var cellNums=function(req,adj,cut){
+      return '<span style="color:var(--t3)">'+req+'</span>'+sep+'<span style="color:#7c3aed;font-weight:700">'+adj+'</span>'+sep+(cut===null?'<span style="color:#cbd5e1">—</span>':'<span style="color:#2563eb;font-weight:700">'+cut+'</span>');
+    };
+    var det='',anyRows=false;
     o.orderItems.forEach(function(oi){
-      var it=S.items[oi.itemId];if(!it)return;
-      var colors=it.colors&&it.colors.length?it.colors:[''];
-      var sizes=it.sizes&&it.sizes.length?it.sizes:[''];
-      var realSizes=sizes.filter(function(s){return s&&s!=='free';});
-      var hasC=colors.length>1||(colors[0]&&colors[0]!=='');
-      var gt=0;colors.forEach(function(c){var row=(oi.qtyGrid&&oi.qtyGrid[c])||{};Object.keys(row).forEach(function(k){gt+=+row[k]||0;});});
-      if(gt<=0)return;
-      if(o.orderItems.length>1)html+='<div style="font-size:11px;font-weight:700;color:var(--t2);margin:2px 0 3px">'+esc(oi.itemName||it.name||'')+'</div>';
-      html+='<table class="qty-grid" style="margin-bottom:8px"><thead><tr>'+(hasC?'<th>컬러</th>':'')
-        +(realSizes.length?realSizes.map(function(s){return '<th>'+esc(s)+'</th>';}).join(''):'<th>수량</th>')+'<th>합계</th></tr></thead><tbody>';
-      colors.forEach(function(c){
-        var row=(oi.qtyGrid&&oi.qtyGrid[c])||{};
-        var ct=(realSizes.length?realSizes:Object.keys(row)).reduce(function(a,k){return a+(+row[k]||0);},0);
-        if(ct<=0)return; // 발주 안 하는 컬러(0장)는 숨김
-        var cells=realSizes.length?realSizes.map(function(s){var q=+row[s]||0;return '<td>'+(q||'')+'</td>';}).join(''):'<td>'+ct+'</td>';
-        html+='<tr>'+(hasC?'<td class="clr-lbl">'+qsColorChip(c)+esc(c)+'</td>':'')+cells+'<td class="tot">'+ct+'</td></tr>';
-      });
-      html+='</tbody></table>';
+      var g=_qsItemGrid(o,oi);if(!g)return;
+      var realS=g.realSizes.length?g.realSizes:g.sizes;
+      var rows=g.colors.filter(function(c){var r=g.qtyGrid[c]||{};return Object.keys(r).some(function(k){return +r[k]>0;});});
+      if(!rows.length)return;anyRows=true;
+      if(o.orderItems.length>1)det+='<div style="font-size:11px;font-weight:700;color:var(--t2);margin:6px 0 3px">'+esc(oi.itemName||g.it.name||'')+'</div>';
+      if(bySize){
+        det+='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;background:#fff;border:1px solid var(--bd);border-radius:6px;margin-bottom:8px"><table style="border-collapse:collapse;font-size:11px;white-space:nowrap"><thead><tr><th style="text-align:left;padding:5px 7px;color:var(--t2);position:sticky;left:0;background:#faf9f5;border-bottom:1px solid var(--bd);z-index:1">컬러</th>';
+        realS.forEach(function(sz){det+='<th style="text-align:center;padding:5px 9px;color:var(--t2);border-bottom:1px solid var(--bd);min-width:76px">'+esc(sz)+'</th>';});
+        det+='<th style="text-align:center;padding:5px 9px;color:var(--t2);border-bottom:1px solid var(--bd);min-width:80px;background:#fcfaff">합계</th></tr></thead><tbody>';
+        rows.forEach(function(c){
+          var rq=g.qtyGrid[c]||{},tR=0,tA=0,tC=0,cNull=true,tds='';
+          realS.forEach(function(sz){
+            var req=+rq[sz]||0;var adj=g.effGrid?(+(g.effGrid[c]&&g.effGrid[c][sz])||0):req;var cut=g.anyCut?(+(g.cutGrid[c]&&g.cutGrid[c][sz])||0):null;
+            tR+=req;tA+=adj;if(cut!==null){tC+=cut;cNull=false;}
+            tds+='<td style="text-align:center;padding:5px 9px;border-bottom:1px solid #f0ece0">'+cellNums(req,adj,cut)+'</td>';
+          });
+          det+='<tr><td style="text-align:left;padding:5px 7px;font-weight:600;position:sticky;left:0;background:#fff;border-bottom:1px solid #f0ece0;z-index:1">'+qsColorChip(c)+esc(c||'기본')+'</td>'+tds+'<td style="text-align:center;padding:5px 9px;font-weight:700;border-bottom:1px solid #f0ece0;background:#fcfaff">'+cellNums(tR,tA,cNull?null:tC)+'</td></tr>';
+        });
+        det+='</tbody></table></div>';
+      }else{
+        det+='<div style="background:#fff;border:1px solid var(--bd);border-radius:6px;margin-bottom:8px">';
+        rows.forEach(function(c){
+          var rq=g.qtyGrid[c]||{},tR=0,tA=0,tC=0,cNull=true;
+          realS.forEach(function(sz){var req=+rq[sz]||0;tR+=req;tA+=g.effGrid?(+(g.effGrid[c]&&g.effGrid[c][sz])||0):req;if(g.anyCut){tC+=(+(g.cutGrid[c]&&g.cutGrid[c][sz])||0);cNull=false;}});
+          det+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 11px;border-bottom:1px solid #f0ece0;font-size:12.5px"><span style="font-weight:600">'+qsColorChip(c)+esc(c||'기본')+'</span><span>'+cellNums(tR,tA,cNull?null:tC)+'</span></div>';
+        });
+        det+='</div>';
+      }
     });
-  }
+    if(!anyRows)return;
+    html+='<div style="display:flex;align-items:center;gap:8px;margin:2px 0 7px;flex-wrap:wrap"><span style="font-size:11px;color:var(--t2)"><span style="color:var(--t3)">의뢰</span> › <span style="color:#7c3aed;font-weight:700">조정</span> › <span style="color:#2563eb;font-weight:700">재단</span></span>'
+      +'<span style="margin-left:auto;display:inline-flex;border:1.5px solid var(--ink,#222);border-radius:7px;overflow:hidden">'
+      +'<button type="button" onclick="window._qtyBySize=false;try{localStorage.setItem(\'fpm_qtyBySize\',\'0\')}catch(e){};renderOTab()" style="font:inherit;font-size:11px;font-weight:700;border:0;padding:5px 11px;cursor:pointer;'+(bySize?'background:#fff;color:#555':'background:var(--ink,#222);color:#fff')+'">컬러 합계</button>'
+      +'<button type="button" onclick="window._qtyBySize=true;try{localStorage.setItem(\'fpm_qtyBySize\',\'1\')}catch(e){};renderOTab()" style="font:inherit;font-size:11px;font-weight:700;border:0;border-left:1.5px solid var(--ink,#222);padding:5px 11px;cursor:pointer;'+(bySize?'background:var(--ink,#222);color:#fff':'background:#fff;color:#555')+'">사이즈별</button>'
+      +'</span></div>'+det;
+  })();
 
   // 컬러·사이즈 분배표 (변경 있을 때만, 자동으로 펼쳐서 표시)
   if(hasShortage||hasExpansion){
