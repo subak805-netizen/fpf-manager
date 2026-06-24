@@ -487,6 +487,20 @@ html[data-theme="minimal"] .ise-auto,html[data-theme="minimal"] .ise-flag,html[d
 html[data-theme="retro"] .po2-matfold-h{border:2px solid var(--ink);border-radius:0;background:#F4ECD8;box-shadow:2px 2px 0 var(--ink)}
 /* 로스 4단계: 아이템 폼의 로스% 칸 숨김(값은 보존=오더로스 시드). 로스/여분은 발주서에서 관리 */
 #pane-items div:has(> input[data-f="buffer"]){display:none!important}
+/* 가공비 한 줄 (개당/한번에/컬러별) */
+.tcl-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap;background:#fffdf4;border:1px solid #f0e6c8;border-radius:7px;padding:6px 8px;margin-bottom:6px}
+html[data-theme="retro"] .tcl-row{border:1.5px solid var(--ink);border-radius:0}
+.tcl-nm{flex:1.3;min-width:88px;border:1px solid var(--bd);border-radius:5px;padding:6px 8px;font-size:12.5px;font-weight:600;background:#fff}
+.tcl-amt{width:72px;border:1px solid var(--bd);border-radius:5px;padding:6px;font-size:12.5px;text-align:right;background:#fff}
+.tcl-u{font-size:10px;color:#888;margin-left:-2px}
+.tcl-mode{border:1.5px solid var(--ink,#222);border-radius:6px;padding:6px 9px;font-size:11.5px;font-weight:800;background:#fff;cursor:pointer;white-space:nowrap;min-width:60px;text-align:center}
+.tcl-mode-once{background:#fff7ed;color:#b45309}
+.tcl-mode-perLot{background:#eafaf1;color:#1f7a4d}
+.tcl-fac{flex:1;min-width:76px;border:1px solid var(--bd);border-radius:5px;padding:6px 8px;font-size:11.5px;background:#fff}
+.tcl-cost{font-size:11px;font-weight:800;color:#1f7a4d;background:#eafaf1;border:1px solid #b6e3c8;border-radius:14px;padding:4px 9px;white-space:nowrap}
+.tcl-sub{font-weight:600;color:#3a8c63;font-size:9.5px}
+.tcl-x{border:0;background:none;color:#c0392b;font-size:15px;font-weight:800;cursor:pointer;padding:0 3px;line-height:1}
+.tcl-colors{flex-basis:100%;margin-top:6px}
 html[data-theme="retro"] .po-mtbl .mitem{border-top:1.5px solid var(--ink)}
 html[data-theme="retro"] .po-mtbl .mfml .po-cl{background:#F4ECD8;border:1.5px solid var(--ink);border-radius:0}
 html[data-theme="retro"] .po-mtbl .mr-adj{background:#eaf3fb;border-bottom:1.5px solid var(--ink)}
@@ -9194,7 +9208,7 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r)=>{const i=+r
     if(maxCons>0)formFabs[i].consumption=maxCons;
   }
 });}
-function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{const _id=r.getAttribute('data-tcid');const tc=formTrimCosts.find(x=>x.id===_id);if(!tc)return;const g=f=>r.querySelector('[data-f='+f+']')?.value;tc.name=g('name')||'';tc.factory=g('factory')||'';const ct=g('costType')||'perPcs';tc.costType=ct;const amt=+g('costAmt')||0;if(ct==='perLot'){tc.costPerLot=amt;tc.costPerPcs=0;}else{tc.costPerPcs=amt;tc.costPerLot=0;}r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(tc.colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
+function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{const _id=r.getAttribute('data-tcid');const tc=formTrimCosts.find(x=>x.id===_id);if(!tc)return;const g=f=>r.querySelector('[data-f='+f+']')?.value;tc.name=g('name')||'';tc.factory=g('factory')||'';const ct=g('costType')||'perPcs';tc.costType=ct;const amt=+g('costAmt')||0;if(ct==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}else{tc.costPerLot=amt;tc.costPerPcs=0;}r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(tc.colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
 function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r.id.replace('tr-','');if(!formTrims[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const tp=g('orderType')||'count';formTrims[i].orderType=tp;formTrims[i].supplier=g('supplier')||'';formTrims[i].name=g('name')||'';formTrims[i].size=g('size')||'';formTrims[i].color=g('color')||'';formTrims[i].part=g('part')||'';if(g('building')!=null)formTrims[i].building=g('building')||'';if(g('floorRoom')!=null)formTrims[i].floorRoom=g('floorRoom')||'';
     // 추가 옵션: 공통 사용/로고/팁/비고
     const commonChk=r.querySelector('[data-trim-common]');
@@ -9372,38 +9386,41 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
 });}
 
 /* 부자재 가공비 (염색비 등) */
+var TC_MIN=30;
+function _tcPer(tc,mode){var amt=(mode==='perPcs')?(+tc.costPerPcs||0):(+tc.costPerLot||0);
+  if(mode==='once')return {per:Math.round(amt/TC_MIN),sub:amt?'('+num(amt)+'÷'+TC_MIN+')':''};
+  if(mode==='perLot'){var allC=(typeof formColors!=='undefined'&&formColors.length)?formColors.length:1;var hasL=tc.colorLinks&&tc.colorLinks.length>0;var actC=hasL?formColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}).length:allC;actC=actC||1;return {per:Math.round(amt*actC/TC_MIN),sub:amt?'('+num(amt)+'×'+actC+'색÷'+TC_MIN+')':''};}
+  return {per:Math.round(amt),sub:''};}
 function trimCostRowHTML(tc,i){
-  const isLot=tc.costType==='perLot';
-  const colorSec=mkColorSec(i,'tc',tc.colorLinks||[]);
-  return`<div class="fab-row" id="tc-${i}" data-tcid="${tc.id}">
-  <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end">
-    <div style="flex:1.5;min-width:100px"><label>항목명</label><input data-f="name" value="${esc(tc.name||'')}" placeholder="예: 단추 염색비, 스트링 염색"></div>
-    <div style="flex:.7;min-width:60px">
-      <label>${isLot?'원/컬러(lot)':'원/pcs'}</label>
-      <input data-f="costAmt" type="number" value="${isLot?(tc.costPerLot||0):(tc.costPerPcs||0)}" min="0">
-    </div>
-    <div style="flex:.7;min-width:60px">
-      <label>청구 방식</label>
-      <select data-f="costType" onchange="onTcTypeChange(${i},this.value)" style="font-size:11px;padding:3px 5px">
-        <option value="perPcs"${!isLot?' selected':''}>개당 (원/pcs)</option>
-        <option value="perLot"${isLot?' selected':''}>컬러당 (lot비)</option>
-      </select>
-    </div>
-    <div style="flex:1;min-width:80px"><label>담당 업체</label><input data-f="factory" value="${esc(tc.factory||'')}" placeholder="예: OO염색처"></div>
-    <div style="align-self:flex-end;padding-bottom:2px"><button class="btn s d g" onclick="rmTrimCostRow(${i})">🗑</button></div>
-  </div>
-  ${isLot?`<div class="info-box" style="font-size:10px;margin-top:4px">컬러당 고정비용 — 아래에서 염색할 컬러를 체크하면 컬러 수 × 금액으로 청구됩니다</div>`:''}
-  ${colorSec}
-</div>`;}
-
-function onTcTypeChange(i,val){
-  colTrimCosts();
-  if(!formTrimCosts[i])return;
-  formTrimCosts[i].costType=val;
-  if(val==='perLot'){formTrimCosts[i].costPerLot=formTrimCosts[i].costPerPcs||0;formTrimCosts[i].costPerPcs=0;}
-  else{formTrimCosts[i].costPerPcs=formTrimCosts[i].costPerLot||0;formTrimCosts[i].costPerLot=0;}
+  const mode=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':'perPcs');
+  const amtVal=(mode==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0);
+  const modeLab=mode==='once'?'한번에':(mode==='perLot'?'컬러별':'개당');
+  const c=_tcPer(tc,mode);
+  const colorSec=(mode==='perLot')?mkColorSec(i,'tc',tc.colorLinks||[]):'';
+  return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
+    <input type="hidden" data-f="costType" value="${mode}">
+    <input class="tcl-nm" data-f="name" value="${esc(tc.name||'')}" placeholder="예: 염색비, 로고비">
+    <input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">원</span>
+    <button type="button" class="tcl-mode tcl-mode-${mode}" onclick="cycleTcMode(${i})">${modeLab} ▾</button>
+    <input class="tcl-fac" data-f="factory" value="${esc(tc.factory||'')}" placeholder="담당 업체">
+    <span class="tcl-cost">원가 +${num(c.per)}원/장${c.sub?` <span class="tcl-sub">${c.sub}</span>`:''}</span>
+    <button class="tcl-x" type="button" onclick="rmTrimCostRow(${i})">×</button>
+    ${colorSec?`<div class="tcl-colors">${colorSec}</div>`:''}
+  </div>`;}
+// 청구방식 순환: 개당 → 한번에 → 컬러별
+function cycleTcMode(i){
+  colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;
+  var order=['perPcs','once','perLot'];
+  var curM=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':'perPcs');
+  var amt=(curM==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0);
+  var next=order[(order.indexOf(curM)+1)%3];
+  tc.costType=next;
+  if(next==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}else{tc.costPerLot=amt;tc.costPerPcs=0;}
   renderTrimAndCosts();
 }
+// 금액 입력 시 원가 칩만 실시간 갱신(포커스 유지)
+function tclRecost(el){var row=el.closest('.tcl-row');if(!row)return;var i=+row.id.replace('tc-','');var tc=formTrimCosts[i];if(!tc)return;var mode=(row.querySelector('[data-f=costType]')||{}).value||'perPcs';var c=_tcPer(tc,mode);var chip=row.querySelector('.tcl-cost');if(chip)chip.innerHTML='원가 +'+num(c.per)+'원/장'+(c.sub?' <span class="tcl-sub">'+c.sub+'</span>':'');}
+function onTcTypeChange(i,val){cycleTcMode(i);}
 
 function renderTrimCostRows(){const el=document.getElementById('tc-rows');if(!el)return;const list=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>!x.tc.trimId||!formTrims.find(t=>t.id===x.tc.trimId));el.innerHTML=list.length?list.map(x=>trimCostRowHTML(x.tc,x.i)).join(''):'<div class="muted" style="text-align:center;padding:.4rem;font-size:11px">부자재에 연결되지 않은 가공비 없음 — 각 부자재 카드의 ＋가공비로 추가하세요</div>';}
 function addTrimCostRow(){colTrimCosts();formTrimCosts.push({id:uid(),name:'',costType:'perPcs',costPerPcs:0,costPerLot:0,factory:'',colorLinks:[]});renderTrimCostRows();}
@@ -11498,8 +11515,9 @@ function trimCostPerPcs(it,minQty){
   return (it&&it.trimCosts||[]).reduce(function(s,tc){
     var has=tc.colorLinks&&tc.colorLinks.length>0;
     var active=has?all.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):all;
-    if(tc.costType==='perLot')return s+(tc.costPerLot||0)*active.length/minQty;
-    return s+(tc.costPerPcs||0)*(active.length/(all.length||1));
+    if(tc.costType==='once')return s+(tc.costPerLot||0)/minQty; // 한번에: 컬러 무관 ÷미니멈
+    if(tc.costType==='perLot')return s+(tc.costPerLot||0)*active.length/minQty; // 컬러별: ×활성컬러÷미니멈
+    return s+(tc.costPerPcs||0)*(active.length/(all.length||1)); // 개당
   },0);
 }
 /* ===== 오더 총 원가 ===== */
@@ -14693,7 +14711,8 @@ function getTrimCostRows(o,sn){
       var hasLinks=tc.colorLinks&&tc.colorLinks.length>0;
       var activeColors=hasLinks?allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):allColors;
       var nm=(tc.name||'가공비')+' ('+(it.name||'')+')';
-      if(tc.costType==='perLot'){var lotFee=tc.costPerLot||0;if(!lotFee)return;var nC=activeColors.length||1;out.push({name:nm,color:'가공',qty:nC,unit:'컬러',price:lotFee,amount:lotFee*nC,part:'가공'});}
+      if(tc.costType==='once'){var oFee=tc.costPerLot||0;if(!oFee)return;out.push({name:nm,color:'가공',qty:1,unit:'회',price:oFee,amount:oFee,part:'가공'});}
+      else if(tc.costType==='perLot'){var lotFee=tc.costPerLot||0;if(!lotFee)return;var nC=activeColors.length||1;out.push({name:nm,color:'가공',qty:nC,unit:'컬러',price:lotFee,amount:lotFee*nC,part:'가공'});}
       else{var ppFee=tc.costPerPcs||0;if(!ppFee)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;out.push({name:nm,color:'가공',qty:totQty,unit:'pcs',price:ppFee,amount:ppFee*totQty,part:'가공'});}
     });
   });
@@ -18368,7 +18387,8 @@ function trimLedgerAuto(){
         var hasLinks=tc.colorLinks&&tc.colorLinks.length>0;
         var activeColors=hasLinks?allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):allColors;
         var qty,unit,price,amount;
-        if(tc.costType==='perLot'){price=+tc.costPerLot||0;if(!price)return;var nC=activeColors.length||1;qty=nC;unit='컬러';amount=price*nC;}
+        if(tc.costType==='once'){price=+tc.costPerLot||0;if(!price)return;qty=1;unit='회';amount=price;}
+        else if(tc.costType==='perLot'){price=+tc.costPerLot||0;if(!price)return;var nC=activeColors.length||1;qty=nC;unit='컬러';amount=price*nC;}
         else{price=+tc.costPerPcs||0;if(!price)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;qty=totQty;unit='pcs';amount=price*totQty;}
         var brand=it.brandId?_tlBrandName(it.brandId):'';
         var L={name:(tc.name||'가공비'),spec:'가공',qty:qty,unit:unit,price:price,amount:Math.round(amount),itemName:it.name||'',brand:brand,date:dISO,src:'auto',orderId:oid,orderName:o.name||'',inout:'out',isProc:true};
@@ -19720,9 +19740,15 @@ function renderSpPay(){
         const hasLinks=tc.colorLinks&&tc.colorLinks.length>0;
         const activeColors=hasLinks?allColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):allColors;
         const isLot=tc.costType==='perLot';
+        const isOnce=tc.costType==='once';
 
         let base=0;const dets=[];
-        if(isLot){
+        if(isOnce){
+          // 한번에: 컬러 무관 1회 고정비
+          const oFee=tc.costPerLot||0;if(!oFee)continue;
+          base=oFee;
+          dets.push(`${esc(tc.name||'가공비')} (한번에): ${num(oFee)}원`);
+        }else if(isLot){
           // 컬러당 고정비: 컬러 수 × lot비
           const lotFee=tc.costPerLot||0;if(!lotFee)continue;
           activeColors.forEach(c=>{
@@ -20306,7 +20332,8 @@ function renderCS(){
     const allColors=it.colors?.length?it.colors:[''];
     const hasLinks=tc.colorLinks&&tc.colorLinks.length>0;
     const activeColors=hasLinks?allColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):allColors;
-    if(tc.costType==='perLot')tct+=(tc.costPerLot||0)*activeColors.length/LOT_MIN*qty;
+    if(tc.costType==='once')tct+=(tc.costPerLot||0)/LOT_MIN*qty;
+    else if(tc.costType==='perLot')tct+=(tc.costPerLot||0)*activeColors.length/LOT_MIN*qty;
     else tct+=(tc.costPerPcs||0)*qty*(activeColors.length/(allColors.length||1));
   }
   // 일회비
@@ -20387,7 +20414,7 @@ function renderCS(){
     ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:13%"><col style="width:19%"><col style="width:16%"><col style="width:18%"><col style="width:9%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">원단처</th><th style="text-align:left">원단명</th><th style="text-align:left">계산식</th><th style="text-align:right">단가<br><span class="cs-hide-on-img" style="font-size:10px;font-weight:400;color:var(--green)">원가용</span></th><th style="text-align:center">미니멈</th><th style="text-align:right">원단비</th><th style="text-align:right">로스포함</th></tr></thead><tbody>${fr}</tbody></table><div class="cs-subtotal-box"><span>소계 <span style="font-size:11px;font-weight:400;color:var(--t2)">(로스 미포함)</span></span><span class="cs-amt">${num(Math.round(tf))}원 <span style="font-size:12px;font-weight:600;color:var(--blue)">· 로스포함 ${num(Math.round(tfL))}원</span></span></div>`:''}
     ${it.trims.length?`<div class="sec">부자재비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:13%"><col style="width:19%"><col style="width:16%"><col style="width:18%"><col style="width:9%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">부자재처</th><th style="text-align:left">부자재명</th><th style="text-align:left">계산식</th><th style="text-align:right">단가</th><th style="text-align:center">미니멈</th><th style="text-align:right">부자재비</th><th style="text-align:right">로스포함</th></tr></thead><tbody>${tr}</tbody></table><div class="cs-subtotal-box"><span>소계 <span style="font-size:11px;font-weight:400;color:var(--t2)">(로스 미포함)</span></span><span class="cs-amt">${num(Math.round(tt))}원 <span style="font-size:12px;font-weight:600;color:var(--blue)">· 로스포함 ${num(Math.round(ttL))}원</span></span></div>`:''}
     ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${num(p.val)}원/pcs×${qty}</td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(pt))}원</span></div>`:''}
-    ${tcArr.length?`<div class="sec">부자재 가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${tcArr.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const tcAllColors=it.colors?.length?it.colors:[''];const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const tcAmt=isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:(tc.costPerPcs||0)*qty*(tcActive.length/(tcAllColors.length||1));return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:`${num(tc.costPerPcs)}원/pcs×${qty}`}</td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tct))}원</span></div>`:''}
+    ${tcArr.length?`<div class="sec">부자재 가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${tcArr.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const isOnce=tc.costType==='once';const tcAllColors=it.colors?.length?it.colors:[''];const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const tcAmt=isOnce?(tc.costPerLot||0)/LOT_MIN:isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:(tc.costPerPcs||0)*qty*(tcActive.length/(tcAllColors.length||1));return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isOnce?`${num(tc.costPerLot)}원÷${LOT_MIN} (한번에)`:isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:`${num(tc.costPerPcs)}원/pcs×${qty}`}</td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tct))}원</span></div>`:''}
     <div class="sec">
       <span>완성 부자재 비용 <span class="muted" style="font-size:10px;font-weight:400">(라벨·택·케어라벨·포장 등)</span></span>
       <button class="btn s p" type="button" onclick="addCsFinishCost('${id}')">+ 추가</button>
@@ -20565,12 +20592,13 @@ function downloadCostExcel(){
     (it.trimCosts||[]).forEach(tc=>{
       if(isEx('tc-'+tc.id))return;
       const isLot=tc.costType==='perLot';
+      const isOnce=tc.costType==='once';
       const allColors=it.colors?.length?it.colors:[''];
       const hasLinks=tc.colorLinks&&tc.colorLinks.length>0;
       const activeColors=hasLinks?allColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):allColors;
-      const amt=isLot?Math.round((tc.costPerLot||0)*activeColors.length/minQty*qty):Math.round((tc.costPerPcs||0)*qty*(activeColors.length/(allColors.length||1)));
+      const amt=isOnce?Math.round((tc.costPerLot||0)/minQty*qty):isLot?Math.round((tc.costPerLot||0)*activeColors.length/minQty*qty):Math.round((tc.costPerPcs||0)*qty*(activeColors.length/(allColors.length||1)));
       totalNet5+=amt;
-      p(['',tc.name||'가공비','',1,1,isLot?tc.costPerLot:tc.costPerPcs,amt,amt,tc.factory||'','']);
+      p(['',tc.name||'가공비','',1,1,(isLot||isOnce)?tc.costPerLot:tc.costPerPcs,amt,amt,tc.factory||'','']);
     });
     p(['','','','','','⑤ 소계',totalNet5,totalNet5,'','']);
     p([]);
