@@ -477,6 +477,14 @@ html[data-theme="minimal"] .ise-auto,html[data-theme="minimal"] .ise-flag,html[d
 .po-mtbl .mfml{display:none;padding:0 11px 9px}
 .po-mtbl .mitem.open .mfml{display:block}
 .po-mtbl .mr-adj{padding:7px 11px;background:#eff6ff;font-size:11px}
+/* 거래처 카드 2단 접기 */
+.po2-fold{border:0;background:none;font-size:13px;font-weight:800;color:var(--t2,#666);cursor:pointer;padding:0 4px 0 0;line-height:1}
+.po2-collsum{display:none}
+.po2-collapsed .po2-collsum{display:inline-block;margin-left:auto;font-size:11.5px;color:var(--t2,#666);font-weight:700}
+.po2-collapsed .po2-acts,.po2-collapsed .po2-del,.po2-collapsed .po2-meta,.po2-collapsed .sc-b{display:none}
+.po2-matfold{margin-bottom:9px}
+.po2-matfold-h{width:100%;text-align:left;font:inherit;font-size:12px;font-weight:800;padding:8px 11px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2,#f4f6f8);color:var(--t2,#555);cursor:pointer;margin-bottom:7px}
+html[data-theme="retro"] .po2-matfold-h{border:2px solid var(--ink);border-radius:0;background:#F4ECD8;box-shadow:2px 2px 0 var(--ink)}
 html[data-theme="retro"] .po-mtbl .mitem{border-top:1.5px solid var(--ink)}
 html[data-theme="retro"] .po-mtbl .mfml .po-cl{background:#F4ECD8;border:1.5px solid var(--ink);border-radius:0}
 html[data-theme="retro"] .po-mtbl .mr-adj{background:#eaf3fb;border-bottom:1.5px solid var(--ink)}
@@ -12508,6 +12516,14 @@ function renderPoTab(o){
   const sns=Object.keys(o.suppliers||{});if(!sns.length)return'<div class="empty">원부자재 정보 없음</div>';
   return orderLossPanelHTML(o)+'<div class="po2-tray">'+sns.map(function(sn){return poCardHTML(o,sn);}).join('')+'</div>'+(typeof extraOrdersSectionHTML==='function'?extraOrdersSectionHTML(o):'');  // 로스 패널 + 발주서 카드들 + 재단 추가 발주
 }
+// 거래처 카드 2단 접기 — 겉(카드 통째)·속(자재목록). 접힘 상태 localStorage 기억
+function _poCK(oid,sn){return oid+'|'+sn;}
+function _poCollGet(key){try{return JSON.parse(localStorage.getItem(key)||'{}');}catch(e){return {};}}
+function _poCollTog(key,oid,sn){var m=_poCollGet(key),k=_poCK(oid,sn);if(m[k])delete m[k];else m[k]=1;try{localStorage.setItem(key,JSON.stringify(m));}catch(e){}if(typeof renderOTab==='function')renderOTab();}
+function poCardCollapsed(oid,sn){return !!_poCollGet('fpm_poCardColl')[_poCK(oid,sn)];}
+function togglePoCard(oid,sn){_poCollTog('fpm_poCardColl',oid,sn);}
+function poMatCollapsed(oid,sn){return !!_poCollGet('fpm_poMatColl')[_poCK(oid,sn)];}
+function togglePoMat(oid,sn){_poCollTog('fpm_poMatColl',oid,sn);}
 // 거래처 발주 카드 1개 — 첫 발주(S.orders)·추가발주(orderLike) 공용. o는 실주문 또는 추가발주용 orderLike
 function poCardHTML(o,sn){
     const sup=o.suppliers[sn];if(!sup)return'';const sent=sup.status==='sent';const opts=sup.poOpts||{};const pb=S.priceBook[sn]||{};
@@ -12657,12 +12673,16 @@ function poCardHTML(o,sn){
       return {matTbl:_matSumHtml,calcHtml:'',optCount:_optCount};
     })();
     const poText=genPoText(o,sn);
-    return`<div class="sc po2"><div class="sc-h">
-      <div class="po2-hd"><span class="po2-nm">${esc(sn)}</span><span class="badge ${sent?'b1':'b0'}">${sent?'발송':'미발송'}</span><span class="po2-acts"><button class="po2-ab copy" onclick="cpPO('${o.id}','${sn}')">복사</button><button class="po2-ab kakao" onclick="sharePoKakao('${o.id}','${sn}')">카톡</button><button class="po2-ab sub" onclick="sendPoEmail('${o.id}','${sn}')">메일</button><button class="po2-ab sub" onclick="sendPoSMS('${o.id}','${sn}')">문자</button>${!sent?`<button class="po2-ab done" onclick="markPoSent('${o.id}','${sn}')">발송완료</button>`:`<button class="po2-ab undo" onclick="unSent('${o.id}','${sn}')" title="발송 ${esc(sup.sentAt||'')}">발송취소</button>`}</span><button class="po2-del" onclick="deleteOrderSupplier('${o.id}','${sn}')" title="이 발주서 삭제">🗑</button></div>
+    const _cardColl=(typeof poCardCollapsed==='function')&&poCardCollapsed(o.id,sn);
+    const _matColl=(typeof poMatCollapsed==='function')&&poMatCollapsed(o.id,sn);
+    const _rowCnt=(String(poParts.matTbl).match(/class="mitem/g)||[]).length;
+    const _matFold=poParts.matTbl?`<div class="po2-matfold"><button type="button" class="po2-matfold-h" onclick="togglePoMat('${o.id}','${sn}')">${_matColl?'▸':'▾'} 자재 ${_rowCnt}건</button>${_matColl?'':poParts.matTbl}</div>`:'';
+    return`<div class="sc po2${_cardColl?' po2-collapsed':''}"><div class="sc-h">
+      <div class="po2-hd"><button type="button" class="po2-fold" onclick="togglePoCard('${o.id}','${sn}')">${_cardColl?'▸':'▾'}</button><span class="po2-nm">${esc(sn)}</span><span class="badge ${sent?'b1':'b0'}">${sent?'발송':'미발송'}</span><span class="po2-collsum">자재 ${_rowCnt}건</span><span class="po2-acts"><button class="po2-ab copy" onclick="cpPO('${o.id}','${sn}')">복사</button><button class="po2-ab kakao" onclick="sharePoKakao('${o.id}','${sn}')">카톡</button><button class="po2-ab sub" onclick="sendPoEmail('${o.id}','${sn}')">메일</button><button class="po2-ab sub" onclick="sendPoSMS('${o.id}','${sn}')">문자</button>${!sent?`<button class="po2-ab done" onclick="markPoSent('${o.id}','${sn}')">발송완료</button>`:`<button class="po2-ab undo" onclick="unSent('${o.id}','${sn}')" title="발송 ${esc(sup.sentAt||'')}">발송취소</button>`}</span><button class="po2-del" onclick="deleteOrderSupplier('${o.id}','${sn}')" title="이 발주서 삭제">🗑</button></div>
       <div class="po2-meta"><span class="m1">출고처 <select onchange="setPoDelivery('${o.id}','${sn}',this.value)">${fcOpts(sup.deliveryFcId||'')}</select></span>${pb.email||pb.phone?`<span class="m1 muted" style="color:var(--t3,#9aa0a6)">${pb.email?esc(pb.email)+' ':''}${pb.phone?esc(pb.phone):''}</span>`:''}</div>
     </div>
     <div class="sc-b">
-      ${poParts.matTbl}
+      ${_matFold}
       <details class="po-body" ${window._poBodyOpen?'open':''} ontoggle="window._poBodyOpen=this.open"><summary>발주서 본문 <span class="hint">거래처에 보낼 내용</span></summary><div class="mono">${esc(poText)}</div></details>
       <details class="po-details" ${window._poOptsOpen?'open':''} ontoggle="window._poOptsOpen=this.open" style="margin-bottom:8px">
         <summary>발주 내용 선택 ${poParts.optCount?`<span class="po2-cnt">${poParts.optCount}개 켜짐</span>`:`<span class="hint">요청·출고 옵션</span>`}</summary>
