@@ -7186,6 +7186,7 @@ function renderItemsList(){
         <div class="nc-acts">
           <button type="button" class="nc-ab" onclick="tpOpen('${it.id}')" title="작업지시서 작성·인쇄">작지</button>
           <button type="button" class="nc-ab ghost" onclick="showItemCost('${it.id}')" title="원가계산서">원가</button>
+          <button type="button" class="nc-ab ghost" onclick="openYocheokHist('${it.id}')" title="요척 히스토리 (실제발주÷재단장수)">요척</button>
           <button type="button" class="nc-ab ghost" onclick="showItemForm('${it.id}')" title="수정">수정</button>
           <button type="button" class="nc-ab ghost nc-more" onclick="event.stopPropagation();this.closest('.nc-card').querySelector('.nc-more-row').classList.toggle('open')" title="더보기(복제·삭제)">⋯</button>
         </div>
@@ -11956,6 +11957,71 @@ function _qsItemGrid(o,oi){
   var cutGrid=(sch&&typeof pdCutSizeGrid==='function')?pdCutSizeGrid(sch,oi.itemId,single):{};
   var anyCut=false;Object.keys(cutGrid||{}).forEach(function(c){Object.keys(cutGrid[c]||{}).forEach(function(s){if(+cutGrid[c][s]>0)anyCut=true;});});
   return {it:it,colors:colors,sizes:sizes,realSizes:realSizes,effGrid:effGrid,cutGrid:cutGrid,anyCut:anyCut,qtyGrid:oi.qtyGrid||{}};
+}
+// ===== 요척 히스토리: 실제발주량 ÷ 재단장수 (원단×컬러별, 재단 기록 있는 발주만) =====
+function _yoR2(v){return Math.round((+v||0)*100)/100;}
+function _yoR1(v){return Math.round((+v||0)*10)/10;}
+function yocheokHistory(itemId){
+  var it=S.items[itemId];if(!it)return [];
+  var groups={},order=[];
+  Object.values(S.orders||{}).forEach(function(o){
+    if(!o.orderItems)return;
+    var oi=o.orderItems.find(function(x){return x.itemId===itemId;});if(!oi)return;
+    var single=o.orderItems.length===1;
+    var sewSch=(it.sewingFcId&&o.factorySchedules)?o.factorySchedules[it.sewingFcId]:null;
+    var cutGrid=(sewSch&&typeof pdCutSizeGrid==='function')?pdCutSizeGrid(sewSch,itemId,single):{};
+    var cutByColor={},cutTot=0;
+    Object.keys(cutGrid||{}).forEach(function(c){var s=0;Object.keys(cutGrid[c]||{}).forEach(function(sz){s+=+cutGrid[c][sz]||0;});cutByColor[c]=s;cutTot+=s;});
+    if(cutTot<=0)return; // 재단 기록 없는 발주는 제외
+    var nCutColors=Object.keys(cutByColor).filter(function(c){return cutByColor[c]>0;}).length;
+    if(!o.suppliers)return;
+    Object.keys(o.suppliers).forEach(function(sn){
+      (o.suppliers[sn].materials||[]).forEach(function(m){
+        if(m.type!=='fabric'||m.itemId!==itemId)return;
+        var color=m.colorName||'';
+        var cut=cutByColor[color]||0;
+        if(!cut&&nCutColors===1)cut=cutTot; // 단색/컬러 매칭 실패 시 전체 재단합 폴백
+        if(cut<=0)return;
+        var ordered=(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')?+m.actualOrderedQty:(+m.totalYards||0);
+        if(ordered<=0)return;
+        var fc=(it.fabrics||[]).find(function(f){return f.id===m.fabId||f.name===m.name;});
+        var plan=fc?(+fc.consumption||0):0;
+        var key=(m.name||'')+'|'+(m.part||'')+'|'+color;
+        if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,rows:[],sumOrd:0,sumCut:0};order.push(key);}
+        var g=groups[key];
+        g.rows.push({date:o.createdAt||'',ordered:ordered,cut:cut,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')});
+        g.sumOrd+=ordered;g.sumCut+=cut;
+      });
+    });
+  });
+  return order.map(function(k){var g=groups[k];g.wAvg=g.sumCut?(g.sumOrd/g.sumCut):0;
+    g.rows.sort(function(a,b){return (typeof cmpDate==='function')?(cmpDate(a.date)-cmpDate(b.date)):String(a.date).localeCompare(String(b.date));});
+    return g;});
+}
+function openYocheokHist(itemId){
+  var it=S.items[itemId];if(!it){showToast('아이템 없음');return;}
+  var hist=yocheokHistory(itemId);
+  var body;
+  if(!hist.length){
+    body='<div style="padding:28px 14px;text-align:center;color:var(--t2);font-size:13px">아직 재단 기록이 있는 발주가 없어요.<div style="font-size:11px;margin-top:7px;line-height:1.6">발주 후 <b>생산 대시보드에서 재단장수</b>를 입력하면,<br>여기 <b>실제 요척(실제발주÷재단장수)</b>이 발주마다 쌓여요.</div></div>';
+  } else {
+    body=hist.map(function(g){
+      var rowsH=g.rows.map(function(r){
+        var sw=(typeof colorToHex==='function')?'<span style="display:inline-block;width:9px;height:9px;border:1px solid #999;border-radius:2px;vertical-align:-1px;margin-right:3px;background:'+colorToHex(g.color)+'"></span>':'';
+        var dm=String(r.date||'').match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);var dShort=dm?(+dm[2]+'/'+(+dm[3])):String(r.date||'');
+        return '<tr><td style="text-align:left;padding:4px 4px">'+esc(dShort)+'</td><td style="padding:4px 4px">'+sw+esc(g.color||'기본')+'</td><td style="text-align:center;padding:4px 4px">'+r.cut+'</td><td style="text-align:center;padding:4px 4px;white-space:nowrap">'+_yoR1(r.ordered)+'y'+(r.override?'<sup style="color:#2563eb;font-size:8px;font-weight:800">실</sup>':'')+'</td><td style="text-align:center;padding:4px 4px;font-weight:800;color:#7c3aed">'+_yoR2(r.realYo)+'</td></tr>';
+      }).join('');
+      var diff=g.wAvg-(g.plan||0);
+      return '<div style="margin-bottom:15px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:12.5px;margin-bottom:4px;flex-wrap:wrap;gap:4px"><span>'+esc(g.fabName)+(g.part?' <span style="color:var(--t2);font-weight:500">· '+esc(g.part)+'</span>':'')+'</span><span style="font-size:11px;color:var(--t2)">계획 요척 <b style="color:var(--text)">'+_yoR2(g.plan)+'</b></span></div>'
+        +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr style="color:var(--t2)"><th style="text-align:left;padding:4px 4px;font-size:10px;font-weight:700">발주</th><th style="padding:4px 4px;font-size:10px;font-weight:700">컬러</th><th style="padding:4px 4px;font-size:10px;font-weight:700">재단</th><th style="padding:4px 4px;font-size:10px;font-weight:700">실제발주</th><th style="padding:4px 4px;font-size:10px;font-weight:700">실제요척</th></tr></thead><tbody>'+rowsH
+        +'<tr style="border-top:1.5px solid var(--ink)"><td colspan="2" style="padding:5px;font-weight:800">장수 가중평균</td><td style="text-align:center;font-weight:800;padding:5px">'+g.sumCut+'</td><td style="text-align:center;font-weight:800;padding:5px">'+_yoR1(g.sumOrd)+'y</td><td style="text-align:center;font-weight:800;color:#7c3aed;padding:5px">'+_yoR2(g.wAvg)+'</td></tr></tbody></table></div>'
+        +'<div style="margin-top:7px;background:#eafaf1;border:1px solid #b6e3c8;border-radius:7px;padding:8px 11px;font-size:12px;line-height:1.55"><b style="color:#1f7a4d">추천 요척: '+_yoR2(g.wAvg)+'</b>'+((Math.abs(diff)>=0.005)?' <span style="color:var(--t2)">(계획 '+_yoR2(g.plan)+'보다 '+(diff>0?'+':'')+_yoR2(diff)+')</span>':' <span style="color:var(--t2)">(계획과 같음)</span>')+'</div>'
+        +'</div>';
+    }).join('')
+    +'<div style="font-size:11px;color:#9a3a2e;background:#fff5f5;border:1px solid #f0c0c0;border-radius:7px;padding:8px 10px;line-height:1.55">계획 요척(작지·원가)은 <b>안 바뀜</b>. 실제발주량 ÷ 재단장수 · <b>재단 기록 있는 발주만</b> 집계.</div>';
+  }
+  if(typeof showGenericModal==='function')showGenericModal('요척 히스토리 — '+esc(it.name||''),body);
 }
 function renderQtyStrip(o){
   if(!o||!o.orderItems||o.orderItems.length===0)return '';
