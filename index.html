@@ -2731,7 +2731,7 @@ function tpMergeLocalImages(newItems,oldItems){
   return newItems;
 }
 /* ===== 실시간 동기화 (Firestore onSnapshot) ===== */
-var _rtUnsub=null, _rtPending=null, _rtAppliedTs={};
+var _rtUnsub=null, _rtUnsubOrders=null, _rtPending=null, _rtPendingOrders=null, _rtAppliedTs={};
 function isEditingNow(){
   var ae=document.activeElement;
   if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return true;
@@ -2761,10 +2761,18 @@ function tpPreserveLocalContent(inc,old){
 function applyRemoteCoData(data){
   if(!data)return;
   var _oldItems=S.items||{};
-  S.items=tpPreserveLocalContent(data.items||{},_oldItems);S.orders=data.orders||{};S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
+  // 발주(orders)는 별도 문서(__orders)로 분리돼 메인 문서엔 없음 → 메인 스냅샷에 orders 없으면 기존 발주 보존(빈 값으로 덮어쓰기 금지)
+  S.items=tpPreserveLocalContent(data.items||{},_oldItems);if(data.orders!==undefined&&data.orders!==null)S.orders=data.orders;S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
   S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=data.tasks||[];
   S.brandConfig=data.brandConfig||{};S.deductions=data.deductions||[];
   S.trimLedger=data.trimLedger||S.trimLedger||{};S.trimLedgerPaid=data.trimLedgerPaid||S.trimLedgerPaid||{};S.courierLedger=data.courierLedger||S.courierLedger||{bank:'',entries:[]};S.refData=data.refData||S.refData||{};
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
+  try{switchTab(activeTab);}catch(e){try{render();}catch(e2){}}
+}
+// 발주(__orders) 전용 원격 반영 — 별도 문서라 리스너도 따로
+function applyRemoteOrders(orders){
+  if(!orders)return;
+  S.orders=orders;
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
   try{switchTab(activeTab);}catch(e){try{render();}catch(e2){}}
 }
@@ -2781,16 +2789,19 @@ function showRemoteBanner(){
 }
 function hideRemoteBanner(){var b=document.getElementById('rt-banner');if(b)b.style.display='none';}
 function applyPendingRemote(){
-  if(!_rtPending)return hideRemoteBanner();
-  var d=_rtPending;_rtPending=null;hideRemoteBanner();
-  if(d.coId!==curCoId)return; // 회사 바뀌었으면 무시
-  applyRemoteCoData(d.data);
+  if(!_rtPending&&!_rtPendingOrders)return hideRemoteBanner();
+  var d=_rtPending;_rtPending=null;
+  var od=_rtPendingOrders;_rtPendingOrders=null;
+  hideRemoteBanner();
+  if(d&&d.coId===curCoId)applyRemoteCoData(d.data);
+  if(od&&od.coId===curCoId)applyRemoteOrders(od.orders);
   showToast('다른 기기 변경이 반영됐어요');
 }
 function startRealtimeSync(){
   if(!isCloudOn()||!curCoId)return;
   if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}
-  hideRemoteBanner();_rtPending=null;
+  if(_rtUnsubOrders){try{_rtUnsubOrders();}catch(e){}_rtUnsubOrders=null;}
+  hideRemoteBanner();_rtPending=null;_rtPendingOrders=null;
   var key='fpm_'+curCoId, coAtSub=curCoId, _first=true;
   try{
     var ref=window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key);
@@ -2809,10 +2820,28 @@ function startRealtimeSync(){
       if(isEditingNow()){_rtPending={coId:coAtSub,data:data};showRemoteBanner();return;}
       applyRemoteCoData(data);showToast('다른 기기 변경이 반영됐어요');
     },function(err){console.error('onSnapshot 오류:',err);});
+    // 발주(__orders) 별도 문서 리스너 — 메인 문서엔 orders가 없어서 이걸 따로 들어야 폰↔컴 발주 동기화됨
+    var okey='fpm_'+curCoId+'__orders', _firstO=true;
+    var oref=window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(okey);
+    _rtUnsubOrders=oref.onSnapshot(function(snap){
+      if(!snap.exists)return;
+      if(snap.metadata&&snap.metadata.hasPendingWrites)return; // 내 로컬 쓰기 진행 중
+      if(curCoId!==coAtSub)return; // 회사 전환됨
+      var d=snap.data();if(!d)return;
+      var ts=d.ts||'';
+      if(_firstO){_firstO=false;_rtAppliedTs[okey]=ts;return;} // 구독 직후 첫 스냅샷 = 이미 가진 데이터
+      if(ts&&window._lastPushTs&&ts===window._lastPushTs[okey])return; // 내가 방금 올림
+      if(ts&&ts===_rtAppliedTs[okey])return; // 이미 반영
+      var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
+      if(!data||data._deleted||data.orders===undefined||data.orders===null)return; // 회사 삭제·발주 키 없음 → 무시
+      _rtAppliedTs[okey]=ts;
+      if(isEditingNow()){_rtPendingOrders={coId:coAtSub,orders:data.orders};showRemoteBanner();return;}
+      applyRemoteOrders(data.orders);showToast('다른 기기 발주 변경이 반영됐어요');
+    },function(err){console.error('onSnapshot(orders) 오류:',err);});
     console.log('실시간 동기화 시작:',key);
   }catch(e){console.error('startRealtimeSync 실패:',e);}
 }
-function stopRealtimeSync(){if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}hideRemoteBanner();}
+function stopRealtimeSync(){if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}if(_rtUnsubOrders){try{_rtUnsubOrders();}catch(e){}_rtUnsubOrders=null;}hideRemoteBanner();}
 
 function skipLoginAndRegister(){
   // 로그인을 건너뛰고 로컬에서만 회사를 만든다.
