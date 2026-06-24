@@ -699,6 +699,15 @@ html[data-theme="retro"] .po2-seg button.on{background:var(--neon-green);color:v
 #pane-items .tcd-fld{display:flex;flex-direction:column}
 #pane-items .tcd-grow{flex:1 1 120px;min-width:110px}
 #pane-items .w-dong{flex:0 0 70px}#pane-items .w-room{flex:0 0 80px}#pane-items .w-sz{flex:0 0 86px}#pane-items .w-cl{flex:0 0 100px}
+/* 케어라벨 세탁방법 칩 */
+#pane-items .wash-chips{display:flex;flex-wrap:wrap;gap:6px;width:100%;padding:7px 8px;border:1px solid var(--input-bd,#dde2e7);border-radius:6px;background:var(--input-bg,#fff)}
+#pane-items .wchip{display:inline-flex;align-items:center;border:1px solid var(--ink,#0B0A05);border-radius:16px;padding:4px 12px;font-size:12px;font-weight:600;background:#fff;color:var(--text);cursor:pointer;user-select:none;line-height:1.4}
+#pane-items .wchip.on{background:#166534;color:#fff;border-color:#166534}
+#pane-items .wchip-add{border:1px dashed #16a34a;border-radius:16px;padding:4px 12px;font-size:12px;font-weight:700;background:#f0fdf4;color:#166534;cursor:pointer}
+#pane-items .wchip-e{display:inline-flex;align-items:center;gap:3px;border:1px solid #cbd5e1;border-radius:16px;padding:2px 4px 2px 6px;font-size:12px;background:#f8fafc}
+#pane-items .wchip-e .nm{background:none;border:none;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;padding:2px}
+#pane-items .wchip-e .x{background:#fee2e2;color:#b91c1c;border:none;border-radius:50%;width:18px;height:18px;font-size:13px;line-height:1;cursor:pointer;padding:0}
+#pane-items .wedit-btn{margin-left:auto;background:#eef2f7;border:1px solid #dde2e7;border-radius:5px;font-size:10px;font-weight:700;padding:2px 8px;color:#475569;cursor:pointer}
 #pane-items .tcd-split{display:flex;gap:12px;align-items:stretch}
 #pane-items .tcd-idc{flex:1;min-width:0}
 #pane-items .tcd-calc{flex:0 0 176px;border-left:1px solid var(--bd2,#eef1f4);padding-left:12px;display:flex;flex-direction:column;gap:6px}
@@ -8605,6 +8614,53 @@ function labelShell(t,i,o,inner){
   h+='<div class="tcd-tabs"><span class="tcd-tact" style="margin-left:0">'+trimMoveBtns(i)+'<button type="button" onclick="trimDup('+i+')">복제</button><button type="button" class="del" onclick="rmTrimRow('+i+')">🗑</button></span></div>';
   h+=inner+'</div></div>';return h;
 }
+// 케어라벨 세탁방법 — 마스터 목록은 S.refData.washMethods(동기화됨)에 저장, 라벨별 선택은 t.washMethods
+var WASH_METHOD_DEFAULTS=['드라이클리닝','물세탁','단독세탁','손세탁','기계세탁'];
+function getWashMethods(){
+  if(!S.refData)S.refData={};
+  if(!Array.isArray(S.refData.washMethods)||!S.refData.washMethods.length)S.refData.washMethods=WASH_METHOD_DEFAULTS.slice();
+  return S.refData.washMethods;
+}
+function washMethodRow(t,i){
+  var e=esc;var opts=getWashMethods();var sel=Array.isArray(t.washMethods)?t.washMethods:[];var edit=!!window._washEditMode;
+  var chips=opts.map(function(w,wi){
+    if(edit)return '<span class="wchip-e"><button type="button" class="nm" title="이름 수정" onclick="renameWashMethod('+i+','+wi+')">'+e(w)+'</button><button type="button" class="x" title="목록에서 삭제" onclick="deleteWashMethod('+i+','+wi+')">×</button></span>';
+    var on=sel.indexOf(w)>=0;
+    return '<span class="wchip'+(on?' on':'')+'" onclick="toggleWashMethod('+i+','+wi+')">'+e(w)+'</span>';
+  }).join('');
+  chips+='<button type="button" class="wchip-add" onclick="addWashMethod('+i+')">＋ 추가</button>';
+  return '<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label style="display:flex;align-items:center">세탁방법 <span style="font-weight:400;color:#8a8170;font-size:9px;margin-left:4px">여러 개 선택 가능</span><button type="button" class="wedit-btn" onclick="toggleWashEdit('+i+')">'+(edit?'완료':'편집')+'</button></label><input type="hidden" data-f-washmethods value="'+e(JSON.stringify(sel))+'"><div class="wash-chips">'+chips+'</div></div></div>';
+}
+function toggleWashEdit(i){window._washEditMode=!window._washEditMode;colTR();renderTrimRows();}
+function toggleWashMethod(i,wi){
+  colTR();if(!formTrims[i])return;
+  var name=getWashMethods()[wi];if(!name)return;
+  var sel=Array.isArray(formTrims[i].washMethods)?formTrims[i].washMethods.slice():[];
+  var p=sel.indexOf(name);if(p>=0)sel.splice(p,1);else sel.push(name);
+  formTrims[i].washMethods=sel;renderTrimRows();persistTrimEdit(i);
+}
+function addWashMethod(i){
+  var nm=(prompt('추가할 세탁방법 이름')||'').trim();if(!nm)return;
+  colTR();var list=getWashMethods();
+  if(list.indexOf(nm)<0)list.push(nm);S.refData.washMethods=list;
+  if(!window._washEditMode&&formTrims[i]){var sel=Array.isArray(formTrims[i].washMethods)?formTrims[i].washMethods.slice():[];if(sel.indexOf(nm)<0)sel.push(nm);formTrims[i].washMethods=sel;}
+  saveData();renderTrimRows();if(formTrims[i])persistTrimEdit(i);
+}
+function renameWashMethod(i,wi){
+  var list=getWashMethods();var old=list[wi];if(!old)return;
+  var nm=(prompt('세탁방법 이름 수정',old)||'').trim();if(!nm||nm===old)return;
+  if(list.indexOf(nm)>=0){alert('이미 있는 이름이에요');return;}
+  colTR();list[wi]=nm;S.refData.washMethods=list;
+  formTrims.forEach(function(ft){if(ft&&Array.isArray(ft.washMethods)){var p=ft.washMethods.indexOf(old);if(p>=0)ft.washMethods[p]=nm;}});
+  saveData();renderTrimRows();
+}
+function deleteWashMethod(i,wi){
+  var list=getWashMethods();var nm=list[wi];if(!nm)return;
+  if(!confirm('"'+nm+'" 세탁방법을 목록에서 지울까요?\n(이미 발주한 라벨에는 영향 없어요)'))return;
+  colTR();list.splice(wi,1);S.refData.washMethods=list;
+  formTrims.forEach(function(ft){if(ft&&Array.isArray(ft.washMethods)){var p=ft.washMethods.indexOf(nm);if(p>=0)ft.washMethods.splice(p,1);}});
+  saveData();renderTrimRows();
+}
 // 케어라벨 새 카드
 function careLabelCardNew(t,i){
   var e=esc;var ymOpts='';var now=new Date();
@@ -8614,6 +8670,7 @@ function careLabelCardNew(t,i){
   var inner='<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="몸판/소매"></div></div>'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld tcd-grow"><label>라벨 이름</label><input list="dl-carelabel" data-f="labelName" value="'+e(t.labelName||'')+'" placeholder="예: 가로30 무광공단" onchange="onCareLabelNameChange('+i+',this.value)"></div></div>'
     +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>부위</label><input list="dl-labelpart" data-f="labelPart" value="'+e(t.labelPart||'')+'" placeholder="상의/하의"></div><div class="tcd-fld" style="flex:0 0 90px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div><div class="tcd-fld" style="flex:0 0 80px"><label>요척(벌당)</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece!=null?t.qtyPerPiece:1)+'" min="1" step="1" title="옷 1벌당 케어라벨 개수 (보통 1). 여분은 발주서 로스에서"></div><input type="hidden" data-f="qtyBuffer" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"><div class="tcd-fld" style="flex:0 0 150px"><label>제조 연월 (발주월 자동)</label><select data-f="manufactureYM"><option value=""'+(!t.manufactureYM?' selected':'')+'>자동 (발주일 기준)</option><option value="none"'+(t.manufactureYM==='none'?' selected':'')+'>표시 안 함</option>'+ymOpts+'</select></div><div class="tcd-fld" style="flex:0 0 135px"><label>제조국 / 시장</label><select data-f="madeIn"><option value=""'+(!t.madeIn?' selected':'')+'>표시 안 함</option><option value="KR"'+(t.madeIn==='KR'?' selected':'')+'>메이드인 코리아</option><option value="CN"'+(t.madeIn==='CN'?' selected':'')+'>메이드인 차이나</option><option value="US"'+(t.madeIn==='US'?' selected':'')+'>미국용</option></select></div></div>'
+    +washMethodRow(t,i)
     +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>비고</label><input data-trim-memo value="'+e(t.memo||'')+'" placeholder="발주 메모"></div></div>';
   return labelShell(t,i,{chip:'케어라벨',bg:'#dcfce7',fg:'#166534',border:'#16a34a',nm:t.labelName||'케어라벨',spec:spec},inner);
 }
@@ -9361,6 +9418,8 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
     formTrims[i].qtyPerPiece=g('qtyPerPiece')!=null&&g('qtyPerPiece')!==''?+g('qtyPerPiece'):1;
     formTrims[i].manufactureYM=g('manufactureYM')||'';
     formTrims[i].madeIn=g('madeIn')||'';
+    var _wmEl=r.querySelector('[data-f-washmethods]');
+    if(_wmEl){try{var _wm=JSON.parse(_wmEl.value||'[]');if(Array.isArray(_wm))formTrims[i].washMethods=_wm;}catch(e){}}
     formTrims[i].buffer=0; // 케어라벨은 로스 미사용 (여분=발주서 로스)
     formTrims[i].unit='개';
     formTrims[i].autoComposition=true;
@@ -11017,6 +11076,12 @@ function genPoText(order,sn){
             });
             L.push('');
           }
+        }
+        // 세탁방법 (선택한 것만) — 혼용률 아래. 없으면 줄 자체 생략(기존 케어라벨과 동일)
+        if(cl.washMethods&&cl.washMethods.length){
+          L.push('세탁방법');
+          L.push(cl.washMethods.join(' / '));
+          L.push('');
         }
         // 수량 (의뢰수량 + buffer) — 원단 변경으로 수량 늘면 그 수량 반영(effective)
         if(oiC&&oiC.qtyGrid&&itC){
