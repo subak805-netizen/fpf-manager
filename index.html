@@ -9101,9 +9101,18 @@ function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)r
   const labelTypes=['careLabel','mainLabel'];
   const basics=[];const labels=[];
   (formTrims||[]).forEach((t,i)=>{if(labelTypes.indexOf(t.orderType)>=0)labels.push({t,i});else basics.push({t,i});});
-  el.innerHTML = basics.length ? basics.map(x=>{const badge=_pbTrimBadge(x.t,x.i);const raw=trimRowHTML(x.t,x.i);const html=badge?raw.replace('<button class="btn s d g" style="order:99;margin-left:auto" onclick="rmTrimRow('+x.i+')">🗑</button>',badge+'<button class="btn s d g" style="order:99;margin-left:auto" onclick="rmTrimRow('+x.i+')">🗑</button>'):raw;return html+inlineTrimCostsHTML(x.t);}).join('') : '<div class="muted" style="text-align:center;padding:.5rem">부자재 없음</div>';
+  el.innerHTML = basics.length ? basics.map(x=>{const badge=_pbTrimBadge(x.t,x.i);return _injectPbBadge(trimRowHTML(x.t,x.i),badge,x.i)+inlineTrimCostsHTML(x.t);}).join('') : '<div class="muted" style="text-align:center;padding:.5rem">부자재 없음</div>';
   const labelEl=document.getElementById('label-trim-rows');
-  if(labelEl) labelEl.innerHTML = labels.length ? labels.map(x=>trimRowHTML(x.t,x.i)+inlineTrimCostsHTML(x.t)).join('') : '<div class="muted" style="font-size:11px;padding:6px 4px">라벨 없음 — 아래 버튼으로 추가</div>';
+  if(labelEl) labelEl.innerHTML = labels.length ? labels.map(x=>_injectPbBadge(trimRowHTML(x.t,x.i),_pbTrimBadge(x.t,x.i),x.i)+inlineTrimCostsHTML(x.t)).join('') : '<div class="muted" style="font-size:11px;padding:6px 4px">라벨 없음 — 아래 버튼으로 추가</div>';
+}
+// 단가장 배지 주입 — 새 카드(class="del")·옛 카드(btn s d g) 🗑 버튼 둘 다 대응
+function _injectPbBadge(html,badge,i){
+  if(!badge)return html;
+  var newDel='<button type="button" class="del" onclick="rmTrimRow('+i+')">🗑</button>';
+  var oldDel='<button class="btn s d g" style="order:99;margin-left:auto" onclick="rmTrimRow('+i+')">🗑</button>';
+  if(html.indexOf(newDel)>=0)return html.replace(newDel,badge+newDel);
+  if(html.indexOf(oldDel)>=0)return html.replace(oldDel,badge+oldDel);
+  return html;
 }
 function _pbTrimBadge(t,i){
   if(!t||!t.supplier||!t.name)return'';
@@ -11961,6 +11970,17 @@ function _qsItemGrid(o,oi){
 // ===== 요척 히스토리: 실제발주량 ÷ 재단장수 (원단×컬러별, 재단 기록 있는 발주만) =====
 function _yoR2(v){return Math.round((+v||0)*100)/100;}
 function _yoR1(v){return Math.round((+v||0)*10)/10;}
+// 특정 원단×컬러의 추천 요척(가중평균). 매칭 실패 시 같은 원단 아무 컬러 폴백
+function yocheokRecFor(itemId,fabName,color){
+  var h=yocheokHistory(itemId);if(!h.length)return 0;
+  var g=h.find(function(x){return x.fabName===fabName&&x.color===color;})||h.find(function(x){return x.fabName===fabName;});
+  return g?g.wAvg:0;
+}
+// 추천 요척 적용 = 그 발주 원단의 '실제발주' 칸에 추천요척×장수 채우기 (계획 요척·계산 불변, 기존 actualOrderedQty 재활용)
+function applyYoRec(oid,sn,idx,val){
+  if(typeof setActualOrderedQty==='function')setActualOrderedQty(oid,sn,idx,val);
+  if(typeof showToast==='function')showToast('추천 요척으로 실제발주 '+val+'y 채움');
+}
 function yocheokHistory(itemId){
   var it=S.items[itemId];if(!it)return [];
   var groups={},order=[];
@@ -12964,6 +12984,7 @@ function renderCheckTab(o,onlySn){
             <span class="muted" style="font-size:10px">${origUnit}</span>
           </div>
           ${actualOrd!==''&&Math.abs(costDiff)>0.5?`<div style="font-size:9px;margin-top:2px;color:${costDiff>0?'var(--red)':'var(--green)'};font-weight:600">${costDiff>0?'+':''}${num(Math.round(costDiff))}원</div>`:''}
+          ${m.type==='fabric'?(function(){var _rec=(typeof yocheokRecFor==='function')?_yoR2(yocheokRecFor(m.itemId,m.name,m.colorName||'')):0;var _pcs=Math.round(+m.garmentPcs||0);if(_rec<=0||_pcs<=0)return '';var _sug=Math.round(_rec*_pcs*100)/100;if(+actualOrd===_sug)return '<div style="font-size:9px;margin-top:2px;color:var(--green);font-weight:700">✓ 추천요척 '+(_yoR2(_rec))+' 적용됨</div>';return '<button type="button" onclick="applyYoRec(\''+o.id+'\',\''+esc(sn)+'\','+idx+','+_sug+')" style="margin-top:3px;font-size:9px;font-weight:800;color:#1f7a4d;background:#eafaf1;border:1px solid #b6e3c8;border-radius:5px;padding:2px 6px;cursor:pointer;white-space:nowrap" title="실제 요척 평균으로 실제발주 채우기">추천요척 '+_yoR2(_rec)+' → '+_sug+'y 적용</button>';})():''}
         </td>
         <td style="padding:4px 6px">
           <div style="display:flex;align-items:center;gap:3px">
