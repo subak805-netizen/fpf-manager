@@ -2280,6 +2280,7 @@ body.tp-printing #tp-modal .tp-drag,body.tp-capturing #tp-modal .tp-drag{color:t
 #tp-modal .tp-wrap .colL,#tp-modal .tp-wrap .colR{display:flex;flex-direction:column;min-width:0;}
 #tp-modal .tp-wrap .colL{border-right:1px solid #d1d5db;}
 #tp-modal .tp-wrap .sec{background:#f3f4f6;font-weight:700;padding:2px 6px;border-bottom:1px solid #d1d5db;border-top:1px solid #d1d5db;font-size:11px;margin:0!important;}
+#tp-modal .tp-wrap .tp-qtyord{margin-left:auto;font-size:10px;font-weight:600;border:1px solid #b9c6d3;border-radius:5px;background:#fff;color:#1f3a5f;padding:1px 3px;font-family:inherit;max-width:165px;cursor:pointer}
 /* 섹션 헤더 아래 흰 빈칸 제거 — 표/메모/내용을 .sec에 딱 붙임 */
 #tp-modal .tp-wrap .colL>table,#tp-modal .tp-wrap .colR>table,#tp-modal .tp-wrap .panel>table,#tp-modal .tp-wrap .colL>textarea,#tp-modal .tp-wrap .colR>textarea{margin:0!important;}
 #tp-modal .tp-wrap .sec+table,#tp-modal .tp-wrap .sec+textarea,#tp-modal .tp-wrap .sec+div{margin-top:0!important;}
@@ -28160,13 +28161,29 @@ function tpSavePDF(){
 function tpColorHex(name){ name=(name||'').toString().trim().toLowerCase(); var m={'검정':'#1a1a1a','블랙':'#1a1a1a','black':'#1a1a1a','먹색':'#33352f','먹':'#33352f','차콜':'#3a3a3a','챠콜':'#3a3a3a','네이비':'#1f2a44','남색':'#1f2a44','곤':'#1f2a44','군청':'#1f3a93','파랑':'#3b6fb0','블루':'#3b6fb0','blue':'#3b6fb0','스카이':'#bcd6ea','하늘':'#bcd6ea','소라':'#bcd6ea','흰':'#fbfbfb','흰색':'#fbfbfb','화이트':'#fbfbfb','white':'#fbfbfb','오프화이트':'#f3eee0','아이보리':'#f3eee0','ivr':'#f3eee0','크림':'#f2ebd8','베이지':'#e3d4ba','카멜':'#b98a55','cml':'#b98a55','브라운':'#6b4a2b','갈색':'#6b4a2b','핑크':'#f2c6d2','분홍':'#f2c6d2','로즈':'#e38aa0','빨강':'#c0392b','레드':'#c0392b','red':'#c0392b','주황':'#f08c2e','오렌지':'#f08c2e','노랑':'#f4d35e','옐로우':'#f4d35e','yellow':'#f4d35e','머스타드':'#d4a017','겨자':'#d4a017','연두':'#bfe08a','라임':'#cfe04a','초록':'#3a9d54','그린':'#3a9d54','green':'#3a9d54','카키':'#6f6a3a','올리브':'#6f6a3a','민트':'#aee0cf','보라':'#8a5cc0','퍼플':'#8a5cc0','라벤더':'#c7b6e0','회색':'#9aa0a6','연그레이':'#c7cace','회':'#9aa0a6','그레이':'#9aa0a6','gray':'#9aa0a6','grey':'#9aa0a6','실버':'#c8ccd0','아이':'#f3eee0','밤색':'#5c4033','밤':'#5c4033','와인':'#6e1f2e','버건디':'#6e1f2e','생지':'#ece2cf','연그레':'#c7cace'}; if(m[name])return m[name]; var ks=Object.keys(m).sort(function(a,b){return b.length-a.length;}); for(var i=0;i<ks.length;i++){ if(name.indexOf(ks[i])>=0)return m[ks[i]]; } return '#e2ded3'; }
 function tpSwatchBox(name,size,radius,bd){ size=size||22; radius=(radius==null?0:radius); bd=bd||'#333'; var parts=String(name||"").split(/[\/\u00b7]/).map(function(x){return x.trim();}).filter(Boolean); var base="display:inline-block;width:"+size+"px;height:"+size+"px;border:1px solid "+bd+";border-radius:"+radius+"px;vertical-align:middle;flex-shrink:0;"; if(parts.length<=1)return "<span style=\""+base+"background:"+colorToHex(name)+"\"></span>"; var n=parts.length,seg=[]; for(var i=0;i<n;i++){var c=colorToHex(parts[i]); seg.push(c+" "+Math.round(i*100/n)+"%",c+" "+Math.round((i+1)*100/n)+"%");} return "<span style=\""+base+"background:linear-gradient(90deg,"+seg.join(",")+")\"></span>"; }
 
+// 출고 분류 수량 — 보여줄 오더 선택(기본=최신). 작지 표시 전용, 발주·원가·계산 무관. it.techpack.qtyOrderId에 저장.
+function tpQtyCandOrders(it){
+  var cand=[];
+  Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; if(o&&(o.orderItems||[]).some(function(oi){return oi.itemId===it.id&&oi.qtyGrid;})) cand.push(o); });
+  cand.sort(function(a,b){ return cmpDate(b.createdAt).localeCompare(cmpDate(a.createdAt)); }); // 최신 먼저
+  return cand;
+}
+function _tpOrderItemQty(o,it){ var oi=(o.orderItems||[]).find(function(x){return x.itemId===it.id;}); var g=(oi&&oi.qtyGrid)||{}; var t=0; for(var c in g)for(var s in g[c])t+=(+g[c][s]||0); return t; }
+function tpQtyOrderLabel(o){ var nm=(typeof shortName==='function')?shortName(o.name||''):(o.name||''); nm=(nm||'').trim(); if(!nm){ var d=(o.createdAt||''); nm=d?((typeof toISO==='function'?toISO(d):String(d))||'').slice(5).replace('-','/'):'오더'; } return nm; }
+function tpQtyOrderPicker(it){
+  var cand=tpQtyCandOrders(it); if(!cand.length) return '';
+  var savedId=(it.techpack&&it.techpack.qtyOrderId)||'';
+  var curId=(savedId&&cand.some(function(o){return o.id===savedId;}))?savedId:cand[0].id;
+  var opts=cand.map(function(o,idx){ var lbl=(idx===0?'[최신] ':'')+tpQtyOrderLabel(o)+' · '+_tpOrderItemQty(o,it)+'장'; return '<option value="'+tpEsc(o.id)+'"'+(o.id===curId?' selected':'')+'>'+tpEsc(lbl)+'</option>'; }).join('');
+  return '<select class="tp-qtyord tp-editonly" onchange="tpSetQtyOrder(this.value)" title="이 작지에 보여줄 오더 수량 (기본=최신)">'+opts+'</select>';
+}
+function tpSetQtyOrder(oid){ var it=tpItem(); if(!it)return; if(!it.techpack)it.techpack={}; it.techpack.qtyOrderId=oid||''; try{saveData();}catch(e){} tpRender(); }
 function tpQtyBreakdown(it){
   var colors=(it.colors&&it.colors.length)?it.colors:[''];
-  // 메인오더 1건만 (리오더 누적 X) = 이 아이템을 포함한 가장 먼저 만든 오더
-  var cand=[];
-  Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; if((o.orderItems||[]).some(function(oi){return oi.itemId===it.id&&oi.qtyGrid;})) cand.push(o); });
-  cand.sort(function(a,b){ return cmpDate(a.createdAt).localeCompare(cmpDate(b.createdAt)); });
-  var mainO=cand[0], useGrid=null;
+  // 보여줄 오더: 저장된 선택(it.techpack.qtyOrderId) 우선, 없으면 최신 오더(기본)
+  var cand=tpQtyCandOrders(it);
+  var _savedId=(it.techpack&&it.techpack.qtyOrderId)||'';
+  var mainO=(_savedId&&cand.find(function(o){return o.id===_savedId;}))||cand[0], useGrid=null;
   if(mainO){ var moi=(mainO.orderItems||[]).find(function(x){return x.itemId===it.id;});
     if(moi&&moi.qtyGrid){ useGrid=moi.qtyGrid;
       // 수량 조정 반영: 수기 수량수정(qtyGrid) + 원단부족 조정(effGrid)
@@ -28619,7 +28636,7 @@ function tpRender(){
   var finTbl='<table class="tpeq"><tr>'+finSel.map(function(n){return '<th>'+tpEsc(n)+'</th>';}).join('')+'</tr><tr>'+finSel.map(function(n){var slot=FIN_SLOT[n]||('pack_'+(''+n).replace(/[^0-9a-zA-Z가-힣]/g,'_'));return '<td>'+_iz(slot,'')+'</td>';}).join('')+'</tr></table>';
   var pack='<div class="panel'+on('pack')+'" data-panel="pack"><div class="row">'
     +'<div class="colL"><div class="sec">앞면 / 뒷면 · 디테일</div><div class="tp-pack-imgs">'+_iz('packFront','앞면')+_iz('packBack','뒷면')+_iz('packDetail1','디테일 ①')+_iz('packDetail2','디테일 ②')+'</div></div>'
-    +'<div class="colR"><div class="sec">출고 분류 수량</div>'+tpQtyTableHTML(qb)
+    +'<div class="colR"><div class="sec">출고 분류 수량'+tpQtyOrderPicker(it)+'</div>'+tpQtyTableHTML(qb)
       +'<div class="sec">완성 작업 <span class="tp-eh" style="font-weight:400;color:#9aa0a8">— 할 것만 체크 · 드래그로 순서변경</span></div><div style="padding:8px 11px">'+tpEditList('pack.ops',['워싱','시야게','나나인치','단추','스냅','마도메','바텍','큐큐'],{nameLabel:'작업',toggleLabel:'적용',detailLabel:'세부 / 위치',namePh:'작업명',detailPh:'예: 앞단 5개'})+'</div>'
       +'<div class="sec">완성 메모</div>'+tpMemo('pack.memo','완성·마무리 핵심 지시')
     +'</div></div></div>';
@@ -28627,7 +28644,7 @@ function tpRender(){
   var _shipStrip='<div class="tp-ship-row"><span class="tp-ship-k">출고처</span>'+tpInpDef('pack2.shipTo',_pbNm,'출고처')+'<span class="tp-ship-k">주소</span>'+tpInpDef('pack2.shipAddr',_pbAddr,'출고 주소')+'<span class="tp-ship-k">지시사항</span>'+tpInpDef('pack2.memo','','예: 색상별 분리 포장 · 박스당 수량')+'</div>';
   var pack2='<div class="panel'+on('pack2')+'" data-panel="pack2">'+_shipStrip+'<div class="row tp-pack2-top">'
     +'<div class="colL"><div class="sec">포장 · 접는 방법 사진</div><div class="tp-pack2photos">'+_iz('packMethod','포장 사진')+_iz('packFold','접는 방법')+'</div></div>'
-    +'<div class="colR"><div class="sec">출고 분류 수량</div>'+tpQtyTableHTML(qb)
+    +'<div class="colR"><div class="sec">출고 분류 수량'+tpQtyOrderPicker(it)+'</div>'+tpQtyTableHTML(qb)
       +'<div class="sec">포장 사양 <span class="tp-eh" style="font-weight:400;color:#9aa0a8">— 추가/수정/삭제</span></div><div style="padding:8px 11px">'+tpEditList('pack2.spec',[{name:'접는 포리',detail:'로고 앞면',on:true},{name:'사이즈 스티커',detail:'앞면 우측 상단',on:true},{name:'바코드 스티커',detail:'뒷면 우측 하단',on:true},{name:'택 부착 + 위치',detail:'메인라벨에 걸기',on:true}],{nameLabel:'항목',detailLabel:'내용',noToggle:true,namePh:'항목',detailPh:'예: OPP 0.05 / 부착 위치'})+'</div>'
     +'</div></div>'
     +'<div class="tp-packmat-full"><div class="sec" style="display:flex;align-items:center;gap:7px">완성부자재 <span class="tp-eh" style="font-weight:400;color:#9aa0a8">— 이름 수정</span>'
@@ -28638,7 +28655,7 @@ function tpRender(){
   var insp='<div class="panel'+on('insp')+'" data-panel="insp"><div class="row">'
     +'<div class="colL"><div class="sec">검사 항목 <span class="tp-eh" style="font-weight:400;color:#9aa0a8">— 할 것만 체크 · 드래그로 순서변경</span></div><div style="padding:8px 11px">'+tpEditList('insp.checks',['사이즈 스펙(치수)','꼬임 (소매·가방끈 등)','봉탈 (봉제 터짐·탈락)','원단 불량 (오염·뜯김·이염)','실밥·오염','부자재 부착'],{nameLabel:'검사 항목',toggleLabel:'검사',detailLabel:'비고',namePh:'검사 항목',detailPh:'중점 부위 등'})+'</div>'
       +'<div class="sec">참고 이미지</div><div class="tp-insp-imgs">'+_iz('inspImg1','이미지')+_iz('inspImg2','이미지')+'</div></div>'
-    +'<div class="colR"><div class="sec">검사 대상 수량 (= 완성 수량)</div>'+tpQtyTableHTML(qb)
+    +'<div class="colR"><div class="sec">검사 대상 수량 (= 완성 수량)'+tpQtyOrderPicker(it)+'</div>'+tpQtyTableHTML(qb)
       +'<div class="sec">검사 포인트 <span class="tp-eh" style="font-weight:400;color:#9aa0a8">— 합격 기준 · 중점 부위</span></div>'+tpMemo('insp.memo','예: 치수 편차 ±1cm 초과 = 불량 / 가방끈 박음질 중점')
       +'<div class="sec">사이즈 스펙 (치수)</div>'+tpSpecSecHTML(it)
     +'</div></div></div>';
