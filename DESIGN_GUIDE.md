@@ -391,3 +391,5 @@
   - **★과배정 경고(안전)**: 배정 합 > 총원단이면 "원단 부족 Nyd" 빨강(`hint bad`). (음수 남은원단을 "완전 소진"으로 잘못 표시하던 것 방지 — 재단 사고 예방.)
   - **구현**: HTML=`.oc-tabs`+`#oc-tab-qty`(기존 감쌈)+`#oc-tab-fab`(신규). CSS=`.ocalc .oc-tabs/.oc-tab/.fa-*`(토큰 사용 → 레트로·미니멀 자동). JS=`ocalcSwitchTab`+`fa*` 함수(faBuildItemList/faResolveItem/faAddItem/faCalcItem/faRecalc/faRenderCard/...). 결과는 기존 `.rtot`(검은바)+`.rchip`(초록칩) **수량계산기 컴포넌트 재사용**. 검색은 별도 `_faItemMap`.
   - **안전**: 기존 수량계산 함수·DOM id 전부 불변(바깥만 탭 래핑). **읽기전용 헬퍼 — 오더·발주·원가·돈에 쓰기 0**(faItems는 메모리만, 영속 안 함). 계산 로직 JSC 18케이스 + 실앱 스모크(탭전환·요척자동·150yd→100마카·과배정경고) 통과. 시안=mockup-fabric-alloc-v2(수량계산기처럼 정리, /tmp/fpf-preview).
+
+- 2026-06-27(2): **원단 배분 탭에 「계산 수량을 오더에 적용」 버튼 추가.** `faApply()` — 각 아이템 카드에 **컬러 선택칸**(`fa-col-<id>`, 아이템 colors), 푸터에 적용 버튼(`fa-apply-btn`, 아이템 있을 때만 표시). 누르면 고른 컬러칸에 마카 계산 사이즈별 장수를 채움. **기존 `ocalcFill`과 동일 안전 패턴**: `_ncQtyCache['q_'+itemId+'_'+encodeURIComponent(color)+'_'+size]`+`_ncChecked` 채우고 `renderOrderNewItems()` 재렌더 → **오더 폼 미리채우기만, "오더 생성" 눌러야 확정**(데이터 즉시 쓰기 0). 여러 아이템 일괄 적용, 고른 컬러에만(다른 컬러 0 유지). 사용자 선택="적용 전 컬러 고르기". 실앱 스모크 검증(90yd→블랙 60/60/60·아이 0/0/0).

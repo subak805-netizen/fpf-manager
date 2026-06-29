@@ -1866,6 +1866,7 @@ tryInitFirebase();
           <div style="margin-top:10px;padding-top:10px;border-top:2px solid var(--ink)">
             <div class="hint clean" id="fa-rem">아이템을 추가하면 배분 결과가 나와요</div>
             <div id="fa-rem-detail"></div>
+            <button class="go" id="fa-apply-btn" style="margin-top:10px;display:none" onclick="faApply()">계산 수량을 오더에 적용</button>
           </div>
         </div>
       </div>
@@ -10307,6 +10308,7 @@ function faRecalc(){
     var m=document.getElementById('fa-myd-'+it.id);if(m)m.innerHTML='마카당 <b>'+r.myd+'</b>yd';
   });
   var rem=+(totalYd-totalUsed).toFixed(2),remEl=document.getElementById('fa-rem'),detEl=document.getElementById('fa-rem-detail');
+  var applyBtn=document.getElementById('fa-apply-btn');if(applyBtn)applyBtn.style.display=faItems.length?'':'none';
   if(!remEl)return;
   if(faItems.length===0){remEl.className='hint clean';remEl.innerHTML='아이템을 추가하면 배분 결과가 나와요';if(detEl)detEl.textContent='';return;}
   var over=+(assignedSum-totalYd).toFixed(2);
@@ -10331,9 +10333,11 @@ function faRenderCard(it){
       +'<td><input type="number" inputmode="decimal" value="'+sz.yocheok+'" step="0.01" min="0" oninput="faUpdYo(\''+it.id+'\','+i+',this.value)"></td>'
       +'<td><input type="number" inputmode="numeric" value="'+sz.ratio+'" step="1" min="0" oninput="faUpdRatio(\''+it.id+'\','+i+',this.value)"></td></tr>';
   }).join('');
+  var src=S.items[it.srcId]||{};var cols=(src.colors&&src.colors.length)?src.colors:[];
+  var colSel=cols.length?'<select id="fa-col-'+it.id+'" title="적용할 컬러" style="width:auto;height:28px;font-size:11px;padding:0 6px;border:2px solid var(--ink);border-radius:3px;background:var(--abg);font-family:var(--font-display);font-weight:700;-webkit-appearance:none;appearance:none">'+cols.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('')+'</select>':'';
   return '<div class="fa-card" id="fa-card-'+it.id+'">'
     +'<div class="fa-card-hd"><span class="fa-card-nm">'+esc(it.name)+(it.code?'<span class="code">'+esc(it.code)+'</span>':'')+'</span>'
-    +'<button class="fa-del" onclick="faRemoveItem(\''+it.id+'\')">삭제</button></div>'
+    +'<span style="display:flex;gap:6px;align-items:center">'+colSel+'<button class="fa-del" onclick="faRemoveItem(\''+it.id+'\')">삭제</button></span></div>'
     +'<table class="fa-tbl"><thead><tr><th>사이즈</th><th>요척(yd)</th><th>마카비율</th></tr></thead><tbody>'+szRows+'</tbody></table>'
     +'<div class="fa-meta"><span class="fa-myd" id="fa-myd-'+it.id+'">마카당 0yd</span>'
     +'<span class="fa-assign"><label>배정</label>'
@@ -10345,6 +10349,40 @@ function faUpdYo(id,i,v){var it=faItems.find(function(x){return x.id===id;});if(
 function faUpdRatio(id,i,v){var it=faItems.find(function(x){return x.id===id;});if(it){it.sizes[i].ratio=parseInt(v)||0;faRecalc();}}
 function faToggleAuto(id){var it=faItems.find(function(x){return x.id===id;});if(!it)return;it.auto=!it.auto;if(it.auto)faItems.forEach(function(x){if(x.id!==id)x.auto=false;});faRenderAll();faRecalc();}
 function faRemoveItem(id){faItems=faItems.filter(function(x){return x.id!==id;});faRenderAll();faRecalc();}
+function faApply(){
+  if(!faItems.length){showToast('아이템을 먼저 추가해 주세요');return;}
+  var totalYd=parseFloat((document.getElementById('fa-total')||{}).value)||0,fixedSum=0;
+  faItems.forEach(function(it){if(!it.auto)fixedSum+=parseFloat((document.getElementById('fa-yd-'+it.id)||{}).value)||0;});
+  var autoYd=Math.max(0,+(totalYd-fixedSum).toFixed(2));
+  // 오더 생성 폼 열기(닫혀있으면 — 캐시 리셋), 현재 입력 보존
+  var modal=document.getElementById('o-new-modal');
+  var isOpen=modal&&modal.style.display&&modal.style.display!=='none';
+  if(isOpen&&typeof cacheNcQty==='function')cacheNcQty();
+  if(!isOpen&&typeof showModal==='function')showModal('o-new-modal');
+  if(!window._ncChecked)window._ncChecked={};
+  if(!window._ncQtyCache)window._ncQtyCache={};
+  var done=0,totalPcs=0,firstId='';
+  faItems.forEach(function(it){
+    var src=S.items[it.srcId];if(!src)return;
+    var yd=it.auto?autoYd:(parseFloat((document.getElementById('fa-yd-'+it.id)||{}).value)||0);
+    var r=faCalcItem(it,yd);
+    if(r.totalQty<=0)return; // 0장이면 건너뜀
+    var colSel=document.getElementById('fa-col-'+it.id);
+    var color=colSel?colSel.value:((src.colors&&src.colors[0])||'');
+    var itSizes=(src.sizes&&src.sizes.length)?src.sizes:['free'];
+    window._ncChecked[it.srcId]=true;
+    r.szQtys.forEach(function(s){
+      if(itSizes.indexOf(s.name)<0)return; // 계산기 사이즈가 아이템에 없으면 스킵
+      window._ncQtyCache['q_'+it.srcId+'_'+encodeURIComponent(color)+'_'+s.name]=s.qty;
+    });
+    if(!firstId)firstId=it.srcId;
+    done++;totalPcs+=r.totalQty;
+  });
+  if(!done){showToast('적용할 수량이 없어요 (총 원단·배정 확인)');return;}
+  if(typeof renderOrderNewItems==='function')renderOrderNewItems();
+  setTimeout(function(){var g=document.getElementById('nc-grid-'+firstId);if(g)g.scrollIntoView({behavior:'smooth',block:'center'});},120);
+  showToast(done+'개 아이템 '+totalPcs+'장 오더에 채웠어요 (확인 후 오더 생성)');
+}
 function ocalcCopy(){
   var rows=(window._ocalc&&window._ocalc.rows)||[];var last=window._ocalcLast;if(!last||!last.results)return;
   var lines=Object.keys(last.results).map(function(c){
