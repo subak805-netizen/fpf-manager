@@ -384,3 +384,10 @@
   - **검품(insp)**: 검사항목 편집리스트(사이즈스펙·꼬임·봉탈·원단불량·실밥·부자재) + 합격기준 + tpSpecSecHTML 치수표 + 검사대상수량 + 검사결과란. (라벨위치 사진 없음)
   - **편집형 리스트 공용**: `tpEditList(path,defs,opts)` + `tpRowsEnsure/Add/Del/Set/Toggle/Move` + 포인터 드래그 `tpRowDragStart/Move/End`(drop시 elementFromPoint로 대상행→tpRowMove). 데이터 d.pack.ops / d.insp.checks = [{name,on,detail}]. CSS=#tp-modal .tp-elist/.tp-li/.tp-lck/.tp-lx/.tp-ladd/.tp-drag.
   - ⚠️ 검품지시서(뭘 검사)≠검사신청서(언제·몇 개 신청, 대시보드 INS폼). 별개.
+
+- 2026-06-27: **★오더수량 배수 계산기에 「원단 배분」 탭 추가 (신규).** 기존 인라인 `.ocalc` 계산기(오더 생성 옆 `수량계산` 버튼, `ocalcToggle`)에 탭 2개 신설: `수량 계산`(기존 그대로) | `원단 배분`(신규).
+  - **원단 배분 = 마카 기반 계산**: 총 원단(yd) → 아이템별 사이즈별 요척·마카비율 → 마카당yd=Σ(요척×비율), 마카회수=floor(배정yd÷마카당), 사이즈별 장수=마카×비율, 사용/잔여/남은원단. 아이템 고르면 **요척 자동**(첫=메인 원단 `fabrics[0].consumption`, 사이즈별이면 `consumptionBySize[sz]`, 없으면 base 폴백·원단 없으면 0), 마카비율 기본 1.
+  - **자동 배분**: 한 아이템만 `자동` 토글 → 배정yd=총원단−나머지수동합. 여러 아이템 가능, 각자 마카 자투리만큼 자체 손실.
+  - **★과배정 경고(안전)**: 배정 합 > 총원단이면 "원단 부족 Nyd" 빨강(`hint bad`). (음수 남은원단을 "완전 소진"으로 잘못 표시하던 것 방지 — 재단 사고 예방.)
+  - **구현**: HTML=`.oc-tabs`+`#oc-tab-qty`(기존 감쌈)+`#oc-tab-fab`(신규). CSS=`.ocalc .oc-tabs/.oc-tab/.fa-*`(토큰 사용 → 레트로·미니멀 자동). JS=`ocalcSwitchTab`+`fa*` 함수(faBuildItemList/faResolveItem/faAddItem/faCalcItem/faRecalc/faRenderCard/...). 결과는 기존 `.rtot`(검은바)+`.rchip`(초록칩) **수량계산기 컴포넌트 재사용**. 검색은 별도 `_faItemMap`.
+  - **안전**: 기존 수량계산 함수·DOM id 전부 불변(바깥만 탭 래핑). **읽기전용 헬퍼 — 오더·발주·원가·돈에 쓰기 0**(faItems는 메모리만, 영속 안 함). 계산 로직 JSC 18케이스 + 실앱 스모크(탭전환·요척자동·150yd→100마카·과배정경고) 통과. 시안=mockup-fabric-alloc-v2(수량계산기처럼 정리, /tmp/fpf-preview).
