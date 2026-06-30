@@ -290,6 +290,13 @@
           <div class="muted" style="margin-top:6px">기호·부품을 누른 뒤 옷 위를 탭하면 찍혀요(모서리로 크기조절). 포켓·네크·카라·라벨 등 일러 SVG를 분류별로 업로드해 반복 사용.</div>
         </div>
 
+        <h3>브랜드 라벨 불러오기</h3>
+        <div class="sect">
+          <div class="row" style="margin-bottom:8px"><label>브랜드</label><select id="bl-brand" style="flex:1"></select></div>
+          <div id="bl-list"></div>
+          <div class="muted" style="margin-top:6px">메인 앱에 등록한 메인·케어 라벨이 떠요. 누르면 캔버스에 들어가요(이미지=그대로, 글자만=라벨 글씨).</div>
+        </div>
+
         <h3>봉제 사양 (클릭해 입력)</h3>
         <div class="sect">
           <div class="row">
@@ -2324,7 +2331,31 @@ function setPanelContext(t){
   panelSections.forEach(w=>{ w.style.display=(t==='select'||!keys)?'':(keys.indexOf(w._key)>=0?'':'none'); });
 }
 
-lsLoad(); symLoad(); specLoad(); stitchLoad(); renderTplOptions(); renderStitchBank(); renderSymbolBank(); renderSpecBank(); indexPanelSections(); initAccordion(); setPanelContext('select'); initToolPanelCustomize();
+/* ── 브랜드 라벨 불러오기: 같은 사이트 메인 앱 localStorage의 S.brands에서 읽기 ── */
+function _blEsc(s){ return (s||'').replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];}); }
+function dosikBrands(){ try{ var last=localStorage.getItem('fpm_last'); if(!last)return []; var co=JSON.parse(localStorage.getItem('fpm_'+last)||'{}'); return (co&&co.brands)||[]; }catch(e){ return []; } }
+let _blBrandId='';
+function renderBrandLabels(){
+  var sel=document.getElementById('bl-brand'), list=document.getElementById('bl-list'); if(!sel||!list)return;
+  var bs=dosikBrands();
+  if(!bs.length){ sel.innerHTML='<option>등록된 브랜드 없음</option>'; sel.disabled=true; list.innerHTML='<div class="muted">메인 앱 → 업체관리/브랜드에서 라벨을 먼저 등록하세요.</div>'; return; }
+  sel.disabled=false;
+  if(!bs.some(function(b){return b.id===_blBrandId;}))_blBrandId=bs[0].id;
+  sel.innerHTML=bs.map(function(b){return '<option value="'+b.id+'"'+(b.id===_blBrandId?' selected':'')+'>'+_blEsc(b.name||'(이름없음)')+'</option>';}).join('');
+  var b=bs.find(function(x){return x.id===_blBrandId;})||bs[0];
+  var groups=[['main','메인',b.mainLabels||[]],['care','케어',b.careLabels||[]]], html='';
+  groups.forEach(function(g){ if(!g[2].length)return;
+    html+='<div style="font-size:11px;color:var(--t3);margin:6px 0 3px">'+g[1]+'라벨</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
+    g[2].forEach(function(lb,idx){ var nm=_blEsc(lb.name||g[1]); var thumb=lb.img?'<img src="'+_blEsc(lb.img)+'" style="width:22px;height:22px;object-fit:contain;border-radius:3px;background:#fff;border:1px solid var(--line)">':'';
+      html+='<button class="spec-chip bl-chip" data-grp="'+g[0]+'" data-idx="'+idx+'" style="display:inline-flex;align-items:center;gap:5px">'+thumb+nm+'</button>'; });
+    html+='</div>'; });
+  list.innerHTML=html||'<div class="muted">이 브랜드에 등록된 라벨이 없어요.</div>';
+  list.querySelectorAll('.bl-chip').forEach(function(c){ c.addEventListener('click',function(){ var gg=c.dataset.grp==='main'?(b.mainLabels||[]):(b.careLabels||[]); var lb=gg[+c.dataset.idx]; if(lb)insertBrandLabel(lb); }); });
+}
+function insertBrandLabel(lb){ if(lb.img){ placeLabelImage(lb.img); } else { var n=makeText((W||820)/2-30,(H||640)/2,lb.name||'라벨'); selectNode(n); } }
+function placeLabelImage(url){ function go(cross){ var img=new Image(); if(cross)img.crossOrigin='anonymous'; img.onload=function(){ var mw=180, sc=Math.min(1,mw/img.width); var kn=new Konva.Image({image:img,x:(W||820)/2-img.width*sc/2,y:(H||640)/2-img.height*sc/2,width:img.width*sc,height:img.height*sc,draggable:true}); kn.setAttr('kind','symbol'); kn.setAttr('src',url); kn.on('click tap',function(e){shapeClick(kn,e);}); layer.add(kn); pushUndo(kn); setTool('select'); selectNode(kn); layer.draw(); hint('브랜드 라벨 넣음 ✓'); setTimeout(function(){hint('');},1400); }; img.onerror=function(){ if(cross){ go(false); } else { hint('라벨 이미지를 불러오지 못했어요'); setTimeout(function(){hint('');},1800); } }; img.src=url; } go(true); }
+(function(){ var s=document.getElementById('bl-brand'); if(s)s.addEventListener('change',function(e){ _blBrandId=e.target.value; renderBrandLabels(); }); })();
+lsLoad(); symLoad(); specLoad(); stitchLoad(); renderTplOptions(); renderStitchBank(); renderSymbolBank(); renderSpecBank(); renderBrandLabels(); indexPanelSections(); initAccordion(); setPanelContext('select'); initToolPanelCustomize();
 injectToolKeys();
 /* 각 칸 "✏ 수정" 토글: 켜면 그 칸 칩들의 ✎/✕가 보이고, 끄면 깔끔하게 숨김 */
 function wireBankEdit(btnId,bankId){ var btn=document.getElementById(btnId), bank=document.getElementById(bankId); if(!btn||!bank)return;
