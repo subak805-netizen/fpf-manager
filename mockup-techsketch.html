@@ -1021,7 +1021,7 @@ function shapeClick(node,e){
   if(tool==='fill'){ applyFillTo(node, fillColor); return; }
   if(tool==='scissor'){ if(p)flashTap(p); scissorAt(node,p); return; }
   if(tool==='join'){ joinPick(node); return; }
-  if(tool==='trace'){ if(typeof traceStitch==='function')traceStitch(node); return; }
+  if(tool==='trace'){ var _tt=(typeof nearestLine==='function'&&nearestLine(stage.getPointerPosition()))||node; traceStitch(_tt); return; }
   if(tool==='node'){ if(node.getClassName()==='Path')startNodeEdit(node); else if(!(node.getAttr&&node.getAttr('isTpl')))selectNode(node); return; }
   if(node.getAttr&&node.getAttr('isTpl'))return;
   if(e&&e.evt&&e.evt.shiftKey){ toggleSelect(node); return; }   // Shift+클릭=여러 개 선택
@@ -1192,6 +1192,13 @@ function traceStitch(src){
   tplLayer.draw();
   hint('봉제선 추가 ('+pr.label+(stitchBoth?' · 양쪽':(stitchOffset?' · 시접 '+stitchOffset:''))+(linkOn?' · 연동':'')+')'); setTimeout(()=>hint(''),1500);
 }
+/* ── 봉제선/스티치: 선 가까이 대면 그 선을 강조 → 클릭으로 그 선에 적용 ── */
+let _traceHi=null, _traceTarget=null;
+function _traceLines(){ var out=[]; try{ allTplEditable().forEach(function(n){ out.push(n); }); }catch(e){}
+  layer.getChildren().forEach(function(n){ var k=n.getAttr&&n.getAttr('kind'); if(['cut','pen','curve','free','dim','arrow'].indexOf(k)>=0&&n.visible()&&n.listening())out.push(n); }); return out; }
+function nearestLine(scr){ if(!scr)return null; var best=null,bd=1e9; _traceLines().forEach(function(n){ var pts; try{pts=samplePath(n);}catch(e){return;} if(!pts||pts.length<2)return; var tf=n.getAbsoluteTransform(); for(var i=0;i<pts.length;i++){ var sp=tf.point(pts[i]); var d=(sp.x-scr.x)*(sp.x-scr.x)+(sp.y-scr.y)*(sp.y-scr.y); if(d<bd){bd=d;best=n;} } }); return bd<=26*26?best:null; }
+function showTraceHi(node){ if(_traceHi&&_traceHi.getLayer()){_traceHi.destroy();} _traceHi=null; if(!node)return; var pts; try{pts=samplePath(node);}catch(e){return;} if(!pts||pts.length<2)return; var tf=nodeWorldTf(node); var arr=[]; pts.forEach(function(q){ var w=tf.point(q); arr.push(w.x,w.y); }); _traceHi=new Konva.Line({points:arr,stroke:'#1D9E75',strokeWidth:4/stage.scaleX(),opacity:0.65,lineCap:'round',lineJoin:'round',listening:false}); ui.add(_traceHi); ui.batchDraw(); }
+function clearTraceHi(){ if(_traceHi&&_traceHi.getLayer())_traceHi.destroy(); _traceHi=null; _traceTarget=null; ui.batchDraw(); }
 function renderStitchBank(){
   document.getElementById('stitch-bank').innerHTML = stitchBank.map(s=>
     '<span class="spec-chip'+(s.key===stitchPreset?' on':'')+'" data-preset="'+s.key+'">'+s.label
@@ -1523,6 +1530,7 @@ stage.on('click tap',e=>{
   if(tool==='pen')return;   // 펜은 mousedown/up에서 처리
   if(tool==='scissor')return;   // 가위는 도형 클릭(shapeClick)에서 처리
   if(tool==='join'){ if(e.target===stage)joinReset(); return; }   // 빈 곳 클릭=취소
+  if(tool==='trace'){ var _tg=_traceTarget||nearestLine(stage.getPointerPosition()); if(_tg){ traceStitch(_tg); } else { hint('가까운 옷 선이 없어요 · 선 위로 가져가세요'); setTimeout(function(){hint('');},1500); } return; }
   if(tool!=='select'&&tool!=='node'&&typeof flashTap==='function')flashTap(pos);
   if(tool==='text'){ const n=makeText(pos.x,pos.y); setTool('select'); selectNode(n); editText(n); return; }
   if(tool==='symbol'){ makeSymbol(pos.x,pos.y,symbolType); return; }
@@ -1541,7 +1549,7 @@ stage.on('click tap',e=>{
 });
 /* ---- 탭 위치 시각화: 첫 점 마커 + 커서 따라오는 미리보기(고무줄) ---- */
 let previewLine=null, startDot=null, hoverDot=null;
-const DRAW_TOOLS=['dim','arrow','stitch','cut','symbol','text','trace','callout'];
+const DRAW_TOOLS=['dim','arrow','stitch','cut','symbol','text','callout'];
 function uiS(){ return 1/stage.scaleX(); }
 function startTwoPoint(p){ const s=uiS();
   startDot=new Konva.Circle({x:p.x,y:p.y,radius:5*s,fill:'#fff',stroke:COLORS.dim,strokeWidth:2*s,listening:false}); ui.add(startDot);
@@ -1556,10 +1564,12 @@ function moveHover(p){ const s=uiS();
   if(previewLine&&previewLine.getLayer()){ const a=previewLine.points(); previewLine.points([a[0],a[1],p.x,p.y]); }
   ui.batchDraw();
 }
-function clearDrawAids(){ [previewLine,startDot,hoverDot].forEach(n=>{ if(n&&n.getLayer())n.destroy(); }); previewLine=startDot=hoverDot=null; ui.batchDraw(); }
-stage.on('mousemove',()=>{ if(_spacePan){ if(hoverDot)clearDrawAids(); return; } const p=stage.getRelativePointerPosition(); if(!p)return;
+function clearDrawAids(){ [previewLine,startDot,hoverDot].forEach(n=>{ if(n&&n.getLayer())n.destroy(); }); previewLine=startDot=hoverDot=null; if(typeof clearTraceHi==='function')clearTraceHi(); ui.batchDraw(); }
+stage.on('mousemove',()=>{ if(_spacePan){ if(hoverDot)clearDrawAids(); return; }
+  if(tool==='trace'){ var t=nearestLine(stage.getPointerPosition()); _traceTarget=t; showTraceHi(t); return; }
+  const p=stage.getRelativePointerPosition(); if(!p)return;
   if(DRAW_TOOLS.indexOf(tool)<0){ if(hoverDot){clearDrawAids();} return; } moveHover(p); });
-stage.on('mouseleave',()=>{ if(hoverDot&&hoverDot.getLayer())hoverDot.visible(false); ui.batchDraw(); });
+stage.on('mouseleave',()=>{ if(hoverDot&&hoverDot.getLayer())hoverDot.visible(false); if(typeof clearTraceHi==='function')clearTraceHi(); ui.batchDraw(); });
 stage.on('dblclick dbltap',()=>{ if(tool==='curve'){ curvePts.splice(-2); finishCurve(); } else if(tool==='pen'){ if(penA.length)penA.pop(); penFinish(false); } });
 
 /* ---------- 도구/패널 UI ---------- */
@@ -1574,7 +1584,7 @@ function setTool(t){
   try{ stage.draggable(t==='select'); }catch(e){}   // 선택 도구일 때만 한 손가락 팬 (그리기 중엔 화면 안 밀림)
   document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
   if(t==='photo'){ document.getElementById('file-photo').click(); setTool('select'); return; }
-  const msg={dim:'시작점을 탭하세요 (치수선)',arrow:'시작점을 탭하세요 (화살표)',cut:'시작점을 탭하세요 (절개선·실선)',curve:'점을 탭해 곡선 그리기 · 더블클릭/Enter 완료',stitch:'시작점을 탭하세요 (스티치)',text:'옷 위를 탭해 글자 추가',symbol:'옷 위를 탭해 기호 찍기',node:'편집할 옷 선을 탭하세요 (점이 떠요)',trace:'옷 선을 탭하면 그 선 따라 스티치가 그려져요',eyedrop:'스타일을 가져올 선을 탭하세요 (선택한 선에 굵기·색·점선 복사)',callout:'①가리킬 부분 탭 → ②메모 놓을 곳 탭 → 여러 줄 입력',fill:'색칠할 면(닫힌 펜·절개선·곡선)을 탭하세요 · 색은 선 뒤로 깔려요',rect:'드래그해서 사각형 (Shift=정사각형)',ellipse:'드래그해서 원 (Shift=정원)'};
+  const msg={dim:'시작점을 탭하세요 (치수선)',arrow:'시작점을 탭하세요 (화살표)',cut:'시작점을 탭하세요 (절개선·실선)',curve:'점을 탭해 곡선 그리기 · 더블클릭/Enter 완료',stitch:'시작점을 탭하세요 (스티치)',text:'옷 위를 탭해 글자 추가',symbol:'옷 위를 탭해 기호 찍기',node:'편집할 옷 선을 탭하세요 (점이 떠요)',trace:'옷 선 가까이 가면 초록색으로 강조돼요 · 클릭하면 그 선에 봉제선',eyedrop:'스타일을 가져올 선을 탭하세요 (선택한 선에 굵기·색·점선 복사)',callout:'①가리킬 부분 탭 → ②메모 놓을 곳 탭 → 여러 줄 입력',fill:'색칠할 면(닫힌 펜·절개선·곡선)을 탭하세요 · 색은 선 뒤로 깔려요',rect:'드래그해서 사각형 (Shift=정사각형)',ellipse:'드래그해서 원 (Shift=정원)'};
   hint(msg[t]||'');
   if(t!=='select'&&t!=='node'&&t!=='eyedrop')clearSel();   // 스포이드는 선택 유지(선택한 선에 스타일 입힘)
   if(typeof setPanelContext==='function') setPanelContext(t);
