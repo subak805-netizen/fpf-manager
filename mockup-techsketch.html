@@ -322,6 +322,8 @@
 
 <script>
 const COLORS={dim:'#D85A30',stitch:'#185FA5',ink:'#1a1a1a',text:'#222'};
+/* 라인 위계 프리셋 (외곽=진하게 / 안내선=연하게 / 스티치=점선) — 선 선택 후 1클릭 적용 */
+const LINE_ROLES={ outline:{label:'외곽',w:2.6,color:'#1a1a1a',dash:[]}, guide:{label:'안내선',w:1,color:'#888888',dash:[]}, stitch:{label:'스티치',w:1.4,color:'#185FA5',dash:[6,4]} };
 const FONT_DRAW="'Apple SD Gothic Neo','Apple SD 산돌고딕 Neo',-apple-system,sans-serif";  // 캔버스 텍스트 폰트
 const host=document.getElementById('stage-host');
 const hintEl=document.getElementById('hint');
@@ -571,11 +573,13 @@ function styleControlsHTML(node){
   var cols=[['#1a1a1a','검정'],['#888888','회색'],['#c0392b','빨강'],['#185fa5','파랑']];
   var chips=cols.map(function(c){ return '<button class="csw" data-col="'+c[0]+'" title="'+c[1]+'" style="width:26px;height:26px;border-radius:7px;border:2px solid '+(col===c[0]?'#185FA5':'#d7d2ca')+';background:'+c[0]+';cursor:pointer"></button>'; }).join('');
   var onCss=';background:#e6f0fb;border-color:#bcd5ee;color:#185FA5';
-  return '<div class="row" style="margin-bottom:7px"><label>굵기</label><input type="range" id="se-lw" min="0.5" max="8" step="0.1" value="'+sw+'" style="flex:1;min-width:0"><input type="number" id="se-lw-n" min="0.5" max="12" step="0.1" value="'+sw+'" style="width:48px"><span class="unit">pt</span></div>'
+  return lineRoleRowHTML()
+   +'<div class="row" style="margin-bottom:7px"><label>굵기</label><input type="range" id="se-lw" min="0.5" max="8" step="0.1" value="'+sw+'" style="flex:1;min-width:0"><input type="number" id="se-lw-n" min="0.5" max="12" step="0.1" value="'+sw+'" style="width:48px"><span class="unit">pt</span></div>'
    +'<div class="row" style="margin-bottom:7px;gap:7px"><label>색</label>'+chips+'</div>'
    +'<div class="row" style="margin-bottom:2px;gap:6px"><label>선</label><button class="btn" id="se-solid" style="height:30px;flex:1'+(!dashed?onCss:'')+'">실선</button><button class="btn" id="se-dash2" style="height:30px;flex:1'+(dashed?onCss:'')+'">점선</button></div>';
 }
 function wireStyleControls(node){
+  wireLineRoleRow(document.getElementById('sel-body'));
   var onCss=';background:#e6f0fb;border-color:#bcd5ee;color:#185FA5';
   function ly(){ var l=node.getLayer(); if(l)l.batchDraw(); }
   var lw=document.getElementById('se-lw'), lwn=document.getElementById('se-lw-n');
@@ -719,6 +723,17 @@ function fitView(){ var g=window.__tplGroup, r=g?g.getClientRect({relativeTo:sta
   if(!r||!r.width){ resetZoom(); return; }
   var pad=40, s=clampScale(Math.min((stage.width()-pad*2)/r.width,(stage.height()-pad*2)/r.height));
   stage.scale({x:s,y:s}); stage.position({x:(stage.width()-r.width*s)/2 - r.x*s, y:(stage.height()-r.height*s)/2 - r.y*s}); afterZoom(); }
+/* ── 라인 위계: 선택한 선들에 외곽/안내선/스티치 스타일 1클릭 적용 ── */
+function applyLineRole(role){ var pr=LINE_ROLES[role]; if(!pr)return;
+  var ns=_selNodes().filter(function(n){ return lineKindEditable(n.getAttr&&n.getAttr('kind')); });
+  if(!ns.length){ hint('선(절개·펜·곡선·화살표·치수)을 먼저 선택하세요'); setTimeout(function(){hint('');},1700); return; }
+  ns.forEach(function(n){ if(n.strokeWidth)n.strokeWidth(pr.w); if(n.stroke)n.stroke(pr.color); if(n.dash)n.dash(pr.dash.slice()); if(n.getAttr&&n.getAttr('linkId')&&!_syncing)syncLinked(n); });
+  layer.draw(); tplLayer.draw();
+  if(ns.length===1)selectNode(ns[0]); else { selList=ns; renderMultiSel(); }
+  hint(pr.label+' 적용'); setTimeout(function(){hint('');},1100); }
+function lineRoleRowHTML(){ return '<div class="row" style="gap:6px;margin-bottom:8px"><label>위계</label>'
+  +Object.keys(LINE_ROLES).map(function(k){ return '<button class="btn lr-btn" data-role="'+k+'" style="height:30px;flex:1;padding:0 2px">'+LINE_ROLES[k].label+'</button>'; }).join('')+'</div>'; }
+function wireLineRoleRow(scope){ (scope||document).querySelectorAll('.lr-btn').forEach(function(b){ b.addEventListener('click',function(){ applyLineRole(b.dataset.role); }); }); }
 function showTransformer(node){
   const tr=new Konva.Transformer({nodes:[node],rotateEnabled:true,keepRatio:false,enabledAnchors:['top-left','top-right','bottom-left','bottom-right'],anchorSize:9,borderStroke:COLORS.stitch,anchorStroke:COLORS.stitch});
   ui.add(tr);ui.draw();   // keepRatio:false → 평소엔 자유, Shift 누르면 비율 고정(일러스트레이터식)
@@ -740,7 +755,7 @@ function renderMultiSel(){
   var ps=document.getElementById('panel-sel'); if(ps)ps.style.display='block';
   var ttl=document.getElementById('sel-title'); if(ttl)ttl.textContent='선택: '+selList.length+'개';
   var body=document.getElementById('sel-body');
-  if(body){ body.innerHTML='<div class="muted">여러 개 선택됨 · 모서리=크기·회전(Shift=비율 고정) · 가운데를 끌면 함께 이동(Shift=수평/수직)</div>';
+  if(body){ body.innerHTML='<div class="muted">여러 개 선택됨 · 모서리=크기·회전(Shift=비율 고정) · 가운데를 끌면 함께 이동(Shift=수평/수직)</div>'+lineRoleRowHTML(); wireLineRoleRow(body);
     var db=document.createElement('button'); db.className='btn'; db.textContent='⧉ 모두 복제'; db.style.cssText='width:100%;margin-top:8px'; db.onclick=function(){ duplicateSelection(); }; body.appendChild(db);
     var fr=document.createElement('div'); fr.style.cssText='display:flex;gap:6px;margin-top:8px';
     var mfx=document.createElement('button'); mfx.className='btn'; mfx.textContent='↔ 좌우반전 (O)'; mfx.style.cssText='flex:1'; mfx.onclick=function(){ flipSelection('x'); };
