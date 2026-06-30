@@ -211,6 +211,7 @@
       <div class="tsep"></div>
       <button class="tool" data-tool="text" title="텍스트 (T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6h14M12 6v13M9 19h6"/></svg>텍스트</button>
       <button class="tool" data-tool="callout" title="콜아웃 (지시선+메모)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="13" height="9" rx="1.5"/><path d="M13 13l7 7M20 20v-4M20 20h-4"/></svg>콜아웃</button>
+      <button class="tool" data-tool="fill" title="면 색칠 (닫힌 면 탭)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 11 12 4l7 7-7 7z"/><path d="M5 11h14"/><path d="M19 16c0 1.5 1.5 2.5 1.5 0"/></svg>면색칠</button>
       <button class="tool" data-tool="symbol" title="봉제 기호·부품 (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="6" r="2"/><path d="M12 8v9M9 13l3-3 3 3"/></svg>봉제</button>
       <div class="tsep"></div>
       <button class="tool" data-tool="node" title="점편집 (A) · 곡선 핸들"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.4 16.6 16.6 7.4"/></svg>점편집</button>
@@ -575,12 +576,14 @@ function styleControlsHTML(node){
   var chips=cols.map(function(c){ return '<button class="csw" data-col="'+c[0]+'" title="'+c[1]+'" style="width:26px;height:26px;border-radius:7px;border:2px solid '+(col===c[0]?'#185FA5':'#d7d2ca')+';background:'+c[0]+';cursor:pointer"></button>'; }).join('');
   var onCss=';background:#e6f0fb;border-color:#bcd5ee;color:#185FA5';
   return lineRoleRowHTML()
+   +fillRowHTML(node)
    +'<div class="row" style="margin-bottom:7px"><label>굵기</label><input type="range" id="se-lw" min="0.5" max="8" step="0.1" value="'+sw+'" style="flex:1;min-width:0"><input type="number" id="se-lw-n" min="0.5" max="12" step="0.1" value="'+sw+'" style="width:48px"><span class="unit">pt</span></div>'
    +'<div class="row" style="margin-bottom:7px;gap:7px"><label>색</label>'+chips+'</div>'
    +'<div class="row" style="margin-bottom:2px;gap:6px"><label>선</label><button class="btn" id="se-solid" style="height:30px;flex:1'+(!dashed?onCss:'')+'">실선</button><button class="btn" id="se-dash2" style="height:30px;flex:1'+(dashed?onCss:'')+'">점선</button></div>';
 }
 function wireStyleControls(node){
   wireLineRoleRow(document.getElementById('sel-body'));
+  wireFillRow(node, document.getElementById('sel-body'));
   var onCss=';background:#e6f0fb;border-color:#bcd5ee;color:#185FA5';
   function ly(){ var l=node.getLayer(); if(l)l.batchDraw(); }
   var lw=document.getElementById('se-lw'), lwn=document.getElementById('se-lw-n');
@@ -738,6 +741,20 @@ function applyLineRole(role){ var pr=LINE_ROLES[role]; if(!pr)return;
 function lineRoleRowHTML(){ return '<div class="row" style="gap:6px;margin-bottom:8px"><label>위계</label>'
   +Object.keys(LINE_ROLES).map(function(k){ return '<button class="btn lr-btn" data-role="'+k+'" style="height:30px;flex:1;padding:0 2px">'+LINE_ROLES[k].label+'</button>'; }).join('')+'</div>'; }
 function wireLineRoleRow(scope){ (scope||document).querySelectorAll('.lr-btn').forEach(function(b){ b.addEventListener('click',function(){ applyLineRole(b.dataset.role); }); }); }
+/* ── 면 색칠(Fill): 닫힌 면(펜·절개선·곡선·스케치)에 색 채우기 — 에리/몸판 구분 ── */
+let fillColor='#e6f1fb';
+const FILL_SWATCHES=[['#e6f1fb','블루'],['#faece7','살구'],['#eaf3de','연두'],['#fde8ef','핑크'],['#f1efe8','회색'],['none','없음']];
+function fillKindOK(k){ return ['pen','cut','curve','free'].indexOf(k)>=0; }
+function applyFillTo(node,c){ if(!node||!fillKindOK(node.getAttr&&node.getAttr('kind'))){ hint('펜·절개선·곡선·스케치로 그린 면만 색칠돼요'); setTimeout(function(){hint('');},1800); return; }
+  var isLine=node.getClassName()==='Line';
+  if(c&&c!=='none'){ node.fill(c); if(isLine)node.closed(true); if(node.fillEnabled)node.fillEnabled(true); if(node.fillAfterStrokeEnabled)node.fillAfterStrokeEnabled(true); node.moveToBottom(); fillColor=c; }
+  else { node.fill(''); if(isLine)node.closed(false); if(node.fillEnabled)node.fillEnabled(false); }
+  try{ if(frameRect)frameRect.moveToTop(); if(frameTr)frameTr.moveToTop(); }catch(e){}
+  var L=node.getLayer(); if(L)L.draw(); if(node.getAttr&&node.getAttr('linkId')&&!_syncing)syncLinked(node); }
+function fillRowHTML(node){ var cur=((node.fill&&node.fill())||'').toLowerCase();
+  var chips=FILL_SWATCHES.map(function(c){ var sel=(c[0]==='none')?!cur:(cur===c[0]); var bgc=c[0]==='none'?'#fff':c[0]; return '<button class="fl-sw" data-fill="'+c[0]+'" title="'+c[1]+'" style="width:24px;height:24px;border-radius:6px;border:2px solid '+(sel?'#185FA5':'#d7d2ca')+';background:'+bgc+';cursor:pointer'+(c[0]==='none'?';font-size:11px;color:#999;line-height:1':'')+'">'+(c[0]==='none'?'×':'')+'</button>'; }).join('');
+  return '<div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap"><label>면 색</label>'+chips+'</div>'; }
+function wireFillRow(node,scope){ (scope||document).querySelectorAll('.fl-sw').forEach(function(b){ b.addEventListener('click',function(){ applyFillTo(node,b.dataset.fill); selectNode(node); }); }); }
 function showTransformer(node){
   const tr=new Konva.Transformer({nodes:[node],rotateEnabled:true,keepRatio:false,enabledAnchors:['top-left','top-right','bottom-left','bottom-right'],anchorSize:9,borderStroke:COLORS.stitch,anchorStroke:COLORS.stitch});
   ui.add(tr);ui.draw();   // keepRatio:false → 평소엔 자유, Shift 누르면 비율 고정(일러스트레이터식)
@@ -977,6 +994,7 @@ function shapeClick(node,e){
   if(e)e.cancelBubble=true;
   var p=stage.getRelativePointerPosition();
   if(tool==='eyedrop'){ applyEyedrop(node); return; }
+  if(tool==='fill'){ applyFillTo(node, fillColor); return; }
   if(tool==='scissor'){ if(p)flashTap(p); scissorAt(node,p); return; }
   if(tool==='join'){ joinPick(node); return; }
   if(tool==='trace'){ if(typeof traceStitch==='function')traceStitch(node); return; }
@@ -1530,7 +1548,7 @@ function setTool(t){
   try{ stage.draggable(t==='select'); }catch(e){}   // 선택 도구일 때만 한 손가락 팬 (그리기 중엔 화면 안 밀림)
   document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
   if(t==='photo'){ document.getElementById('file-photo').click(); setTool('select'); return; }
-  const msg={dim:'시작점을 탭하세요 (치수선)',arrow:'시작점을 탭하세요 (화살표)',cut:'시작점을 탭하세요 (절개선·실선)',curve:'점을 탭해 곡선 그리기 · 더블클릭/Enter 완료',stitch:'시작점을 탭하세요 (스티치)',text:'옷 위를 탭해 글자 추가',symbol:'옷 위를 탭해 기호 찍기',node:'편집할 옷 선을 탭하세요 (점이 떠요)',trace:'옷 선을 탭하면 그 선 따라 스티치가 그려져요',eyedrop:'스타일을 가져올 선을 탭하세요 (선택한 선에 굵기·색·점선 복사)',callout:'①가리킬 부분 탭 → ②메모 놓을 곳 탭 → 여러 줄 입력'};
+  const msg={dim:'시작점을 탭하세요 (치수선)',arrow:'시작점을 탭하세요 (화살표)',cut:'시작점을 탭하세요 (절개선·실선)',curve:'점을 탭해 곡선 그리기 · 더블클릭/Enter 완료',stitch:'시작점을 탭하세요 (스티치)',text:'옷 위를 탭해 글자 추가',symbol:'옷 위를 탭해 기호 찍기',node:'편집할 옷 선을 탭하세요 (점이 떠요)',trace:'옷 선을 탭하면 그 선 따라 스티치가 그려져요',eyedrop:'스타일을 가져올 선을 탭하세요 (선택한 선에 굵기·색·점선 복사)',callout:'①가리킬 부분 탭 → ②메모 놓을 곳 탭 → 여러 줄 입력',fill:'색칠할 면(닫힌 펜·절개선·곡선)을 탭하세요 · 색은 선 뒤로 깔려요'};
   hint(msg[t]||'');
   if(t!=='select'&&t!=='node'&&t!=='eyedrop')clearSel();   // 스포이드는 선택 유지(선택한 선에 스타일 입힘)
   if(typeof setPanelContext==='function') setPanelContext(t);
@@ -1751,6 +1769,7 @@ function _capObj(n,lyr){
   if(typeof n.points==='function')o.points=n.points();
   ['stroke','strokeWidth','fill','tension','pointerLength','pointerWidth','pointerAtBeginning','pointerAtEnding','width','height','opacity','lineCap','lineJoin'].forEach(function(a){ if(typeof n[a]==='function'){ try{var v=n[a](); if(v!==undefined&&v!==null)o[a]=v;}catch(e){} } });
   if(typeof n.dash==='function'){ var d=n.dash(); if(d&&d.length)o.dash=d; }
+  if(typeof n.closed==='function'&&n.closed())o.closed=true;
   if(k==='text'){ o.text=n.text(); o.fontSize=n.fontSize(); }
   if(k==='dim'){ o.labelText=n.getAttr('labelText'); o.labelOff=n.getAttr('labelOff'); }
   if(k==='stitch'){ o.preset=n.getAttr('preset'); o.seg=n.getAttr('seg'); }
@@ -1783,6 +1802,7 @@ function buildFromObj(o, off){
   else if(o.k==='symbol'&&o.cls==='Label'){ node=new Konva.Label({x:o.x,y:o.y,draggable:true}); node.setAttr('kind','symbol'); if(o.symId)node.setAttr('symId',o.symId); node.add(new Konva.Tag({fill:'#fff',stroke:'#ccc',strokeWidth:1,cornerRadius:4})); node.add(new Konva.Text({text:o.symText||'●',fontSize:14,fontFamily:FONT_DRAW,fill:COLORS.ink,padding:4})); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); }
   else if((o.k==='symbol'||o.k==='photo')&&o.src){ var im=new Image(); im.onload=function(){ var kn=new Konva.Image({image:im,x:o.x,y:o.y,width:o.width,height:o.height,draggable:true,opacity:(o.opacity!=null?o.opacity:1)}); kn.setAttr('kind',o.k); kn.setAttr('src',o.src); if(o.symId)kn.setAttr('symId',o.symId); kn.on('click tap',function(e){shapeClick(kn,e);}); if(o.locked){ kn.setAttr('locked',true); kn.setAttr('_preDrag',!!kn.draggable()); kn.draggable(false); kn.listening(false); } (o.lyr==='tpl'?tplLayer:layer).add(kn); off2(kn); (o.lyr==='tpl'?tplLayer:layer).draw(); }; im.src=o.src; function off2(kn){ if(off.dx||off.dy)kn.move({x:off.dx,y:off.dy}); if(o.rot)kn.rotation(o.rot); if(o.sx&&o.sx!==1)kn.scaleX(o.sx); if(o.sy&&o.sy!==1)kn.scaleY(o.sy); } return null; }
   if(node&&o.dash&&o.dash.length&&typeof node.dash==='function')node.dash(o.dash);
+  if(node&&o.fill&&fillKindOK(o.k)){ node.fill(o.fill); if(node.getClassName()==='Line')node.closed(!!o.closed); if(node.fillEnabled)node.fillEnabled(true); }
   if(node&&o.linkId){ node.setAttr('linkId',o.linkId); node.setAttr('linkAxis',o.linkAxis); attachLinkSync(node); }
   if(node&&o.locked){ node.setAttr('locked',true); node.setAttr('_preDrag', !!(node.draggable&&node.draggable())); if(node.draggable)node.draggable(false); node.listening(false); }
   return place(node);
