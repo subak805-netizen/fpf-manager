@@ -5774,6 +5774,25 @@ function pbOpenBackups(){
   ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
   document.body.appendChild(ov);
 }
+function _pbSupKind(pb){
+  // 거래처를 자재 type으로 분류: fabric / trim / both / none (renderBookList의 isFab 규칙과 동일 — type==='fabric'만 원단)
+  if(!pb||!pb.materials)return 'none';
+  var hasF=false,hasT=false;
+  var vals=Object.values(pb.materials);
+  for(var i=0;i<vals.length;i++){var m=vals[i];if(!m)continue;if(m.type==='fabric')hasF=true;else hasT=true;}
+  if(hasF&&hasT)return 'both';
+  if(hasF)return 'fabric';
+  if(hasT)return 'trim';
+  return 'none';
+}
+function _pbKindMatch(s,kind){
+  if(!kind||kind==='all')return true;
+  var k=_pbSupKind(S.priceBook[s]);
+  if(kind==='fabric')return k==='fabric'||k==='both';
+  if(kind==='trim')return k==='trim'||k==='both';
+  return true;
+}
+function setBookKind(k){window._bookKind=k;renderBook();}
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;
   if(window._bookView==null)window._bookView='list';
@@ -5788,6 +5807,13 @@ function renderBook(){
       <button class="btn s" onclick="window._bookSearch='';var i=document.getElementById('book-search');if(i)i.value='';renderBookList()">✕</button>
       <span id="book-count" class="muted" style="font-size:11px;white-space:nowrap">${allSups.length+'곳'}</span>
     </div>
+    ${(function(){
+      const _bk=window._bookKind||'all';
+      const _kFab=allSups.filter(s=>_pbKindMatch(s,'fabric')).length;
+      const _kTrim=allSups.filter(s=>_pbKindMatch(s,'trim')).length;
+      const _chip=(k,lbl,n)=>`<span onclick="setBookKind('${k}')" style="cursor:pointer;border:1.5px solid #1f2328;border-radius:18px;padding:4px 13px;font-size:12px;font-weight:700;${_bk===k?'background:#1f2328;color:#fff':'background:#fff;color:#1f2328'}">${lbl} <span style="font-size:10px;opacity:${_bk===k?'1':'.65'}">${n}</span></span>`;
+      return `<div style="display:flex;gap:6px;margin-top:9px">${_chip('all','전체',allSups.length)}${_chip('fabric','원단처',_kFab)}${_chip('trim','부자재처',_kTrim)}</div>`;
+    })()}
   </div>`;
   const addForm=`<div class="card" style="margin-bottom:10px;border:2px dashed var(--bd)">
     <div style="font-weight:600;margin-bottom:8px">+ 거래처 직접 추가</div>
@@ -6087,19 +6113,22 @@ function renderBookList(){
   const lst=document.getElementById('book-list');if(!lst)return;
   const allSups=Object.keys(S.priceBook).sort((a,b)=>{const ba=_normBuilding(S.priceBook[a]?.building||'')||'zzz',bb=_normBuilding(S.priceBook[b]?.building||'')||'zzz';if(ba!==bb)return ba<bb?-1:1;const fa=_effectiveFloor(S.priceBook[a]||{}),fb=_effectiveFloor(S.priceBook[b]||{});const faN=parseInt(fa)||999,fbN=parseInt(fb)||999;if(faN!==fbN)return faN-fbN;return a<b?-1:1;});
   const qBook=(window._bookSearch||'').toLowerCase().trim();
-  const sups=qBook?allSups.filter(function(s){
+  const _bKind=window._bookKind||'all';
+  let sups=qBook?allSups.filter(function(s){
     if(s.toLowerCase().includes(qBook))return true;
     const mats=S.priceBook[s].materials||{};
     return Object.values(mats).some(function(m){return (m.name||'').toLowerCase().includes(qBook)||(m.color||'').toLowerCase().includes(qBook);});
   }):allSups;
-  const cnt=document.getElementById('book-count');if(cnt)cnt.textContent=qBook?(sups.length+'/'+allSups.length):(allSups.length+'곳');
+  if(_bKind!=='all')sups=sups.filter(function(s){return _pbKindMatch(s,_bKind);});
+  const _kindLbl=_bKind==='fabric'?'원단처':_bKind==='trim'?'부자재처':'';
+  const cnt=document.getElementById('book-count');if(cnt)cnt.textContent=(qBook||_bKind!=='all')?(sups.length+'/'+allSups.length+(_kindLbl?' '+_kindLbl:'')):(allSups.length+'곳');
   if(!allSups.length){lst.innerHTML='<div class="empty">아이템 저장 시 자동 등록됩니다</div>';return;}
   if(!sups.length){lst.innerHTML='<div class="empty">검색 결과가 없습니다</div>';return;}
   let _prevBld=null,_prevFlr=null;
-  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];const locStr=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');const memoStr=(pb.memo||'').trim();const _bld=_normBuilding(pb.building||'');const _flr=_effectiveFloor(pb);let _grpHd='';if(!qBook){if(_bld!==_prevBld){_prevBld=_bld;_prevFlr=null;_grpHd=_bld?`<div style="font-weight:700;font-size:11px;color:#475569;margin:${si?'16px':'0'} 0 5px;padding:4px 10px;background:#f1f5f9;border-radius:6px;border-left:3px solid #94a3b8">${esc(_bld)}</div>`:'';}if(_flr&&_flr!==_prevFlr){_prevFlr=_flr;_grpHd+=`<div style="font-size:10px;font-weight:600;color:#64748b;margin:4px 0 3px;padding:2px 14px;border-left:2px solid #cbd5e1">└ ${esc(_flr)}층</div>`;}}return _grpHd+`
+  lst.innerHTML=sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];const locStr=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');const memoStr=(pb.memo||'').trim();const _bld=_normBuilding(pb.building||'');const _flr=_effectiveFloor(pb);const _knd=_pbSupKind(pb);const _kndTag=_knd==='fabric'?'<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:5px;background:#dbeafe;color:#1e40af">원단처</span>':_knd==='trim'?'<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:5px;background:#fef3c7;color:#92580b">부자재처</span>':_knd==='both'?'<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:5px;background:#e9d5ff;color:#6b21a8">원단·부자재</span>':'';const _phone=(pb.phone||'').trim();const _kakao=(pb.kakaoId||'').trim();const _cBits=[];if(_phone)_cBits.push(`<a href="tel:${esc(_phone)}" onclick="event.stopPropagation()" style="color:#1d4ed8;font-weight:600;text-decoration:none"><span style="color:#9aa0a8;font-weight:400;font-size:10px">전화 </span>${esc(_phone)}</a>`);if(_kakao)_cBits.push(`<span><span style="color:#9aa0a8;font-size:10px">카톡 </span>${esc(_kakao)}</span>`);const _contactLine=_cBits.length?`<div style="display:flex;flex-wrap:wrap;gap:4px 14px;padding:0 2px 9px;font-size:12px;color:#475569">${_cBits.join('')}</div>`:'';let _grpHd='';if(!qBook){if(_bld!==_prevBld){_prevBld=_bld;_prevFlr=null;_grpHd=_bld?`<div style="font-weight:700;font-size:11px;color:#475569;margin:${si?'16px':'0'} 0 5px;padding:4px 10px;background:#f1f5f9;border-radius:6px;border-left:3px solid #94a3b8">${esc(_bld)}</div>`:'';}if(_flr&&_flr!==_prevFlr){_prevFlr=_flr;_grpHd+=`<div style="font-size:10px;font-weight:600;color:#64748b;margin:4px 0 3px;padding:2px 14px;border-left:2px solid #cbd5e1">└ ${esc(_flr)}층</div>`;}}return _grpHd+`
   <div class="card" style="margin-bottom:10px;overflow-x:hidden;">
     <div class="fb" style="margin-bottom:8px;cursor:pointer" onclick="toggleBookCard(${si},'${encodeURIComponent(s)}')">
-      <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span id="bookcaret-${si}" style="font-size:11px;color:var(--t2)">${isOpen?'▼':'▶'}</span>${esc(s)}${locStr?`<span style="font-size:10px;font-weight:500;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;padding:1px 7px;border-radius:20px">${esc(locStr)}</span>`:''}${memoStr?`<span style="font-size:10px;font-weight:400;color:#6b21a8;background:#faf5ff;border:1px solid #e9d5ff;padding:1px 7px;border-radius:20px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(memoStr)}">${esc(memoStr)}</span>`:''}</div>
+      <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span id="bookcaret-${si}" style="font-size:11px;color:var(--t2)">${isOpen?'▼':'▶'}</span>${esc(s)}${_kndTag}${locStr?`<span style="font-size:10px;font-weight:500;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;padding:1px 7px;border-radius:20px">${esc(locStr)}</span>`:''}${memoStr?`<span style="font-size:10px;font-weight:400;color:#6b21a8;background:#faf5ff;border:1px solid #e9d5ff;padding:1px 7px;border-radius:20px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(memoStr)}">${esc(memoStr)}</span>`:''}</div>
       <div class="fr" style="gap:5px">
         <span class="tag">${mats.length}개 품목</span>
         <button class="btn s" onclick="event.stopPropagation();pbOpenAddMat(${si},'${encodeURIComponent(s)}')" style="background:#f0fdf4;border-color:#86efac;color:#15803d" title="이 거래처에 품목 추가">＋ 품목</button>
@@ -6107,6 +6136,7 @@ function renderBookList(){
         <button class="btn s d" onclick="event.stopPropagation();deletePriceBookEntry('${encodeURIComponent(s)}')">🗑</button>
       </div>
     </div>
+    ${_contactLine}
     <div class="book-detail" id="bookd-${si}" style="display:${isOpen?'block':'none'}">
     <div class="g3" style="margin-bottom:10px">
       <div class="fg" style="margin-bottom:0"><label>이메일</label><input type="email" value="${esc(pb.email||'')}" onchange="getPB('${s}').email=this.value;savePB()"></div>
