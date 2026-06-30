@@ -210,6 +210,7 @@
       <button class="tool" data-tool="trace" title="봉제선 (B)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="2.5 2.5"><path d="M3 17c4-9 14-9 18 0"/></svg>봉제선</button>
       <div class="tsep"></div>
       <button class="tool" data-tool="text" title="텍스트 (T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6h14M12 6v13M9 19h6"/></svg>텍스트</button>
+      <button class="tool" data-tool="callout" title="콜아웃 (지시선+메모)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="13" height="9" rx="1.5"/><path d="M13 13l7 7M20 20v-4M20 20h-4"/></svg>콜아웃</button>
       <button class="tool" data-tool="symbol" title="봉제 기호·부품 (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="6" r="2"/><path d="M12 8v9M9 13l3-3 3 3"/></svg>봉제</button>
       <div class="tsep"></div>
       <button class="tool" data-tool="node" title="점편집 (A) · 곡선 핸들"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.4 16.6 16.6 7.4"/></svg>점편집</button>
@@ -598,7 +599,10 @@ function selectNode(node){
   const kind=node.getAttr('kind');
   const title=document.getElementById('sel-title');
   const body=document.getElementById('sel-body');
-  if(kind==='dim'||kind==='arrow'||kind==='cut'){
+  if(kind==='callout'){
+    title.textContent='선택: 콜아웃 (메모)';
+    body.innerHTML=calloutPanelHTML(node); wireCalloutPanel(node);
+  } else if(kind==='dim'||kind==='arrow'||kind==='cut'){
     addLineAnchors(node);
     if(kind==='dim'){
       title.textContent='선택: 치수선';
@@ -1279,6 +1283,47 @@ function editText(node){
   // Enter=줄바꿈(기본 동작), Esc=완료, 바깥 클릭=완료
   ta.addEventListener('keydown',e=>{ if(e.key==='Escape'){e.preventDefault();ta.blur();} });
 }
+/* ── 콜아웃: 지시선(화살표)+여러 줄 메모를 한 그룹으로 (일러식) ── */
+const CALLOUT_HI=[['#FBEAF0','분홍'],['#FDF3D6','노랑'],['#EAF3DE','연두'],['#FAECE7','살구'],['none','없음']];
+let calloutHi='#FBEAF0';
+function _rectEdgeToward(x,y,w,h,tx,ty){ var cx=x+w/2, cy=y+h/2, dx=tx-cx, dy=ty-cy; if(!dx&&!dy)return{x:cx,y:cy};
+  var sx=dx?(w/2)/Math.abs(dx):Infinity, sy=dy?(h/2)/Math.abs(dy):Infinity, s=Math.min(sx,sy); return {x:cx+dx*s, y:cy+dy*s}; }
+function _calloutLayout(g){ var t=g.findOne('.co-text'), bg=g.findOne('.co-bg'), ar=g.findOne('.co-arrow'); if(!t)return;
+  var pad=5, bx=t.x(), by=t.y(), w=t.width(), h=t.height();
+  bg.position({x:bx-pad,y:by-pad}); bg.width(w+pad*2); bg.height(h+pad*2);
+  var tg=g.getAttr('target')||[bx,by]; var e=_rectEdgeToward(bx-pad,by-pad,w+pad*2,h+pad*2,tg[0],tg[1]);
+  ar.points([e.x,e.y,tg[0],tg[1]]); }
+function buildCallout(o){
+  var g=new Konva.Group({x:o.x||0,y:o.y||0,draggable:true}); g.setAttr('kind','callout');
+  g.setAttr('target',(o.target||[0,0]).slice()); g.setAttr('hi',o.hi||'#FBEAF0'); g.setAttr('coFont',o.fontSize||15); g.setAttr('coFill',o.fill||'#1a1a1a'); g.setAttr('coText',o.text||'');
+  var ar=new Konva.Arrow({name:'co-arrow',points:[0,0,0,0],stroke:'#1a1a1a',strokeWidth:1,fill:'#1a1a1a',pointerLength:7,pointerWidth:6});
+  var bg=new Konva.Rect({name:'co-bg',cornerRadius:2,fill:(o.hi&&o.hi!=='none')?o.hi:'rgba(0,0,0,0)'});
+  var tx=new Konva.Text({name:'co-text',x:(o.box?o.box[0]:0),y:(o.box?o.box[1]:0),text:o.text||'메모',fontSize:o.fontSize||15,fontFamily:FONT_DRAW,fill:o.fill||'#1a1a1a',lineHeight:1.3});
+  g.add(ar); g.add(bg); g.add(tx); _calloutLayout(g);
+  g.on('click tap',function(e){shapeClick(g,e);}); g.on('dblclick dbltap',function(){ editCalloutText(g); });
+  layer.add(g); return g; }
+function makeCallout(target,box){ var g=buildCallout({target:[target.x,target.y],box:[box.x,box.y],text:'',hi:calloutHi,fontSize:textSize,fill:COLORS.text}); pushUndo(g); layer.draw(); editCalloutText(g,true); return g; }
+function editCalloutText(g,isNew){ var t=g.findOne('.co-text'); if(!t)return; var pos=t.absolutePosition(), box=host.getBoundingClientRect(), z=stage.scaleX();
+  var ta=document.createElement('textarea'); ta.value=isNew?'':t.text(); document.body.appendChild(ta);
+  Object.assign(ta.style,{position:'fixed',left:(box.left+pos.x)+'px',top:(box.top+pos.y)+'px',fontSize:(t.fontSize()*z)+'px',lineHeight:'1.3',fontFamily:FONT_DRAW,color:'#1a1a1a',border:'1px solid #185FA5',borderRadius:'4px',padding:'2px 4px',background:'#fff',zIndex:9999,resize:'none',minWidth:'130px',overflow:'hidden',whiteSpace:'pre-wrap'});
+  var grow=function(){ta.style.height='auto';ta.style.height=Math.max(24,ta.scrollHeight)+'px';}; ta.addEventListener('input',grow);
+  ta.focus(); grow(); if(!isNew)ta.select();
+  var done=function(){ if(ta._d)return; ta._d=1;
+    if(isNew && !ta.value.trim()){ var i=undoStack.indexOf(g); if(i>=0)undoStack.splice(i,1); g.destroy(); clearSel(); layer.draw(); ta.remove(); return; }
+    t.text(ta.value||' '); g.setAttr('coText',ta.value||' '); _calloutLayout(g); layer.draw(); ta.remove();
+    if(g.getAttr('linkId')&&!_syncing)syncLinked(g); };
+  ta.addEventListener('blur',done); ta.addEventListener('keydown',function(e){ if(e.key==='Escape'){e.preventDefault();ta.blur();} }); }
+function setCalloutHi(g,c){ var bg=g.findOne('.co-bg'); if(bg)bg.fill(c==='none'?'rgba(0,0,0,0)':c); g.setAttr('hi',c); calloutHi=c; layer.draw(); }
+function calloutFont(g,d){ var t=g.findOne('.co-text'); if(!t)return; t.fontSize(Math.max(8,t.fontSize()+d)); g.setAttr('coFont',t.fontSize()); _calloutLayout(g); layer.draw(); }
+function calloutPanelHTML(g){ var cur=g.getAttr('hi');
+  var chips=CALLOUT_HI.map(function(c){ var sel=cur===c[0], bgc=c[0]==='none'?'#fff':c[0]; return '<button class="co-hi" data-hi="'+c[0]+'" title="'+c[1]+'" style="width:26px;height:26px;border-radius:7px;border:2px solid '+(sel?'#185FA5':'#d7d2ca')+';background:'+bgc+';cursor:pointer'+(c[0]==='none'?';font-size:9px;color:#999':'')+'">'+(c[0]==='none'?'없음':'')+'</button>'; }).join('');
+  return '<button class="btn" id="co-edit" style="width:100%">글 수정 (또는 더블클릭)</button>'
+   +'<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap"><label>강조</label>'+chips+'</div>'
+   +'<div class="row" style="margin-top:6px"><label>크기</label><button class="btn" id="co-dn" style="height:30px;flex:1">A −</button><button class="btn" id="co-up" style="height:30px;flex:1">A ＋</button></div>'
+   +'<div class="muted" style="margin-top:6px">화살표+메모가 함께 움직여요 · Enter=줄바꿈</div>'; }
+function wireCalloutPanel(g){ var e=document.getElementById('co-edit'); if(e)e.onclick=function(){ editCalloutText(g); };
+  document.querySelectorAll('#sel-body .co-hi').forEach(function(b){ b.onclick=function(){ setCalloutHi(g,b.dataset.hi); document.querySelectorAll('#sel-body .co-hi').forEach(function(x){x.style.borderColor='#d7d2ca';}); b.style.borderColor='#185FA5'; }; });
+  var dn=document.getElementById('co-dn'),up=document.getElementById('co-up'); if(dn)dn.onclick=function(){calloutFont(g,-2);}; if(up)up.onclick=function(){calloutFont(g,2);}; }
 const SYM_LS='fpf_dosik_symbols';
 let symBank=[], symCatFilter='전체';
 /* 기본 부품(편집 가능 벡터) — 점편집 되는 pen 패스 묶음으로 정의 */
@@ -1438,12 +1483,13 @@ stage.on('click tap',e=>{
   if(tool==='text'){ const n=makeText(pos.x,pos.y); setTool('select'); selectNode(n); editText(n); return; }
   if(tool==='symbol'){ makeSymbol(pos.x,pos.y,symbolType); return; }
   if(tool==='curve'){ curveAddPoint(pos); hint('점 추가 · 더블클릭/Enter 완료 · Esc 취소'); return; }
-  if(tool==='dim'||tool==='stitch'||tool==='arrow'||tool==='cut'){
-    if(!pendingStart){ pendingStart=snapPoint(pos,null); startTwoPoint(pendingStart); hint('끝점을 한 번 더 탭하세요'); }
-    else{ var ep=_shiftDown?constrain45(pos,pendingStart):snapPoint(pos,pendingStart);
+  if(tool==='dim'||tool==='stitch'||tool==='arrow'||tool==='cut'||tool==='callout'){
+    if(!pendingStart){ pendingStart=snapPoint(pos,null); startTwoPoint(pendingStart); hint(tool==='callout'?'메모 놓을 위치를 탭하세요':'끝점을 한 번 더 탭하세요'); }
+    else{ var ep=(tool==='callout')?pos:(_shiftDown?constrain45(pos,pendingStart):snapPoint(pos,pendingStart));
           if(tool==='dim') makeLine('dim',pendingStart.x,pendingStart.y,ep.x,ep.y);
           else if(tool==='arrow') makeArrow(pendingStart.x,pendingStart.y,ep.x,ep.y);
           else if(tool==='cut') makeCut(pendingStart.x,pendingStart.y,ep.x,ep.y);
+          else if(tool==='callout') makeCallout(pendingStart,ep);
           else makeStitch(pendingStart.x,pendingStart.y,ep.x,ep.y);
           pendingStart=null; endTwoPoint(); hint(''); }
     return;
@@ -1451,7 +1497,7 @@ stage.on('click tap',e=>{
 });
 /* ---- 탭 위치 시각화: 첫 점 마커 + 커서 따라오는 미리보기(고무줄) ---- */
 let previewLine=null, startDot=null, hoverDot=null;
-const DRAW_TOOLS=['dim','arrow','stitch','cut','symbol','text','trace'];
+const DRAW_TOOLS=['dim','arrow','stitch','cut','symbol','text','trace','callout'];
 function uiS(){ return 1/stage.scaleX(); }
 function startTwoPoint(p){ const s=uiS();
   startDot=new Konva.Circle({x:p.x,y:p.y,radius:5*s,fill:'#fff',stroke:COLORS.dim,strokeWidth:2*s,listening:false}); ui.add(startDot);
@@ -1484,7 +1530,7 @@ function setTool(t){
   try{ stage.draggable(t==='select'); }catch(e){}   // 선택 도구일 때만 한 손가락 팬 (그리기 중엔 화면 안 밀림)
   document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
   if(t==='photo'){ document.getElementById('file-photo').click(); setTool('select'); return; }
-  const msg={dim:'시작점을 탭하세요 (치수선)',arrow:'시작점을 탭하세요 (화살표)',cut:'시작점을 탭하세요 (절개선·실선)',curve:'점을 탭해 곡선 그리기 · 더블클릭/Enter 완료',stitch:'시작점을 탭하세요 (스티치)',text:'옷 위를 탭해 글자 추가',symbol:'옷 위를 탭해 기호 찍기',node:'편집할 옷 선을 탭하세요 (점이 떠요)',trace:'옷 선을 탭하면 그 선 따라 스티치가 그려져요',eyedrop:'스타일을 가져올 선을 탭하세요 (선택한 선에 굵기·색·점선 복사)'};
+  const msg={dim:'시작점을 탭하세요 (치수선)',arrow:'시작점을 탭하세요 (화살표)',cut:'시작점을 탭하세요 (절개선·실선)',curve:'점을 탭해 곡선 그리기 · 더블클릭/Enter 완료',stitch:'시작점을 탭하세요 (스티치)',text:'옷 위를 탭해 글자 추가',symbol:'옷 위를 탭해 기호 찍기',node:'편집할 옷 선을 탭하세요 (점이 떠요)',trace:'옷 선을 탭하면 그 선 따라 스티치가 그려져요',eyedrop:'스타일을 가져올 선을 탭하세요 (선택한 선에 굵기·색·점선 복사)',callout:'①가리킬 부분 탭 → ②메모 놓을 곳 탭 → 여러 줄 입력'};
   hint(msg[t]||'');
   if(t!=='select'&&t!=='node'&&t!=='eyedrop')clearSel();   // 스포이드는 선택 유지(선택한 선에 스타일 입힘)
   if(typeof setPanelContext==='function') setPanelContext(t);
@@ -1709,6 +1755,7 @@ function _capObj(n,lyr){
   if(k==='dim'){ o.labelText=n.getAttr('labelText'); o.labelOff=n.getAttr('labelOff'); }
   if(k==='stitch'){ o.preset=n.getAttr('preset'); o.seg=n.getAttr('seg'); }
   if(k==='pen'){ o.data=n.data(); }
+  if(k==='callout'){ var _ct=n.findOne&&n.findOne('.co-text'); o.target=n.getAttr('target'); o.box=_ct?[_ct.x(),_ct.y()]:[0,0]; o.coText=n.getAttr('coText'); o.hi=n.getAttr('hi'); o.coFont=n.getAttr('coFont'); o.coFill=n.getAttr('coFill'); }
   if(k==='symbol'&&o.cls==='Label'){ var tx=n.findOne&&n.findOne('Text'); o.symText=tx?tx.text():''; o.symId=n.getAttr('symId'); }
   if((k==='symbol'||k==='photo')&&o.cls==='Image'){ o.src=n.getAttr('src')||(typeof n.image==='function'&&n.image()?n.image().src:''); o.symId=n.getAttr('symId'); }
   return o;
@@ -1730,6 +1777,7 @@ function buildFromObj(o, off){
   else if(o.k==='cut'){ node=new Konva.Line({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,hitStrokeWidth:14,lineCap:'round'}); node.setAttr('kind','cut'); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); }
   else if(o.k==='curve'){ node=new Konva.Line({points:o.points,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,tension:0.5,lineCap:'round',lineJoin:'round',hitStrokeWidth:14,draggable:true}); node.setAttr('kind','curve'); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); }
   else if(o.k==='pen'&&o.data){ node=new Konva.Path({data:o.data,x:o.x,y:o.y,stroke:o.stroke,strokeWidth:o.strokeWidth,lineJoin:'round',lineCap:'round',hitStrokeWidth:14,draggable:true}); node.setAttr('kind','pen'); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); }
+  else if(o.k==='callout'){ node=buildCallout({target:o.target,box:o.box,text:o.coText,hi:o.hi,fontSize:o.coFont,fill:o.coFill,x:o.x,y:o.y}); }
   else if(o.k==='dim'&&o.points){ node=makeLine('dim',o.points[0],o.points[1],o.points[2],o.points[3]); if(o.labelText){ node.setAttr('labelText',o.labelText); var lb=node.getAttr('labelNode'); if(lb)lb.text(o.labelText); } if(o.labelOff)node.setAttr('labelOff',o.labelOff); positionDimLabel(node); }
   else if(o.k==='stitch'&&o.seg){ node=makeStitch(o.seg[0],o.seg[1],o.seg[2],o.seg[3],o.preset); if(o.x||o.y)node.position({x:o.x,y:o.y}); }
   else if(o.k==='symbol'&&o.cls==='Label'){ node=new Konva.Label({x:o.x,y:o.y,draggable:true}); node.setAttr('kind','symbol'); if(o.symId)node.setAttr('symId',o.symId); node.add(new Konva.Tag({fill:'#fff',stroke:'#ccc',strokeWidth:1,cornerRadius:4})); node.add(new Konva.Text({text:o.symText||'●',fontSize:14,fontFamily:FONT_DRAW,fill:COLORS.ink,padding:4})); node.on('click tap',function(e){shapeClick(node,e);}); layer.add(node); }
