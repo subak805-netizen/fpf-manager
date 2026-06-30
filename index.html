@@ -9564,16 +9564,29 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
 
 /* 부자재 가공비 (염색비 등) */
 var TC_MIN=30;
+// 컬러별 가공비(염색비 등) 적용 색수 = 연결 부자재 적용탭에서 '염색' 켠 컬러 (생지 제외).
+// 3단계 폴백으로 구데이터 보존: ①부자재 적용탭 염색컬러 ②가공비 자체 염색컬러 ③가공비 선택컬러 전체(기존)
+function tcEffColors(tc,trims,allColors){
+  allColors=(allColors&&allColors.length)?allColors:[''];
+  var tr=(trims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});
+  if(tr&&tr.colorLinks&&tr.colorLinks.some(function(l){return l&&l.dye;}))
+    return allColors.filter(function(c){return tr.colorLinks.find(function(l){return l.itemColor===c&&l.dye;});});
+  if(tc.colorLinks&&tc.colorLinks.some(function(l){return l&&l.dye;}))
+    return allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c&&l.dye;});});
+  var has=tc.colorLinks&&tc.colorLinks.length>0;
+  return has?allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):allColors.slice();
+}
 function _tcPer(tc,mode){var amt=(mode==='perPcs')?(+tc.costPerPcs||0):(+tc.costPerLot||0);
   if(mode==='once')return {per:Math.round(amt/TC_MIN),sub:amt?'('+num(amt)+'÷'+TC_MIN+')':''};
-  if(mode==='perLot'){var allC=(typeof formColors!=='undefined'&&formColors.length)?formColors.length:1;var hasL=tc.colorLinks&&tc.colorLinks.length>0;var actC=hasL?formColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}).length:allC;actC=actC||1;return {per:Math.round(amt*actC/TC_MIN),sub:amt?'('+num(amt)+'×'+actC+'색÷'+TC_MIN+')':''};}
+  if(mode==='perLot'){var _ac=(typeof formColors!=='undefined'&&formColors.length)?formColors:[''];var actC=tcEffColors(tc,(typeof formTrims!=='undefined'?formTrims:[]),_ac).length||1;return {per:Math.round(amt*actC/TC_MIN),sub:amt?'('+num(amt)+'×'+actC+'색÷'+TC_MIN+')':''};}
   return {per:Math.round(amt),sub:''};}
 function trimCostRowHTML(tc,i){
   const mode=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':'perPcs');
   const amtVal=(mode==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0);
   const modeLab=mode==='once'?'한번에':(mode==='perLot'?'컬러별':'개당');
   const c=_tcPer(tc,mode);
-  const colorSec=(mode==='perLot')?mkColorSec(i,'tc',tc.colorLinks||[]):'';
+  const _effC=(mode==='perLot')?tcEffColors(tc,(typeof formTrims!=='undefined'?formTrims:[]),(typeof formColors!=='undefined'&&formColors.length?formColors:[''])):[];
+  const colorSec=(mode==='perLot')?`<div style="margin-top:7px;padding:8px 10px;background:#fae8ff;border:1px solid #f0abfc;border-radius:6px;font-size:11px;color:#86198f;line-height:1.5">적용 컬러 탭에서 <b>염색 켠 ${_effC.length}색</b>${_effC.length?` <span style="color:#a21caf">(${_effC.map(esc).join(' · ')})</span>`:''} 에 자동 적용<br><span style="color:#a21caf;opacity:.78">컬러·염색 여부·염색명은 「적용 컬러」 탭에서 정해요 (여긴 금액·업체만)</span></div>`:'';
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
     <input class="tcl-nm" data-f="name" value="${esc(tc.name||'')}" placeholder="예: 염색비, 로고비">
@@ -11842,8 +11855,8 @@ function trimCostPerPcs(it,minQty){
     var has=tc.colorLinks&&tc.colorLinks.length>0;
     var active=has?all.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):all;
     if(tc.costType==='once')return s+(tc.costPerLot||0)/minQty; // 한번에: 컬러 무관 ÷미니멈
-    if(tc.costType==='perLot')return s+(tc.costPerLot||0)*active.length/minQty; // 컬러별: ×활성컬러÷미니멈
-    return s+(tc.costPerPcs||0)*(active.length/(all.length||1)); // 개당
+    if(tc.costType==='perLot'){var dyeC=tcEffColors(tc,(it&&it.trims),all);return s+(tc.costPerLot||0)*(dyeC.length||1)/minQty;} // 컬러별: ×염색켠색수÷미니멈
+    return s+(tc.costPerPcs||0)*(active.length/(all.length||1)); // 개당: 기존(가공비 자체 컬러)
   },0);
 }
 /* ===== 오더 총 원가 ===== */
@@ -15166,7 +15179,7 @@ function getTrimCostRows(o,sn){
       var activeColors=hasLinks?allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):allColors;
       var nm=(tc.name||'가공비')+' ('+(it.name||'')+')';
       if(tc.costType==='once'){var oFee=tc.costPerLot||0;if(!oFee)return;out.push({name:nm,color:'가공',qty:1,unit:'회',price:oFee,amount:oFee,part:'가공'});}
-      else if(tc.costType==='perLot'){var lotFee=tc.costPerLot||0;if(!lotFee)return;var nC=activeColors.length||1;out.push({name:nm,color:'가공',qty:nC,unit:'컬러',price:lotFee,amount:lotFee*nC,part:'가공'});}
+      else if(tc.costType==='perLot'){var lotFee=tc.costPerLot||0;if(!lotFee)return;var nC=tcEffColors(tc,it.trims,allColors).length||1;out.push({name:nm,color:'가공',qty:nC,unit:'컬러',price:lotFee,amount:lotFee*nC,part:'가공'});}
       else{var ppFee=tc.costPerPcs||0;if(!ppFee)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;out.push({name:nm,color:'가공',qty:totQty,unit:'pcs',price:ppFee,amount:ppFee*totQty,part:'가공'});}
     });
   });
