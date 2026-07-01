@@ -12685,6 +12685,8 @@ function yocheokHistory(itemId){
     Object.keys(cutGrid||{}).forEach(function(c){var s=0;Object.keys(cutGrid[c]||{}).forEach(function(sz){s+=+cutGrid[c][sz]||0;});cutByColor[c]=s;cutTot+=s;});
     if(cutTot<=0)return; // 재단 기록 없는 발주는 제외
     var nCutColors=Object.keys(cutByColor).filter(function(c){return cutByColor[c]>0;}).length;
+    var ordByColor={},ordTot=0,_qg=oi.qtyGrid||{}; // 오더장수(컬러별)
+    Object.keys(_qg).forEach(function(c){var s=0;Object.keys(_qg[c]||{}).forEach(function(sz){s+=+_qg[c][sz]||0;});ordByColor[c]=s;ordTot+=s;});
     if(!o.suppliers)return;
     Object.keys(o.suppliers).forEach(function(sn){
       (o.suppliers[sn].materials||[]).forEach(function(m){
@@ -12695,13 +12697,14 @@ function yocheokHistory(itemId){
         if(cut<=0)return;
         var ordered=(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')?+m.actualOrderedQty:(+m.totalYards||0);
         if(ordered<=0)return;
+        var oq=ordByColor[color]||0; if(!oq&&nCutColors===1)oq=ordTot;
         var fc=(it.fabrics||[]).find(function(f){return f.id===m.fabId||f.name===m.name;});
         var plan=fc?(+fc.consumption||0):0;
         var key=(m.name||'')+'|'+(m.part||'')+'|'+color;
-        if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,rows:[],sumOrd:0,sumCut:0};order.push(key);}
+        if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,rows:[],sumOrd:0,sumCut:0,sumOrdQty:0};order.push(key);}
         var g=groups[key];
-        g.rows.push({date:o.createdAt||'',ordered:ordered,cut:cut,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')});
-        g.sumOrd+=ordered;g.sumCut+=cut;
+        g.rows.push({date:o.createdAt||'',ordered:ordered,cut:cut,ordQty:oq,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')});
+        g.sumOrd+=ordered;g.sumCut+=cut;g.sumOrdQty+=oq;
       });
     });
   });
@@ -12748,6 +12751,10 @@ function yoFilterDom(){
     var okF=(f==='all')||(f==='over'&&over)||(f==='wait'&&wait);
     var okS=!s||txt.indexOf(s)>=0;
     var vis=okF&&okS; c.style.display=vis?'':'none'; if(vis)shown++;
+  });
+  document.querySelectorAll('#yocheok-body .yo-brand').forEach(function(bg){ // 카드 다 숨은 브랜드 그룹은 헤더도 숨김
+    var any=Array.prototype.slice.call(bg.querySelectorAll('.yo-itc')).some(function(c){return c.style.display!=='none';});
+    bg.style.display=any?'':'none';
   });
   var em=document.getElementById('yo-empty2'); if(em)em.style.display=shown?'none':'block';
 }
@@ -12806,6 +12813,10 @@ function renderYocheokTab(){
     +'#yocheok-body .yo-badge.wait{background:#f3f4f6;color:#8a919c;border:1px solid #e2e0d8}'
     +'#yocheok-body .yo-note{font-size:11px;color:#9a3a2e;background:#fff5f5;border:1px solid #f0c0c0;border-radius:8px;padding:9px 12px;line-height:1.6;margin-top:4px}'
     +'#yocheok-body .yo-empty{padding:34px 14px;text-align:center;color:var(--t2,#6b7280);font-size:13px;line-height:1.7}'
+    +'#yocheok-body .yo-brand{margin-bottom:16px}'
+    +'#yocheok-body .yo-brand-h{display:flex;align-items:baseline;gap:8px;padding:2px 2px 8px;border-bottom:2px solid var(--ink,#0B0A05);margin-bottom:11px}'
+    +'#yocheok-body .yo-brand-h .bn{font-size:14px;font-weight:800}'
+    +'#yocheok-body .yo-brand-h .bc{font-size:11px;color:var(--t2,#6b7280)}'
     +'</style>';
 
   if(!cards.length){
@@ -12821,7 +12832,7 @@ function renderYocheokTab(){
   };
   var hexOf=function(c){return (typeof colorToHex==='function')?colorToHex(c||''):'#ddd';};
 
-  var cardsH=cards.map(function(cd){
+  var renderCard=function(cd){
     var it=cd.it; var brand=(typeof getBrandName==='function'&&it.brandId)?getBrandName(it.brandId):'';
     var searchTxt=[it.name,it.code,brand].concat((cd.hist||[]).map(function(g){return g.fabName+' '+g.color+' '+g.part;})).join(' ');
     if(cd.wait){
@@ -12831,15 +12842,23 @@ function renderYocheokTab(){
           +'<div class="yo-nums"><span class="p">'+_yoR2(plan)+'</span><span class="a">→</span><span class="r" style="color:#8a919c">—</span></div>'
           +'<div class="yo-bd"><span class="yo-badge wait">대기</span></div></div>';
       }).join('');
-      return '<div class="yo-itc" data-yo-wait="1" data-yo-over="0" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+(brand?'<span class="br">'+esc(brand)+'</span>':'')+'<span class="rc" style="color:#8a919c;background:#f3f4f6;border-color:#e2e0d8">재단 입력 대기</span></div>'+fh+'</div>';
+      return '<div class="yo-itc" data-yo-wait="1" data-yo-over="0" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+'<span class="rc" style="color:#8a919c;background:#f3f4f6;border-color:#e2e0d8">재단 입력 대기</span></div>'+fh+'</div>';
     }
-    var rows=cd.hist.map(function(g){ var st=g._st; var nOrd=g.rows.length;
-      return '<div class="yo-fr"><div class="yo-lead"><div class="yo-fn"><span class="yo-sw" style="background:'+hexOf(g.color)+'"></span>'+esc(g.fabName)+(g.part?'<span class="pt">· '+esc(g.part)+'</span>':'')+'</div><div class="yo-meta">'+(g.color?esc(g.color)+' · ':'')+'재단 '+g.sumCut+'장 · 발주 '+nOrd+'회</div></div>'
+    var rows=cd.hist.map(function(g){ var st=g._st; var nOrd=g.rows.length; var needY=_yoR1((g.sumOrdQty||0)*(g.plan||0));
+      var meta=(g.color?esc(g.color)+' · ':'')+'오더 '+(g.sumOrdQty||0)+'장 · 실발주 '+_yoR1(g.sumOrd)+'y'+(needY>0?' (계획 '+needY+'y)':'')+' · 재단 '+g.sumCut+'장'+(nOrd>1?' · 발주 '+nOrd+'회':'');
+      return '<div class="yo-fr"><div class="yo-lead"><div class="yo-fn"><span class="yo-sw" style="background:'+hexOf(g.color)+'"></span>'+esc(g.fabName)+(g.part?'<span class="pt">· '+esc(g.part)+'</span>':'')+'</div><div class="yo-meta">'+meta+'</div></div>'
         +'<div class="yo-nums"><span class="p">'+_yoR2(g.plan)+'</span><span class="a">→</span><span class="r">'+_yoR2(g.wAvg)+'</span></div>'
         +'<div class="yo-bd">'+badge(st)+'</div></div>';
     }).join('');
     var rc='발주 '+cd.hist.reduce(function(s,g){return s+g.rows.length;},0)+'회 집계';
-    return '<div class="yo-itc" data-yo-wait="0" data-yo-over="'+(cd.over?'1':'0')+'" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+(brand?'<span class="br">'+esc(brand)+'</span>':'')+'<span class="rc">'+rc+'</span></div>'+rows+'</div>';
+    return '<div class="yo-itc" data-yo-wait="0" data-yo-over="'+(cd.over?'1':'0')+'" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+'<span class="rc">'+rc+'</span></div>'+rows+'</div>';
+  };
+  // 브랜드별 묶기
+  var byBrand={},brandOrder=[];
+  cards.forEach(function(cd){ var b=(typeof getBrandName==='function'&&cd.it.brandId)?getBrandName(cd.it.brandId):''; b=b||'브랜드 미지정'; if(!byBrand[b]){byBrand[b]=[];brandOrder.push(b);} byBrand[b].push(cd); });
+  brandOrder.sort(function(a,b){ if(a==='브랜드 미지정')return 1; if(b==='브랜드 미지정')return -1; return a.localeCompare(b,'ko'); });
+  var cardsH=brandOrder.map(function(b){ var ov=byBrand[b].reduce(function(s,cd){return s+((cd.hist||[]).filter(function(g){return g._st&&g._st.k==='over';}).length);},0);
+    return '<div class="yo-brand"><div class="yo-brand-h"><span class="bn">'+esc(b)+'</span><span class="bc">'+byBrand[b].length+'개'+(ov?' · 과다 '+ov:'')+'</span></div>'+byBrand[b].map(renderCard).join('')+'</div>';
   }).join('');
 
   var strip='<div class="yo-strip">'
