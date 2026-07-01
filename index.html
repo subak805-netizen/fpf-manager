@@ -12734,6 +12734,129 @@ function openYocheokHist(itemId){
   }
   if(typeof showGenericModal==='function')showGenericModal('요척 히스토리 — '+esc(it.name||''),body);
 }
+// ===== 요척 정리 탭 (아이템별 · 계획 대비 실제 · 과생산 이상 점검) — 읽기전용 =====
+var _YO_TH=0.15; // 계획 대비 ±15% 넘으면 과다/여유
+function _yoStat(plan,wAvg){ if(!(plan>0))return {k:'na',pct:null}; var r=(wAvg-plan)/plan; if(r>_YO_TH)return {k:'over',pct:r}; if(r<-_YO_TH)return {k:'under',pct:r}; return {k:'ok',pct:r}; }
+function yoSetFilter(f){ window._yoFilter=f; ['all','over','wait'].forEach(function(k){var b=document.getElementById('yo-f-'+k);if(b)b.className='yo-chip'+(k===f?' on':'');}); yoFilterDom(); }
+function yoFilterDom(){
+  var si=document.getElementById('yo-search'); var s=si?String(si.value||'').trim().toLowerCase():''; window._yoSearch=s;
+  var f=window._yoFilter||'all';
+  var cards=document.querySelectorAll('#yocheok-body .yo-itc'),shown=0;
+  cards.forEach(function(c){
+    var txt=(c.getAttribute('data-yo-search')||'').toLowerCase();
+    var over=c.getAttribute('data-yo-over')==='1',wait=c.getAttribute('data-yo-wait')==='1';
+    var okF=(f==='all')||(f==='over'&&over)||(f==='wait'&&wait);
+    var okS=!s||txt.indexOf(s)>=0;
+    var vis=okF&&okS; c.style.display=vis?'':'none'; if(vis)shown++;
+  });
+  var em=document.getElementById('yo-empty2'); if(em)em.style.display=shown?'none':'block';
+}
+function renderYocheokTab(){
+  var el=document.getElementById('yocheok-body'); if(!el)return;
+  window._yoFilter=window._yoFilter||'all';
+  var items=Object.values(S.items||{}).filter(function(it){return it&&it.id;});
+  var cards=[],nAgg=0,nOver=0,nUnder=0,nWait=0;
+  items.forEach(function(it){
+    var hist=(typeof yocheokHistory==='function')?yocheokHistory(it.id):[];
+    if(!hist.length){
+      var hasFab=(it.fabrics||[]).some(function(f){return f&&f.supplier;});
+      var inOrder=Object.values(S.orders||{}).some(function(o){return (o.orderItems||[]).some(function(x){return x.itemId===it.id;});});
+      if(hasFab&&inOrder){ nWait++; cards.push({it:it,hist:[],wait:true,maxOver:-1}); }
+      return;
+    }
+    nAgg++; var itemOver=false,maxOver=-1;
+    hist.forEach(function(g){ var st=_yoStat(g.plan,g.wAvg); g._st=st; if(st.k==='over'){nOver++;itemOver=true;if(st.pct>maxOver)maxOver=st.pct;} else if(st.k==='under')nUnder++; });
+    cards.push({it:it,hist:hist,wait:false,over:itemOver,maxOver:itemOver?maxOver:-1});
+  });
+  cards.sort(function(a,b){ if(a.wait!==b.wait)return a.wait?1:-1; return (b.maxOver)-(a.maxOver); });
+
+  var css='<style>'
+    +'#yocheok-body .yo-wrap{max-width:920px;margin:0 auto;padding:2px 0 40px}'
+    +'#yocheok-body .yo-strip{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}'
+    +'#yocheok-body .yo-st{flex:1;min-width:120px;background:var(--card,#fff);border:2px solid var(--ink,#0B0A05);box-shadow:2px 2px 0 rgba(11,10,5,.15);padding:9px 12px}'
+    +'#yocheok-body .yo-st .n{font-size:20px;font-weight:800;line-height:1.1}'
+    +'#yocheok-body .yo-st .l{font-size:10.5px;color:var(--t2,#6b7280);margin-top:2px}'
+    +'#yocheok-body .yo-st.over .n{color:#c2410c} #yocheok-body .yo-st.wait .n{color:#8a919c}'
+    +'#yocheok-body .yo-ctrl{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:13px}'
+    +'#yocheok-body .yo-search{flex:1;min-width:150px;border:2px solid var(--ink,#0B0A05);background:#fff;padding:8px 11px;font-size:13px;font-family:inherit}'
+    +'#yocheok-body .yo-chip{font-size:12px;font-weight:700;border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--t2,#555);padding:6px 13px;cursor:pointer}'
+    +'#yocheok-body .yo-chip.on{background:var(--ink,#0B0A05);color:#fff} #yocheok-body .yo-chip.on.warn{background:#c2410c;border-color:#c2410c}'
+    +'#yocheok-body .yo-itc{background:var(--card,#fff);border:2px solid var(--ink,#0B0A05);box-shadow:2px 2px 0 rgba(11,10,5,.13);margin-bottom:12px}'
+    +'#yocheok-body .yo-h{display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1.5px solid #eceae3;flex-wrap:wrap}'
+    +'#yocheok-body .yo-h .nm{font-size:13.5px;font-weight:800}'
+    +'#yocheok-body .yo-h .cd{font-size:10.5px;font-weight:700;color:#9aa1ab;background:#f4f3ef;padding:1px 7px}'
+    +'#yocheok-body .yo-h .br{font-size:11px;color:var(--t2,#6b7280)}'
+    +'#yocheok-body .yo-h .rc{margin-left:auto;font-size:10.5px;font-weight:700;color:#7c3aed;background:#f6f3ff;border:1px solid #e2d9fb;padding:2px 9px}'
+    +'#yocheok-body .yo-fr{display:flex;align-items:center;gap:12px;padding:9px 13px;border-top:1px solid #f1efe9}'
+    +'#yocheok-body .yo-fr:first-of-type{border-top:none}'
+    +'#yocheok-body .yo-lead{flex:1.3;min-width:0}'
+    +'#yocheok-body .yo-fn{font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:6px}'
+    +'#yocheok-body .yo-sw{width:11px;height:11px;border:1px solid #0003;flex:0 0 auto}'
+    +'#yocheok-body .yo-fn .pt{font-size:10.5px;font-weight:500;color:#9aa1ab}'
+    +'#yocheok-body .yo-meta{font-size:10.5px;color:#9aa1ab;margin-top:2px}'
+    +'#yocheok-body .yo-nums{flex:0 0 auto;text-align:right;white-space:nowrap;font-size:12px}'
+    +'#yocheok-body .yo-nums .p{color:var(--t2,#6b7280)} #yocheok-body .yo-nums .a{color:#9aa1ab;margin:0 4px}'
+    +'#yocheok-body .yo-nums .r{font-weight:800;color:#7c3aed;font-size:14px}'
+    +'#yocheok-body .yo-bd{flex:0 0 90px;text-align:right}'
+    +'#yocheok-body .yo-badge{display:inline-block;font-size:11px;font-weight:800;border-radius:16px;padding:3px 10px;white-space:nowrap}'
+    +'#yocheok-body .yo-badge.over{background:#fff4ed;color:#c2410c;border:1px solid #fcd9bf}'
+    +'#yocheok-body .yo-badge.under{background:#eef4ff;color:#1d4ed8;border:1px solid #cfe0fb}'
+    +'#yocheok-body .yo-badge.ok{background:#ecfdf3;color:#047857;border:1px solid #bbe9cf}'
+    +'#yocheok-body .yo-badge.na{background:#f4f3ef;color:#6b7280;border:1px solid #e2e0d8}'
+    +'#yocheok-body .yo-badge.wait{background:#f3f4f6;color:#8a919c;border:1px solid #e2e0d8}'
+    +'#yocheok-body .yo-note{font-size:11px;color:#9a3a2e;background:#fff5f5;border:1px solid #f0c0c0;border-radius:8px;padding:9px 12px;line-height:1.6;margin-top:4px}'
+    +'#yocheok-body .yo-empty{padding:34px 14px;text-align:center;color:var(--t2,#6b7280);font-size:13px;line-height:1.7}'
+    +'</style>';
+
+  if(!cards.length){
+    el.innerHTML=css+'<div class="yo-wrap"><div class="yo-empty"><b>아직 재단 기록이 있는 발주가 없어요.</b><br>발주 후 <b>생산 대시보드에서 재단장수</b>를 입력하면,<br>여기 <b>실제 요척(실제발주 ÷ 재단장수)</b>이 아이템별로 쌓여요.</div></div>';
+    return;
+  }
+
+  var badge=function(st){
+    if(st.k==='over')return '<span class="yo-badge over">과다 +'+Math.round(st.pct*100)+'%</span>';
+    if(st.k==='under')return '<span class="yo-badge under">여유 '+Math.round(st.pct*100)+'%</span>';
+    if(st.k==='ok')return '<span class="yo-badge ok">정상 '+(st.pct>=0?'+':'')+Math.round(st.pct*100)+'%</span>';
+    return '<span class="yo-badge na">참고</span>';
+  };
+  var hexOf=function(c){return (typeof colorToHex==='function')?colorToHex(c||''):'#ddd';};
+
+  var cardsH=cards.map(function(cd){
+    var it=cd.it; var brand=(typeof getBrandName==='function'&&it.brandId)?getBrandName(it.brandId):'';
+    var searchTxt=[it.name,it.code,brand].concat((cd.hist||[]).map(function(g){return g.fabName+' '+g.color+' '+g.part;})).join(' ');
+    if(cd.wait){
+      var fabs=(it.fabrics||[]).filter(function(f){return f&&f.supplier;});
+      var fh=fabs.map(function(f){ var plan=+f.consumption||0;
+        return '<div class="yo-fr"><div class="yo-lead"><div class="yo-fn"><span class="yo-sw" style="background:'+hexOf('')+'"></span>'+esc(f.name||'원단')+(f.part?'<span class="pt">· '+esc(f.part)+'</span>':'')+'</div><div class="yo-meta">발주는 됐지만 재단장수 미입력</div></div>'
+          +'<div class="yo-nums"><span class="p">'+_yoR2(plan)+'</span><span class="a">→</span><span class="r" style="color:#8a919c">—</span></div>'
+          +'<div class="yo-bd"><span class="yo-badge wait">대기</span></div></div>';
+      }).join('');
+      return '<div class="yo-itc" data-yo-wait="1" data-yo-over="0" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+(brand?'<span class="br">'+esc(brand)+'</span>':'')+'<span class="rc" style="color:#8a919c;background:#f3f4f6;border-color:#e2e0d8">재단 입력 대기</span></div>'+fh+'</div>';
+    }
+    var rows=cd.hist.map(function(g){ var st=g._st; var nOrd=g.rows.length;
+      return '<div class="yo-fr"><div class="yo-lead"><div class="yo-fn"><span class="yo-sw" style="background:'+hexOf(g.color)+'"></span>'+esc(g.fabName)+(g.part?'<span class="pt">· '+esc(g.part)+'</span>':'')+'</div><div class="yo-meta">'+(g.color?esc(g.color)+' · ':'')+'재단 '+g.sumCut+'장 · 발주 '+nOrd+'회</div></div>'
+        +'<div class="yo-nums"><span class="p">'+_yoR2(g.plan)+'</span><span class="a">→</span><span class="r">'+_yoR2(g.wAvg)+'</span></div>'
+        +'<div class="yo-bd">'+badge(st)+'</div></div>';
+    }).join('');
+    var rc='발주 '+cd.hist.reduce(function(s,g){return s+g.rows.length;},0)+'회 집계';
+    return '<div class="yo-itc" data-yo-wait="0" data-yo-over="'+(cd.over?'1':'0')+'" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+(brand?'<span class="br">'+esc(brand)+'</span>':'')+'<span class="rc">'+rc+'</span></div>'+rows+'</div>';
+  }).join('');
+
+  var strip='<div class="yo-strip">'
+    +'<div class="yo-st"><div class="n">'+nAgg+'</div><div class="l">집계 아이템</div></div>'
+    +'<div class="yo-st over"><div class="n">'+nOver+'</div><div class="l">과다 (계획보다 많이)</div></div>'
+    +'<div class="yo-st"><div class="n">'+nUnder+'</div><div class="l">여유 (줄여도 됨)</div></div>'
+    +'<div class="yo-st wait"><div class="n">'+nWait+'</div><div class="l">재단대기</div></div></div>';
+  var f=window._yoFilter||'all';
+  var ctrl='<div class="yo-ctrl"><input id="yo-search" class="yo-search" placeholder="아이템·원단·컬러 검색" value="'+esc(window._yoSearch||'')+'" oninput="yoFilterDom()">'
+    +'<button id="yo-f-all" class="yo-chip'+(f==='all'?' on':'')+'" onclick="yoSetFilter(\'all\')">전체</button>'
+    +'<button id="yo-f-over" class="yo-chip warn'+(f==='over'?' on':'')+'" onclick="yoSetFilter(\'over\')">이상만</button>'
+    +'<button id="yo-f-wait" class="yo-chip'+(f==='wait'?' on':'')+'" onclick="yoSetFilter(\'wait\')">재단대기</button></div>';
+  var note='<div class="yo-note"><b>계획 요척(작지·원가)은 안 바뀌어요.</b> 실제요척 = 발주마다 <b>실제발주량 ÷ 재단장수</b>의 장수 가중평균 · <b>재단 기록 있는 발주만</b> 집계. 계획 대비 ±15% 넘으면 과다/여유로 표시해요.</div>';
+
+  el.innerHTML=css+'<div class="yo-wrap">'+strip+ctrl+cardsH+'<div id="yo-empty2" class="yo-empty" style="display:none">검색·필터에 맞는 아이템이 없어요.</div>'+note+'</div>';
+  yoFilterDom();
+}
 function renderQtyStrip(o){
   if(!o||!o.orderItems||o.orderItems.length===0)return '';
   let totalOrig=0;
