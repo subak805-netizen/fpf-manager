@@ -4304,6 +4304,8 @@ function loadCoData(id){
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
 function migrateData(){
+  // 결제 수동완료 1회 마이그레이션: 지금 '결제완료'인 오더의 아이템은 완료로 고정(안 그러면 브랜드별보기에 폭주). 이후부터는 수동 완료.
+  try{if(S.orders)Object.keys(S.orders).forEach(function(k){var o=S.orders[k];if(!o||o.payArchivedItems)return;var lbl=(typeof oLabel==='function')?oLabel(o)[0]:'';if(lbl==='결제완료'){o.payArchivedItems={};(o.orderItems||[]).forEach(function(oi){if(oi&&oi.itemId)o.payArchivedItems[oi.itemId]=(typeof todayISO==='function'?todayISO():'');});}});}catch(e){}
   // 로스 발주서 이동 1단계: 기존 발주서마다 현재 로스값 못 박기(스냅샷) + o.loss 압축({m,v}→숫자, 1MB 절약)
   try{if(S.orders)Object.keys(S.orders).forEach(function(k){var o=S.orders[k];if(o&&o.loss)Object.keys(o.loss).forEach(function(iid){var L=o.loss[iid];if(L&&typeof L==='object')Object.keys(L).forEach(function(mid){var e=L[mid];if(e&&typeof e==='object'&&e.m==='pct')L[mid]=+e.v;var _it=S.items[iid];var _tr=_it&&_it.trims&&_it.trims.find(function(x){return x.id===mid;});if(_tr&&(_tr.orderType==='careLabel'||_tr.orderType==='mainLabel')&&typeof L[mid]==='number')L[mid]=(_tr.qtyBuffer!==undefined&&_tr.qtyBuffer!==''?+_tr.qtyBuffer:10)+'a';});});if(typeof ensureOrderLoss==='function')ensureOrderLoss(o);});}catch(e){}
   // Pickups (새 기능)
@@ -5391,7 +5393,16 @@ function saveToPB(item){
     if(_linkedTCs.length)pbEntry.trimCostTemplate=_linkedTCs.map(function(tc){return {name:tc.name||'',factory:tc.factory||'',costType:tc.costType||'perPcs',costPerPcs:+tc.costPerPcs||0,costPerLot:+tc.costPerLot||0,dyeNote:tc.dyeNote||''};});
     if(+t.logoCost>0)pbEntry.logoCost=+t.logoCost;
     getPB(t.supplier).materials[key]=pbEntry;
-  }}
+  }
+  // 가공비 표준 학습: 각 가공비를 그 가공처(factory)의 표준단가로 기록 (최근값 자동갱신)
+  for(const tc of item.trimCosts||[]){
+    if(!tc||!tc.factory||!(tc.name||'').trim())continue;
+    var _amt=tc.costType==='perPcs'?(+tc.costPerPcs||0):(+tc.costPerLot||0);
+    if(_amt<=0)continue;
+    var _pbf=getPB(tc.factory);_pbf.procRates=_pbf.procRates||{};
+    _pbf.procRates[(tc.name||'').trim()]={costType:tc.costType||'perPcs',costPerPcs:+tc.costPerPcs||0,costPerLot:+tc.costPerLot||0,lastUpdated:today()};
+  }
+}
 function updateSupDL(){const dl=document.getElementById('dl-sup');if(!dl)return;dl.innerHTML=Object.keys(S.priceBook).map(s=>`<option value="${esc(s)}">`).join('');}
 function buildFabDB(){
   var db={};
@@ -9953,10 +9964,10 @@ function trimCostRowHTML(tc,i){
   const colorSec=(mode==='perLot')?`<div style="margin-top:7px;padding:8px 10px;background:#fae8ff;border:1px solid #f0abfc;border-radius:6px;font-size:11px;color:#86198f;line-height:1.5">적용 컬러 탭에서 <b>염색 켠 ${_effC.length}색</b>${_effC.length?` <span style="color:#a21caf">(${_effC.map(esc).join(' · ')})</span>`:''} 에 자동 적용<br><span style="color:#a21caf;opacity:.78">컬러·염색 여부·염색명은 「적용 컬러」 탭에서 정해요 (여긴 금액·업체만)</span></div>`:'';
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
-    <input class="tcl-nm" data-f="name" value="${esc(tc.name||'')}" placeholder="예: 염색비, 로고비">
+    <input class="tcl-nm" data-f="name" list="dl-proc" value="${esc(tc.name||'')}" placeholder="예: 코팅, 염색, 로고" onchange="tcAutoFillRate(this)">
     <input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">원</span>
     <button type="button" class="tcl-mode tcl-mode-${mode}" onclick="cycleTcMode(${i})">${modeLab} ▾</button>
-    <input class="tcl-fac" data-f="factory" value="${esc(tc.factory||'')}" placeholder="담당 업체">
+    <input class="tcl-fac" data-f="factory" list="dl-sup" value="${esc(tc.factory||'')}" placeholder="담당 업체" onchange="tcAutoFillRate(this)">
     <span class="tcl-cost">원가 +${num(c.per)}원/장${c.sub?` <span class="tcl-sub">${c.sub}</span>`:''}</span>
     <button class="tcl-x" type="button" onclick="rmTrimCostRow(${i})">×</button>
     ${colorSec?`<div class="tcl-colors">${colorSec}</div>`:''}
@@ -20359,11 +20370,12 @@ function renderItemPay(opts){
       }
       const totalAmount=fcs.reduce((s,f)=>s+f.total,0);
       const allPaid=fcs.every(f=>f.paid);
-      rows.push({itemId:it.id,item:it,oid:o.id,order:o,sewShipQty,sewShipRecs,shipByDate,orderColors,orderTotal,fcs,totalAmount,allPaid});
+      const _archived=!!(o.payArchivedItems&&o.payArchivedItems[it.id]);
+      rows.push({itemId:it.id,item:it,oid:o.id,order:o,sewShipQty,sewShipRecs,shipByDate,orderColors,orderTotal,fcs,totalAmount,allPaid,archived:_archived});
     }
   }
-  // 결제완료(allPaid) 항목: 기본 보기에서는 숨기고, '결제 완료' 탭에서만 모아 보기
-  rows=rows.filter(function(r){return onlyDone?r.allPaid:!r.allPaid;});
+  // 수동 완료: '완료로 보내기'로 넘긴 것만 완료 탭. 결제 다 돼도 자동 이동 안 함(생산대시보드식)
+  rows=rows.filter(function(r){return onlyDone?r.archived:!r.archived;});
   if(!rows.length){
     el.innerHTML=onlyDone
       ?'<div class="empty">결제 완료된 항목이 없어요</div>'
@@ -20459,6 +20471,9 @@ function renderItemPay(opts){
         </div>
       </div>
       <div class="ip-fcs"><div class="ip-fcgrid">${fcsHtml}</div></div>
+      ${onlyDone
+        ? `<div style="padding:8px 14px;border-top:1px solid #eef0f4;text-align:right"><button class="btn s" onclick="payUnarchiveItem('${r.oid}','${r.itemId}')">되돌리기</button></div>`
+        : (r.allPaid ? `<div style="padding:8px 14px;border-top:1px solid #eef0f4;display:flex;align-items:center;gap:8px;justify-content:flex-end"><span style="font-size:11px;color:#059669;font-weight:700">결제 전부 완료</span><button class="btn s ok" style="font-weight:700" onclick="payArchiveItem('${r.oid}','${r.itemId}')">완료로 보내기</button></div>` : '')}
     </div>`;
   };
   if(onlyDone&&opts.groupByMonth){
@@ -20482,6 +20497,9 @@ function ipTogglePay(btn){
   setPaySt(oid,key,!cur.paid,cur.paid?'':todayISO());
   // setPaySt가 saveData + renderPayStats + renderPayContent까지 호출 → 자동 새로고침
 }
+// 결제 수동 완료 이동/되돌리기 (생산대시보드식 — 자동 이동 안 함)
+function payArchiveItem(oid,itemId){var o=S.orders[oid];if(!o)return;if(!o.payArchivedItems)o.payArchivedItems={};o.payArchivedItems[itemId]=(typeof todayISO==='function'?todayISO():'');saveData();if(typeof renderPayStats==='function')renderPayStats();if(typeof renderPayContent==='function')renderPayContent();if(typeof showToast==='function')showToast('완료로 이동');}
+function payUnarchiveItem(oid,itemId){var o=S.orders[oid];if(!o||!o.payArchivedItems)return;delete o.payArchivedItems[itemId];saveData();if(typeof renderPayStats==='function')renderPayStats();if(typeof renderPayContent==='function')renderPayContent();if(typeof showToast==='function')showToast('미결제로 되돌림');}
 // 아이템 중심 결제 카드 — 명세서 버튼 핸들러
 function ipOpenReceipt(btn){
   openItemReceiptModal(btn.dataset.oid,btn.dataset.fcid,btn.dataset.itemid);
