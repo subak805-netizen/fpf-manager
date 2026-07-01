@@ -5933,12 +5933,38 @@ function _pbKindMatch(s,kind){
 function setBookKind(k){window._bookKind=k;renderBook();}
 // 단가장 거래처 안 자재를 유형(orderType)별로 묶기용 헬퍼
 var _PB_GRP_ORDER=['지퍼','단추','스냅','밴드','바이어스','롤','야드','실','개수','케어라벨','메인라벨','원단'];
+// 주문유형 라벨 (중복정리 배지 등에 사용) — 계산용 유형
 function _pbMatGroupLabel(m){ if(m&&m.type==='fabric')return '원단'; return (typeof _otLabel==='function'?_otLabel((m&&m.orderType)||'count'):((m&&m.orderType)||'개수')); }
+// ===== 부자재 종류(사용자 정의 카테고리) — 단가장 묶기용. 목록은 S.refData.trimCategories(공유), 자재별 m.category =====
+function getTrimCategories(){S.refData=S.refData||{};if(!Array.isArray(S.refData.trimCategories))S.refData.trimCategories=[];return S.refData.trimCategories;}
+function _pbCatLabel(m){ if(m&&m.type==='fabric')return '원단'; var c=((m&&m.category)||'').toString().trim(); return c||'미분류'; }
+function _pbCatOrder(){ var l=getTrimCategories().slice(); l.push('미분류'); l.push('원단'); return l; }
+function _saveTrimCat(){try{savePB();}catch(e){}try{saveData();}catch(e){}}
+function addTrimCategory(){var nm=(prompt('새 부자재 종류 이름 (예: 심지, 밴드, 테잎)')||'').trim();if(!nm)return '';var list=getTrimCategories();if(list.indexOf(nm)<0){list.push(nm);S.refData.trimCategories=list;_saveTrimCat();}if(typeof renderBook==='function')renderBook();return nm;}
+function renameTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;var nm=(prompt('종류 이름 변경',old)||'').trim();if(!nm||nm===old)return;if(list.indexOf(nm)>=0&&list.indexOf(nm)!==idx){showToast('이미 있는 종류예요');return;}list[idx]=nm;S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category=nm;});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
+function deleteTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;if(!confirm('"'+old+'" 종류를 삭제할까요?\n이 종류로 지정된 부자재는 미분류가 돼요.'))return;list.splice(idx,1);S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category='';});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
+function setPbMatCategory(encSup,encKey,val){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);var pb=S.priceBook[sup];if(!pb||!pb.materials[key])return;if(val==='__new'){var nm=addTrimCategory();if(!nm)return;pb.materials[key].category=nm;}else{pb.materials[key].category=val;}_saveTrimCat();if(typeof renderBookList==='function')renderBookList();}
+function toggleTrimCatEdit(){window._pbCatEdit=!window._pbCatEdit;if(typeof renderBook==='function')renderBook();}
+function _trimCatBarHTML(){
+  var cats=getTrimCategories();var edit=!!window._pbCatEdit;
+  var chips=cats.map(function(c,i){
+    if(edit)return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:14px;border:1.3px solid #cbd5e1;background:#fff"><span onclick="renameTrimCategory('+i+')" style="cursor:pointer" title="이름 변경">'+esc(c)+'</span><span onclick="deleteTrimCategory('+i+')" style="cursor:pointer;color:#c4402a;font-weight:800" title="삭제">✕</span></span>';
+    return '<span style="font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:14px;border:1.3px solid #cbd5e1;background:#fff;color:#334155">'+esc(c)+'</span>';
+  }).join('');
+  return '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding:9px 11px;background:#fffdf5;border:1px solid #fde68a;border-radius:9px">'
+    +'<span style="font-size:11px;font-weight:800;color:#92580b">부자재 종류</span>'
+    +(cats.length?chips:'<span style="font-size:11px;color:#b45309">아직 없어요 — ＋로 만들어요 (심지·밴드·테잎…)</span>')
+    +'<span onclick="addTrimCategory()" style="cursor:pointer;font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:14px;border:1.3px dashed #93c5fd;background:#eff6ff;color:#1d4ed8">＋ 종류 추가</span>'
+    +'<span onclick="toggleTrimCatEdit()" style="cursor:pointer;margin-left:auto;font-size:10.5px;font-weight:700;color:#64748b;border:1px solid #cbd5e1;border-radius:7px;padding:3px 9px;background:#fff">'+(edit?'완료':'이름변경·삭제')+'</span>'
+    +'</div>';
+}
+// 카드 안 자재 묶기 = 종류(category) 기준 (부자재), 원단은 '원단'
 function _pbGroupSort(mats){
+  var ord=_pbCatOrder();
   return mats.slice().sort(function(a,b){
-    var ga=_pbMatGroupLabel(a[1]),gb=_pbMatGroupLabel(b[1]);
-    var ia=_PB_GRP_ORDER.indexOf(ga),ib=_PB_GRP_ORDER.indexOf(gb);
-    if(ia<0)ia=900;if(ib<0)ib=900;
+    var ga=_pbCatLabel(a[1]),gb=_pbCatLabel(b[1]);
+    var ia=ord.indexOf(ga),ib=ord.indexOf(gb);
+    if(ia<0)ia=800;if(ib<0)ib=800;
     if(ia!==ib)return ia-ib;
     if(ga!==gb)return ga<gb?-1:1;
     return ((a[1].name||'')).localeCompare(b[1].name||'');
@@ -5946,7 +5972,7 @@ function _pbGroupSort(mats){
 }
 function _pbGroupList(mats){
   var seen={},order=[];
-  _pbGroupSort(mats).forEach(function(p){var g=_pbMatGroupLabel(p[1]);if(seen[g]===undefined){seen[g]=0;order.push(g);}seen[g]++;});
+  _pbGroupSort(mats).forEach(function(p){var g=_pbCatLabel(p[1]);if(seen[g]===undefined){seen[g]=0;order.push(g);}seen[g]++;});
   return order.map(function(g){return {g:g,n:seen[g]};});
 }
 function pbJump(si,gi){var e=document.getElementById('pbgrp-'+si+'-'+gi);if(e)e.scrollIntoView({behavior:'smooth',block:'center'});}
@@ -5983,7 +6009,7 @@ function renderBook(){
   </div>`;
   const importBtn=`<button class="btn p" style="width:100%;margin-bottom:10px;background:#16a34a;border-color:#16a34a" onclick="openPBImport()">단가표 사진 → 일괄 가져오기</button>`;
   try{pbAutoBackup();}catch(e){}
-  el.innerHTML=_flTg+searchBox+'<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">백업/되돌리기</button><button class="btn s" onclick="pbAutoDedup()" title="띄어쓰기·철자 변형까지 자동으로 묶어 그룹당 한 번에 합치기" style="background:#fffbeb;border-color:#fcd34d;color:#92400e">중복 자동정리</button><button class="btn s" onclick="pbNormalizeBuildings()" title="A·에이·에이동 → A동 형식으로 한 번에 통일">건물명 통일</button></div><div id="pb-dups"></div>'+importBtn+addForm+'<div id="book-list"></div>';
+  el.innerHTML=_flTg+searchBox+'<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">백업/되돌리기</button><button class="btn s" onclick="pbAutoDedup()" title="띄어쓰기·철자 변형까지 자동으로 묶어 그룹당 한 번에 합치기" style="background:#fffbeb;border-color:#fcd34d;color:#92400e">중복 자동정리</button><button class="btn s" onclick="pbNormalizeBuildings()" title="A·에이·에이동 → A동 형식으로 한 번에 통일">건물명 통일</button></div><div id="pb-dups"></div>'+(_scope==='trim'?_trimCatBarHTML():'')+importBtn+addForm+'<div id="book-list"></div>';
   renderBookList();
 }
 
@@ -6347,11 +6373,12 @@ function renderBookList(){
     ${mats.length?`<div>
       <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:5px">단가 수정 <span class="muted" style="font-weight:400">매장단가는 원가계산 / 네고가는 결제에 사용</span></div>
       ${(function(){var _gl=_pbGroupList(mats);if(_gl.length<2)return '';return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">'+_gl.map(function(gr,gi){return '<span onclick="pbJump('+si+','+gi+')" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 10px;border-radius:14px;border:1.3px solid var(--br);background:var(--bg2);color:var(--t2)">'+esc(gr.g)+' <span style="opacity:.6;font-size:9.5px">'+gr.n+'</span></span>';}).join('')+'</div>';})()}
-      <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>품목</th><th>색상</th><th>유형</th><th style="background:#FBF7EC">크기/규격</th><th style="background:#FBF7EC">롤당yard</th><th style="background:#f0fdf4">혼용률</th><th>매장단가 <span class="muted" style="font-weight:400;font-size:10px">(고정)</span></th><th>네고가 <span class="muted" style="font-weight:400;font-size:10px">(유동)</span></th><th>갱신일</th><th style="width:32px"></th></tr></thead><tbody>
-      ${(function(){var _gm=_pbGroupSort(mats);var _cnt={};_pbGroupList(mats).forEach(function(x){_cnt[x.g]=x.n;});var _multi=Object.keys(_cnt).length>1;var _pg=null,_gi=-1;return _gm.map(([key,m])=>{var _cg=_pbMatGroupLabel(m);var _hdr='';if(_cg!==_pg){_pg=_cg;_gi++;_hdr=_multi?('<tr id="pbgrp-'+si+'-'+_gi+'"><td colspan="10" style="padding:7px 8px 3px;background:#fafbfc;border-top:1px solid #eef1f4;font-weight:800;font-size:11.5px;color:#475569">'+esc(_cg)+' <span style="font-weight:600;color:#94a3b8;font-size:10px">'+(_cnt[_cg]||'')+'</span></td></tr>'):'';}const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return _hdr+`<tr>
+      <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>품목</th><th>색상</th><th>유형</th><th style="background:#fffdf5">종류</th><th style="background:#FBF7EC">크기/규격</th><th style="background:#FBF7EC">롤당yard</th><th style="background:#f0fdf4">혼용률</th><th>매장단가 <span class="muted" style="font-weight:400;font-size:10px">(고정)</span></th><th>네고가 <span class="muted" style="font-weight:400;font-size:10px">(유동)</span></th><th>갱신일</th><th style="width:32px"></th></tr></thead><tbody>
+      ${(function(){var _gm=_pbGroupSort(mats);var _cnt={};_pbGroupList(mats).forEach(function(x){_cnt[x.g]=x.n;});var _multi=Object.keys(_cnt).length>1;var _pg=null,_gi=-1;return _gm.map(([key,m])=>{var _cg=_pbCatLabel(m);var _hdr='';if(_cg!==_pg){_pg=_cg;_gi++;_hdr=_multi?('<tr id="pbgrp-'+si+'-'+_gi+'"><td colspan="11" style="padding:7px 8px 3px;background:#fafbfc;border-top:1px solid #eef1f4;font-weight:800;font-size:11.5px;color:#475569">'+esc(_cg)+' <span style="font-weight:600;color:#94a3b8;font-size:10px">'+(_cnt[_cg]||'')+'</span></td></tr>'):'';}const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return _hdr+`<tr>
         <td><input type="text" value="${esc(nm)}" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'name')" style="font-size:12px;width:100%;border:none;background:transparent;padding:3px 5px;border-radius:4px" onfocus="this.style.background='#fff8e1';this.style.border='1px solid #fde68a'" onblur="this.style.background='transparent';this.style.border='none'"></td>
         <td>${isFab?'<span class="muted" style="font-size:10px">-</span>':`<input type="text" value="${esc(cl)}" placeholder="색상" list="dl-clr" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'color')" style="font-size:11px;width:70px;padding:3px 5px">`}</td>
         <td>${isFab?(isKg?'<span class="badge b2">KG</span>':'<span class="badge b1">YARD</span>'):`<select onchange="updatePBOrderType('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value)" style="font-size:11px;padding:3px 5px"><option value="count"${m.orderType==='count'||!m.orderType?' selected':''}>개수</option><option value="yard"${m.orderType==='yard'?' selected':''}>야드</option><option value="roll"${m.orderType==='roll'?' selected':''}>롤</option><option value="thread"${m.orderType==='thread'?' selected':''}>실</option><option value="zipper"${m.orderType==='zipper'?' selected':''}>지퍼</option><option value="button"${m.orderType==='button'?' selected':''}>단추</option></select>`}</td>
+        <td style="background:#fffdf5">${isFab?'<span class="muted" style="font-size:10px">원단</span>':`<select onchange="setPbMatCategory('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value)" style="font-size:11px;padding:3px 5px"><option value=""${!m.category?' selected':''}>미분류</option>${getTrimCategories().map(c=>`<option value="${esc(c)}"${m.category===c?' selected':''}>${esc(c)}</option>`).join('')}<option value="__new">＋ 새 종류…</option></select>`}</td>
         <td style="background:#FBF7EC">${isFab?`<input type="text" value="${esc(m.width||'')}" placeholder="폭" style="width:70px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','width',this.value)">`:`<input type="text" value="${esc(m.size||'')}" placeholder="크기" style="width:70px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','size',this.value)">`}</td>
         <td style="background:#FBF7EC">${isFab?'<span class="muted" style="font-size:10px">—</span>':`<input type="number" value="${m.yardsPerRoll!=null&&m.yardsPerRoll!==''?m.yardsPerRoll:''}" placeholder="야드" min="0" style="width:58px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','yardsPerRoll',this.value)">`}</td>
         <td style="background:#f0fdf4">${isFab?`<input type="text" value="${esc(m.composition||'')}" placeholder="예: 100%C 또는 40%R,60%P" title="성분이 여러 개면 쉼표로 구분 — 예: 40% rayon, 60% polyester" style="width:130px;font-size:11px" onchange="updatePBSpec('${encodeURIComponent(s)}','${encodeURIComponent(key)}','composition',this.value)">`:'<span class="muted" style="font-size:10px">-</span>'}</td>
