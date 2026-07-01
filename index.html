@@ -1657,6 +1657,8 @@ tryInitFirebase();
   <button class="ntab" id="nt-orders" onclick="showOrderList('active')">오더 관리</button>
   <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
   <button class="ntab" id="nt-yocheok" onclick="switchTab('yocheok')">요척</button>
+  <button class="ntab" id="nt-ledger" onclick="switchTab('ledger')">거래처 원장</button>
+  <button class="ntab" id="nt-courier" onclick="switchTab('courier')">택배 시재</button>
   <div class="nav-sep"></div>
   <button class="ntab" id="nt-book" onclick="window._bookScope='fabric';switchTab('book')">원단 단가장</button>
   <button class="ntab" id="nt-booktrim" onclick="window._bookScope='trim';switchTab('book')">부자재 단가장</button>
@@ -1730,6 +1732,8 @@ tryInitFirebase();
   <div id="pane-defect" class="panel" style="display:none"><div id="defect-body"></div></div>
   <div id="pane-yocheok" class="panel" style="display:none"><div id="yocheok-body"></div></div>
   <div id="pane-jaedan" class="panel" style="display:none"><div id="jaedan-body"></div></div>
+  <div id="pane-ledger" class="panel" style="display:none"><div id="ledger-body"></div></div>
+  <div id="pane-courier" class="panel" style="display:none"><div id="courier-body"></div></div>
   <!-- Tasks (업무 관리 허브) -->
   <div id="pane-tasks" class="panel" style="display:none"><div id="tasks-body"></div></div>
 <div id="pane-route" class="panel" style="display:none"><div id="route-body"></div></div>
@@ -1919,8 +1923,6 @@ tryInitFirebase();
       <div class="dtabs">
         <button class="dtab" id="t-pay-all" onclick="switchPayTab('all')">브랜드별 보기</button>
         <button class="dtab" id="t-pay-done" onclick="switchPayTab('done')">결제 완료</button>
-        <button class="dtab" id="t-pay-ledger" onclick="switchPayTab('ledger')">거래처 원장</button>
-        <button class="dtab" id="t-pay-courier" onclick="switchPayTab('courier')">택배 시재</button>
       </div>
       <div id="pay-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;flex:1"></div>
       <select id="pay-period-flt" style="font-size:12px;max-width:130px" onchange="renderPayContent()">
@@ -5097,7 +5099,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','yocheok','jaedan'].forEach(n=>{
+  ['dash','items','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','yocheok','jaedan','ledger','courier'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -5144,6 +5146,8 @@ function switchTab(t){
     else if(t==='ref')renderRefTab();
     else if(t==='yocheok')renderYocheokTab();
     else if(t==='jaedan')renderJaedanCalc();
+    else if(t==='ledger')renderTrimLedger();
+    else if(t==='courier')renderCourierLedger();
   }catch(err){
     console.error('Tab render error:',err);
     if(pane)pane.innerHTML=`<div class="warn-box" style="margin:1rem">화면 오류: ${esc(err.message)}<br><div class="muted" style="margin-top:4px">새로고침 후 다시 시도해주세요</div></div>`;
@@ -19293,7 +19297,8 @@ function exportTrack(){
 function switchPayTab(t){
   if(t!=='all'&&t!=='done'&&t!=='ledger'&&t!=='courier')t='all';
   curPayTab=t;
-  ['all','done','ledger','courier'].forEach(n=>{const el=document.getElementById('t-pay-'+n);if(el)el.className='dtab'+(n===t?' on':'');});
+  if(t==='ledger'||t==='courier')t=curPayTab='all'; // 거래처원장·택배시재는 이제 메인 네비 독립 탭
+  ['all','done'].forEach(n=>{const el=document.getElementById('t-pay-'+n);if(el)el.className='dtab'+(n===t?' on':'');});
   const pc=document.getElementById('pay-content');if(pc)pc.style.display='block';
   // 원장 탭에선 브랜드/공장 핀·기간필터가 의미 없어 숨김 (자체 거래처 선택을 씀)
   var pf=document.getElementById('pay-period-flt'); if(pf)pf.style.display=(t==='ledger'||t==='courier')?'none':'';
@@ -19576,8 +19581,7 @@ function renderPayChart(){
 }
 
 function renderPayContent(){
-  if(curPayTab==='ledger'){renderTrimLedger();return;}
-  if(curPayTab==='courier'){renderCourierLedger();return;}
+  if(curPayTab==='ledger'||curPayTab==='courier')curPayTab='all'; // 독립 탭으로 이동함
   if(curPayTab==='done'){renderItemPay({onlyDone:true,groupByMonth:true});return;}
   renderItemPay();
 }
@@ -19706,7 +19710,7 @@ function tlTogglePaid(key){
   saveData();renderTrimLedger();
 }
 function renderTrimLedger(){
-  var box=document.getElementById('pay-content');if(!box)return;
+  var box=document.getElementById('ledger-body')||document.getElementById('pay-content');if(!box)return;
   if(!S.trimLedger)S.trimLedger={};if(!S.trimLedgerPaid)S.trimLedgerPaid={};
   _tlEnsureStyle();
   var sups=tlSupList();
@@ -20082,7 +20086,7 @@ function clDel(id){var cl=clEnsure();var i=cl.entries.findIndex(function(e){retu
 function clSettle(brandId,val){var cl=clEnsure();var t=(typeof todayISO==='function'?todayISO():'');cl.entries.forEach(function(e){if((e.brandId||'')===(brandId||'')&&_clPeriodOk(e.date)){e.settled=!!val;if(val)e.settledAt=t;}});saveData();renderCourierLedger();showToast(val?'정산 완료로 표시했어요':'정산 취소했어요');}
 
 function renderCourierLedger(){
-  var box=document.getElementById('pay-content'); if(!box)return;
+  var box=document.getElementById('courier-body')||document.getElementById('pay-content'); if(!box)return;
   var cl=clEnsure(); _tlEnsureStyle(); _clEnsureStyle();
   if(window._clDir==null)window._clDir='send';
   if(window._clMode==null)window._clMode='nl';
