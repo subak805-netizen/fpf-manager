@@ -29958,14 +29958,58 @@ function tpSaveNow(){ try{saveData();}catch(e){} if(typeof showToast==='function
 <script>
 // ===== 단가 비교 탭 =====
 function pcGetApiKey(){ return localStorage.getItem('fpm_claudeApiKey')||''; }
-function pcSaveApiKeyFn(){ var v=(document.getElementById('pc-api-input')||{}).value||''; if(!v.startsWith('sk-ant-')){ showToast('올바른 API 키 형식이 아니에요 (sk-ant-로 시작)'); return; } localStorage.setItem('fpm_claudeApiKey',v); showToast('API 키 저장됨'); renderPriceComparePane(); }
+async function pcSaveApiKeyFn(){
+  var v=(document.getElementById('pc-api-input')||{}).value||'';
+  if(!v.startsWith('sk-ant-')){ showToast('올바른 API 키 형식이 아니에요 (sk-ant-로 시작)'); return; }
+  localStorage.setItem('fpm_claudeApiKey',v);
+  try{ await cloudSet('fpm_claudeApiKey',v); }catch(e){}
+  showToast('API 키 저장됨 (기기 간 동기화)');
+  renderPriceComparePane();
+}
+async function pcLoadApiKeyFromCloud(){
+  try{
+    var v=await cloudGet('fpm_claudeApiKey');
+    if(v&&typeof v==='string'&&v.startsWith('sk-ant-')){
+      localStorage.setItem('fpm_claudeApiKey',v);
+      return v;
+    }
+  }catch(e){}
+  return localStorage.getItem('fpm_claudeApiKey')||'';
+}
 function pcGetHistory(){ try{ return JSON.parse(localStorage.getItem('fpm_priceHistory')||'{}'); }catch(e){ return {}; } }
-function pcSaveHistory(h){ localStorage.setItem('fpm_priceHistory',JSON.stringify(h)); }
+async function pcSaveHistory(h){
+  localStorage.setItem('fpm_priceHistory',JSON.stringify(h));
+  try{ await cloudSet('fpm_priceHistory',h); }catch(e){}
+}
+async function pcLoadHistoryFromCloud(){
+  try{
+    var h=await cloudGet('fpm_priceHistory');
+    if(h&&typeof h==='object'){ localStorage.setItem('fpm_priceHistory',JSON.stringify(h)); return h; }
+  }catch(e){}
+  return pcGetHistory();
+}
 function pcGetVendors(){ try{ return JSON.parse(localStorage.getItem('fpm_priceVendors')||'[]'); }catch(e){ return []; } }
-function pcSaveVendors(v){ localStorage.setItem('fpm_priceVendors',JSON.stringify(v)); }
+async function pcSaveVendors(v){
+  localStorage.setItem('fpm_priceVendors',JSON.stringify(v));
+  try{ await cloudSet('fpm_priceVendors',v); }catch(e){}
+}
 function pcGetActiveVendor(){ return localStorage.getItem('fpm_priceActiveVendor')||''; }
 function pcSetActiveVendor(v){ localStorage.setItem('fpm_priceActiveVendor',v); }
-function pcAddVendor(){ var nm=prompt('업체명을 입력하세요'); if(!nm||!nm.trim())return; var vs=pcGetVendors(); if(vs.indexOf(nm.trim())>=0){ showToast('이미 있는 업체예요'); return; } vs.push(nm.trim()); pcSaveVendors(vs); pcSetActiveVendor(nm.trim()); renderPriceComparePane(); }
+async function pcSyncFromCloud(){
+  var el=document.getElementById('pricecompare-body');
+  if(el){ var old=el.innerHTML; el.innerHTML='<div style="padding:20px;font-weight:800;color:#6b6555">Firebase에서 불러오는 중...</div>'; }
+  try{
+    var key=await cloudGet('fpm_claudeApiKey');
+    if(key&&typeof key==='string'&&key.startsWith('sk-ant-')) localStorage.setItem('fpm_claudeApiKey',key);
+    var h=await cloudGet('fpm_priceHistory');
+    if(h&&typeof h==='object') localStorage.setItem('fpm_priceHistory',JSON.stringify(h));
+    var vs=await cloudGet('fpm_priceVendors');
+    if(Array.isArray(vs)) localStorage.setItem('fpm_priceVendors',JSON.stringify(vs));
+    showToast('Firebase 동기화 완료');
+  }catch(e){ showToast('동기화 실패: '+e.message); }
+  renderPriceComparePane();
+}
+async function pcAddVendor(){ var nm=prompt('업체명을 입력하세요'); if(!nm||!nm.trim())return; var vs=pcGetVendors(); if(vs.indexOf(nm.trim())>=0){ showToast('이미 있는 업체예요'); return; } vs.push(nm.trim()); await pcSaveVendors(vs); pcSetActiveVendor(nm.trim()); renderPriceComparePane(); }
 function pcSelectVendor(nm){ pcSetActiveVendor(nm); renderPriceComparePane(); }
 function pcPickImage(){ var fi=document.getElementById('pc-file-input'); if(fi){ fi.value=''; fi.click(); } }
 var _pcPendingImages=[];
@@ -29997,17 +30041,17 @@ async function pcParseInvoice(){
   }catch(e){ showToast('파싱 오류: '+e.message); console.error(e); }
   finally{ if(spinner)spinner.style.display='none'; if(parseBtn)parseBtn.disabled=false; }
 }
-function pcProcessParsed(items,vendor){
+async function pcProcessParsed(items,vendor){
   var history=pcGetHistory(); if(!history[vendor])history[vendor]={};
   var today=typeof todayISO==='function'?todayISO():new Date().toISOString().slice(0,10);
   items.forEach(function(it){ var sizeSuffix=it.sizes?('_'+it.sizes+'size'):''; var key=it.name+'_'+(it.spec||'')+sizeSuffix; if(!history[vendor][key])history[vendor][key]=[]; history[vendor][key].push({date:it.date||today,price:it.price,spec:it.spec,sizes:it.sizes||null,addedAt:today}); });
-  pcSaveHistory(history); _pcPendingImages=[]; renderPriceComparePane(); showToast(items.length+'건 파싱 완료');
+  await pcSaveHistory(history); _pcPendingImages=[]; renderPriceComparePane(); showToast(items.length+'건 파싱 완료 (Firebase 저장됨)');
 }
 function pcFmtPrice(p){ if(p==null)return '—'; return Number(p).toLocaleString()+'원'; }
 function pcFmtPct(a,b){ if(!a||!b)return ''; var d=Math.round((b-a)/a*100); return (d>0?'+':'')+d+'%'; }
 function pcApplyToItem(itemId,field,price){ var it=S.items&&S.items[itemId]; if(!it)return; it[field]=price; try{saveData();}catch(e){} showToast('적용됨 ('+(field==='patternCost'?'패턴비':'샘플비')+' '+Number(price).toLocaleString()+'원)'); }
-function pcDeleteHistory(vendor,key){ if(!confirm('이 품목의 단가 기록을 모두 삭제할까요?'))return; var h=pcGetHistory(); if(h[vendor])delete h[vendor][key]; pcSaveHistory(h); renderPriceComparePane(); }
-function pcDeleteVendor(vendor){ if(!confirm('"'+vendor+'" 업체와 모든 단가 기록을 삭제할까요?'))return; var vs=pcGetVendors().filter(function(v){return v!==vendor;}); pcSaveVendors(vs); var h=pcGetHistory(); delete h[vendor]; pcSaveHistory(h); if(pcGetActiveVendor()===vendor)pcSetActiveVendor(vs[0]||''); renderPriceComparePane(); }
+async function pcDeleteHistory(vendor,key){ if(!confirm('이 품목의 단가 기록을 모두 삭제할까요?'))return; var h=pcGetHistory(); if(h[vendor])delete h[vendor][key]; await pcSaveHistory(h); renderPriceComparePane(); }
+async function pcDeleteVendor(vendor){ if(!confirm('"'+vendor+'" 업체와 모든 단가 기록을 삭제할까요?'))return; var vs=pcGetVendors().filter(function(v){return v!==vendor;}); await pcSaveVendors(vs); var h=pcGetHistory(); delete h[vendor]; await pcSaveHistory(h); if(pcGetActiveVendor()===vendor)pcSetActiveVendor(vs[0]||''); renderPriceComparePane(); }
 function pcTestApi(){ var key=(document.getElementById('pc-api-input')||{}).value||pcGetApiKey(); if(!key){ showToast('API 키를 입력하세요'); return; } var statusEl=document.getElementById('pc-api-status'); if(statusEl)statusEl.textContent='테스트 중...'; fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:10,messages:[{role:'user',content:'hi'}]})}).then(function(r){ if(r.ok){ if(statusEl)statusEl.innerHTML='<span style="color:#1a7a4a;font-weight:800">연결됨 — claude-haiku-4-5 · 이미지 1장 약 0.4원</span>'; showToast('API 연결 성공'); } else r.text().then(function(t){ var msg=''; try{ msg=JSON.parse(t).error&&JSON.parse(t).error.message||t; }catch(x){ msg=t; } if(statusEl)statusEl.innerHTML='<span style="color:#a32d2d;font-weight:800">연결 실패 ('+r.status+'): '+esc(msg.slice(0,120))+'</span>'; }); }).catch(function(e){ if(statusEl)statusEl.innerHTML='<span style="color:#a32d2d;font-weight:800">오류: '+e.message+'</span>'; }); }
 function pcToggleHist(key){ var id='pc-hist-'+key.replace(/[^a-z0-9]/gi,'_'); var el=document.getElementById(id); if(!el)return; el.style.display=el.style.display==='none'?'table-row':'none'; }
 function pcShowApplyBtn(sel,price){ var itemId=sel.value; if(!itemId)return; var it=S.items&&S.items[itemId]; if(!it)return; var typeChoice=confirm('"'+esc(it.name)+'"에 '+Number(price).toLocaleString()+'원을 적용합니다.\n\n확인=패턴비 / 취소(Cancel)=샘플비'); pcApplyToItem(itemId,typeChoice?'patternCost':'sampleCost',price); sel.value=''; }
@@ -30032,7 +30076,7 @@ function renderPriceComparePane(){
   var summaryHtml=''; if(compared.length){ summaryHtml='<div style="background:#FFF176;border:2px solid #0b0a05;padding:10px 14px;display:flex;gap:18px;flex-wrap:wrap"><div><div style="font-size:10px;font-weight:800;color:#6b6555">전체</div><div style="font-size:16px;font-weight:800">'+compared.length+'건</div></div><div><div style="font-size:10px;font-weight:800;color:#6b6555">단가조정 필요</div><div style="font-size:16px;font-weight:800;color:#a32d2d">'+needsAdj.length+'건</div></div><div><div style="font-size:10px;font-weight:800;color:#6b6555">첫 기록</div><div style="font-size:16px;font-weight:800">'+firstRec.length+'건</div></div><div><div style="font-size:10px;font-weight:800;color:#6b6555">동일</div><div style="font-size:16px;font-weight:800">'+same.length+'건</div></div></div>'; }
   var resultHtml=''; if(compared.length){ if(needsAdj.length)resultHtml+='<div style="font-size:11px;font-weight:800;color:#6b6555;padding:4px 0;border-bottom:1.5px solid #0b0a05;margin-bottom:8px">단가조정 필요 ('+needsAdj.length+'건)</div>'+makeTable(needsAdj.map(function(c){return makeRow(c,true);}))+'<div style="margin-bottom:16px"></div>'; if(firstRec.length)resultHtml+='<div style="font-size:11px;font-weight:800;color:#6b6555;padding:4px 0;border-bottom:1.5px solid #0b0a05;margin-bottom:8px">첫 기록 ('+firstRec.length+'건)</div>'+makeTable(firstRec.map(function(c){return makeRow(c,true);}))+'<div style="margin-bottom:16px"></div>'; if(same.length)resultHtml+='<div style="font-size:11px;font-weight:800;color:#6b6555;padding:4px 0;border-bottom:1.5px solid #0b0a05;margin-bottom:8px">동일 ('+same.length+'건)</div>'+makeTable(same.map(function(c){return makeRow(c,false);})); }
   el.innerHTML='<div style="padding:12px;display:flex;flex-direction:column;gap:12px;max-width:900px">'
-    +'<div style="background:#FFFCF7;border:2.5px solid #0b0a05;box-shadow:4px 4px 0 #0b0a05;padding:14px"><div style="font-size:12px;font-weight:800;color:#6b6555;margin-bottom:10px">CLAUDE API 설정</div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><input id="pc-api-input" type="password" value="'+esc(key)+'" placeholder="sk-ant-api..." style="flex:1;min-width:160px;border:2px solid #0b0a05;background:#fff;font-family:inherit;font-size:12px;padding:7px 10px;font-weight:700;outline:none"><button onclick="pcSaveApiKeyFn()" style="border:2px solid #0b0a05;background:#A5E6BA;font-family:inherit;font-weight:800;font-size:12px;padding:7px 14px;cursor:pointer;box-shadow:2px 2px 0 #0b0a05;white-space:nowrap">저장</button><button onclick="pcTestApi()" style="border:2px solid #0b0a05;background:#fff;font-family:inherit;font-weight:800;font-size:12px;padding:7px 14px;cursor:pointer;box-shadow:2px 2px 0 #0b0a05;white-space:nowrap">테스트</button></div>'+apiStatusHtml+'<div style="font-size:10px;color:#6b6555;font-weight:700;margin-top:4px">console.anthropic.com → API Keys에서 키 발급 · 이미지 1장 약 0.4원</div></div>'
+    +'<div style="background:#FFFCF7;border:2.5px solid #0b0a05;box-shadow:4px 4px 0 #0b0a05;padding:14px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="font-size:12px;font-weight:800;color:#6b6555">CLAUDE API 설정</div><span style="flex:1"></span><button onclick="pcSyncFromCloud()" style="border:2px solid #0b0a05;background:#B0DBF0;font-family:inherit;font-weight:800;font-size:11px;padding:4px 10px;cursor:pointer;box-shadow:2px 2px 0 #0b0a05;white-space:nowrap">Firebase 동기화</button></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><input id="pc-api-input" type="password" value="'+esc(key)+'" placeholder="sk-ant-api..." style="flex:1;min-width:160px;border:2px solid #0b0a05;background:#fff;font-family:inherit;font-size:12px;padding:7px 10px;font-weight:700;outline:none"><button onclick="pcSaveApiKeyFn()" style="border:2px solid #0b0a05;background:#A5E6BA;font-family:inherit;font-weight:800;font-size:12px;padding:7px 14px;cursor:pointer;box-shadow:2px 2px 0 #0b0a05;white-space:nowrap">저장</button><button onclick="pcTestApi()" style="border:2px solid #0b0a05;background:#fff;font-family:inherit;font-weight:800;font-size:12px;padding:7px 14px;cursor:pointer;box-shadow:2px 2px 0 #0b0a05;white-space:nowrap">테스트</button></div>'+apiStatusHtml+'<div style="font-size:10px;color:#6b6555;font-weight:700;margin-top:4px">console.anthropic.com → API Keys에서 키 발급 · 이미지 1장 약 0.4원 · 저장 시 Firebase에 자동 동기화</div></div>'
     +'<div style="background:#FFFCF7;border:2.5px solid #0b0a05;box-shadow:4px 4px 0 #0b0a05;padding:14px"><div style="font-size:12px;font-weight:800;color:#6b6555;margin-bottom:10px">업체 선택</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+vendorChips+'<button onclick="pcAddVendor()" style="border:2px dashed #0b0a05;background:#fff;font-family:inherit;font-weight:800;font-size:12px;padding:6px 12px;cursor:pointer">+ 새 업체</button></div></div>'
     +'<div style="background:#FFFCF7;border:2.5px solid #0b0a05;box-shadow:4px 4px 0 #0b0a05;padding:14px"><div style="font-size:12px;font-weight:800;color:#6b6555;margin-bottom:10px">인보이스 업로드</div><input type="file" id="pc-file-input" accept="image/*" multiple style="display:none" onchange="pcOnFile(event)"><div onclick="pcPickImage()" style="border:2.5px dashed #0b0a05;background:#EFE8D4;padding:24px;text-align:center;cursor:pointer"><div style="font-size:22px;margin-bottom:6px">+</div><div style="font-size:13px;font-weight:800">사진 또는 파일 선택</div><div style="font-size:11px;color:#6b6555;font-weight:700">JPG, PNG 지원, 여러 장 가능</div></div><div id="pc-thumbs" style="display:flex;flex-wrap:wrap;margin-top:8px"></div><div id="pc-spinner" style="display:none;align-items:center;gap:10px;padding:12px;font-weight:800;font-size:13px"><div style="width:20px;height:20px;border:2.5px solid #0b0a05;border-top-color:transparent;border-radius:50%;animation:pcSpin .7s linear infinite"></div>Claude가 인보이스를 읽는 중...</div><button id="pc-parse-btn" onclick="pcParseInvoice()" style="margin-top:10px;width:100%;border:2px solid #0b0a05;background:#A5E6BA;font-family:inherit;font-weight:800;font-size:13px;padding:12px;cursor:pointer;box-shadow:2px 2px 0 #0b0a05">파싱 시작</button></div>'
     +(compared.length?(summaryHtml+'<div style="background:#FFFCF7;border:2.5px solid #0b0a05;box-shadow:4px 4px 0 #0b0a05;padding:14px"><div style="font-size:12px;font-weight:800;color:#6b6555;margin-bottom:12px">단가 비교 결과  '+esc(activeVendor)+'</div>'+resultHtml+'</div>'):'')
