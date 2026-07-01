@@ -6402,6 +6402,7 @@ function renderBookList(){
       </div>
       <div class="fg" style="margin-top:6px;margin-bottom:0"><label style="font-size:10px">특징 메모 <span class="muted" style="font-weight:400;font-size:9px">목록에서 뱃지로 표시</span></label><textarea rows="2" style="width:100%;font-size:12px;padding:5px;resize:vertical;border-radius:6px;border:1px solid var(--br)" placeholder="예: 다이마루 원단처, 소재 좋음, 별로임" onchange="getPB('${s}').memo=this.value;savePB()">${esc(pb.memo||'')}</textarea></div>
     </div>
+    ${_procRateSecHTML(s,si)}
     ${mats.length?`<div>
       <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:5px">단가 수정 <span class="muted" style="font-weight:400">매장단가는 원가계산 / 네고가는 결제에 사용</span></div>
       ${(function(){var _gl=_pbGroupList(mats);if(_gl.length<2)return '';return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">'+_gl.map(function(gr,gi){return '<span onclick="pbJump('+si+','+gi+')" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 10px;border-radius:14px;border:1.3px solid var(--br);background:var(--bg2);color:var(--t2)">'+esc(gr.g)+' <span style="opacity:.6;font-size:9.5px">'+gr.n+'</span></span>';}).join('')+'</div>';})()}
@@ -9527,7 +9528,54 @@ function inlineTrimCostsHTML(t){
     +linked.map(x=>trimCostRowHTML(x.tc,x.i)).join('')
     +'</div>';
 }
-function renderTrimAndCosts(){renderTrimRows();renderTrimCostRows();}
+function renderTrimAndCosts(){renderTrimRows();renderTrimCostRows();if(typeof buildProcDL==='function')buildProcDL();}
+// 가공비 표준(procRates) — 가공처별 고정단가. 이름 datalist + 자동채움
+function buildProcDL(){
+  var dl=document.getElementById('dl-proc');
+  if(!dl){dl=document.createElement('datalist');dl.id='dl-proc';document.body.appendChild(dl);}
+  var seen={};
+  Object.values(S.priceBook||{}).forEach(function(pb){var pr=(pb||{}).procRates||{};Object.keys(pr).forEach(function(n){if(n)seen[n]=1;});});
+  dl.innerHTML=Object.keys(seen).map(function(n){return '<option value="'+esc(n)+'">';}).join('');
+}
+function tcAutoFillRate(el){
+  if(!el||!el.closest)return;var row=el.closest('.tcl-row');if(!row)return;
+  var fac=((row.querySelector('[data-f=factory]')||{}).value||'').trim();
+  var nm=((row.querySelector('[data-f=name]')||{}).value||'').trim();
+  if(!fac||!nm)return;
+  var pb=S.priceBook[fac];if(!pb||!pb.procRates||!pb.procRates[nm])return;
+  var rate=pb.procRates[nm];
+  var amtInp=row.querySelector('[data-f=costAmt]');
+  if(amtInp&&!(+amtInp.value)){ // 빈칸일 때만 채움(이미 입력한 값은 보호)
+    var mode=rate.costType||'perPcs';var amt=mode==='perPcs'?(+rate.costPerPcs||0):(+rate.costPerLot||0);
+    amtInp.value=amt;
+    var typeInp=row.querySelector('[data-f=costType]');if(typeInp)typeInp.value=mode;
+    if(typeof colTrimCosts==='function')colTrimCosts();
+    if(typeof renderTrimAndCosts==='function')setTimeout(renderTrimAndCosts,60);
+    if(typeof showToast==='function')showToast(fac+' '+nm+' 표준 '+num(amt)+'원 불러옴');
+  }
+}
+// 가공처 표준단가 관리 (거래처 카드)
+function setProcRateAmt(encSup,encName,val){var s=decodeURIComponent(encSup),n=decodeURIComponent(encName);var pb=S.priceBook[s];if(!pb||!pb.procRates||!pb.procRates[n])return;var r=pb.procRates[n];var mode=r.costType||'perPcs';if(mode==='perPcs')r.costPerPcs=+val||0;else r.costPerLot=+val||0;r.lastUpdated=today();savePB();buildProcDL&&buildProcDL();}
+function setProcRateType(encSup,encName,val){var s=decodeURIComponent(encSup),n=decodeURIComponent(encName);var pb=S.priceBook[s];if(!pb||!pb.procRates||!pb.procRates[n])return;pb.procRates[n].costType=val;savePB();renderBookList();}
+function renameProcRate(encSup,encName,val){var s=decodeURIComponent(encSup),oldN=decodeURIComponent(encName);val=(val||'').trim();var pb=S.priceBook[s];if(!pb||!pb.procRates||!pb.procRates[oldN]||!val||val===oldN)return;if(pb.procRates[val]){showToast('이미 있는 가공 이름');return;}pb.procRates[val]=pb.procRates[oldN];delete pb.procRates[oldN];savePB();renderBookList();buildProcDL&&buildProcDL();}
+function deleteProcRate(encSup,encName){var s=decodeURIComponent(encSup),n=decodeURIComponent(encName);var pb=S.priceBook[s];if(!pb||!pb.procRates)return;if(!confirm('"'+n+'" 가공비 표준을 삭제할까요?'))return;delete pb.procRates[n];savePB();renderBookList();buildProcDL&&buildProcDL();}
+function addProcRate(encSup,si){var s=decodeURIComponent(encSup);var nm=((document.getElementById('procnew-name-'+si)||{}).value||'').trim();var amt=+((document.getElementById('procnew-amt-'+si)||{}).value)||0;if(!nm){showToast('가공 이름을 입력하세요');return;}var pb=getPB(s);pb.procRates=pb.procRates||{};if(pb.procRates[nm]){showToast('이미 있는 가공 이름');return;}pb.procRates[nm]={costType:'perPcs',costPerPcs:amt,costPerLot:0,lastUpdated:today()};savePB();renderBookList();buildProcDL&&buildProcDL();showToast(nm+' 표준 추가됨');}
+function _procRateSecHTML(s,si){
+  var pb=S.priceBook[s]||{};var pr=pb.procRates||{};var names=Object.keys(pr);
+  var rows=names.map(function(n){var r=pr[n];var mode=r.costType||'perPcs';var amt=mode==='perPcs'?(r.costPerPcs||0):(r.costPerLot||0);var en=encodeURIComponent(n),es=encodeURIComponent(s);
+    return '<div style="display:flex;gap:6px;align-items:center;margin-bottom:5px">'
+      +'<input value="'+esc(n)+'" onchange="renameProcRate(\''+es+'\',\''+en+'\',this.value)" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid #e0c98a;border-radius:5px">'
+      +'<select onchange="setProcRateType(\''+es+'\',\''+en+'\',this.value)" style="font-size:11px;padding:3px"><option value="perPcs"'+(mode==='perPcs'?' selected':'')+'>개당</option><option value="perLot"'+(mode==='perLot'?' selected':'')+'>컬러별</option><option value="once"'+(mode==='once'?' selected':'')+'>한번에</option></select>'
+      +'<input type="number" value="'+amt+'" onchange="setProcRateAmt(\''+es+'\',\''+en+'\',this.value)" style="width:70px;font-size:11px;padding:4px 6px;border:1px solid #e0c98a;border-radius:5px">원'
+      +'<button class="btn s d" onclick="deleteProcRate(\''+es+'\',\''+en+'\')" style="padding:2px 7px;font-size:11px">×</button></div>';
+  }).join('');
+  var es=encodeURIComponent(s);
+  return '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px;margin-bottom:10px">'
+    +'<div style="font-weight:600;font-size:11px;color:#92580b;margin-bottom:6px">가공비 표준 <span class="muted" style="font-weight:400;font-size:10px">코팅·염색·로고 고정단가 — 부자재에 자동 채워져요</span></div>'
+    +(rows||'<div style="font-size:11px;color:#b45309;margin-bottom:5px">아직 없어요 — 아래에 추가하거나, 아이템에서 이 거래처 가공비 적으면 자동 기억돼요</div>')
+    +'<div style="display:flex;gap:6px;margin-top:4px"><input id="procnew-name-'+si+'" placeholder="가공 이름(코팅…)" list="dl-proc" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid #d1d5db;border-radius:5px"><input id="procnew-amt-'+si+'" type="number" placeholder="단가" style="width:70px;font-size:11px;padding:4px 6px;border:1px solid #d1d5db;border-radius:5px"><button class="btn s" onclick="addProcRate(\''+es+'\','+si+')" style="font-size:11px">추가</button></div>'
+    +'</div>';
+}
 function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)return;
   if(typeof buildCareLabelDB==='function')buildCareLabelDB();
   if(typeof updTnmDL==='function')updTnmDL();
@@ -13966,7 +14014,7 @@ function renderCheckTab(o,onlySn){
             <span class="muted" style="font-size:10px">${origUnit}</span>
           </div>
           ${actualOrd!==''&&Math.abs(costDiff)>0.5?`<div style="font-size:9px;margin-top:2px;color:${costDiff>0?'var(--red)':'var(--green)'};font-weight:600">${costDiff>0?'+':''}${num(Math.round(costDiff))}원</div>`:''}
-          ${m.type==='fabric'?(function(){var _rec=(typeof yocheokRecFor==='function')?_yoR2(yocheokRecFor(m.itemId,m.name,m.colorName||'')):0;var _pcs=Math.round(+m.garmentPcs||0);if(_rec<=0||_pcs<=0)return '';var _sug=Math.round(_rec*_pcs*100)/100;if(+actualOrd===_sug)return '<div style="font-size:9px;margin-top:2px;color:var(--green);font-weight:700">✓ 추천요척 '+(_yoR2(_rec))+' 적용됨</div>';return '<button type="button" onclick="applyYoRec(\''+o.id+'\',\''+esc(sn)+'\','+idx+','+_sug+')" style="margin-top:3px;font-size:9px;font-weight:800;color:#1f7a4d;background:#eafaf1;border:1px solid #b6e3c8;border-radius:5px;padding:2px 6px;cursor:pointer;white-space:nowrap" title="실제 요척 평균으로 실제발주 채우기">추천요척 '+_yoR2(_rec)+' → '+_sug+'y 적용</button>';})():''}
+          ${m.type==='fabric'?(function(){var _recX=(typeof yocheokRecFor==='function')?(+yocheokRecFor(m.itemId,m.name,m.colorName||'')||0):0;var _pcs=Math.round(+m.garmentPcs||0);if(_recX<=0||_pcs<=0)return '';var _sug=Math.round(_recX*_pcs*100)/100;var _recD=(typeof _yoR3==='function')?_yoR3(_recX):Math.round(_recX*1000)/1000;if(+actualOrd===_sug)return '<div style="font-size:9px;margin-top:2px;color:var(--green);font-weight:700">✓ 추천요척 '+_recD+' 적용됨</div>';return '<button type="button" onclick="applyYoRec(\''+o.id+'\',\''+esc(sn)+'\','+idx+','+_sug+')" style="margin-top:3px;font-size:9px;font-weight:800;color:#1f7a4d;background:#eafaf1;border:1px solid #b6e3c8;border-radius:5px;padding:2px 6px;cursor:pointer;white-space:nowrap" title="실제 요척 평균(정밀)으로 실제발주 채우기">추천요척 '+_recD+' → '+_sug+'y 적용</button>';})():''}
         </td>
         <td style="padding:4px 6px">
           <div style="display:flex;align-items:center;gap:3px">
