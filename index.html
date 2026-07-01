@@ -1651,6 +1651,7 @@ tryInitFirebase();
   <div class="nav-brand">생산관리</div>
   <button class="ntab" id="nt-items" onclick="setItemView('list');switchTab('items')">아이템</button>
   <button class="ntab" id="nt-idea" onclick="setItemView('idea');switchTab('items')">아이디어</button>
+  <button class="ntab" id="nt-yocheok" onclick="switchTab('yocheok')">요척</button>
   <button class="ntab" id="nt-dosik" onclick="dosikOpen()">도식화</button>
   <div class="nav-sep"></div>
   <button class="ntab" id="nt-dash" onclick="switchTab('dash')">생산 대시보드</button>
@@ -1726,6 +1727,7 @@ tryInitFirebase();
   <!-- Dashboard -->
   <div id="pane-dash" class="panel" style="display:none"><div id="dash-body"></div></div>
   <div id="pane-defect" class="panel" style="display:none"><div id="defect-body"></div></div>
+  <div id="pane-yocheok" class="panel" style="display:none"><div id="yocheok-body"></div></div>
   <!-- Tasks (업무 관리 허브) -->
   <div id="pane-tasks" class="panel" style="display:none"><div id="tasks-body"></div></div>
 <div id="pane-route" class="panel" style="display:none"><div id="route-body"></div></div>
@@ -5085,7 +5087,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref'].forEach(n=>{
+  ['dash','items','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','yocheok'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -5130,6 +5132,7 @@ function switchTab(t){
     else if(t==='analytics')renderAnalyticsPane();
     else if(t==='leftover')renderLeftoverTab();
     else if(t==='ref')renderRefTab();
+    else if(t==='yocheok')renderYocheokTab();
   }catch(err){
     console.error('Tab render error:',err);
     if(pane)pane.innerHTML=`<div class="warn-box" style="margin:1rem">화면 오류: ${esc(err.message)}<br><div class="muted" style="margin-top:4px">새로고침 후 다시 시도해주세요</div></div>`;
@@ -5380,6 +5383,10 @@ function saveToPB(item){
     if((t.orderType==='zipper'||t.orderType==='button'||t.orderType==='roll'||t.orderType==='yard')&&t.sizeRates&&t.sizeRates.length>0){
       pbEntry.sizeRates=t.sizeRates;
     }
+    // 가공비/염색비/로고비/코팅비 → 단가장 템플릿(아이템별 colorLinks 제외). ...existing가 기존값 보존하므로 새 데이터 있을 때만 덮음
+    var _linkedTCs=(item.trimCosts||[]).filter(function(tc){return tc&&tc.trimId===t.id;});
+    if(_linkedTCs.length)pbEntry.trimCostTemplate=_linkedTCs.map(function(tc){return {name:tc.name||'',factory:tc.factory||'',costType:tc.costType||'perPcs',costPerPcs:+tc.costPerPcs||0,costPerLot:+tc.costPerLot||0,dyeNote:tc.dyeNote||''};});
+    if(+t.logoCost>0)pbEntry.logoCost=+t.logoCost;
     getPB(t.supplier).materials[key]=pbEntry;
   }}
 function updateSupDL(){const dl=document.getElementById('dl-sup');if(!dl)return;dl.innerHTML=Object.keys(S.priceBook).map(s=>`<option value="${esc(s)}">`).join('');}
@@ -5660,6 +5667,17 @@ function autofillTrim(r){
       setTimeout(function(){renderTrimRows();showToast('사이즈-단가표도 자동 불러옴');},100);
     }
   }
+  // 가공비·염색비·로고비·코팅비 템플릿 복원 (이 부자재에 아직 가공비 없을 때만 — 중복 방지)
+  var _tid=(r.id||'').replace('tr-','');var _cur=formTrims[_tid];
+  if(_cur&&e&&e.trimCostTemplate&&e.trimCostTemplate.length&&typeof formTrimCosts!=='undefined'){
+    var _hasTC=formTrimCosts.some(function(tc){return tc&&tc.trimId===_cur.id;});
+    if(!_hasTC){
+      e.trimCostTemplate.forEach(function(tpl){formTrimCosts.push({id:uid(),trimId:_cur.id,name:tpl.name||'',factory:tpl.factory||'',costType:tpl.costType||'perPcs',costPerPcs:+tpl.costPerPcs||0,costPerLot:+tpl.costPerLot||0,colorLinks:[],dyeNote:tpl.dyeNote||''});});
+      if(typeof renderTrimAndCosts==='function')setTimeout(function(){renderTrimAndCosts();},130);
+      showToast('가공비·염색비도 자동 불러옴');
+    }
+  }
+  if(_cur&&e&&e.logoCost&&!(+_cur.logoCost>0))_cur.logoCost=+e.logoCost;
 }
 function openPBImport(){
   var ov=document.getElementById('pbimp-ov');
