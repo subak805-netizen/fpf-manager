@@ -2616,6 +2616,10 @@ const COST_DEFS=[
   ['inspectionCost','검품비','inspectionFcId','검품공장'],
   ['promotionCost','프로모션','promotionFcId','프로모션공장'],
 ];
+// 오더별 공장 스냅샷 — 오더 생성 시점의 공장을 오더에 얼려둠(아이템 공장을 나중에 바꿔도 옛 오더 결제/명세서 안 꼬임).
+// orderFc(o,it,fk): fcMap에 얼려둔 값 우선(빈값도 존중), 없으면(옛 오더) 아이템 현재값 폴백.
+function orderFc(o,it,fk){ if(o&&o.fcMap&&it&&o.fcMap[it.id]&&Object.prototype.hasOwnProperty.call(o.fcMap[it.id],fk))return o.fcMap[it.id][fk]||''; return it?(it[fk]||''):''; }
+function snapshotOrderFc(o){ if(!o||!o.orderItems)return; if(!o.fcMap)o.fcMap={}; o.orderItems.forEach(function(oi){ if(!oi||!oi.itemId)return; var it=S.items[oi.itemId]; if(!it)return; if(!o.fcMap[oi.itemId])o.fcMap[oi.itemId]={}; for(var i=0;i<COST_DEFS.length;i++){ var fk=COST_DEFS[i][2]; if(fk&&!Object.prototype.hasOwnProperty.call(o.fcMap[oi.itemId],fk))o.fcMap[oi.itemId][fk]=it[fk]||''; } }); }
 const PO_OPT_DEFS=[
   // 요청사항 (네고 확인 맨 앞)
   {key:'nego',label:'네고 확인',text:'네고가 부탁드려요.',cat:'req'},
@@ -4306,6 +4310,8 @@ function loadCoData(id){
 function migrateData(){
   // 결제 수동완료 1회 마이그레이션: 지금 '결제완료'인 오더의 아이템은 완료로 고정(안 그러면 브랜드별보기에 폭주). 이후부터는 수동 완료.
   try{if(S.orders)Object.keys(S.orders).forEach(function(k){var o=S.orders[k];if(!o||o.payArchivedItems)return;var lbl=(typeof oLabel==='function')?oLabel(o)[0]:'';if(lbl==='결제완료'){o.payArchivedItems={};(o.orderItems||[]).forEach(function(oi){if(oi&&oi.itemId)o.payArchivedItems[oi.itemId]=(typeof todayISO==='function'?todayISO():'');});}});}catch(e){}
+  // 오더별 공장 스냅샷 1회: 기존 모든 오더에 현재 아이템 공장을 얼려둠(이후 아이템 공장 바꿔도 옛 오더 결제 불변)
+  try{if(S.orders&&typeof snapshotOrderFc==='function')Object.keys(S.orders).forEach(function(k){snapshotOrderFc(S.orders[k]);});}catch(e){}
   // 로스 발주서 이동 1단계: 기존 발주서마다 현재 로스값 못 박기(스냅샷) + o.loss 압축({m,v}→숫자, 1MB 절약)
   try{if(S.orders)Object.keys(S.orders).forEach(function(k){var o=S.orders[k];if(o&&o.loss)Object.keys(o.loss).forEach(function(iid){var L=o.loss[iid];if(L&&typeof L==='object')Object.keys(L).forEach(function(mid){var e=L[mid];if(e&&typeof e==='object'&&e.m==='pct')L[mid]=+e.v;var _it=S.items[iid];var _tr=_it&&_it.trims&&_it.trims.find(function(x){return x.id===mid;});if(_tr&&(_tr.orderType==='careLabel'||_tr.orderType==='mainLabel')&&typeof L[mid]==='number')L[mid]=(_tr.qtyBuffer!==undefined&&_tr.qtyBuffer!==''?+_tr.qtyBuffer:10)+'a';});});if(typeof ensureOrderLoss==='function')ensureOrderLoss(o);});}catch(e){}
   // Pickups (새 기능)
@@ -12236,7 +12242,7 @@ function createOrder(){
     const autoNm=`${it.name} 발주 (${shortDate})`;
     const id=uid();
     S.orders[id]={id,name:autoNm,createdAt:today(),shippingDate:'',clientName:'',orderItems,suppliers:calcSups(orderItems),factorySchedules:{},payments:{},trackBlocks:[],clientNotified:false,notes:''};
-    autoAssignFactories(id);initTrackBlocks(id);
+    snapshotOrderFc(S.orders[id]);autoAssignFactories(id);initTrackBlocks(id);
     lastOid=id;
   }
   saveData();closeModal('o-new-modal');
@@ -12247,10 +12253,11 @@ function createOrder(){
 /* ===== 자동 공장 배정 (아이템 설정에서 자동) ===== */
 function autoAssignFactories(oid){
   const o=S.orders[oid];if(!o)return;
+  snapshotOrderFc(o); // 스케줄 만들기 전에 공장 얼려둠(오더별 고정)
   // 봉제공장 ID 찾기
   const sewingFcId=o.orderItems?.map(oi=>S.items[oi.itemId]?.sewingFcId).find(Boolean)||'';
   for(const oi of o.orderItems||[]){const it=S.items[oi.itemId];if(!it)continue;
-    COST_DEFS.forEach(([,, fk])=>{const fcId=it[fk];if(fcId&&S.factories[fcId]&&!o.factorySchedules[fcId]){const sch=mkFcSch();if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[fcId]=sch;}});
+    COST_DEFS.forEach(([,, fk])=>{const fcId=orderFc(o,it,fk);if(fcId&&S.factories[fcId]&&!o.factorySchedules[fcId]){const sch=mkFcSch();if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[fcId]=sch;}});
   }
   // 모든 공급처의 납품공장 기본값 = 봉제공장
   if(sewingFcId){
@@ -14722,7 +14729,7 @@ function renderProdTab(o){
   for(const _oi of(o.orderItems||[])){
     const _it=S.items[_oi.itemId];if(!_it)continue;
     for(const _cd of COST_DEFS){
-      const _fid=_it[_cd[2]];
+      const _fid=orderFc(o,_it,_cd[2]);
       if(_fid&&S.factories[_fid]&&!o.factorySchedules[_fid]){
         const _newSch=mkFcSch();
         if(o.shippingDate)_newSch.shippingDate=o.shippingDate;
@@ -14746,7 +14753,7 @@ function renderProdTab(o){
     // ── 봉제공장: 컬러×사이즈 그리드 ─────────────────────────────
     if(isSewing){
       const itemGrids=o.orderItems.map(oi=>{
-        const it=S.items[oi.itemId];if(!it||it.sewingFcId!==fcId)return'';
+        const it=S.items[oi.itemId];if(!it||orderFc(o,it,'sewingFcId')!==fcId)return'';
         const colors=it.colors?.length?it.colors:[''];
         const sizes=it.sizes?.length?it.sizes:['free'];
         const cGrid=sch.cuttingGrid?.[oi.itemId]||{};
@@ -15718,7 +15725,7 @@ function syncFcToTrack(oid,fcId){
   const sch=o.factorySchedules?.[fcId];if(!sch)return;
   for(const b of(o.trackBlocks||[])){
     const it=S.items[b.itemId];
-    if(!it||it.sewingFcId!==fcId)continue;
+    if(!it||orderFc(o,it,'sewingFcId')!==fcId)continue;
     const cGrid=sch.cuttingGrid?.[b.itemId]||{};
     const sGrid=sch.shippingGrid?.[b.itemId]||{};
     const sizes=getSizes(b);
@@ -15923,7 +15930,7 @@ function renderPayShtTab(o){
   const _payFcSet=new Set(Object.keys(o.factorySchedules||{}));
   for(const _oi of(o.orderItems||[])){
     const _it=S.items[_oi.itemId];if(!_it)continue;
-    for(const _cd of COST_DEFS){if(_it[_cd[2]])_payFcSet.add(_it[_cd[2]]);}
+    for(const _cd of COST_DEFS){const _f=orderFc(o,_it,_cd[2]);if(_f)_payFcSet.add(_f);}
   }
   const _fcIdsArr=Array.from(_payFcSet);
   if(!_fcIdsArr.length)return'<div class="empty">공장 진행 탭에서 공장/처를 추가하세요</div>';
@@ -15936,7 +15943,7 @@ function renderPayShtTab(o){
       for(const oi of(o.orderItems||[])){
         const it=S.items[oi.itemId];if(!it)continue;
         // 이 비용이 어느 공장 소속인지 결정: 명시 우선, 없으면 봉제공장 기본값
-        const targetFcId=it[fk]||it.sewingFcId;
+        const targetFcId=orderFc(o,it,fk)||orderFc(o,it,'sewingFcId');
         if(!targetFcId)continue;
         if(targetFcId!==fcId)continue;
         // 수량: 실제 출고량 우선(공장이 만든 만큼 결제), 없으면 오더수량
@@ -18325,7 +18332,7 @@ function renderDashCard(o){
     if(!isSewing)continue;
     const cutTot=Object.values(sch.cuttingGrid||{}).reduce((t,ig)=>t+Object.values(ig).reduce((s,cg)=>s+Object.values(cg).reduce((a,v)=>a+(+v||0),0),0),0)+(sch.cuttingQty||0);
     const shipTot=(sch.shippingQty||0)+(sch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
-    const ordTot=o.orderItems?.reduce((s,oi)=>{const it=S.items[oi.itemId];if(!it||it.sewingFcId!==fcId)return s;const sizes=it.sizes?.length?it.sizes:['free'];const colors=it.colors?.length?it.colors:[''];return s+colors.reduce((cs,c)=>cs+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);},0)||0;
+    const ordTot=o.orderItems?.reduce((s,oi)=>{const it=S.items[oi.itemId];if(!it||orderFc(o,it,'sewingFcId')!==fcId)return s;const sizes=it.sizes?.length?it.sizes:['free'];const colors=it.colors?.length?it.colors:[''];return s+colors.reduce((cs,c)=>cs+sizes.reduce((ss,sz)=>ss+(+oi.qtyGrid?.[c]?.[sz]||0),0),0);},0)||0;
     if(shipTot>0&&shipTot>=ordTot)progBadges.push('<span class="badge b3" style="font-size:10px">출고완료</span>');
     else if(shipTot>0)progBadges.push(`<span class="badge b2" style="font-size:10px">출고 ${shipTot}pcs</span>`);
     else if(cutTot>0&&cutTot>=ordTot)progBadges.push('<span class="badge b2" style="font-size:10px">재단완료</span>');
