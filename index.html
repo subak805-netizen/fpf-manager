@@ -12663,6 +12663,7 @@ function _qsItemGrid(o,oi){
 }
 // ===== 요척 히스토리: 실제발주량 ÷ 재단장수 (원단×컬러별, 재단 기록 있는 발주만) =====
 function _yoR2(v){return Math.round((+v||0)*100)/100;}
+function _yoR3(v){return Math.round((+v||0)*1000)/1000;}
 function _yoR1(v){return Math.round((+v||0)*10)/10;}
 // 특정 원단×컬러의 추천 요척(가중평균). 매칭 실패 시 같은 원단 아무 컬러 폴백
 function yocheokRecFor(itemId,fabName,color){
@@ -12744,20 +12745,22 @@ function openYocheokHist(itemId){
 var _YO_TH=0.15; // 계획 대비 ±15% 넘으면 과다/여유
 function _yoStat(plan,wAvg){ if(!(plan>0))return {k:'na',pct:null}; var r=(wAvg-plan)/plan; if(r>_YO_TH)return {k:'over',pct:r}; if(r<-_YO_TH)return {k:'under',pct:r}; return {k:'ok',pct:r}; }
 function yoSetFilter(f){ window._yoFilter=f; ['all','over','wait'].forEach(function(k){var b=document.getElementById('yo-f-'+k);if(b)b.className='yo-chip'+(k===f?' on':'');}); yoFilterDom(); }
+function yoSetBrand(b){ window._yoBrand=b; document.querySelectorAll('#yocheok-body .yo-brands .yo-chip').forEach(function(c){var v=c.getAttribute('data-yb'); c.className='yo-chip'+(v===b?' on':'');}); yoFilterDom(); }
 function yoFilterDom(){
   var si=document.getElementById('yo-search'); var s=si?String(si.value||'').trim().toLowerCase():''; window._yoSearch=s;
-  var f=window._yoFilter||'all';
-  var cards=document.querySelectorAll('#yocheok-body .yo-itc'),shown=0;
-  cards.forEach(function(c){
+  var f=window._yoFilter||'all', yb=window._yoBrand||'all';
+  document.querySelectorAll('#yocheok-body .yo-itc').forEach(function(c){
     var txt=(c.getAttribute('data-yo-search')||'').toLowerCase();
     var over=c.getAttribute('data-yo-over')==='1',wait=c.getAttribute('data-yo-wait')==='1';
     var okF=(f==='all')||(f==='over'&&over)||(f==='wait'&&wait);
     var okS=!s||txt.indexOf(s)>=0;
-    var vis=okF&&okS; c.style.display=vis?'':'none'; if(vis)shown++;
+    c.style.display=(okF&&okS)?'':'none';
   });
-  document.querySelectorAll('#yocheok-body .yo-brand').forEach(function(bg){ // 카드 다 숨은 브랜드 그룹은 헤더도 숨김
-    var any=Array.prototype.slice.call(bg.querySelectorAll('.yo-itc')).some(function(c){return c.style.display!=='none';});
-    bg.style.display=any?'':'none';
+  var shown=0;
+  document.querySelectorAll('#yocheok-body .yo-brand').forEach(function(bg){ // 브랜드 선택 + 카드 남은 그룹만 표시
+    var brandOk=(yb==='all')||(bg.getAttribute('data-yo-brand')===yb);
+    var cnt=brandOk?Array.prototype.slice.call(bg.querySelectorAll('.yo-itc')).filter(function(c){return c.style.display!=='none';}).length:0;
+    bg.style.display=cnt?'':'none'; shown+=cnt;
   });
   var em=document.getElementById('yo-empty2'); if(em)em.style.display=shown?'none':'block';
 }
@@ -12842,7 +12845,7 @@ function renderYocheokTab(){
       var fabs=(it.fabrics||[]).filter(function(f){return f&&f.supplier;});
       var fh=fabs.map(function(f){ var plan=+f.consumption||0;
         return '<div class="yo-fr"><div class="yo-lead"><div class="yo-fn"><span class="yo-sw" style="background:'+hexOf('')+'"></span>'+esc(f.name||'원단')+(f.part?'<span class="pt">· '+esc(f.part)+'</span>':'')+'</div><div class="yo-meta">발주는 됐지만 재단장수 미입력</div></div>'
-          +'<div class="yo-nums"><span class="p">'+_yoR2(plan)+'</span><span class="a">→</span><span class="r" style="color:#8a919c">—</span></div>'
+          +'<div class="yo-nums"><span class="p">'+_yoR3(plan)+'</span><span class="a">→</span><span class="r" style="color:#8a919c">—</span></div>'
           +'<div class="yo-bd"><span class="yo-badge wait">대기</span></div></div>';
       }).join('');
       return '<div class="yo-itc" data-yo-wait="1" data-yo-over="0" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+'<span class="rc" style="color:#8a919c;background:#f3f4f6;border-color:#e2e0d8">재단 입력 대기</span></div>'+fh+'</div>';
@@ -12850,7 +12853,7 @@ function renderYocheokTab(){
     var rows=cd.hist.map(function(g){ var st=g._st; var nOrd=g.rows.length; var needY=_yoR1((g.sumOrdQty||0)*(g.plan||0));
       var meta=(g.color?esc(g.color)+' · ':'')+'오더 '+(g.sumOrdQty||0)+'장 · 실발주 '+_yoR1(g.sumOrd)+'y'+(needY>0?' (계획 '+needY+'y)':'')+' · 재단 '+g.sumCut+'장'+(nOrd>1?' · 발주 '+nOrd+'회':'');
       return '<div class="yo-fr"><div class="yo-lead"><div class="yo-fn"><span class="yo-sw" style="background:'+hexOf(g.color)+'"></span>'+esc(g.fabName)+(g.part?'<span class="pt">· '+esc(g.part)+'</span>':'')+'</div><div class="yo-meta">'+meta+'</div></div>'
-        +'<div class="yo-nums"><span class="p">'+_yoR2(g.plan)+'</span><span class="a">→</span><span class="r">'+_yoR2(g.wAvg)+'</span></div>'
+        +'<div class="yo-nums"><span class="p">'+_yoR3(g.plan)+'</span><span class="a">→</span><span class="r">'+_yoR3(g.wAvg)+'</span></div>'
         +'<div class="yo-bd">'+badge(st)+'</div></div>';
     }).join('');
     var rc='발주 '+cd.hist.reduce(function(s,g){return s+g.rows.length;},0)+'회 집계';
@@ -12861,7 +12864,7 @@ function renderYocheokTab(){
   cards.forEach(function(cd){ var b=(typeof getBrandName==='function'&&cd.it.brandId)?getBrandName(cd.it.brandId):''; b=b||'브랜드 미지정'; if(!byBrand[b]){byBrand[b]=[];brandOrder.push(b);} byBrand[b].push(cd); });
   brandOrder.sort(function(a,b){ if(a==='브랜드 미지정')return 1; if(b==='브랜드 미지정')return -1; return a.localeCompare(b,'ko'); });
   var cardsH=brandOrder.map(function(b){ var ov=byBrand[b].reduce(function(s,cd){return s+((cd.hist||[]).filter(function(g){return g._st&&g._st.k==='over';}).length);},0);
-    return '<div class="yo-brand"><div class="yo-brand-h"><span class="bn">'+esc(b)+'</span><span class="bc">'+byBrand[b].length+'개'+(ov?' · 과다 '+ov:'')+'</span></div>'+byBrand[b].map(renderCard).join('')+'</div>';
+    return '<div class="yo-brand" data-yo-brand="'+esc(b)+'"><div class="yo-brand-h"><span class="bn">'+esc(b)+'</span><span class="bc">'+byBrand[b].length+'개'+(ov?' · 과다 '+ov:'')+'</span></div>'+byBrand[b].map(renderCard).join('')+'</div>';
   }).join('');
 
   var strip='<div class="yo-strip">'
@@ -12874,9 +12877,11 @@ function renderYocheokTab(){
     +'<button id="yo-f-all" class="yo-chip'+(f==='all'?' on':'')+'" onclick="yoSetFilter(\'all\')">전체</button>'
     +'<button id="yo-f-over" class="yo-chip warn'+(f==='over'?' on':'')+'" onclick="yoSetFilter(\'over\')">이상만</button>'
     +'<button id="yo-f-wait" class="yo-chip'+(f==='wait'?' on':'')+'" onclick="yoSetFilter(\'wait\')">재단대기</button></div>';
-  var note='<div class="yo-note"><b>계획 요척(작지·원가)은 안 바뀌어요.</b> 실제요척 = 발주마다 <b>실제발주량 ÷ 재단장수</b>의 장수 가중평균 · <b>재단 기록 있는 발주만</b> 집계. 계획 대비 ±15% 넘으면 과다/여유로 표시해요.</div>';
+  var yb=window._yoBrand||'all';
+  var brandChips=(brandOrder.length>1)?('<div class="yo-ctrl yo-brands"><button class="yo-chip'+(yb==='all'?' on':'')+'" data-yb="all" onclick="yoSetBrand(\'all\')">전체 브랜드</button>'+brandOrder.map(function(b){return '<button class="yo-chip'+(yb===b?' on':'')+'" data-yb="'+esc(b)+'" onclick="yoSetBrand(this.getAttribute(\'data-yb\'))">'+esc(b)+' <span style="opacity:.55">'+byBrand[b].length+'</span></button>';}).join('')+'</div>'):'';
+  var note='<div class="yo-note"><b>계획 요척(작지·원가)은 안 바뀌어요.</b> 실요척 = <b>실제발주 ÷ 재단장수</b>(장당 실제 나간 원단, 장수 가중평균). 계획보다 <b>±15% 넘게 많이 나가면 「과다」</b>(원단 더 씀·요척 올려잡아야), <b>적게 나가면 「여유」</b>(줄여도 됨). 재단 기록 있는 발주만 집계.</div>';
 
-  el.innerHTML=css+'<div class="yo-wrap">'+strip+ctrl+cardsH+'<div id="yo-empty2" class="yo-empty" style="display:none">검색·필터에 맞는 아이템이 없어요.</div>'+note+'</div>';
+  el.innerHTML=css+'<div class="yo-wrap">'+strip+ctrl+brandChips+cardsH+'<div id="yo-empty2" class="yo-empty" style="display:none">검색·필터에 맞는 아이템이 없어요.</div>'+note+'</div>';
   yoFilterDom();
 }
 // ===== 재단 수량 계산기 (독립 탭 · 수동 입력 · 스크래치 도구, 저장 안 함) =====
