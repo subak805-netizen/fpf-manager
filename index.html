@@ -12857,7 +12857,7 @@ function yocheokHistory(itemId){
         var key=(m.name||'')+'|'+(m.part||'')+'|'+color;
         if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,rows:[],sumOrd:0,sumCut:0,sumOrdQty:0};order.push(key);}
         var g=groups[key];
-        g.rows.push({date:o.createdAt||'',ordered:ordered,cut:cut,ordQty:oq,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')});
+        g.rows.push({date:o.createdAt||'',oname:o.name||'',oid:o.id,ordered:ordered,cut:cut,ordQty:oq,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')});
         g.sumOrd+=ordered;g.sumCut+=cut;g.sumOrdQty+=oq;
       });
     });
@@ -12896,6 +12896,7 @@ var _YO_TH=0.15; // 계획 대비 ±15% 넘으면 과다/여유
 function _yoStat(plan,wAvg){ if(!(plan>0))return {k:'na',pct:null}; var r=(wAvg-plan)/plan; if(r>_YO_TH)return {k:'over',pct:r}; if(r<-_YO_TH)return {k:'under',pct:r}; return {k:'ok',pct:r}; }
 function yoSetFilter(f){ window._yoFilter=f; ['all','over','wait'].forEach(function(k){var b=document.getElementById('yo-f-'+k);if(b)b.className='yo-chip'+(k===f?' on':'');}); yoFilterDom(); }
 function yoSetBrand(b){ window._yoBrand=b; document.querySelectorAll('#yocheok-body .yo-brands .yo-chip').forEach(function(c){var v=c.getAttribute('data-yb'); c.className='yo-chip'+(v===b?' on':'');}); yoFilterDom(); }
+function yoToggleGrp(h){ var b=h.nextElementSibling; if(!b)return; var willOpen=(b.style.display==='none'); b.style.display=willOpen?'block':'none'; var c=h.querySelector('.yo-crt'); if(c)c.textContent=willOpen?'▾':'▸'; var gk=h.getAttribute('data-gk'); if(gk){window._yoGrpOpen=window._yoGrpOpen||{}; if(willOpen)window._yoGrpOpen[gk]=1; else delete window._yoGrpOpen[gk];} }
 function yoFilterDom(){
   var si=document.getElementById('yo-search'); var s=si?String(si.value||'').trim().toLowerCase():''; window._yoSearch=s;
   var f=window._yoFilter||'all', yb=window._yoBrand||'all';
@@ -12957,6 +12958,14 @@ function renderYocheokTab(){
     +'#yocheok-body .yo-sw{width:11px;height:11px;border:1px solid #0003;flex:0 0 auto}'
     +'#yocheok-body .yo-fn .pt{font-size:10.5px;font-weight:500;color:#9aa1ab}'
     +'#yocheok-body .yo-meta{font-size:10.5px;color:#9aa1ab;margin-top:2px}'
+    +'#yocheok-body .yo-grp-h{cursor:pointer;user-select:none}'
+    +'#yocheok-body .yo-grp-h:hover{background:#faf9f5}'
+    +'#yocheok-body .yo-crt{display:inline-block;width:12px;color:#9aa1ab;font-size:10px;margin-right:1px}'
+    +'#yocheok-body .yo-avg{font-size:8.5px;color:#9aa1ab;font-weight:700;margin-top:1px}'
+    +'#yocheok-body .yo-grp-b{background:#fbfaf7;border-top:1px solid #f1efe9}'
+    +'#yocheok-body .yo-or{padding-left:26px;background:#fbfaf7}'
+    +'#yocheok-body .yo-or .yo-fn{color:#4b5563}'
+    +'#yocheok-body .yo-or .yo-nums .r{font-size:12.5px}'
     +'#yocheok-body .yo-nums{flex:0 0 auto;text-align:right;white-space:nowrap;font-size:12px}'
     +'#yocheok-body .yo-nums .p{color:var(--t2,#6b7280)} #yocheok-body .yo-nums .a{color:#9aa1ab;margin:0 4px}'
     +'#yocheok-body .yo-nums .r{font-weight:800;color:#7c3aed;font-size:14px}'
@@ -13000,11 +13009,21 @@ function renderYocheokTab(){
       }).join('');
       return '<div class="yo-itc" data-yo-wait="1" data-yo-over="0" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+'<span class="rc" style="color:#8a919c;background:#f3f4f6;border-color:#e2e0d8">재단 입력 대기</span></div>'+fh+'</div>';
     }
-    var rows=cd.hist.map(function(g){ var st=g._st; var nOrd=g.rows.length; var needY=_yoR1((g.sumOrdQty||0)*(g.plan||0));
-      var meta=(g.color?esc(g.color)+' · ':'')+'오더 '+(g.sumOrdQty||0)+'장 · 실발주 '+_yoR1(g.sumOrd)+'y'+(needY>0?' (계획 '+needY+'y)':'')+' · 재단 '+g.sumCut+'장'+(nOrd>1?' · 발주 '+nOrd+'회':'');
-      return '<div class="yo-fr"><div class="yo-lead"><div class="yo-fn"><span class="yo-sw" style="background:'+hexOf(g.color)+'"></span>'+esc(g.fabName)+(g.part?'<span class="pt">· '+esc(g.part)+'</span>':'')+'</div><div class="yo-meta">'+meta+'</div></div>'
-        +'<div class="yo-nums"><span class="p">'+_yoR3(g.plan)+'</span><span class="a">→</span><span class="r">'+_yoR3(g.wAvg)+'</span></div>'
+    var rows=cd.hist.map(function(g){ var st=g._st; var nOrd=g.rows.length;
+      var gk=it.id+'|'+g.fabName+'|'+g.part+'|'+g.color; var gopen=!!(window._yoGrpOpen&&window._yoGrpOpen[gk]);
+      var hmeta=(g.color?esc(g.color)+' · ':'')+'발주 '+nOrd+'회 · 재단합 '+g.sumCut+'장 · 실발주합 '+_yoR1(g.sumOrd)+'y';
+      var head='<div class="yo-fr yo-grp-h" data-gk="'+esc(gk)+'" onclick="yoToggleGrp(this)"><div class="yo-lead"><div class="yo-fn"><span class="yo-crt">'+(gopen?'▾':'▸')+'</span><span class="yo-sw" style="background:'+hexOf(g.color)+'"></span>'+esc(g.fabName)+(g.part?'<span class="pt">· '+esc(g.part)+'</span>':'')+'</div><div class="yo-meta">'+hmeta+'</div></div>'
+        +'<div class="yo-nums"><span class="p">'+_yoR3(g.plan)+'</span><span class="a">→</span><span class="r">'+_yoR3(g.wAvg)+'</span><span class="yo-avg">평균</span></div>'
         +'<div class="yo-bd">'+badge(st)+'</div></div>';
+      var body=g.rows.map(function(r){ var rst=_yoStat(g.plan,r.realYo);
+        var dm=String(r.date||'').match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/); var dS=dm?(+dm[2]+'/'+(+dm[3])):'';
+        var lbl=(r.oname?esc(r.oname):'')||dS||'발주';
+        var rmeta='오더 '+(r.ordQty||0)+'장 · 실발주 '+_yoR1(r.ordered)+'y · 재단 '+r.cut+'장'+(dS&&r.oname?' · '+dS:'')+(r.override?' · 실발주입력':'');
+        return '<div class="yo-fr yo-or"><div class="yo-lead"><div class="yo-fn" style="font-size:12px">'+lbl+'</div><div class="yo-meta">'+rmeta+'</div></div>'
+          +'<div class="yo-nums"><span class="p">'+_yoR3(g.plan)+'</span><span class="a">→</span><span class="r">'+_yoR3(r.realYo)+'</span></div>'
+          +'<div class="yo-bd">'+badge(rst)+'</div></div>';
+      }).join('');
+      return '<div class="yo-grp">'+head+'<div class="yo-grp-b" style="display:'+(gopen?'block':'none')+'">'+body+'</div></div>';
     }).join('');
     var rc='발주 '+cd.hist.reduce(function(s,g){return s+g.rows.length;},0)+'회 집계';
     return '<div class="yo-itc" data-yo-wait="0" data-yo-over="'+(cd.over?'1':'0')+'" data-yo-search="'+esc(searchTxt)+'"><div class="yo-h"><span class="nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="cd">'+esc(it.code)+'</span>':'')+'<span class="rc">'+rc+'</span></div>'+rows+'</div>';
