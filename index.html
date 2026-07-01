@@ -6018,6 +6018,86 @@ function _pbGroupList(mats){
   return order.map(function(g){return {g:g,n:seen[g]};});
 }
 function pbJump(si,gi){var e=document.getElementById('pbgrp-'+si+'-'+gi);if(e)e.scrollIntoView({behavior:'smooth',block:'center'});}
+// ===== 가공처별 표준 가공비 (코팅·염색·로고 고정단가 기억) =====
+function getProcRates(factory){var pb=S.priceBook[factory];return (pb&&pb.procRates)||{};}
+function _pbLearnProcRate(factory,name,costType,perPcs,perLot){if(!factory||!name)return;var pb=getPB(factory);pb.procRates=pb.procRates||{};pb.procRates[name]={costType:costType||'perPcs',costPerPcs:+perPcs||0,costPerLot:+perLot||0};}
+function _allProcNames(){var s={};Object.values(S.priceBook||{}).forEach(function(pb){Object.keys((pb&&pb.procRates)||{}).forEach(function(n){s[n]=1;});});return Object.keys(s);}
+// ===== B: 단가장 부자재 상세 편집 (타입별 필드 + 가공비, 인라인 자동저장) =====
+function _pbdSec(t){return '<div style="font-size:11px;font-weight:800;color:#475569;margin:13px 0 7px;padding-top:11px;border-top:1px solid #eef1f4">'+t+'</div>';}
+function _pbdF(label,field,val,ph,type){var es=window._pbDetail;return '<div style="flex:1;min-width:100px"><label style="font-size:10px;color:#64748b;display:block;margin-bottom:3px">'+label+'</label><input '+(type==='number'?'type="number" min="0" ':'')+'value="'+esc(val==null?'':val)+'" placeholder="'+esc(ph||'')+'" onchange="pbDetailSet(\''+es.encSup+'\',\''+es.encKey+'\',\''+field+'\',this.value)" style="width:100%;border:1px solid #d8dde3;border-radius:7px;padding:7px 8px;font-size:12.5px;box-sizing:border-box"></div>';}
+function _pbdCostRow(sup,es,tc,i){
+  var nm=esc(tc.name||''),fac=esc(tc.factory||sup),amt=(tc.costType==='perLot'?tc.costPerLot:tc.costPerPcs)||0;
+  return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-top:6px">'
+    +'<input list="dl-procnames" value="'+nm+'" placeholder="가공이름(코팅·염색·로고)" onchange="pbDetailSetCost(\''+es.encSup+'\',\''+es.encKey+'\','+i+',\'name\',this.value)" style="flex:1.3;min-width:100px;border:1px solid #e0c98a;border-radius:6px;padding:6px 8px;font-size:12px">'
+    +'<input value="'+fac+'" placeholder="가공처" onchange="pbDetailSetCost(\''+es.encSup+'\',\''+es.encKey+'\','+i+',\'factory\',this.value)" list="dl-sup" style="flex:1;min-width:80px;border:1px solid #e0c98a;border-radius:6px;padding:6px 8px;font-size:12px">'
+    +'<select onchange="pbDetailSetCost(\''+es.encSup+'\',\''+es.encKey+'\','+i+',\'costType\',this.value)" style="border:1px solid #e0c98a;border-radius:6px;padding:6px;font-size:12px"><option value="perPcs"'+(tc.costType!=='perLot'?' selected':'')+'>개당</option><option value="perLot"'+(tc.costType==='perLot'?' selected':'')+'>한번에</option></select>'
+    +'<input type="number" min="0" value="'+amt+'" placeholder="금액" onchange="pbDetailSetCost(\''+es.encSup+'\',\''+es.encKey+'\','+i+',\''+(tc.costType==='perLot'?'costPerLot':'costPerPcs')+'\',this.value)" style="width:76px;border:1px solid #e0c98a;border-radius:6px;padding:6px 8px;font-size:12px">원'
+    +'<button class="btn s d" onclick="pbDetailDelCost(\''+es.encSup+'\',\''+es.encKey+'\','+i+')" style="padding:3px 7px;font-size:11px">삭제</button>'
+    +'</div>';
+}
+function _pbDetailBody(sup,key,m){
+  var es=window._pbDetail;var html='';var ot=m.orderType||'count';
+  if(ot==='zipper'){
+    html+=_pbdSec('지퍼 디테일')
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+_pbdF('사이즈','zipperSize',m.zipperSize,'예:5호')+_pbdF('기장','zipperLength',m.zipperLength,'예:18cm')+_pbdF('방향','zipperDirection',m.zipperDirection,'오픈/닫힘')+'</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:7px">'+_pbdF('이빨색','toothColor',m.toothColor,'')+_pbdF('슬라이더모델','sliderModel',m.sliderModel,'')+_pbdF('슬라이더색','sliderColor',m.sliderColor,'')+'</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:7px">'+_pbdF('슬라이더 단가(원)','sliderCost',m.sliderCost,'0','number')+_pbdF('로고 단가(원)','sliderLogoCost',m.sliderLogoCost,'0','number')+_pbdF('로고 내용','sliderLogoText',m.sliderLogoText,'각인 문구')+'</div>';
+  }else if(ot==='button'){
+    html+=_pbdSec('단추 디테일')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+_pbdF('스타일','buttonStyle',m.buttonStyle,'예:4구 무광 앤틱골드')+_pbdF('로고 내용','buttonLogoText',m.buttonLogoText,'각인/인쇄')+'</div>';
+  }
+  html+=_pbdSec('가공비 · 염색비 · 로고비 · 코팅비 <span style="font-weight:400;color:#94a3b8;font-size:10px">가공처에 기억 → 다른 부자재에도 자동</span>');
+  var tmpl=m.trimCostTemplate||[];
+  html+='<div id="pbd-costs">'+(tmpl.length?tmpl.map(function(tc,i){return _pbdCostRow(sup,es,tc,i);}).join(''):'<div style="font-size:11px;color:#94a3b8;padding:2px 0">아직 없어요 — ＋로 추가</div>')+'</div>';
+  html+='<button class="btn s" onclick="pbDetailAddCost(\''+es.encSup+'\',\''+es.encKey+'\')" style="margin-top:7px;background:#fef9c3;border-color:#fde68a;color:#854f0b;font-weight:700">＋ 가공비 추가</button>';
+  html+='<datalist id="dl-procnames">'+_allProcNames().map(function(n){return '<option value="'+esc(n)+'">';}).join('')+'</datalist>';
+  return html;
+}
+function openPbDetail(encSup,encKey){
+  var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var m=S.priceBook[sup]&&S.priceBook[sup].materials[key];if(!m){showToast('자재를 찾지 못했어요');return;}
+  window._pbDetail={encSup:encSup,encKey:encKey};
+  var ex=document.getElementById('pb-detail-ov');if(ex)ex.remove();
+  var ov=document.createElement('div');ov.id='pb-detail-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:100095;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:14px';
+  ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:600px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
+    +'<div style="display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid #e2e8f0"><b style="flex:1;font-size:15px">'+esc(m.name||'')+' <span style="font-size:11px;font-weight:700;color:#6d28d9;background:#ede9fe;padding:2px 7px;border-radius:5px">'+esc(_pbMatGroupLabel(m))+'</span></b><span onclick="var o=document.getElementById(\'pb-detail-ov\');if(o)o.remove()" style="cursor:pointer;font-size:20px;color:#6b7280">✕</span></div>'
+    +'<div id="pb-detail-body" style="overflow-y:auto;padding:14px 15px">'+_pbDetailBody(sup,key,m)+'</div>'
+    +'<div style="padding:11px 15px;border-top:1px solid #e2e8f0;text-align:right"><button class="btn p" onclick="var o=document.getElementById(\'pb-detail-ov\');if(o)o.remove();renderBookList()" style="font-size:13px">닫기 (자동저장됨)</button></div>'
+    +'</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov){ov.remove();renderBookList();}});
+}
+function pbDetailSet(encSup,encKey,field,val){
+  var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var m=S.priceBook[sup]&&S.priceBook[sup].materials[key];if(!m)return;
+  if(field==='sliderCost'||field==='sliderLogoCost')m[field]=+val||0; else m[field]=val;
+  m.lastUpdated=today();savePB();
+}
+function pbDetailAddCost(encSup,encKey){
+  var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var m=S.priceBook[sup]&&S.priceBook[sup].materials[key];if(!m)return;
+  m.trimCostTemplate=m.trimCostTemplate||[];
+  m.trimCostTemplate.push({name:'',factory:sup,costType:'perPcs',costPerPcs:0,costPerLot:0,dyeNote:''});
+  savePB();var b=document.getElementById('pb-detail-body');if(b)b.innerHTML=_pbDetailBody(sup,key,m);
+}
+function pbDetailDelCost(encSup,encKey,i){
+  var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var m=S.priceBook[sup]&&S.priceBook[sup].materials[key];if(!m||!m.trimCostTemplate)return;
+  m.trimCostTemplate.splice(i,1);savePB();var b=document.getElementById('pb-detail-body');if(b)b.innerHTML=_pbDetailBody(sup,key,m);
+}
+function pbDetailSetCost(encSup,encKey,i,field,val){
+  var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var m=S.priceBook[sup]&&S.priceBook[sup].materials[key];if(!m||!m.trimCostTemplate||!m.trimCostTemplate[i])return;
+  var tc=m.trimCostTemplate[i];
+  if(field==='costPerPcs'||field==='costPerLot')tc[field]=+val||0; else tc[field]=val;
+  if(field==='name'||field==='factory'){
+    var pr=getProcRates(tc.factory||sup)[tc.name];
+    if(pr&&!(+tc.costPerPcs>0)&&!(+tc.costPerLot>0)){tc.costType=pr.costType||'perPcs';tc.costPerPcs=+pr.costPerPcs||0;tc.costPerLot=+pr.costPerLot||0;}
+  }
+  if(field==='costPerPcs'||field==='costPerLot'||field==='costType'){ _pbLearnProcRate(tc.factory||sup,tc.name,tc.costType,tc.costPerPcs,tc.costPerLot); }
+  savePB();
+  if(field==='name'||field==='factory'){var b=document.getElementById('pb-detail-body');if(b)b.innerHTML=_pbDetailBody(sup,key,m);}
+}
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;
   const _scope=window._bookScope||'fabric';
@@ -6436,7 +6516,7 @@ function renderBookList(){
           <span class="muted" style="font-size:10px">${isKg?'원/kg':'원'}</span>
         </div></td>
         <td class="muted" id="pb-updated-${encodeURIComponent(s)}-${encodeURIComponent(key)}" style="font-size:11px">${m.lastUpdated||''}${(m.priceLog&&m.priceLog.length)?` <span onclick="pbShowPriceLog('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="cursor:pointer" title="단가 변경 이력 ${m.priceLog.length}건">이력</span>`:''}</td>
-        <td style="text-align:center;white-space:nowrap"><button class="btn s g" onclick="showPBUsage('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목을 쓰는 아이템 보기">보기</button><button class="btn s g" onclick="pbMergeMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="다른 소재와 합치기(병합)">병합</button><button class="btn s d g" onclick="deletePbMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목 삭제">🗑</button></td>
+        <td style="text-align:center;white-space:nowrap">${isFab?'':`<button class="btn s g" onclick="openPbDetail('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px;background:#eff6ff;border-color:#bfdbfe;color:#1e40af" title="지퍼 디테일·슬라이더 단가·가공비 등 상세 입력">상세</button>`}<button class="btn s g" onclick="showPBUsage('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목을 쓰는 아이템 보기">보기</button><button class="btn s g" onclick="pbMergeMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="다른 소재와 합치기(병합)">병합</button><button class="btn s d g" onclick="deletePbMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목 삭제">🗑</button></td>
       </tr>`;}).join('');})()}
       </tbody></table></div>
     </div>`:''}
