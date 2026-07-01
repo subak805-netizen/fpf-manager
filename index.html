@@ -10082,13 +10082,19 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
 var TC_MIN=30;
 // 컬러별 가공비(염색비 등) 적용 색수 = 연결 부자재 적용탭에서 '염색' 켠 컬러 (생지 제외).
 // 3단계 폴백으로 구데이터 보존: ①부자재 적용탭 염색컬러 ②가공비 자체 염색컬러 ③가공비 선택컬러 전체(기존)
+// 가공비 컬러 기준: 'dye'=염색 켠 색만(염색비) / 'all'=전체 적용컬러(로고·기타). 미지정이면 이름으로 자동(염색→dye, 그 외→all)
+function _tcColorBasis(tc){ if(tc&&(tc.colorBasis==='dye'||tc.colorBasis==='all'))return tc.colorBasis; var nm=((tc&&tc.name)||'').toLowerCase(); return (nm.indexOf('염색')>=0||nm.indexOf('dye')>=0)?'dye':'all'; }
 function tcEffColors(tc,trims,allColors){
   allColors=(allColors&&allColors.length)?allColors:[''];
-  var tr=(trims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});
-  if(tr&&tr.colorLinks&&tr.colorLinks.some(function(l){return l&&l.dye;}))
-    return allColors.filter(function(c){return tr.colorLinks.find(function(l){return l.itemColor===c&&l.dye;});});
-  if(tc.colorLinks&&tc.colorLinks.some(function(l){return l&&l.dye;}))
-    return allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c&&l.dye;});});
+  if(_tcColorBasis(tc)==='dye'){
+    var tr=(trims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});
+    if(tr&&tr.colorLinks&&tr.colorLinks.some(function(l){return l&&l.dye;}))
+      return allColors.filter(function(c){return tr.colorLinks.find(function(l){return l.itemColor===c&&l.dye;});});
+    if(tc.colorLinks&&tc.colorLinks.some(function(l){return l&&l.dye;}))
+      return allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c&&l.dye;});});
+    return allColors.slice(); // 염색 기준인데 염색 켠 색이 없으면 전체
+  }
+  // 전체 컬러 기준(로고 등): tc 컬러링크 있으면 그 컬러만, 없으면 전체
   var has=tc.colorLinks&&tc.colorLinks.length>0;
   return has?allColors.filter(function(c){return tc.colorLinks.find(function(l){return l.itemColor===c;});}):allColors.slice();
 }
@@ -10101,8 +10107,10 @@ function trimCostRowHTML(tc,i){
   const amtVal=(mode==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0);
   const modeLab=mode==='once'?'한번에':(mode==='perLot'?'컬러별':'개당');
   const c=_tcPer(tc,mode);
+  const _basis=_tcColorBasis(tc);
   const _effC=(mode==='perLot')?tcEffColors(tc,(typeof formTrims!=='undefined'?formTrims:[]),(typeof formColors!=='undefined'&&formColors.length?formColors:[''])):[];
-  const colorSec=(mode==='perLot')?`<div style="margin-top:7px;padding:8px 10px;background:#fae8ff;border:1px solid #f0abfc;border-radius:6px;font-size:11px;color:#86198f;line-height:1.5">적용 컬러 탭에서 <b>염색 켠 ${_effC.length}색</b>${_effC.length?` <span style="color:#a21caf">(${_effC.map(esc).join(' · ')})</span>`:''} 에 자동 적용<br><span style="color:#a21caf;opacity:.78">컬러·염색 여부·염색명은 「적용 컬러」 탭에서 정해요 (여긴 금액·업체만)</span></div>`:'';
+  const _basisBtns=`<div style="display:flex;gap:5px;margin-bottom:5px;align-items:center"><span style="font-weight:700">적용:</span><span onclick="setTcBasis(${i},'dye')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='dye'?'background:#a21caf;color:#fff':'background:#fff;color:#a21caf;border:1px solid #f0abfc'}">염색 켠 색만</span><span onclick="setTcBasis(${i},'all')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='all'?'background:#7c3aed;color:#fff':'background:#fff;color:#7c3aed;border:1px solid #ddd6fe'}">전체 컬러</span></div>`;
+  const colorSec=(mode==='perLot')?`<div style="margin-top:7px;padding:8px 10px;background:#fae8ff;border:1px solid #f0abfc;border-radius:6px;font-size:11px;color:#86198f;line-height:1.5">${_basisBtns}<b>${_basis==='dye'?'염색 켠':'전체'} ${_effC.length}색</b>${_effC.length?` <span style="color:#a21caf">(${_effC.map(esc).join(' · ')})</span>`:''} 에 적용<br><span style="color:#a21caf;opacity:.78">로고 등 염색과 무관하면 「전체 컬러」로 (컬러·염색여부는 「적용 컬러」 탭에서)</span></div>`:'';
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
     <input class="tcl-nm" data-f="name" list="dl-proc" value="${esc(tc.name||'')}" placeholder="예: 코팅, 염색, 로고" onchange="tcAutoFillRate(this)">
@@ -10127,6 +10135,8 @@ function cycleTcMode(i){
 // 금액 입력 시 원가 칩만 실시간 갱신(포커스 유지)
 function tclRecost(el){var row=el.closest('.tcl-row');if(!row)return;var i=+row.id.replace('tc-','');var tc=formTrimCosts[i];if(!tc)return;var mode=(row.querySelector('[data-f=costType]')||{}).value||'perPcs';var c=_tcPer(tc,mode);var chip=row.querySelector('.tcl-cost');if(chip)chip.innerHTML='원가 +'+num(c.per)+'원/장'+(c.sub?' <span class="tcl-sub">'+c.sub+'</span>':'');}
 function onTcTypeChange(i,val){cycleTcMode(i);}
+// 가공비 컬러 기준 토글 (염색 켠 색만 / 전체 컬러)
+function setTcBasis(i,b){colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;tc.colorBasis=b;renderTrimAndCosts();}
 
 function renderTrimCostRows(){const el=document.getElementById('tc-rows');if(!el)return;const list=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>!x.tc.trimId||!formTrims.find(t=>t.id===x.tc.trimId));el.innerHTML=list.length?list.map(x=>trimCostRowHTML(x.tc,x.i)).join(''):'<div class="muted" style="text-align:center;padding:.4rem;font-size:11px">부자재에 연결되지 않은 가공비 없음 — 각 부자재 카드의 ＋가공비로 추가하세요</div>';}
 function addTrimCostRow(){colTrimCosts();formTrimCosts.push({id:uid(),name:'',costType:'perPcs',costPerPcs:0,costPerLot:0,factory:'',colorLinks:[]});renderTrimCostRows();}
