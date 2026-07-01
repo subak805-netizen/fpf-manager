@@ -29995,6 +29995,24 @@ async function pcSaveVendors(v){
 }
 function pcGetActiveVendor(){ return localStorage.getItem('fpm_priceActiveVendor')||''; }
 function pcSetActiveVendor(v){ localStorage.setItem('fpm_priceActiveVendor',v); }
+// 업체 목록 병합(union, 중복제거) — 덮어쓰기 금지(로컬 추가분 보존)
+function pcMergeVendors(a,b){ var out=Array.isArray(a)?a.slice():[]; (Array.isArray(b)?b:[]).forEach(function(v){ if(out.indexOf(v)<0)out.push(v); }); return out; }
+// 히스토리 깊은 병합(업체→품목키→기록[]) — 기록은 date|price|addedAt 기준 dedup union
+function pcMergeHistory(a,b){
+  a=(a&&typeof a==='object')?a:{}; b=(b&&typeof b==='object')?b:{}; var out={};
+  var vs={}; Object.keys(a).forEach(function(v){vs[v]=1;}); Object.keys(b).forEach(function(v){vs[v]=1;});
+  Object.keys(vs).forEach(function(v){
+    out[v]={}; var av=a[v]||{}, bv=b[v]||{}, ks={};
+    Object.keys(av).forEach(function(k){ks[k]=1;}); Object.keys(bv).forEach(function(k){ks[k]=1;});
+    Object.keys(ks).forEach(function(k){
+      var recs=Array.isArray(av[k])?av[k].slice():[], seen={};
+      recs.forEach(function(r){ seen[(r.date||'')+'|'+r.price+'|'+(r.addedAt||'')]=1; });
+      (Array.isArray(bv[k])?bv[k]:[]).forEach(function(r){ var sig=(r.date||'')+'|'+r.price+'|'+(r.addedAt||''); if(!seen[sig]){ recs.push(r); seen[sig]=1; } });
+      out[v][k]=recs;
+    });
+  });
+  return out;
+}
 async function pcSyncFromCloud(showMsg){
   var el=document.getElementById('pricecompare-body');
   // Firebase 준비 안 됐으면 최대 5초 대기
@@ -30007,12 +30025,15 @@ async function pcSyncFromCloud(showMsg){
   try{
     var key=await cloudGet('fpm_claudeApiKey');
     if(key&&typeof key==='string'&&key.startsWith('sk-ant-')) localStorage.setItem('fpm_claudeApiKey',key);
-    var h=await cloudGet('fpm_priceHistory');
-    if(h&&typeof h==='object') localStorage.setItem('fpm_priceHistory',JSON.stringify(h));
-    var vs=await cloudGet('fpm_priceVendors');
-    if(Array.isArray(vs)) localStorage.setItem('fpm_priceVendors',JSON.stringify(vs));
-    if(showMsg)showToast('Firebase 동기화 완료');
-  }catch(e){ showToast('동기화 실패: '+e.message); }
+    // ★덮어쓰기 금지 — 로컬↔클라우드 병합 후 양쪽 반영(로컬 추가분이 안 지워지고 클라우드로도 전파)
+    var cloudV=await cloudGet('fpm_priceVendors'); var mergedV=pcMergeVendors(pcGetVendors(), cloudV);
+    var cloudH=await cloudGet('fpm_priceHistory'); var mergedH=pcMergeHistory(pcGetHistory(), cloudH);
+    localStorage.setItem('fpm_priceVendors',JSON.stringify(mergedV));
+    localStorage.setItem('fpm_priceHistory',JSON.stringify(mergedH));
+    if(JSON.stringify(mergedV)!==JSON.stringify(Array.isArray(cloudV)?cloudV:[])){ try{ await cloudSet('fpm_priceVendors',mergedV); }catch(e){} }
+    if(JSON.stringify(mergedH)!==JSON.stringify((cloudH&&typeof cloudH==='object')?cloudH:{})){ try{ await cloudSet('fpm_priceHistory',mergedH); }catch(e){} }
+    if(showMsg)showToast('Firebase 동기화 완료 (업체 '+mergedV.length+'개)');
+  }catch(e){ showToast('동기화 실패: '+(e&&e.message||e)); }
   renderPriceComparePane();
 }
 async function pcAddVendor(){ var nm=prompt('업체명을 입력하세요'); if(!nm||!nm.trim())return; var vs=pcGetVendors(); if(vs.indexOf(nm.trim())>=0){ showToast('이미 있는 업체예요'); return; } vs.push(nm.trim()); await pcSaveVendors(vs); pcSetActiveVendor(nm.trim()); renderPriceComparePane(); }
