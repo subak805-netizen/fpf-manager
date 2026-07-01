@@ -5793,6 +5793,25 @@ function _pbKindMatch(s,kind){
   return true;
 }
 function setBookKind(k){window._bookKind=k;renderBook();}
+// 단가장 거래처 안 자재를 유형(orderType)별로 묶기용 헬퍼
+var _PB_GRP_ORDER=['지퍼','단추','스냅','밴드','바이어스','롤','야드','실','개수','케어라벨','메인라벨','원단'];
+function _pbMatGroupLabel(m){ if(m&&m.type==='fabric')return '원단'; return (typeof _otLabel==='function'?_otLabel((m&&m.orderType)||'count'):((m&&m.orderType)||'개수')); }
+function _pbGroupSort(mats){
+  return mats.slice().sort(function(a,b){
+    var ga=_pbMatGroupLabel(a[1]),gb=_pbMatGroupLabel(b[1]);
+    var ia=_PB_GRP_ORDER.indexOf(ga),ib=_PB_GRP_ORDER.indexOf(gb);
+    if(ia<0)ia=900;if(ib<0)ib=900;
+    if(ia!==ib)return ia-ib;
+    if(ga!==gb)return ga<gb?-1:1;
+    return ((a[1].name||'')).localeCompare(b[1].name||'');
+  });
+}
+function _pbGroupList(mats){
+  var seen={},order=[];
+  _pbGroupSort(mats).forEach(function(p){var g=_pbMatGroupLabel(p[1]);if(seen[g]===undefined){seen[g]=0;order.push(g);}seen[g]++;});
+  return order.map(function(g){return {g:g,n:seen[g]};});
+}
+function pbJump(si,gi){var e=document.getElementById('pbgrp-'+si+'-'+gi);if(e)e.scrollIntoView({behavior:'smooth',block:'center'});}
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;
   if(window._bookView==null)window._bookView='list';
@@ -6179,8 +6198,9 @@ function renderBookList(){
     </div>
     ${mats.length?`<div>
       <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:5px">단가 수정 <span class="muted" style="font-weight:400">매장단가는 원가계산 / 네고가는 결제에 사용</span></div>
+      ${(function(){var _gl=_pbGroupList(mats);if(_gl.length<2)return '';return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">'+_gl.map(function(gr,gi){return '<span onclick="pbJump('+si+','+gi+')" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 10px;border-radius:14px;border:1.3px solid var(--br);background:var(--bg2);color:var(--t2)">'+esc(gr.g)+' <span style="opacity:.6;font-size:9.5px">'+gr.n+'</span></span>';}).join('')+'</div>';})()}
       <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>품목</th><th>색상</th><th>유형</th><th style="background:#FBF7EC">크기/규격</th><th style="background:#FBF7EC">롤당yard</th><th style="background:#f0fdf4">혼용률</th><th>매장단가 <span class="muted" style="font-weight:400;font-size:10px">(고정)</span></th><th>네고가 <span class="muted" style="font-weight:400;font-size:10px">(유동)</span></th><th>갱신일</th><th style="width:32px"></th></tr></thead><tbody>
-      ${mats.map(([key,m])=>{const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return`<tr>
+      ${(function(){var _gm=_pbGroupSort(mats);var _cnt={};_pbGroupList(mats).forEach(function(x){_cnt[x.g]=x.n;});var _multi=Object.keys(_cnt).length>1;var _pg=null,_gi=-1;return _gm.map(([key,m])=>{var _cg=_pbMatGroupLabel(m);var _hdr='';if(_cg!==_pg){_pg=_cg;_gi++;_hdr=_multi?('<tr id="pbgrp-'+si+'-'+_gi+'"><td colspan="10" style="padding:7px 8px 3px;background:#fafbfc;border-top:1px solid #eef1f4;font-weight:800;font-size:11.5px;color:#475569">'+esc(_cg)+' <span style="font-weight:600;color:#94a3b8;font-size:10px">'+(_cnt[_cg]||'')+'</span></td></tr>'):'';}const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return _hdr+`<tr>
         <td><input type="text" value="${esc(nm)}" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'name')" style="font-size:12px;width:100%;border:none;background:transparent;padding:3px 5px;border-radius:4px" onfocus="this.style.background='#fff8e1';this.style.border='1px solid #fde68a'" onblur="this.style.background='transparent';this.style.border='none'"></td>
         <td>${isFab?'<span class="muted" style="font-size:10px">-</span>':`<input type="text" value="${esc(cl)}" placeholder="색상" list="dl-clr" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'color')" style="font-size:11px;width:70px;padding:3px 5px">`}</td>
         <td>${isFab?(isKg?'<span class="badge b2">KG</span>':'<span class="badge b1">YARD</span>'):`<select onchange="updatePBOrderType('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value)" style="font-size:11px;padding:3px 5px"><option value="count"${m.orderType==='count'||!m.orderType?' selected':''}>개수</option><option value="yard"${m.orderType==='yard'?' selected':''}>야드</option><option value="roll"${m.orderType==='roll'?' selected':''}>롤</option><option value="thread"${m.orderType==='thread'?' selected':''}>실</option><option value="zipper"${m.orderType==='zipper'?' selected':''}>지퍼</option><option value="button"${m.orderType==='button'?' selected':''}>단추</option></select>`}</td>
@@ -6199,7 +6219,7 @@ function renderBookList(){
         </div></td>
         <td class="muted" id="pb-updated-${encodeURIComponent(s)}-${encodeURIComponent(key)}" style="font-size:11px">${m.lastUpdated||''}${(m.priceLog&&m.priceLog.length)?` <span onclick="pbShowPriceLog('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="cursor:pointer" title="단가 변경 이력 ${m.priceLog.length}건">이력</span>`:''}</td>
         <td style="text-align:center;white-space:nowrap"><button class="btn s g" onclick="showPBUsage('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목을 쓰는 아이템 보기">보기</button><button class="btn s g" onclick="pbMergeMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="다른 소재와 합치기(병합)">병합</button><button class="btn s d g" onclick="deletePbMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}')" style="padding:2px 6px;font-size:11px" title="이 품목 삭제">🗑</button></td>
-      </tr>`;}).join('')}
+      </tr>`;}).join('');})()}
       </tbody></table></div>
     </div>`:''}
     <div id="pb-addmat-${si}" style="display:none;margin-top:10px;padding:10px 12px;background:#f0fdf4;border:1.5px dashed #86efac;border-radius:8px">
