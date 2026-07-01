@@ -5753,6 +5753,93 @@ function pbShowDuplicates(){
     +dups.map(function(d){return '<div class="fb" style="padding:5px 0;border-top:1px dashed #fcd34d;font-size:12px"><div><b>'+esc(d.sup)+'</b> · '+esc(d.nm)+' <span class="muted">(색상없음 · 단가 '+num(d.price)+'원)</span> <span style="color:#92400e">↔ 색상버전: '+esc(d.colors)+'</span></div><button class="btn s d" style="padding:2px 8px;font-size:11px" onclick="deletePbMaterial(\''+encodeURIComponent(d.sup)+'\',\''+encodeURIComponent(d.key)+'\');setTimeout(pbShowDuplicates,150)">🗑 이 줄 삭제</button></div>';}).join('')
     +'</div>';
 }
+// ===== 중복 부자재 자동정리 (띄어쓰기·철자 변형까지 그룹핑 → 그룹당 한 번에) =====
+function _pbNorm(s){return (s==null?'':s).toString().toLowerCase().replace(/\s+/g,'');}
+function _pbMatUsage(sup,nm,cl){var c=0;Object.values(S.items||{}).forEach(function(it){(it.trims||[]).forEach(function(t){if(t.supplier===sup&&t.name===nm&&(t.color||'')===(cl||''))c++;});(it.fabrics||[]).forEach(function(f){if(f.supplier===sup&&f.name===nm)c++;});});return c;}
+// 같은 거래처 안에서 이름(공백·대소문자 무시)+색상+규격이 같은데 원문 표기만 다른 것 = 중복
+function pbFindDupGroups(){
+  var out=[];
+  Object.keys(S.priceBook||{}).forEach(function(sup){
+    var mats=(S.priceBook[sup]||{}).materials||{};var byKey={};
+    Object.keys(mats).forEach(function(k){
+      var m=mats[k];if(!m)return;
+      var nm=m.name||pbDecodeKey(k)[0]||'';if(!_pbNorm(nm))return;
+      var cl=m.color||pbDecodeKey(k)[1]||'';var sz=(m.size||m.width||pbDecodeKey(k)[2]||'');
+      var gk=sup+''+_pbNorm(nm)+''+_pbNorm(cl)+''+_pbNorm(sz);
+      (byKey[gk]=byKey[gk]||[]).push({k:k,m:m,nm:nm,cl:cl,sz:(sz||'').toString().trim()});
+    });
+    Object.keys(byKey).forEach(function(gk){
+      var arr=byKey[gk];if(arr.length<2)return;
+      arr.forEach(function(it){it.usage=_pbMatUsage(sup,it.nm,it.cl);it.price=it.m.unitPrice||it.m.pricePerKg||0;});
+      out.push({gk:gk,sup:sup,items:arr,type:_pbMatGroupLabel(arr[0].m)});
+    });
+  });
+  return out;
+}
+function _pbDefaultKeeperKey(g){var best=g.items.slice().sort(function(a,b){return (b.usage-a.usage)||((b.price>0?1:0)-(a.price>0?1:0))||(b.nm.length-a.nm.length);})[0];return best?best.k:null;}
+// 병합 코어 (확인창·저장·렌더 없이 데이터만) — 아이템 재연결+단가병합+DROP삭제, 이동된 아이템수 반환
+function _pbMergeApply(keepSup,keepKey,dropSup,dropKey){
+  var keepPB=S.priceBook[keepSup],dropPB=S.priceBook[dropSup];if(!keepPB||!dropPB)return 0;
+  var keepM=keepPB.materials[keepKey],dropM=dropPB.materials[dropKey];if(!keepM||!dropM)return 0;
+  if(keepSup===dropSup&&keepKey===dropKey)return 0;
+  var keepNm=keepM.name||pbDecodeKey(keepKey)[0],keepCl=keepM.color||pbDecodeKey(keepKey)[1]||'';
+  var dropNm=dropM.name||pbDecodeKey(dropKey)[0],dropCl=dropM.color||pbDecodeKey(dropKey)[1]||'';
+  ['unitPrice','pricePerKg','width','composition','yardsPerKg','yardsPerRoll','pricingUnit','orderType'].forEach(function(f){if((keepM[f]==null||keepM[f]==='')&&(dropM[f]!=null&&dropM[f]!==''))keepM[f]=dropM[f];});
+  if(dropM.priceLog&&dropM.priceLog.length){keepM.priceLog=((keepM.priceLog||[]).concat(dropM.priceLog)).sort(function(a,b){return (a.ts||0)-(b.ts||0);});}
+  if(keepSup===dropSup&&dropPB.colorPrices){keepPB.colorPrices=keepPB.colorPrices||{};Object.keys(dropPB.colorPrices).forEach(function(ck){var parts=ck.split('|');if(parts[0]===dropNm){parts[0]=keepNm;var nk=parts.join('|');if(!keepPB.colorPrices[nk])keepPB.colorPrices[nk]=dropPB.colorPrices[ck];}});}
+  var count=0;
+  Object.values(S.items||{}).forEach(function(it){(it.fabrics||[]).forEach(function(f){if(f.supplier===dropSup&&f.name===dropNm){f.supplier=keepSup;f.name=keepNm;count++;}});(it.trims||[]).forEach(function(t){if(t.supplier===dropSup&&t.name===dropNm&&(t.color||'')===dropCl){t.supplier=keepSup;t.name=keepNm;t.color=keepCl;count++;}});});
+  delete dropPB.materials[dropKey];
+  return count;
+}
+function pbDedupSetKeeper(encGk,encKey){window._pbDedupKeep=window._pbDedupKeep||{};window._pbDedupKeep[decodeURIComponent(encGk)]=decodeURIComponent(encKey);pbAutoDedup();}
+function _pbGroupKeeperKey(g){var kk=(window._pbDedupKeep||{})[g.gk];if(kk&&g.items.some(function(it){return it.k===kk;}))return kk;return _pbDefaultKeeperKey(g);}
+function pbMergeGroup(encGk){
+  var gk=decodeURIComponent(encGk);var g=pbFindDupGroups().find(function(x){return x.gk===gk;});if(!g){pbAutoDedup();return;}
+  var keepKey=_pbGroupKeeperKey(g);
+  try{pbBackupNow(true);}catch(e){}
+  var total=0,merged=0;
+  g.items.forEach(function(it){if(it.k===keepKey)return;total+=_pbMergeApply(g.sup,keepKey,g.sup,it.k);merged++;});
+  savePB();saveData();showToast('중복 '+merged+'건 합침'+(total?' ('+total+'개 아이템 이동)':''));
+  if(typeof renderBookList==='function')renderBookList();pbAutoDedup();
+}
+function pbMergeAllSafe(){
+  var groups=pbFindDupGroups();if(!groups.length){pbAutoDedup();return;}
+  if(!confirm('자동 감지된 중복 '+groups.length+'그룹을 각 대표로 합칩니다.\n합치기 전 단가장이 자동 백업돼요.\n\n계속할까요?'))return;
+  try{pbBackupNow(true);}catch(e){}
+  var gm=0,total=0;
+  groups.forEach(function(g){var keepKey=_pbGroupKeeperKey(g);g.items.forEach(function(it){if(it.k===keepKey)return;total+=_pbMergeApply(g.sup,keepKey,g.sup,it.k);});gm++;});
+  savePB();saveData();showToast(gm+'그룹 정리 완료'+(total?' ('+total+'개 아이템 이동)':''));
+  if(typeof renderBookList==='function')renderBookList();pbAutoDedup();
+}
+function pbAutoDedup(){
+  var box=document.getElementById('pb-dups');if(!box)return;
+  window._pbDedupKeep=window._pbDedupKeep||{};
+  var groups=pbFindDupGroups();
+  if(!groups.length){box.innerHTML='<div class="card" style="margin-bottom:10px;background:#ecfdf5;border:1px solid #a7f3d0;padding:10px 12px;font-size:12px;color:#065f46">띄어쓰기·철자 변형으로 중복된 부자재가 없어요.</div>';return;}
+  var html='<div class="card" style="margin-bottom:10px;padding:11px 13px">';
+  html+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><b style="font-size:13px;color:#92400e">자동 감지된 중복 '+groups.length+'그룹</b><button class="btn p" onclick="pbMergeAllSafe()" style="margin-left:auto;font-size:12px;background:#f59e0b;border-color:#f59e0b">전부 한 번에 합치기</button></div>';
+  html+=groups.map(function(g){
+    var keepKey=_pbGroupKeeperKey(g);var egk=encodeURIComponent(g.gk);
+    var rows=g.items.slice().sort(function(a,b){return (b.usage-a.usage)||(b.price-a.price);}).map(function(it){
+      var isK=it.k===keepKey;var ek=encodeURIComponent(it.k);
+      return '<div onclick="pbDedupSetKeeper(\''+egk+'\',\''+ek+'\')" style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid '+(isK?'#86efac':'#eef1f4')+';border-radius:8px;margin-top:6px;cursor:pointer;background:'+(isK?'#f0fdf4':'#fbfcfd')+'">'
+        +'<span style="width:15px;height:15px;border-radius:50%;flex-shrink:0;border:2px solid '+(isK?'#16a34a':'#cbd5e1')+';background:'+(isK?'radial-gradient(circle,#16a34a 42%,#fff 46%)':'#fff')+'"></span>'
+        +'<span style="font-weight:700;font-size:12.5px">'+esc(it.nm)+'</span>'
+        +((it.cl||it.sz)?'<span style="font-size:11px;color:#8a929c">'+esc([it.cl,it.sz].filter(Boolean).join(' · '))+'</span>':'')
+        +'<span style="font-size:10.5px;color:#475569;background:#eef2f7;padding:1px 7px;border-radius:10px">아이템 '+it.usage+'</span>'
+        +'<span style="margin-left:auto;font-weight:800;font-size:12px;color:'+(it.price>0?'#15803d':'#b91c1c')+'">'+num(it.price)+'원</span>'
+        +(isK?'<span style="font-size:9.5px;font-weight:800;color:#15803d;border:1px solid #86efac;border-radius:5px;padding:1px 6px;background:#fff;margin-left:2px">대표</span>':'')
+        +'</div>';
+    }).join('');
+    return '<div style="border-top:1px solid #f1f5f9;padding-top:10px;margin-top:10px">'
+      +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px"><span style="font-size:10.5px;font-weight:700;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;padding:2px 8px;border-radius:20px">'+esc(g.sup)+'</span><span style="font-size:10px;font-weight:800;color:#6d28d9;background:#ede9fe;padding:2px 7px;border-radius:5px">'+esc(g.type)+'</span><span style="font-size:11px;color:#b45309;font-weight:700">'+g.items.length+'개 변형</span>'
+      +'<button class="btn" onclick="pbMergeGroup(\''+egk+'\')" style="margin-left:auto;font-size:12px;background:#1f2328;color:#fff;border-color:#1f2328">합치기</button></div>'
+      +rows+'</div>';
+  }).join('');
+  html+='<div style="font-size:10.5px;color:#94a3b8;margin-top:10px">대표 = 제일 많이 쓰이고 단가 있는 것(기본). 다른 걸 대표로 하려면 그 줄을 누르세요. 합치기 전 단가장이 자동 백업됩니다.</div></div>';
+  box.innerHTML=html;
+}
 // ===== 단가장 단독 백업/되돌리기 (전체 데이터와 별개로 단가장만) =====
 function _pbBkLoad(){ try{ return lsGet('fpm_pbbk')||[]; }catch(e){ return []; } }
 function _pbBkSave(list){ try{ lsSet('fpm_pbbk',list); }catch(e){} }
@@ -5848,7 +5935,7 @@ function renderBook(){
   </div>`;
   const importBtn=`<button class="btn p" style="width:100%;margin-bottom:10px;background:#16a34a;border-color:#16a34a" onclick="openPBImport()">단가표 사진 → 일괄 가져오기</button>`;
   try{pbAutoBackup();}catch(e){}
-  el.innerHTML=_flTg+searchBox+'<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">백업/되돌리기</button><button class="btn s" onclick="pbShowDuplicates()" title="색상 유무로 중복된 줄 찾기">중복 줄 찾기</button><button class="btn s" onclick="pbNormalizeBuildings()" title="A·에이·에이동 → A동 형식으로 한 번에 통일">건물명 통일</button></div><div id="pb-dups"></div>'+importBtn+addForm+'<div id="book-list"></div>';
+  el.innerHTML=_flTg+searchBox+'<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">백업/되돌리기</button><button class="btn s" onclick="pbAutoDedup()" title="띄어쓰기·철자 변형까지 자동으로 묶어 그룹당 한 번에 합치기" style="background:#fffbeb;border-color:#fcd34d;color:#92400e">중복 자동정리</button><button class="btn s" onclick="pbNormalizeBuildings()" title="A·에이·에이동 → A동 형식으로 한 번에 통일">건물명 통일</button></div><div id="pb-dups"></div>'+importBtn+addForm+'<div id="book-list"></div>';
   renderBookList();
 }
 
