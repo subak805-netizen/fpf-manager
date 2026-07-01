@@ -191,6 +191,7 @@
         <input type="number" id="frame-size-val" min="30" max="300" step="1" value="100" style="width:50px;height:30px;padding:0 4px;border:1px solid var(--card-bd);border-radius:7px;font-size:12px;font-family:inherit;text-align:right;-moz-appearance:textfield"><span style="margin-left:-3px">%</span>
         <span id="frame-fit-hint" style="display:none;font-size:11px;color:var(--t3);margin-left:2px">모서리 드래그로 자유조절</span>
       </span>
+      <button class="btn" id="btn-frame-edit" title="프레임(대지) 편집 켜기/끄기 · 켤 때만 이동·크기조절돼요" style="display:none">프레임 편집</button>
       <button class="btn" id="btn-save">💾 작지에 저장</button>
       <button class="btn" id="btn-copy" title="고화질 이미지를 클립보드에 복사 — 어디든 바로 붙여넣기(Cmd/Ctrl+V)">이미지 복사</button>
       <button class="btn primary" id="btn-png">⬇ PNG 내보내기</button>
@@ -1924,7 +1925,7 @@ stage.on('touchmove',e=>{
 stage.on('touchend',()=>{ pinchDist=0; pinchC=null; try{ stage.draggable(tool==='select'); }catch(e){} });
 
 /* ---------- 작지 프레임 (가로/세로 구도 가이드 + 내보내기 크롭) ---------- */
-let frameMode='off', frameRect=null, frameScale=1.4, frameTr=null;   // 1.4 = 기본(=100% 표시)
+let frameMode='off', frameRect=null, frameScale=1.4, frameTr=null, frameEdit=false;   // 1.4 = 기본(=100% 표시) · frameEdit=일러 대지처럼 편집모드일 때만 이동·크기조절
 function setFrame(mode){
   frameMode=mode;
   const sel=document.getElementById('frame-sel'); if(sel)sel.value=mode;
@@ -1932,7 +1933,7 @@ function setFrame(mode){
   const szHint=document.getElementById('frame-fit-hint'); if(szHint)szHint.style.display=(mode==='fit')?'inline':'none';
   if(frameTr){frameTr.destroy();frameTr=null;}
   if(frameRect){frameRect.destroy();frameRect=null;}
-  if(mode==='off'){layer.batchDraw();return;}
+  if(mode==='off'){ frameEdit=false; var _fe=document.getElementById('btn-frame-edit'); if(_fe){_fe.style.display='none';_fe.classList.remove('active');} layer.batchDraw();return;}
   // 프레임 기준 = 화면에 그려진 내용물 전체(템플릿·이미지·그림). 비어 있으면 기본 박스.
   let b; const ab=layer.getClientRect({skipShadow:true});
   if(ab && ab.width>2 && ab.height>2){
@@ -1947,9 +1948,12 @@ function setFrame(mode){
   if(w/h<ar) w=h*ar; else h=w/ar;
   frameRect=new Konva.Rect({x:cx-w/2,y:cy-h/2,width:w,height:h,stroke:'#185FA5',strokeWidth:1.6,dash:[10,7],listening:false,cornerRadius:4});
   layer.add(frameRect);
-  if(mode==='fit'){
-    // 내용 맞춤: 비율 강제 없이 손으로 자유롭게 이동·크기조절
-    frameRect.listening(true); frameRect.draggable(true); frameRect.hitStrokeWidth(18);
+  // 프레임 편집 버튼 표시(프레임 켜졌을 때만) + 상태 반영
+  var feBtn=document.getElementById('btn-frame-edit'); if(feBtn){ feBtn.style.display=(mode==='off')?'none':'inline-flex'; feBtn.classList.toggle('active',frameEdit); }
+  var fhint=document.getElementById('frame-fit-hint'); if(fhint)fhint.style.display=frameEdit?'inline':'none';
+  if(frameEdit){
+    // 편집 모드일 때만: 손으로 자유롭게 이동·크기조절 (평소엔 안 잡힘 = 일러 대지)
+    frameRect.listening(true); frameRect.draggable(true); frameRect.hitStrokeWidth(18); frameRect.stroke('#D85A30');
     frameTr=new Konva.Transformer({nodes:[frameRect],rotateEnabled:false,keepRatio:false,ignoreStroke:true,
       enabledAnchors:['top-left','top-center','top-right','middle-left','middle-right','bottom-left','bottom-center','bottom-right'],
       anchorStroke:'#185FA5',anchorFill:'#fff',anchorSize:10,anchorCornerRadius:2,borderStroke:'#185FA5',borderDash:[4,4]});
@@ -1962,7 +1966,9 @@ function setFrame(mode){
   }
   layer.batchDraw();
 }
-document.getElementById('frame-sel').addEventListener('change',e=>setFrame(e.target.value));
+document.getElementById('frame-sel').addEventListener('change',e=>{ frameEdit=false; setFrame(e.target.value); });
+function toggleFrameEdit(){ if(frameMode==='off'){ hint('먼저 프레임을 켜세요'); setTimeout(function(){hint('');},1400); return; } frameEdit=!frameEdit; setFrame(frameMode); hint(frameEdit?'프레임 편집 ON · 모서리로 크기조절·가운데로 이동 (끝나면 다시 눌러 끄기)':'프레임 편집 OFF · 이제 프레임이 안 잡혀요'); setTimeout(function(){hint('');},2200); }
+document.getElementById('btn-frame-edit').addEventListener('click',toggleFrameEdit);
 document.getElementById('btn-mirror').addEventListener('click',toggleMirror);
 document.getElementById('btn-snap').addEventListener('click',toggleSnap);
 document.getElementById('btn-grid').addEventListener('click',toggleGrid);
