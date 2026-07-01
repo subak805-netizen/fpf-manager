@@ -9419,6 +9419,110 @@ function renderTrimRows(){const el=document.getElementById('trim-rows');if(!el)r
   el.innerHTML = basics.length ? basics.map(x=>{const badge=_pbTrimBadge(x.t,x.i);return _injectPbBadge(trimRowHTML(x.t,x.i),badge,x.i)+(_trimHasCostTab(x.t)?'':inlineTrimCostsHTML(x.t));}).join('') : '<div class="muted" style="text-align:center;padding:.5rem">부자재 없음</div>';
   const labelEl=document.getElementById('label-trim-rows');
   if(labelEl) labelEl.innerHTML = labels.length ? labels.map(x=>_injectPbBadge(trimRowHTML(x.t,x.i),_pbTrimBadge(x.t,x.i),x.i)+(_trimHasCostTab(x.t)?'':inlineTrimCostsHTML(x.t))).join('') : '<div class="muted" style="font-size:11px;padding:6px 4px">라벨 없음 — 아래 버튼으로 추가</div>';
+  if(typeof _lockTrimNames==='function')_lockTrimNames();
+}
+// ===== 부자재 이름 = 단가장 선택 전용 (자유입력 금지, 원단은 제외) =====
+// 렌더 후 #trim-rows의 부자재명 칸을 잠그고(클릭=단가장 검색), 새 이름은 단가장에서만
+function _lockTrimNames(){
+  var root=document.getElementById('trim-rows');if(!root)return;
+  root.querySelectorAll('[id^=tr-]').forEach(function(row){
+    var nameInput=row.querySelector('input[data-f=name]');
+    if(!nameInput)return; // 바이어스 등 name칸 없는 카드는 자동 제외
+    nameInput.readOnly=true;
+    nameInput.removeAttribute('list'); // datalist 자유입력 제거
+    nameInput.style.cursor='pointer';
+    nameInput.style.background=nameInput.value?'#eef7ff':'#f6f8fa';
+    if(!nameInput.value)nameInput.placeholder='단가장에서 선택';
+    nameInput.title='단가장에서 선택 (직접 입력 불가 — 새 부자재는 단가장에서 추가)';
+    if(nameInput.getAttribute('data-pick')!=='1'){
+      nameInput.setAttribute('data-pick','1');
+      nameInput.addEventListener('mousedown',function(ev){ev.preventDefault();openTrimPicker(row.id);});
+      nameInput.addEventListener('keydown',function(ev){ev.preventDefault();openTrimPicker(row.id);});
+    }
+  });
+}
+function openTrimPicker(rowId){
+  var row=document.getElementById(rowId);if(!row)return;
+  window._trimPickRow=rowId;
+  window._trimPickOT=(row.querySelector('[data-f=orderType]')||{}).value||'';
+  var ex=document.getElementById('trim-pick-ov');if(ex)ex.remove();
+  var ov=document.createElement('div');ov.id='trim-pick-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:100090;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center';
+  ov.innerHTML='<div style="background:#fff;border-radius:14px 14px 0 0;max-width:560px;width:100%;max-height:84vh;display:flex;flex-direction:column;box-shadow:0 -8px 30px rgba(0,0,0,.25)">'
+    +'<div style="display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid #e2e8f0"><b style="flex:1;font-size:15px">단가장에서 부자재 불러오기</b><span onclick="closeTrimPicker()" style="cursor:pointer;font-size:20px;color:#6b7280;padding:0 4px">✕</span></div>'
+    +'<div style="padding:11px 15px 8px"><input id="trim-pick-q" placeholder="부자재명·부자재처로 검색" oninput="_renderTrimPick()" autocomplete="off" style="width:100%;padding:9px 11px;font-size:14px;border:1.5px solid #cdd8e6;border-radius:9px;box-sizing:border-box"></div>'
+    +'<div id="trim-pick-list" style="overflow-y:auto;flex:1;border-top:1px solid #eef1f4"></div>'
+    +'<div id="trim-pick-add" style="padding:11px 15px;border-top:1px solid #e2e8f0;background:#f8fafc"></div></div>';
+  ov.addEventListener('click',function(e){if(e.target===ov)closeTrimPicker();});
+  document.body.appendChild(ov);
+  _renderTrimPick();
+  var qi=document.getElementById('trim-pick-q');if(qi)qi.focus();
+}
+function closeTrimPicker(){var ov=document.getElementById('trim-pick-ov');if(ov)ov.remove();}
+function _renderTrimPick(){
+  var list=document.getElementById('trim-pick-list');if(!list)return;
+  var q=_pbNorm((document.getElementById('trim-pick-q')||{}).value||'');
+  var ot=window._trimPickOT||'';
+  var all=[];
+  Object.keys(S.priceBook||{}).forEach(function(sup){
+    var mats=(S.priceBook[sup]||{}).materials||{};
+    Object.keys(mats).forEach(function(k){
+      var m=mats[k];if(!m||m.type==='fabric')return;
+      var nm=m.name||pbDecodeKey(k)[0]||'';if(!nm)return;
+      var cl=m.color||pbDecodeKey(k)[1]||'';var sz=(m.size||m.width||pbDecodeKey(k)[2]||'').toString().trim();
+      if(q&&_pbNorm(nm+sup+cl+sz).indexOf(q)<0)return;
+      all.push({sup:sup,k:k,nm:nm,cl:cl,sz:sz,price:m.unitPrice||m.pricePerKg||0,ot:m.orderType||'count'});
+    });
+  });
+  all.sort(function(a,b){var am=(a.ot===ot?0:1),bm=(b.ot===ot?0:1);return (am-bm)||(a.nm<b.nm?-1:a.nm>b.nm?1:0);});
+  if(!all.length){list.innerHTML='<div style="padding:22px 15px;text-align:center;color:#94a3b8;font-size:13px">검색 결과 없음 — 아래에서 단가장에 새로 추가하세요</div>';}
+  else{list.innerHTML=all.slice(0,300).map(function(o){
+    return '<div onclick="_trimPickApply(\''+encodeURIComponent(o.sup)+'\',\''+encodeURIComponent(o.k)+'\')" style="display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid #f3f5f7;cursor:pointer">'
+      +'<span style="font-weight:700;font-size:13.5px">'+esc(o.nm)+'</span>'
+      +'<span style="font-size:10px;font-weight:800;color:#6d28d9;background:#ede9fe;padding:1px 6px;border-radius:5px">'+esc(_otLabel(o.ot))+'</span>'
+      +((o.cl||o.sz)?'<span style="font-size:11px;color:#8a929c">'+esc([o.cl,o.sz].filter(Boolean).join(' · '))+'</span>':'')
+      +'<span style="font-size:11px;color:#64748b">'+esc(o.sup)+'</span>'
+      +'<span style="margin-left:auto;font-weight:800;font-size:12.5px;color:'+(o.price>0?'#15803d':'#b91c1c')+'">'+num(o.price)+'원</span></div>';
+  }).join('');}
+  var addbox=document.getElementById('trim-pick-add');
+  if(addbox){
+    var r2=document.getElementById(window._trimPickRow||'');
+    var curSup=r2?((r2.querySelector('[data-f=supplier]')||{}).value||'').trim():'';
+    var defSup=(document.getElementById('f-defaultsup')||{}).value||'';
+    var useSup=curSup||defSup||'';
+    addbox.innerHTML='<div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:6px">여기 없으면 단가장에 새로 추가</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+      +'<input id="trim-pick-new-sup" placeholder="부자재처" value="'+esc(useSup)+'" style="flex:1;min-width:88px;padding:7px 9px;font-size:12.5px;border:1px solid #d8dde3;border-radius:7px">'
+      +'<input id="trim-pick-new-nm" placeholder="부자재명" style="flex:1.4;min-width:104px;padding:7px 9px;font-size:12.5px;border:1px solid #d8dde3;border-radius:7px" onkeydown="if(event.key===\'Enter\')_trimPickAddNew()">'
+      +'<input id="trim-pick-new-pr" type="number" min="0" placeholder="단가" style="width:74px;padding:7px 9px;font-size:12.5px;border:1px solid #d8dde3;border-radius:7px" onkeydown="if(event.key===\'Enter\')_trimPickAddNew()">'
+      +'<button class="btn p" onclick="_trimPickAddNew()" style="padding:7px 13px;font-size:12.5px">추가+선택</button></div>';
+  }
+}
+function _trimPickApply(encSup,encKey){
+  var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var row=document.getElementById(window._trimPickRow||'');if(!row){closeTrimPicker();return;}
+  var m=(S.priceBook[sup]||{}).materials[key];if(!m){closeTrimPicker();return;}
+  var nm=m.name||pbDecodeKey(key)[0]||'';
+  var nameInput=row.querySelector('input[data-f=name]');
+  var supInput=row.querySelector('[data-f=supplier]');
+  if(supInput)supInput.value=sup;
+  if(nameInput){nameInput.value=nm;nameInput.style.background='#eef7ff';nameInput.placeholder='';}
+  if(typeof autofillTrim==='function')autofillTrim(row);
+  if(typeof scheduleDraft==='function')scheduleDraft();
+  closeTrimPicker();
+  if(typeof showToast==='function')showToast(nm+' 불러옴');
+}
+function _trimPickAddNew(){
+  var sup=((document.getElementById('trim-pick-new-sup')||{}).value||'').trim();
+  var nm=((document.getElementById('trim-pick-new-nm')||{}).value||'').trim();
+  var pr=+((document.getElementById('trim-pick-new-pr')||{}).value)||0;
+  if(!sup){showToast('부자재처를 입력하세요');return;}
+  if(!nm){showToast('부자재명을 입력하세요');return;}
+  var ot=window._trimPickOT||'count';
+  var pb=getPB(sup);var key=pbKey(nm,'','');
+  if(!pb.materials[key]){pb.materials[key]={type:'trim',name:nm,color:'',size:'',unitPrice:pr,orderType:ot,lastUpdated:today()};savePB();}
+  else if(pr>0&&!(pb.materials[key].unitPrice>0)){pb.materials[key].unitPrice=pr;savePB();}
+  _trimPickApply(encodeURIComponent(sup),encodeURIComponent(key));
 }
 // 단가장 배지 주입 — 새 카드(class="del")·옛 카드(btn s d g) 🗑 버튼 둘 다 대응
 function _injectPbBadge(html,badge,i){
