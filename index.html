@@ -5797,6 +5797,29 @@ function pbFindDupGroups(){
   });
   return out;
 }
+// 확인필요 그룹 — 같은 거래처+같은 이름인데 규격·색상이 다른 것(자동합치기 대상 아님, 수동 확인용). 규격별 대표 1개씩.
+function pbFindReviewGroups(){
+  var out=[];
+  Object.keys(S.priceBook||{}).forEach(function(sup){
+    var mats=(S.priceBook[sup]||{}).materials||{};var byName={};
+    Object.keys(mats).forEach(function(k){
+      var m=mats[k];if(!m)return;
+      var nm=m.name||pbDecodeKey(k)[0]||'';if(!_pbNorm(nm))return;
+      var cl=m.color||pbDecodeKey(k)[1]||'';var sz=(m.size||m.width||pbDecodeKey(k)[2]||'');
+      var nk=_pbNorm(nm);var spec=_pbNorm(cl)+'|'+_pbNorm(sz);
+      byName[nk]=byName[nk]||{specs:{}};(byName[nk].specs[spec]=byName[nk].specs[spec]||[]).push(k);
+    });
+    Object.keys(byName).forEach(function(nk){
+      var specs=byName[nk].specs;var specKeys=Object.keys(specs);if(specKeys.length<2)return; // 규격 2개 이상일 때만
+      var reps=specKeys.map(function(sp){
+        var arr=specs[sp].map(function(k){var m=mats[k];var nm=m.name||pbDecodeKey(k)[0]||'';var cl=m.color||pbDecodeKey(k)[1]||'';var sz=(m.size||m.width||pbDecodeKey(k)[2]||'').toString().trim();return {k:k,m:m,nm:nm,cl:cl,sz:sz,usage:_pbMatUsage(sup,nm,cl),price:m.unitPrice||m.pricePerKg||0};});
+        arr.sort(function(a,b){return (b.usage-a.usage)||(b.price-a.price);});return arr[0];
+      });
+      out.push({gk:'REV|'+sup+'|'+nk,sup:sup,items:reps,type:_pbMatGroupLabel(reps[0].m),review:true});
+    });
+  });
+  return out;
+}
 function _pbDefaultKeeperKey(g){var best=g.items.slice().sort(function(a,b){return (b.usage-a.usage)||((b.price>0?1:0)-(a.price>0?1:0))||(b.nm.length-a.nm.length);})[0];return best?best.k:null;}
 // 병합 코어 (확인창·저장·렌더 없이 데이터만) — 아이템 재연결+단가병합+DROP삭제, 이동된 아이템수 반환
 function _pbMergeApply(keepSup,keepKey,dropSup,dropKey){
@@ -5816,7 +5839,8 @@ function _pbMergeApply(keepSup,keepKey,dropSup,dropKey){
 function pbDedupSetKeeper(encGk,encKey){window._pbDedupKeep=window._pbDedupKeep||{};window._pbDedupKeep[decodeURIComponent(encGk)]=decodeURIComponent(encKey);pbAutoDedup();}
 function _pbGroupKeeperKey(g){var kk=(window._pbDedupKeep||{})[g.gk];if(kk&&g.items.some(function(it){return it.k===kk;}))return kk;return _pbDefaultKeeperKey(g);}
 function pbMergeGroup(encGk){
-  var gk=decodeURIComponent(encGk);var g=pbFindDupGroups().find(function(x){return x.gk===gk;});if(!g){pbAutoDedup();return;}
+  var gk=decodeURIComponent(encGk);var g=pbFindDupGroups().find(function(x){return x.gk===gk;})||pbFindReviewGroups().find(function(x){return x.gk===gk;});if(!g){pbAutoDedup();return;}
+  if(g.review&&!confirm('이 그룹은 규격·색상이 달라요(확인필요). 정말 같은 부자재로 합칠까요?'))return;
   var keepKey=_pbGroupKeeperKey(g);
   try{pbBackupNow(true);}catch(e){}
   var total=0,merged=0;
@@ -5833,31 +5857,37 @@ function pbMergeAllSafe(){
   savePB();saveData();showToast(gm+'그룹 정리 완료'+(total?' ('+total+'개 아이템 이동)':''));
   if(typeof renderBookList==='function')renderBookList();pbAutoDedup();
 }
+function _pbDedupGroupHTML(g){
+  var isReview=!!g.review;var keepKey=_pbGroupKeeperKey(g);var egk=encodeURIComponent(g.gk);
+  var rows=g.items.slice().sort(function(a,b){return (b.usage-a.usage)||(b.price-a.price);}).map(function(it){
+    var isK=it.k===keepKey;var ek=encodeURIComponent(it.k);
+    return '<div onclick="pbDedupSetKeeper(\''+egk+'\',\''+ek+'\')" style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid '+(isK?'#86efac':'#eef1f4')+';border-radius:8px;margin-top:6px;cursor:pointer;background:'+(isK?'#f0fdf4':'#fbfcfd')+'">'
+      +'<span style="width:15px;height:15px;border-radius:50%;flex-shrink:0;border:2px solid '+(isK?'#16a34a':'#cbd5e1')+';background:'+(isK?'radial-gradient(circle,#16a34a 42%,#fff 46%)':'#fff')+'"></span>'
+      +'<span style="font-weight:700;font-size:12.5px">'+esc(it.nm)+'</span>'
+      +((it.cl||it.sz)?'<span style="font-size:11px;color:#8a929c">'+esc([it.cl,it.sz].filter(Boolean).join(' · '))+'</span>':'')
+      +'<span style="font-size:10.5px;color:#475569;background:#eef2f7;padding:1px 7px;border-radius:10px">아이템 '+it.usage+'</span>'
+      +'<span style="margin-left:auto;font-weight:800;font-size:12px;color:'+(it.price>0?'#15803d':'#b91c1c')+'">'+num(it.price)+'원</span>'
+      +(isK?'<span style="font-size:9.5px;font-weight:800;color:#15803d;border:1px solid #86efac;border-radius:5px;padding:1px 6px;background:#fff;margin-left:2px">대표</span>':'')
+      +'</div>';
+  }).join('');
+  var head='<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px"><span style="font-size:10.5px;font-weight:700;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;padding:2px 8px;border-radius:20px">'+esc(g.sup)+'</span><span style="font-size:10px;font-weight:800;color:#6d28d9;background:#ede9fe;padding:2px 7px;border-radius:5px">'+esc(g.type)+'</span><span style="font-size:11px;color:#b45309;font-weight:700">'+g.items.length+'개 변형'+(isReview?' · 확인필요':'')+'</span>'
+    +'<button class="btn" onclick="pbMergeGroup(\''+egk+'\')" style="margin-left:auto;font-size:12px;background:'+(isReview?'#64748b':'#1f2328')+';color:#fff;border-color:'+(isReview?'#64748b':'#1f2328')+'">합치기</button></div>';
+  var warn=isReview?'<div style="font-size:10.5px;color:#b45309;margin-top:5px">규격·색상이 달라서 자동합치기 대상은 아님 — 정말 같은 거면 위에서 대표 고르고 합치세요.</div>':'';
+  return '<div style="border-top:1px solid #f1f5f9;padding-top:10px;margin-top:10px'+(isReview?';opacity:.9':'')+'">'+head+rows+warn+'</div>';
+}
 function pbAutoDedup(){
   var box=document.getElementById('pb-dups');if(!box)return;
   window._pbDedupKeep=window._pbDedupKeep||{};
-  var groups=pbFindDupGroups();
-  if(!groups.length){box.innerHTML='<div class="card" style="margin-bottom:10px;background:#ecfdf5;border:1px solid #a7f3d0;padding:10px 12px;font-size:12px;color:#065f46">띄어쓰기·철자 변형으로 중복된 부자재가 없어요.</div>';return;}
+  var groups=pbFindDupGroups();var reviews=pbFindReviewGroups();
+  if(!groups.length&&!reviews.length){box.innerHTML='<div class="card" style="margin-bottom:10px;background:#ecfdf5;border:1px solid #a7f3d0;padding:10px 12px;font-size:12px;color:#065f46">중복·확인필요 부자재가 없어요.</div>';return;}
   var html='<div class="card" style="margin-bottom:10px;padding:11px 13px">';
-  html+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><b style="font-size:13px;color:#92400e">자동 감지된 중복 '+groups.length+'그룹</b><button class="btn p" onclick="pbMergeAllSafe()" style="margin-left:auto;font-size:12px;background:#f59e0b;border-color:#f59e0b">전부 한 번에 합치기</button></div>';
-  html+=groups.map(function(g){
-    var keepKey=_pbGroupKeeperKey(g);var egk=encodeURIComponent(g.gk);
-    var rows=g.items.slice().sort(function(a,b){return (b.usage-a.usage)||(b.price-a.price);}).map(function(it){
-      var isK=it.k===keepKey;var ek=encodeURIComponent(it.k);
-      return '<div onclick="pbDedupSetKeeper(\''+egk+'\',\''+ek+'\')" style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid '+(isK?'#86efac':'#eef1f4')+';border-radius:8px;margin-top:6px;cursor:pointer;background:'+(isK?'#f0fdf4':'#fbfcfd')+'">'
-        +'<span style="width:15px;height:15px;border-radius:50%;flex-shrink:0;border:2px solid '+(isK?'#16a34a':'#cbd5e1')+';background:'+(isK?'radial-gradient(circle,#16a34a 42%,#fff 46%)':'#fff')+'"></span>'
-        +'<span style="font-weight:700;font-size:12.5px">'+esc(it.nm)+'</span>'
-        +((it.cl||it.sz)?'<span style="font-size:11px;color:#8a929c">'+esc([it.cl,it.sz].filter(Boolean).join(' · '))+'</span>':'')
-        +'<span style="font-size:10.5px;color:#475569;background:#eef2f7;padding:1px 7px;border-radius:10px">아이템 '+it.usage+'</span>'
-        +'<span style="margin-left:auto;font-weight:800;font-size:12px;color:'+(it.price>0?'#15803d':'#b91c1c')+'">'+num(it.price)+'원</span>'
-        +(isK?'<span style="font-size:9.5px;font-weight:800;color:#15803d;border:1px solid #86efac;border-radius:5px;padding:1px 6px;background:#fff;margin-left:2px">대표</span>':'')
-        +'</div>';
-    }).join('');
-    return '<div style="border-top:1px solid #f1f5f9;padding-top:10px;margin-top:10px">'
-      +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:2px"><span style="font-size:10.5px;font-weight:700;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;padding:2px 8px;border-radius:20px">'+esc(g.sup)+'</span><span style="font-size:10px;font-weight:800;color:#6d28d9;background:#ede9fe;padding:2px 7px;border-radius:5px">'+esc(g.type)+'</span><span style="font-size:11px;color:#b45309;font-weight:700">'+g.items.length+'개 변형</span>'
-      +'<button class="btn" onclick="pbMergeGroup(\''+egk+'\')" style="margin-left:auto;font-size:12px;background:#1f2328;color:#fff;border-color:#1f2328">합치기</button></div>'
-      +rows+'</div>';
-  }).join('');
+  html+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><b style="font-size:13px;color:#92400e">자동 감지된 중복 '+groups.length+'그룹</b>'+(groups.length?'<button class="btn p" onclick="pbMergeAllSafe()" style="margin-left:auto;font-size:12px;background:#f59e0b;border-color:#f59e0b">안전한 '+groups.length+'건 한 번에 합치기</button>':'')+'</div>';
+  if(groups.length)html+=groups.map(_pbDedupGroupHTML).join('');
+  else html+='<div style="font-size:11.5px;color:#16a34a;padding:4px 0">띄어쓰기·철자만 다른 확실한 중복은 없어요.</div>';
+  if(reviews.length){
+    html+='<div style="margin-top:14px;padding-top:10px;border-top:2px dashed #fcd34d;font-size:12px;font-weight:800;color:#b45309">확인필요 '+reviews.length+'그룹 <span style="font-weight:400;font-size:10.5px;color:#94a3b8">— 이름은 같은데 규격·색상이 달라요 (자동 대상 아님)</span></div>';
+    html+=reviews.map(_pbDedupGroupHTML).join('');
+  }
   html+='<div style="font-size:10.5px;color:#94a3b8;margin-top:10px">대표 = 제일 많이 쓰이고 단가 있는 것(기본). 다른 걸 대표로 하려면 그 줄을 누르세요. 합치기 전 단가장이 자동 백업됩니다.</div></div>';
   box.innerHTML=html;
 }
