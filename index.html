@@ -20277,6 +20277,7 @@ function clQuickBtn(){
 function clDel(id){var cl=clEnsure();var i=cl.entries.findIndex(function(e){return e.id===id;});if(i<0)return;var e=cl.entries[i];if(!confirm('"'+(e.name||'')+'" 항목을 삭제할까요?'))return;cl.entries.splice(i,1);saveData();renderCourierLedger();}
 function clSettle(brandId,val){var cl=clEnsure();var t=(typeof todayISO==='function'?todayISO():'');cl.entries.forEach(function(e){if((e.brandId||'')===(brandId||'')&&_clPeriodOk(e.date)){e.settled=!!val;if(val)e.settledAt=t;}});saveData();renderCourierLedger();showToast(val?'정산 완료로 표시했어요':'정산 취소했어요');}
 
+function _clBrandDone(id){ var rows=_clRows(id); return rows.length>0&&rows.every(function(e){return e.settled;}); }
 function renderCourierLedger(){
   var box=document.getElementById('courier-body')||document.getElementById('pay-content'); if(!box)return;
   var cl=clEnsure(); _tlEnsureStyle(); _clEnsureStyle();
@@ -20306,13 +20307,15 @@ function renderCourierLedger(){
   var mList=Object.keys(months).sort().reverse();
   var bIds=_clBrandIdsWithEntries();
   html+='<div class="cl-flt"><div class="cl-bflt"><span class="tl-btn'+(window._clFltBrand==='ALL'?' pri':'')+'" onclick="clSetFlt(\'ALL\')">전체</span>';
+  var _doneCnt=bIds.filter(function(id){return _clBrandDone(id);}).length;
+  html+='<span class="tl-btn'+(window._clFltBrand==='DONE'?' pri':'')+'" onclick="clSetFlt(\'DONE\')">완료'+(_doneCnt?' '+_doneCnt:'')+'</span>';
   bIds.forEach(function(id){var key=id||'__none';var cnt=_clRows(id).length;html+='<span class="tl-btn'+(window._clFltBrand===key?' pri':'')+'" onclick="clSetFlt(\''+key+'\')">'+esc(id?_clBrandName(id):'미지정')+(cnt?' '+cnt:'')+'</span>';});
   html+='</div><select class="cl-period" onchange="window._clPeriod=this.value;renderCourierLedger()"><option value="">전체 기간</option>'
     +mList.map(function(m){return '<option value="'+m+'"'+(window._clPeriod===m?' selected':'')+'>'+m.replace('-','.')+'</option>';}).join('')+'</select></div>';
 
-  var showIds=bIds.filter(function(id){var key=id||'__none';return window._clFltBrand==='ALL'||window._clFltBrand===key;});
+  var showIds=bIds.filter(function(id){var key=id||'__none';if(window._clFltBrand==='ALL')return !_clBrandDone(id);if(window._clFltBrand==='DONE')return _clBrandDone(id);return window._clFltBrand===key;});
   var cards=showIds.map(function(id){return _clCard(id);}).filter(Boolean).join('');
-  if(!cards){html+='<div class="tl-empty">아직 택배 시재 내역이 없어요.<br><span>위 빠른 입력으로 추가하면 브랜드별로 자동 정리돼요.</span></div>';}
+  if(!cards){var _msg;if(window._clFltBrand==='DONE')_msg='완료(정산)된 내역이 없어요.';else if(window._clFltBrand==='ALL'&&cl.entries.length)_msg='정산 안 된 내역이 없어요.<br><span>완료된 건 「완료」에서 볼 수 있어요.</span>';else _msg='아직 택배 시재 내역이 없어요.<br><span>위 빠른 입력으로 추가하면 브랜드별로 자동 정리돼요.</span>';html+='<div class="tl-empty">'+_msg+'</div>';}
   else html+=cards;
   box.innerHTML='<div class="cl-root">'+html+'</div>';
 }
