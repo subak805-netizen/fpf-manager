@@ -10369,6 +10369,7 @@ function saveItemForm(){
   const _cd=document.getElementById('f-cd').value.trim();
   if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup&&!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}
   const item={id,name:nm,code:document.getElementById('f-cd').value.trim(),client:document.getElementById('f-cl').value.trim(),season:document.getElementById('f-ss').value.trim(),notes:document.getElementById('f-notes').value.trim(),careInstructions:document.getElementById('f-care').value.trim(),colors:[...formColors],sizes:[...formSizes],fabrics:formFabs.map(f=>({...f,id:f.id||uid()})),trims:formTrims.map(t=>({...t,id:t.id||uid()})),trimCosts:formTrimCosts.map(tc=>({...tc,id:tc.id||uid()}))};
+  try{(item.trims||[]).forEach(function(t){var _mp=_tMatrixPrice(t);if(_mp!=null&&_mp>0)t.unitPrice=_mp;});}catch(e){}
   COST_DEFS.forEach(([ck,,fk])=>{item[ck]=+document.getElementById('f-'+ck)?.value||0;item[fk]=document.getElementById('f-'+fk)?.value||'';});
   item.workRoute=document.getElementById('f-workRoute')?.value?.trim()||'';item.workRouteManual=!!window._wrManual;
   item.defaultTrimSup=document.getElementById('f-defaultsup')?.value?.trim()||'';
@@ -12413,6 +12414,19 @@ function cloneOrder(oid){
 
 /* 개당 가공비가 걸린 부자재의 벌당 개수(요척) — 개당=부자재1개당이라 벌당개수만큼 곱해야 함. 연결 부자재 없으면 1 */
 function _tcQtyPerPiece(tc,trims){var t=(trims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});var q=t?+t.qtyPerPiece:0;return q>0?q:1;}
+// 부자재의 사이즈·규격별 단가표(priceMatrix)에서, 이 트림의 값에 맞는 단가 찾기. 없으면 null(=기본단가 유지)
+var _PB_AXIS_FIELDS={'호수':['zipperSize','buttonSize','snapSize','size'],'길이':['zipperLength'],'컬러':['color'],'사이즈':['size','buttonSize','snapSize','zipperSize']};
+function _tMatrixPrice(t){
+  if(!t||!t.supplier||!t.name)return null;
+  var pb=S.priceBook[t.supplier];if(!pb||!pb.materials)return null;
+  var m=pb.materials[pbKey(t.name,t.color||'',t.size||'')]||pb.materials[pbKey(t.name,t.color||'')]||pb.materials[t.name];
+  if(!m||!Array.isArray(m.priceAxes)||!m.priceAxes.length||!Array.isArray(m.priceMatrix)||!m.priceMatrix.length)return null;
+  function _av(axis){var fs=_PB_AXIS_FIELDS[axis]||[];for(var i=0;i<fs.length;i++){var v=t[fs[i]];if(v!=null&&String(v).trim()!=='')return String(v).trim().toLowerCase();}return null;}
+  for(var r=0;r<m.priceMatrix.length;r++){var row=m.priceMatrix[r];if(!(+row.price>0))continue;var ok=true;
+    for(var a=0;a<m.priceAxes.length;a++){var ax=m.priceAxes[a];var want=String((row.vals&&row.vals[ax])||'').trim().toLowerCase();if(want==='')continue;var have=_av(ax);if(have===null||have!==want){ok=false;break;}}
+    if(ok)return +row.price;}
+  return null;
+}
 /* 부자재 가공비(trimCosts) 1장당 원가 — 개당=costPerPcs×벌당개수×(활성컬러/전체컬러), 컬러당(perLot)=costPerLot×활성컬러÷미니멈 */
 function trimCostPerPcs(it,minQty){
   minQty=minQty||30;
@@ -21701,6 +21715,8 @@ function renderCS(){
   };
   // 부자재 단가: 기본 단가가 0이고 컬러별 단가가 있으면 가장 비싼 컬러별 단가 사용 (원가 보수적 계산)
   const trimUnitPrice=(t)=>{
+    // 사이즈·규격별 단가표에 이 트림 조건이 맞으면 그 단가 사용(없으면 아래 기존 로직)
+    var _mxp=_tMatrixPrice(t);if(_mxp!=null&&_mxp>0)return _mxp;
     // 원가는 보수적: 기본단가·사이즈별단가·컬러별단가 중 MAX (제일 긴/비싼 사이즈 기준)
     var cands=[];
     if(+t.unitPrice>0)cands.push(+t.unitPrice);
