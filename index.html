@@ -1666,7 +1666,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-ref" onclick="switchTab('ref')">참고</button>
   <button class="ntab" id="nt-leftover" onclick="switchTab('leftover')">잔량</button>
   <button class="ntab" id="nt-defect" onclick="switchTab('defect')">불량 관리</button>
-  <button class="ntab" id="nt-jaedan" onclick="switchTab('jaedan')">재단 수량</button>
+  <button class="ntab" id="nt-jaedan" onclick="switchTab('jaedan')">재단 수량 계산기</button>
   <div class="nav-sep"></div>
   <button class="ntab" id="nt-todoboard" onclick="switchTab('todoboard')">할일판</button>
   <button class="ntab" id="nt-tasks" onclick="switchTab('tasks')">할 일</button>
@@ -13196,6 +13196,12 @@ function renderJaedanCalc(){ jdInit(); var el=document.getElementById('jaedan-bo
     +'#jaedan-body .jd-add input{border:1.5px solid var(--ink,#0B0A05);padding:6px 9px;font-size:13px;width:110px;background:#fff;outline:none;font-family:inherit}'
     +'#jaedan-body .jd-btn{padding:6px 13px;border:1.5px dashed #999;background:none;font-size:12px;color:#555;cursor:pointer;font-family:inherit;white-space:nowrap}'
     +'#jaedan-body .jd-btn:hover{background:#f0f0f0}'
+    +'#jaedan-body .jd-cv{display:flex;align-items:center;gap:8px;margin-bottom:8px}'
+    +'#jaedan-body .jd-cv:last-child{margin-bottom:0}'
+    +'#jaedan-body .jd-cvin{width:110px;border:1.5px solid var(--ink,#0B0A05);padding:7px 9px;font-size:14px;font-weight:700;text-align:right;background:#fff;outline:none;font-family:inherit}'
+    +'#jaedan-body .jd-cvu{font-size:12px;color:var(--t2,#6b7280);font-weight:700;min-width:30px}'
+    +'#jaedan-body .jd-cvar{font-size:13px;color:#999}'
+    +'#jaedan-body .jd-cvout{font-size:16px;font-weight:800;min-width:70px;text-align:right;color:var(--ink,#0B0A05);font-variant-numeric:tabular-nums}'
     +'#jaedan-body .jd-cc{border:1.5px solid #d8d6cd;margin-bottom:10px}'
     +'#jaedan-body .jd-cc-h{display:flex;align-items:center;background:#faf9f5;padding:8px 11px;border-bottom:1.5px solid #eceae3}'
     +'#jaedan-body .jd-cc-h input{border:none;background:none;font-size:13px;font-weight:700;width:100%;outline:none;font-family:inherit}'
@@ -13231,6 +13237,11 @@ function renderJaedanCalc(){ jdInit(); var el=document.getElementById('jaedan-bo
     +'</style>';
   var shell='<div class="jd-wrap">'
     +'<div class="jd-hd"><h1>재단 수량 계산기</h1><p class="jd-sub">부위별 재단 장수 → 생산 가능 수량(부위 최소값)·부족/남는 부위 확인 · 저장 안 되는 계산 도구</p></div>'
+    +'<div class="jd-sec"><div class="jd-st">단위 변환</div>'
+    +'<div class="jd-cv"><input type="number" class="jd-cvin" placeholder="0" oninput="jdConv(\'cm2yd\',this.value)"><span class="jd-cvu">cm</span><span class="jd-cvar">→</span><b class="jd-cvout" id="jd-cv-cm2yd">0</b><span class="jd-cvu">yd</span></div>'
+    +'<div class="jd-cv"><input type="number" class="jd-cvin" placeholder="0" oninput="jdConv(\'cm2in\',this.value)"><span class="jd-cvu">cm</span><span class="jd-cvar">→</span><b class="jd-cvout" id="jd-cv-cm2in">0</b><span class="jd-cvu">inch</span></div>'
+    +'<div class="jd-cv"><input type="number" class="jd-cvin" placeholder="0" oninput="jdConv(\'in2cm\',this.value)"><span class="jd-cvu">inch</span><span class="jd-cvar">→</span><b class="jd-cvout" id="jd-cv-in2cm">0</b><span class="jd-cvu">cm</span></div>'
+    +'</div>'
     +'<div class="jd-sec"><div class="jd-st">원단 부위</div><div class="jd-taglist" id="jd-fabric-list"></div><div class="jd-add"><input type="text" id="jd-new-fabric" placeholder="예: 몸판" maxlength="12" onkeydown="if(event.key===\'Enter\')jdAddFabric()"><button class="jd-btn" onclick="jdAddFabric()">+ 추가</button></div></div>'
     +'<div class="jd-sec"><div class="jd-st">사이즈</div><div class="jd-taglist" id="jd-size-list"></div><div class="jd-add"><input type="text" id="jd-new-size" placeholder="예: XL" maxlength="6" onkeydown="if(event.key===\'Enter\')jdAddSize()"><button class="jd-btn" onclick="jdAddSize()">+ 추가</button></div></div>'
     +'<div class="jd-sec"><div class="jd-st">컬러별 재단 수량</div><div id="jd-color-cards"></div><button class="jd-addc" onclick="jdAddColor(\'\')">+ 컬러 추가</button></div>'
@@ -13241,6 +13252,7 @@ function renderJaedanCalc(){ jdInit(); var el=document.getElementById('jaedan-bo
   jdRenderFabrics(); jdRenderSizes();
   if(!_jd.colors.length)jdAddColor(''); else jdRenderColors();
 }
+function jdConv(kind,v){ var out=document.getElementById('jd-cv-'+kind); if(!out)return; var n=parseFloat(v); if(isNaN(n)){ out.textContent='0'; return; } var r=0; if(kind==='cm2yd')r=n/91.44; else if(kind==='cm2in')r=n/2.54; else if(kind==='in2cm')r=n*2.54; out.textContent=(Math.round(r*1000)/1000).toLocaleString(); }
 function renderQtyStrip(o){
   if(!o||!o.orderItems||o.orderItems.length===0)return '';
   let totalOrig=0;
