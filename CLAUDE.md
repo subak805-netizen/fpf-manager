@@ -10,6 +10,7 @@
 > 2. **편집 → 문법검사(SYNTAX OK)**.
 > 3. **끝나면 바로 `git add` → `commit`** (작업을 오래 미커밋 상태로 두지 말 것).
 > 4. **push는 `./safe-push.sh`로 한다** — push가 거부되면(다른 방이 먼저 올림) **자동으로 `git pull --rebase` 후 재시도**해 충돌 없이 올라간다. (수동이면: push 전 `git status -sb`로 behind 확인 → behind면 `git pull --rebase` 먼저 → push). 자동 rebase가 **충돌**나면(같은 부분 동시 수정) 스크립트가 멈추고 알려주니 수동 확인.
+>    - **돈 계산 검산(2026-07-03~)**: safe-push가 push 전에 `./calc-check.sh`(index.html의 진짜 계산 함수를 추출해 `calc-tests.js` 10문제로 채점, 1초)를 자동 실행한다. **실패하면 push가 막힌다** — 계산 회귀를 고치는 게 원칙. 검산 자체가 깨진 특수상황(함수 이름 변경 등)만 `SKIP_CALC=1 ./safe-push.sh`로 우회하고, calc-check.sh의 추출 목록(FUNCS)을 새 이름으로 갱신할 것. **calc-tests.js에 계산식을 재구현하지 말 것**(문제·정답만) — 함수명을 바꾸면 FUNCS 목록도 함께.
 > 5. push 후 "변경 없음/이미 올라감"이 뜨면 = 다른 방이 내 변경을 이미 올린 것 → HEAD에 기능 마커 grep + 문법검사 + 브라우저 스모크로 **온전히 들어갔는지 검증**.
 > 6. 큰 변경(새 기능)은 가능하면 한 방에서만. 다른 방은 그동안 미리보기·기획만.
 
