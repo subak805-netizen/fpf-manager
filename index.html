@@ -2655,9 +2655,26 @@ const _ls=_lsAvail();
 function lsGet(k){try{if(_ls)return JSON.parse(localStorage.getItem(k));return _memStore[k]??null;}catch(e){return null;}}
 // 반환: true=localStorage에 실제 저장됨 / false=저장 못 함(메모리 임시 — 새로고침 시 사라짐)
 function lsSet(k,v){
+  var str=null; try{ str=JSON.stringify(v); }catch(e){}
+  if(str!=null){ try{ _lsMirror(k,str); }catch(e){} } // A-④ 1단계: IndexedDB 사본(비동기·실패 무시) — localStorage 실패해도 사본은 시도
   if(!_ls){ _memStore[k]=v; return false; } // localStorage 불가(사파리 시크릿 등) → 휘발성, 진짜 저장 아님
-  try{ localStorage.setItem(k,JSON.stringify(v)); return true; }
+  try{ localStorage.setItem(k,str!=null?str:JSON.stringify(v)); return true; }
   catch(e){ _memStore[k]=v; window._lsQuotaErr=true; console.error('[lsSet] 저장 실패('+k+'):',e&&e.name,e&&e.message); return false; }
+}
+// === A-④ 1단계 (2026-07-03): 저장 거울쓰기 — localStorage에 쓰는 것을 IndexedDB(fpmData/kv)에도 사본 저장 ===
+// 읽기는 아직 100% localStorage(변화 0). 사본만 쌓는 단계. 2단계에서 "IDB 우선 읽기 + localStorage 폴백"으로 전환 예정.
+function _idbDataDB(){ if(window._idbDataDBP)return window._idbDataDBP; window._idbDataDBP=new Promise(function(res,rej){ try{ var rq=indexedDB.open('fpmData',1); rq.onupgradeneeded=function(){ var db=rq.result; if(!db.objectStoreNames.contains('kv'))db.createObjectStore('kv'); }; rq.onsuccess=function(){res(rq.result);}; rq.onerror=function(){rej(rq.error);}; }catch(e){rej(e);} }); window._idbDataDBP.catch(function(){}); return window._idbDataDBP; }
+function idbDataSet(key,val){ return _idbDataDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('kv','readwrite'); tx.objectStore('kv').put(val,key); tx.oncomplete=function(){res(true);}; tx.onerror=function(){rej(tx.error);}; tx.onabort=function(){rej(tx.error);}; }); }); }
+function idbDataGet(key){ return _idbDataDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('kv','readonly'),r=tx.objectStore('kv').get(key); r.onsuccess=function(){res(r.result);}; r.onerror=function(){rej(r.error);}; }); }).catch(function(){ return undefined; }); }
+var _mirrorTimers={}, _mirrorPending={};
+window._idbMirror={ok:0,err:0,last:''};
+function _lsMirror(k,str){ // 같은 키 연속 저장은 0.5초 모아서 마지막 것만 사본 (몰아치기 방지)
+  _mirrorPending[k]=str;
+  if(_mirrorTimers[k])return;
+  _mirrorTimers[k]=setTimeout(function(){ delete _mirrorTimers[k]; var s=_mirrorPending[k]; delete _mirrorPending[k];
+    idbDataSet(k,s).then(function(){ window._idbMirror.ok++; window._idbMirror.last=k; if(!window._idbMirrorLogged){ window._idbMirrorLogged=true; console.log('[저장 거울] IndexedDB 사본 작동 시작 (A-④ 1단계)'); } })
+      .catch(function(e){ window._idbMirror.err++; if(!window._idbMirrorErrLogged){ window._idbMirrorErrLogged=true; console.warn('[저장 거울] IDB 사본 실패 — 앱 동작엔 영향 없음:',e&&e.name); } });
+  },500);
 }
 // 브라우저 저장소(localStorage) 사용량 — 대략(문자수 기준, 한도 보통 5MB)
 function _lsUsageInfo(){
@@ -4337,6 +4354,7 @@ function loadCoData(id){
   try{ window._bkCacheCoId=null; if(typeof idbBkEnsureLoaded==='function')idbBkEnsureLoaded(); }catch(e){} // 백업 IndexedDB 로드/이사(회사 전환 시 캐시 갱신)
   try{ if(typeof pbBkEnsureLoaded==='function')pbBkEnsureLoaded(); }catch(e){} // 단가장 백업 IDB 로드/이사(A-③)
   try{ if(!window._dosikCleanupTimer){ window._dosikCleanupTimer=setTimeout(function(){ try{ if(typeof _dosikLegacyCleanup==='function')_dosikLegacyCleanup(); }catch(e){} },3000); } }catch(e){} // 도식화 옛 잔재 정리(새 집 확인 후에만)
+  try{ if(!window._mirrorBootChk){ window._mirrorBootChk=1; setTimeout(function(){ try{ idbDataGet('fpm_cos').then(function(v){ console.log(v!=null?'[저장 거울] 부팅 확인: 사본 있음(fpm_cos)':'[저장 거울] 아직 사본 없음 — 첫 저장 때 생성'); }); }catch(e){} },3500); } }catch(e){} // A-④ 1단계 자가확인
   try{_undoInit();}catch(e){}
 }
 
