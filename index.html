@@ -4227,6 +4227,28 @@ async function idbBkEnsureLoaded(){
   })();
   return window._bkLoadingPromise;
 }
+// 단가장 단독백업(fpm_pbbk)도 IndexedDB로 — abk/hbk와 같은 이사 패턴 (2026-07-03, A-③)
+// 캐시 상태: undefined=미로드, 배열=IDB 사용, null=IDB 불가(localStorage 방식 유지)
+async function pbBkEnsureLoaded(){
+  if(window._pbBkCache!==undefined)return;
+  if(window._pbBkLoading)return window._pbBkLoading;
+  window._pbBkLoading=(async function(){
+    try{
+      var v=await idbBkGet('fpm_pbbk');
+      if(v==null){ // IDB에 없음 → localStorage에서 이사 (이사 성공 후에만 원본 삭제)
+        var ls=null; try{ls=localStorage.getItem('fpm_pbbk');}catch(e){}
+        var parsed=[]; if(ls){ try{parsed=JSON.parse(ls)||[];}catch(e){parsed=[];} }
+        if(ls){ await idbBkSet('fpm_pbbk',parsed); try{localStorage.removeItem('fpm_pbbk');}catch(e){} }
+        v=parsed;
+      }else{ // 이미 IDB 사용 중 — 과거 삭제 실패 잔재만 정리
+        try{ if(localStorage.getItem('fpm_pbbk')!=null)localStorage.removeItem('fpm_pbbk'); }catch(e){}
+      }
+      window._pbBkCache=Array.isArray(v)?v:[];
+    }catch(e){ window._pbBkCache=null; }
+    finally{ window._pbBkLoading=null; }
+  })();
+  return window._pbBkLoading;
+}
 function autoLocalBackup(){
   try{
     if(!curCoId)return;
@@ -4313,6 +4335,8 @@ function loadCoData(id){
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{ window._bkCacheCoId=null; if(typeof idbBkEnsureLoaded==='function')idbBkEnsureLoaded(); }catch(e){} // 백업 IndexedDB 로드/이사(회사 전환 시 캐시 갱신)
+  try{ if(typeof pbBkEnsureLoaded==='function')pbBkEnsureLoaded(); }catch(e){} // 단가장 백업 IDB 로드/이사(A-③)
+  try{ if(!window._dosikCleanupTimer){ window._dosikCleanupTimer=setTimeout(function(){ try{ if(typeof _dosikLegacyCleanup==='function')_dosikLegacyCleanup(); }catch(e){} },3000); } }catch(e){} // 도식화 옛 잔재 정리(새 집 확인 후에만)
   try{_undoInit();}catch(e){}
 }
 
@@ -5943,16 +5967,22 @@ function pbAutoDedup(){
   box.innerHTML=html;
 }
 // ===== 단가장 단독 백업/되돌리기 (전체 데이터와 별개로 단가장만) =====
-function _pbBkLoad(){ try{ return lsGet('fpm_pbbk')||[]; }catch(e){ return []; } }
-function _pbBkSave(list){ try{ lsSet('fpm_pbbk',list); }catch(e){} }
+function _pbBkLoad(){ if(Array.isArray(window._pbBkCache))return window._pbBkCache; try{ return lsGet('fpm_pbbk')||[]; }catch(e){ return []; } }
+function _pbBkSave(list){
+  if(window._pbBkCache===null){ try{ lsSet('fpm_pbbk',list); }catch(e){} return; } // IDB 불가 환경 → 기존 방식
+  window._pbBkCache=list;
+  try{ idbBkSet('fpm_pbbk',list).catch(function(){ try{lsSet('fpm_pbbk',list);}catch(e){} }); }catch(e){ try{lsSet('fpm_pbbk',list);}catch(e2){} }
+}
 function _pbCount(pb){ var sup=Object.keys(pb||{}).length, mat=0; Object.keys(pb||{}).forEach(function(s){mat+=Object.keys((pb[s]||{}).materials||{}).length;}); return {sup:sup,mat:mat}; }
-function pbBackupNow(silent){ var list=_pbBkLoad(); list.push({ts:Date.now(), pb:JSON.parse(JSON.stringify(S.priceBook||{}))}); while(list.length>15)list.shift(); _pbBkSave(list); if(!silent&&typeof showToast==='function')showToast('단가장 백업됨 ('+_pbCount(S.priceBook).sup+'개 거래처)'); return list.length; }
-function pbAutoBackup(){ var list=_pbBkLoad(); var last=list[list.length-1]; var d=new Date(); var dayStart=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(last&&last.ts>=dayStart)return; if(!S.priceBook||!Object.keys(S.priceBook).length)return; pbBackupNow(true); }
-function pbRestoreBackup(idx){ var list=_pbBkLoad(); var bk=list[idx]; if(!bk||!bk.pb)return; var c=_pbCount(bk.pb); if(!confirm('이 시점 단가장으로 되돌릴까요?\n\n거래처 '+c.sup+'곳 · 품목 '+c.mat+'개\n\n※ 지금 단가장 전체가 이 백업으로 교체돼요(아이템·오더는 그대로).'))return; pbBackupNow(true); S.priceBook=JSON.parse(JSON.stringify(bk.pb)); savePB(); if(typeof renderBook==='function')renderBook(); var ov=document.getElementById('pb-bk-ov'); if(ov)ov.remove(); showToast('단가장 복구 완료 (거래처 '+c.sup+'곳)',4000); }
-function pbDeleteBackup(idx){ var list=_pbBkLoad(); list.splice(idx,1); _pbBkSave(list); pbOpenBackups(); }
-function pbOpenBackups(){
+function pbBackupNow(silent){ var snap={ts:Date.now(), pb:JSON.parse(JSON.stringify(S.priceBook||{}))}; /* 스냅샷은 호출 즉시(합치기 전 상태 보존) — 저장만 비동기 */
+  return pbBkEnsureLoaded().then(function(){ var list=_pbBkLoad().slice(); list.push(snap); while(list.length>15)list.shift(); _pbBkSave(list); if(!silent&&typeof showToast==='function')showToast('단가장 백업됨 ('+_pbCount(snap.pb).sup+'개 거래처)'); return list.length; }); }
+async function pbAutoBackup(){ await pbBkEnsureLoaded(); var list=_pbBkLoad(); var last=list[list.length-1]; var d=new Date(); var dayStart=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(last&&last.ts>=dayStart)return; if(!S.priceBook||!Object.keys(S.priceBook).length)return; pbBackupNow(true); }
+async function pbRestoreBackup(idx){ await pbBkEnsureLoaded(); var list=_pbBkLoad(); var bk=list[idx]; if(!bk||!bk.pb)return; var c=_pbCount(bk.pb); if(!confirm('이 시점 단가장으로 되돌릴까요?\n\n거래처 '+c.sup+'곳 · 품목 '+c.mat+'개\n\n※ 지금 단가장 전체가 이 백업으로 교체돼요(아이템·오더는 그대로).'))return; pbBackupNow(true); S.priceBook=JSON.parse(JSON.stringify(bk.pb)); savePB(); if(typeof renderBook==='function')renderBook(); var ov=document.getElementById('pb-bk-ov'); if(ov)ov.remove(); showToast('단가장 복구 완료 (거래처 '+c.sup+'곳)',4000); }
+async function pbDeleteBackup(idx){ await pbBkEnsureLoaded(); var list=_pbBkLoad().slice(); list.splice(idx,1); _pbBkSave(list); pbOpenBackups(); }
+async function pbOpenBackups(){
+  await pbBkEnsureLoaded();
   var list=_pbBkLoad();
-  var body='<div style="margin-bottom:10px"><button onclick="pbBackupNow();pbOpenBackups()" style="background:#16a34a;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">지금 단가장 백업</button> <span style="font-size:11px;color:#64748b">단가장 열 때 하루 1회 자동 백업돼요</span></div>';
+  var body='<div style="margin-bottom:10px"><button onclick="pbBackupNow().then(function(){pbOpenBackups()})" style="background:#16a34a;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">지금 단가장 백업</button> <span style="font-size:11px;color:#64748b">단가장 열 때 하루 1회 자동 백업돼요</span></div>';
   if(!list.length){ body+='<div style="color:#9aa0a8;font-size:12px;padding:10px 0">아직 백업이 없어요.</div>'; }
   else { for(var ri=list.length-1;ri>=0;ri--){ var bk=list[ri]; var d=new Date(bk.ts); var p=function(n){return String(n).padStart(2,'0');}; var ds=(d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes()); var c=_pbCount(bk.pb);
     body+='<div style="display:flex;align-items:center;gap:7px;padding:7px 4px;border-bottom:1px dotted #e2e8f0;font-size:12px"><span style="flex:1"><b>'+ds+'</b> · 거래처 '+c.sup+' · 품목 '+c.mat+'</span><button onclick="pbRestoreBackup('+ri+')" style="border:none;background:#2563eb;color:#fff;padding:4px 11px;border-radius:5px;cursor:pointer;font-weight:600">되돌리기</button><button onclick="pbDeleteBackup('+ri+')" style="border:1px solid #cbd5e1;background:#fff;padding:4px 9px;border-radius:5px;cursor:pointer">삭제</button></div>';
@@ -29979,6 +30009,22 @@ function _dosikLib(){ try{return JSON.parse(localStorage.getItem('fpf_dosik_proj
 // 도식화 저장소(IndexedDB) — dosik.html·에디터와 공유. IDB 우선, 비었으면(이전 전) 레거시 localStorage
 function _dosikIdbOpen(){return new Promise(function(res,rej){try{var rq=indexedDB.open('fpfDosik',1);rq.onupgradeneeded=function(){var db=rq.result;if(!db.objectStoreNames.contains('projects'))db.createObjectStore('projects',{keyPath:'id'});};rq.onsuccess=function(){res(rq.result);};rq.onerror=function(){rej(rq.error);};}catch(e){rej(e);}});}
 function _dosikLibAsync(){ return _dosikIdbOpen().then(function(db){ return new Promise(function(res,rej){ var out=[],cr=db.transaction('projects','readonly').objectStore('projects').openCursor(); cr.onsuccess=function(){var c=cr.result;if(c){out.push(c.value);c.continue();}else res(out);}; cr.onerror=function(){rej(cr.error);}; }); }).then(function(rows){ return (rows&&rows.length)?rows:_dosikLib(); }).catch(function(){ return _dosikLib(); }); }
+// 옛 localStorage 도식화 잔재 정리(A-③): 전부 IndexedDB에 있는 게 "확인된 경우에만" 옛 키 삭제. 없는 건 먼저 IDB로 이사. IDB 불가면 아무것도 안 함(안전)
+async function _dosikLegacyCleanup(){
+  if(window._dosikCleanupRan)return; window._dosikCleanupRan=true;
+  var legacy=_dosikLib(); if(!legacy.length)return;
+  try{
+    legacy.forEach(function(p){ if(p&&!p.id)p.id='dsk_mig_'+Date.now()+'_'+Math.floor(Math.random()*1e6); });
+    var db=await _dosikIdbOpen();
+    var readIds=function(){ return new Promise(function(res,rej){ var have={},cr=db.transaction('projects','readonly').objectStore('projects').openCursor(); cr.onsuccess=function(){var c=cr.result;if(c){if(c.value&&c.value.id)have[c.value.id]=1;c.continue();}else res(have);}; cr.onerror=function(){rej(cr.error);}; }); };
+    var have=await readIds();
+    var missing=legacy.filter(function(p){return p&&p.id&&!have[p.id];});
+    if(missing.length){ await new Promise(function(res,rej){ var tx=db.transaction('projects','readwrite'),st=tx.objectStore('projects'); missing.forEach(function(p){st.put(p);}); tx.oncomplete=function(){res(true);}; tx.onerror=function(){rej(tx.error);}; tx.onabort=function(){rej(tx.error);}; }); }
+    var have2=await readIds();
+    var allIn=legacy.every(function(p){return !p||!p.id||have2[p.id];});
+    if(allIn){ try{localStorage.removeItem('fpf_dosik_projects');}catch(e){} console.log('[도식화] 옛 잔재 정리 완료 — '+legacy.length+'건 모두 IndexedDB 확인됨'); }
+  }catch(e){ console.warn('[도식화] 잔재 정리 보류(IDB 확인 실패) — 옛 데이터 그대로 둠',e); }
+}
 function dosikPick(slot){
   window._dosikPickSlot=slot;
   _dosikLibAsync().then(function(lib){
