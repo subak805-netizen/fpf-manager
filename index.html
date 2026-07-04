@@ -3099,6 +3099,41 @@ async function onFirebaseLogin(){
     showToast('동기화 중 오류가 발생했어요: '+(e.message||e), 4000);
   }
 }
+// === 아침 브리핑 요약 (fpm_brief) — 깃허브 로봇이 매일 09:00에 이 문서를 읽어 텔레그램 발송 ===
+// 돈 계산 없음: 날짜·건수만 수집(±15일 창). "오늘/지연" 필터는 발송 시점에 로봇이 함.
+function buildMorningBrief(){
+  var out={generatedAt:new Date().toISOString(), co:(typeof companies!=='undefined'&&companies[curCoId]&&companies[curCoId].name)||'', insp:[], ship:[], arrive:[], payPendingItems:0, payPendingCharges:0};
+  var _t=function(d){ try{ return (typeof toISO==='function'?toISO(d):d)||''; }catch(e){ return ''; } };
+  var now=Date.now(), WIN=15*86400000;
+  var inWin=function(iso){ if(!iso)return false; var t=new Date(iso+'T00:00:00').getTime(); return t>now-WIN&&t<now+WIN; };
+  Object.values(S.orders||{}).forEach(function(o){
+    if(!o)return; var oNm=o.name||'';
+    Object.keys(o.factorySchedules||{}).forEach(function(fcId){
+      var sch=o.factorySchedules[fcId]; if(!sch)return;
+      var ins=_t(sch.inspectionDate); if(inWin(ins))out.insp.push({d:ins,o:oNm,fc:(S.factories[fcId]&&S.factories[fcId].name)||''});
+      var shp=_t(sch.shipExpectedDate||sch.shippingDate); if(inWin(shp)&&!sch.shipDoneDate)out.ship.push({d:shp,o:oNm});
+    });
+    Object.keys(o.suppliers||{}).forEach(function(sn){
+      var sup=o.suppliers[sn]; if(!sup||sup.arrivalDate)return;
+      var d=_t(sup.expectedShipDate); if(inWin(d))out.arrive.push({d:d,sup:sn,o:oNm});
+    });
+    (o.orderItems||[]).forEach(function(oi){
+      var it=S.items[oi.itemId]; if(!it)return;
+      if(o.payArchivedItems&&o.payArchivedItems[it.id])return;
+      var sewFcId=it.sewingFcId||''; if(!sewFcId)return;
+      var sch2=(o.factorySchedules||{})[sewFcId]; if(!sch2)return;
+      var shipped=(sch2.shipments||[]).some(function(s){return s&&+s.qty>0&&(!s.itemId||s.itemId===oi.itemId);})||(+sch2.shippingQty>0);
+      if(!shipped)return;
+      var pend=0;
+      for(var i=0;i<COST_DEFS.length;i++){ var ck=COST_DEFS[i][0],fk=COST_DEFS[i][2]; var fcId2=(typeof orderFc==='function')?orderFc(o,it,fk):(it[fk]||''); if(!fcId2)continue; if(!(+it[ck]>0))continue; var st=(typeof getPaySt==='function')?getPaySt(o.id,'fc:'+fcId2):{paid:false}; if(!st||!st.paid)pend++; }
+      if(pend>0){ out.payPendingItems++; out.payPendingCharges+=pend; }
+    });
+  });
+  var byD=function(a,b){return (a.d||'').localeCompare(b.d||'');};
+  out.insp.sort(byD); out.ship.sort(byD); out.arrive.sort(byD);
+  out.insp=out.insp.slice(0,40); out.ship=out.ship.slice(0,40); out.arrive=out.arrive.slice(0,60);
+  return out;
+}
 async function cloudSyncSave(){
   if(!isCloudOn())return;
   if(!curCoId)return; // 회사 없는 상태에서는 푸시 안 함
@@ -3212,6 +3247,7 @@ async function cloudSyncSave(){
       console.error('[cloudSyncSave] cloudSet 실패. coBytes='+_coBytes+' shBytes='+_shBytes+' coTop='+_topKeys(coData)+' shTop='+_topKeys(sharedData));
     }else{
       setCloudInd('ok');
+      try{ if(typeof buildMorningBrief==='function')cloudSet('fpm_brief',buildMorningBrief()); }catch(e){} // 아침 브리핑 요약(실패해도 무시)
     }
   }catch(e){
     console.error('[cloudSyncSave] 실패:',e);
