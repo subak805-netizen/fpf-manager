@@ -46,10 +46,11 @@ function buildMessage(brief, now) {
   const weekly = [1, 4].includes(kstYoilIdx(now)); // 월·목 주간 점검
   const L = [];
   const cap = (arr, n) => ({ show: arr.slice(0, n), more: Math.max(0, arr.length - n) });
-  const HR = '─────────────────';
+  const HR = '━━━━━━━━━━━━';
   const nm = (s) => String(s || '').replace(' 발주', ''); // 표시용: '~ 발주' 군더더기 제거
-  // 같은 종류는 묶고, 행동 제안은 묶음당 한 번만 · 공장이 다 같으면 헤더로 올림 (사용자 피드백 2026-07-06)
-  const G = (title, act, rows, tag) => rows.length ? { h: title + ' ' + rows.length + '건' + (tag ? ' · ' + tag : '') + (act ? ' → ' + act : ''), rows } : null;
+  // 같은 종류는 묶고, 행동 제안은 묶음당 한 번만 · 공장이 다 같으면 헤더로 올림 · 행엔 글머리표 없음(눈 어지러움) · 이모지는 헤더에만 (사용자 피드백 2026-07-06)
+  const EMO = { '출고 지연': '⏰', '입고 지연': '⏰', '원단 출고일 미입력': '📭', '재단수량 미입력': '✂️', '입고 후 재단 미확인': '✂️', '검사': '🔍', '검사 예정': '🔍', '출고': '🚚', '출고 예정': '🚚', '입고': '📦', '픽업': '🛵', '픽업 내일': '🛵', '할일': '✅', '꾸러미 발송 준비 완료': '📦' };
+  const G = (title, act, rows, tag) => rows.length ? { h: (EMO[title] ? EMO[title] + ' ' : '') + title + ' ' + rows.length + '건' + (tag ? ' · ' + tag : '') + (act ? ' → ' + act : ''), rows } : null;
   const sum = (gs) => gs.reduce((s, g) => s + g.rows.length, 0);
   const inspG = (title, act, arr) => { // 검사류: 공장이 전부 같으면 헤더에 1번만
     if (!arr.length) return null;
@@ -95,29 +96,29 @@ function buildMessage(brief, now) {
   // --- 헤더 ---
   L.push('FPF 아침 브리핑 · ' + mmdd(today) + ' (' + yoil + ')' + (brief.co ? ' · ' + brief.co : ''));
   const payN = brief.payPendingCharges || 0;
-  L.push('급한 것 ' + sum(urgentGroups) + ' · 오늘 ' + sum(todayGroups) + ' · 미리 ' + sum(prepGroups) + ' · 미결제 ' + payN + '건');
+  L.push('🚨 급한 ' + sum(urgentGroups) + ' · 📋 오늘 ' + sum(todayGroups) + ' · 🗓 미리 ' + sum(prepGroups) + ' · 💰 미결제 ' + payN + '건');
 
   const gemit = (title, groups) => {
     if (!groups.length) return;
     L.push('');
     L.push(HR);
-    L.push('[' + title + ']');
+    L.push(title);
     groups.forEach(g => {
       L.push('');
       L.push(g.h);
       const c = cap(g.rows, 6);
-      c.show.forEach(r => L.push('· ' + r));
-      if (c.more) L.push('· 외 ' + c.more + '건 (앱에서)');
+      c.show.forEach(r => L.push(r));
+      if (c.more) L.push('…외 ' + c.more + '건 (앱에서)');
     });
   };
-  gemit('급한 것부터', urgentGroups);
-  gemit('오늘', todayGroups);
-  gemit('미리 준비 (3일 내)', prepGroups);
+  gemit('🚨 급한 것부터', urgentGroups);
+  gemit('📋 오늘', todayGroups);
+  gemit('🗓 미리 준비 (3일 내)', prepGroups);
 
   if (payN > 0) {
     L.push('');
     L.push(HR);
-    L.push('[결제]');
+    L.push('💰 결제');
     L.push('');
     L.push('미결제 청구 ' + payN + '건 (아이템 ' + (brief.payPendingItems || 0) + '개) → 결제 탭에서 확인, 출고 확인된 건부터 이체');
   }
@@ -126,16 +127,16 @@ function buildMessage(brief, now) {
   const wk = brief.wk || null;
   if (weekly && wk) {
     const W = [];
-    if ((wk.kc || []).length) W.push('· KC 대기 ' + wk.kc.length + ': ' + wk.kc.slice(0, 4).join(', ') + (wk.kc.length > 4 ? ' 외' : ''));
-    if (wk.instr) W.push('· 지시서 미완 ' + wk.instr + '개');
-    if (wk.cost) W.push('· 원가 미전달 ' + wk.cost + '개');
-    if ((wk.draft || []).length) W.push('· 안 보낸 발주서 ' + wk.draft.length + ': ' + wk.draft.slice(0, 3).map(x => x.sn).join(', ') + (wk.draft.length > 3 ? ' 외' : ''));
-    if ((wk.conf || []).length) W.push('· 원단 컨펌 임박 ' + wk.conf.length + ': ' + wk.conf.slice(0, 3).map(x => x.sn + '(' + mmdd(x.d) + ')').join(', '));
-    if ((wk.smp || []).length) W.push('· 샘플 지연 ' + wk.smp.length + ': ' + wk.smp.slice(0, 3).map(x => x.n).join(', ') + (wk.smp.length > 3 ? ' 외' : ''));
-    if (wk.dfx) W.push('· 불량 미해결 ' + wk.dfx + '건');
-    if (wk.ded && wk.ded.n) W.push('· 공제 미처리 ' + wk.ded.n + '건 ' + won(wk.ded.amt));
-    if (wk.cour && wk.cour.n) W.push('· 택배 시재 미정산 ' + wk.cour.n + '건 ' + won(wk.cour.amt));
-    if (W.length) { L.push(''); L.push(HR); L.push('[주간 점검 — ' + (kstYoilIdx(now) === 1 ? '월' : '목') + '요판]'); L.push(''); W.forEach(w => L.push(w)); }
+    if ((wk.kc || []).length) W.push('KC 대기 ' + wk.kc.length + ': ' + wk.kc.slice(0, 4).join(', ') + (wk.kc.length > 4 ? ' 외' : ''));
+    if (wk.instr) W.push('지시서 미완 ' + wk.instr + '개');
+    if (wk.cost) W.push('원가 미전달 ' + wk.cost + '개');
+    if ((wk.draft || []).length) W.push('안 보낸 발주서 ' + wk.draft.length + ': ' + wk.draft.slice(0, 3).map(x => x.sn).join(', ') + (wk.draft.length > 3 ? ' 외' : ''));
+    if ((wk.conf || []).length) W.push('원단 컨펌 임박 ' + wk.conf.length + ': ' + wk.conf.slice(0, 3).map(x => x.sn + '(' + mmdd(x.d) + ')').join(', '));
+    if ((wk.smp || []).length) W.push('샘플 지연 ' + wk.smp.length + ': ' + wk.smp.slice(0, 3).map(x => x.n).join(', ') + (wk.smp.length > 3 ? ' 외' : ''));
+    if (wk.dfx) W.push('불량 미해결 ' + wk.dfx + '건');
+    if (wk.ded && wk.ded.n) W.push('공제 미처리 ' + wk.ded.n + '건 ' + won(wk.ded.amt));
+    if (wk.cour && wk.cour.n) W.push('택배 시재 미정산 ' + wk.cour.n + '건 ' + won(wk.cour.amt));
+    if (W.length) { L.push(''); L.push(HR); L.push('📌 주간 점검 (' + (kstYoilIdx(now) === 1 ? '월' : '목') + '요판)'); L.push(''); W.forEach(w => L.push(w)); }
   }
 
   if (sum(urgentGroups) + sum(todayGroups) + sum(prepGroups) === 0 && payN === 0) {
