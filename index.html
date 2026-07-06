@@ -3132,6 +3132,31 @@ function buildMorningBrief(){
   var byD=function(a,b){return (a.d||'').localeCompare(b.d||'');};
   out.insp.sort(byD); out.ship.sort(byD); out.arrive.sort(byD);
   out.insp=out.insp.slice(0,40); out.ship=out.ship.slice(0,40); out.arrive=out.arrive.slice(0,60);
+  // === 확장 신호 (2026-07-06, 비서형 브리핑) — 전부 기존 앱 함수 재사용, 없으면 생략 ===
+  try{ if(typeof checkAlerts==='function')out.alerts=checkAlerts().slice(0,12).map(function(a){return {lv:a.level||'',t:a.title||'',d:a.desc||''};}); }catch(e){}
+  try{ if(typeof orderShipETAAuto==='function'){ var _td=(typeof todayISO==='function')?todayISO():new Date().toISOString().slice(0,10); out.lateShip=[];
+    Object.values(S.orders||{}).forEach(function(o){ if(!o||!o.orderItems||!o.orderItems.length)return; if(typeof orderAllShipped==='function'&&orderAllShipped(o))return; var eta=_t(orderShipETAAuto(o)); if(eta&&eta<_td)out.lateShip.push({d:eta,o:o.name||''}); });
+    out.lateShip.sort(byD); out.lateShip=out.lateShip.slice(0,10); } }catch(e){}
+  try{ if(typeof isPickupToday==='function'){ out.pickups=(S.pickups||[]).filter(function(p){return p&&!p.archived&&(p.status==='waiting'||p.status==='expected'||p.status==='ready');}).map(function(p){ var w=isPickupToday(p)?'오늘':(typeof isPickupTomorrow==='function'&&isPickupTomorrow(p)?'내일':''); return w?{w:w,ty:p.type||'',sup:p.supplierName||p.directSup||'',it:p.itemName||''}:null; }).filter(Boolean).slice(0,12); } }catch(e){}
+  try{ out.tasks=(S.tasks||[]).filter(function(t){return t&&!t.done&&(t.priority==='urgent'||t.priority==='today'||t.priority==='high');}).slice(0,8).map(function(t){return {n:t.name||t.text||''};}); }catch(e){}
+  try{ out.pkg=(S.packages||[]).filter(function(p){return p&&!p.sentAt&&!p.archived&&(p.slots||[]).length&&p.slots.every(function(s){return s&&s.picked;});}).slice(0,6).map(function(p){return {n:p.name||''};}); }catch(e){}
+  try{ // 주간 점검(월·목 표시용 — 데이터는 매일 수집, 표시는 로봇이 결정)
+    var wk={kc:[],instr:0,cost:0,draft:[],conf:[],smp:[],dfx:0,ded:{n:0,amt:0},cour:{n:0,amt:0}};
+    if(typeof itemNeedsKc==='function'&&typeof deriveItemBadge==='function'){ Object.values(S.items||{}).forEach(function(it){ if(!it||it.hold)return; var b=deriveItemBadge(it); if(b.phase!=='main'&&b.phase!=='reorder')return; if(itemNeedsKc(it)&&!it.kcCert&&wk.kc.length<10)wk.kc.push(it.name||''); if(!it.instrDone)wk.instr++; if(!it.costSent)wk.cost++; }); }
+    var _td2=(typeof todayISO==='function')?todayISO():new Date().toISOString().slice(0,10);
+    Object.values(S.orders||{}).forEach(function(o){ if(!o)return; var age=(typeof daysSince==='function')?daysSince(o.createdAt):99;
+      Object.keys(o.suppliers||{}).forEach(function(sn){ var sp=o.suppliers[sn]; if(!sp)return;
+        if(sp.status==='draft'&&age>3&&wk.draft.length<8)wk.draft.push({o:o.name||'',sn:sn});
+        var pc=(o._prepConfirmed||{})[sn], pa=(o._prepArrived||{})[sn];
+        if(sp.confirmDate&&!sp.confirmDone&&!pc&&!sp.arrivalDate&&!sp.arrived&&!pa){ var cd=_t(sp.confirmDate); if(cd&&cd<=_td2.slice(0,10)&&wk.conf.length<8)wk.conf.push({d:cd,sn:sn,o:o.name||''}); else if(cd){ var dd=Math.round((new Date(cd+'T00:00:00')-new Date(_td2+'T00:00:00'))/86400000); if(dd>=0&&dd<=3&&wk.conf.length<8)wk.conf.push({d:cd,sn:sn,o:o.name||''}); } }
+      });
+    });
+    (typeof getSampleOrders==='function'?getSampleOrders():(S.sampleOrders||[])).forEach(function(so){ if(!so)return; var st=so.status||''; if(st==='done'||st==='arrived'||st==='confirmed'||st==='complete')return; var d=_t(so.expectedArrivalDate); if(d&&d<_td2&&wk.smp.length<6)wk.smp.push({n:so.name||so.itemName||'',d:d}); });
+    try{ if(typeof getAllDefects==='function'&&typeof defectStatusOf==='function'){ wk.dfx=getAllDefects().filter(function(x){var st=defectStatusOf(x.d); return st==='waiting'||st==='repairing';}).length; } }catch(e2){}
+    (S.deductions||[]).forEach(function(d){ if(d&&!d.resolved){ wk.ded.n++; wk.ded.amt+=(+d.amount||0); } });
+    ((S.courierLedger||{}).entries||[]).forEach(function(e3){ if(e3&&!e3.settled){ wk.cour.n++; wk.cour.amt+=(+e3.amount||0); } });
+    out.wk=wk;
+  }catch(e){}
   return out;
 }
 async function cloudSyncSave(){
