@@ -46,52 +46,63 @@ function buildMessage(brief, now) {
   const weekly = [1, 4].includes(kstYoilIdx(now)); // 월·목 주간 점검
   const L = [];
   const cap = (arr, n) => ({ show: arr.slice(0, n), more: Math.max(0, arr.length - n) });
+  // 같은 종류는 묶고, 행동 제안은 묶음당 한 번만 (사용자 피드백 2026-07-06)
+  const G = (h, act, rows) => rows.length ? { h: h + ' ' + rows.length + '건' + (act ? ' — ' + act : ''), rows } : null;
+  const sum = (gs) => gs.reduce((s, g) => s + g.rows.length, 0);
 
-  // --- 급한 것 (지연·독촉) ---
-  const urgent = [];
-  (brief.lateShip || []).forEach(x => urgent.push({ txt: '출고 지연 · ' + x.o + ' (예정 ' + mmdd(x.d) + ', ' + Math.abs(dayDiff(x.d, today)) + '일째)', act: '공장에 진행 확인 전화' }));
-  (brief.arrive || []).filter(x => x.d && x.d < today).forEach(x => urgent.push({ txt: '입고 지연 · ' + x.sup + ' / ' + x.o + ' (D+' + Math.abs(dayDiff(x.d, today)) + ')', act: x.sup + '에 독촉 전화' }));
+  // --- 급한 것 (종류별 묶음) ---
+  const uG = [];
+  uG.push(G('출고 지연', '공장에 진행 확인 전화',
+    (brief.lateShip || []).map(x => x.o + ' (예정 ' + mmdd(x.d) + ', ' + Math.abs(dayDiff(x.d, today)) + '일째)')));
+  uG.push(G('입고 지연', '업체에 독촉 전화',
+    (brief.arrive || []).filter(x => x.d && x.d < today).map(x => (x.sup ? x.sup + ' / ' : '') + x.o + ' (D+' + Math.abs(dayDiff(x.d, today)) + ')')));
+  const ACT = { '원단 출고일 미입력': '미입력된 출고일 입력하기', '재단수량 미입력': '공장 확인 후 재단수량 입력하기', '입고 후 재단 미확인': '공장에 재단 투입 확인' };
+  const byT = {};
   (brief.alerts || []).forEach(a => {
-    let act = '앱 알림센터에서 확인';
-    if ((a.t || '').includes('출고일')) act = '거래처에 출고일 확인';
-    else if ((a.t || '').includes('재단수량')) act = '공장에 재단 시작 확인';
-    else if ((a.t || '').includes('재단 미확인') || (a.t || '').includes('입고 후')) act = '공장에 재단 투입 요청';
-    urgent.push({ txt: a.t + ' · ' + (a.d || ''), act });
+    const t = a.t || '알림';
+    const vendor = a.w || (a.d || '').split(' — ')[0] || '';
+    const row = ((a.o ? a.o + ' / ' : '') + vendor).trim() || (a.d || '');
+    (byT[t] = byT[t] || []).push(row);
   });
+  Object.keys(byT).forEach(t => uG.push(G(t, ACT[t] || '앱 알림센터에서 확인', byT[t])));
+  const urgentGroups = uG.filter(Boolean);
 
-  // --- 오늘 ---
-  const todayRows = [];
-  (brief.insp || []).filter(x => x.d === today).forEach(x => todayRows.push({ txt: '검사 · ' + x.o + (x.fc ? ' (' + x.fc + ')' : ''), act: '작지·검사서류 챙기기' }));
-  (brief.ship || []).filter(x => x.d === today).forEach(x => todayRows.push({ txt: '출고 · ' + x.o, act: '출고 전 장수 확인 문자 받기' }));
-  (brief.arrive || []).filter(x => x.d === today).forEach(x => todayRows.push({ txt: '입고 · ' + x.sup + ' / ' + x.o, act: '도착 확인되면 공장에 재단 투입' }));
-  (brief.pickups || []).filter(p => p.w === '오늘').forEach(p => todayRows.push({ txt: '픽업 · ' + [p.sup, p.ty, p.it].filter(Boolean).join(' / '), act: null }));
-  (brief.tasks || []).forEach(t => todayRows.push({ txt: '할일 · ' + t.n, act: null }));
-  (brief.pkg || []).forEach(p => todayRows.push({ txt: '꾸러미 발송 준비 완료 · ' + p.n, act: '오늘 발송하면 끝' }));
+  // --- 오늘 (종류별 묶음) ---
+  const tG = [];
+  tG.push(G('검사 오늘', '작지·검사서류 챙기기', (brief.insp || []).filter(x => x.d === today).map(x => x.o + (x.fc ? ' (' + x.fc + ')' : ''))));
+  tG.push(G('출고 오늘', '출고 전 장수 확인 문자 받기', (brief.ship || []).filter(x => x.d === today).map(x => x.o)));
+  tG.push(G('입고 오늘', '도착 확인되면 공장에 재단 투입', (brief.arrive || []).filter(x => x.d === today).map(x => (x.sup ? x.sup + ' / ' : '') + x.o)));
+  tG.push(G('픽업 오늘', '', (brief.pickups || []).filter(p => p.w === '오늘').map(p => [p.sup, p.ty, p.it].filter(Boolean).join(' / '))));
+  tG.push(G('할일', '', (brief.tasks || []).map(t => t.n)));
+  tG.push(G('꾸러미 발송 준비 완료', '오늘 발송하면 끝', (brief.pkg || []).map(p => p.n)));
+  const todayGroups = tG.filter(Boolean);
 
-  // --- 미리 준비 (1~3일 내) ---
-  const prep = [];
-  (brief.insp || []).filter(x => { const d = dayDiff(x.d, today); return d >= 1 && d <= 3; })
-    .forEach(x => prep.push({ txt: '검사 D-' + dayDiff(x.d, today) + ' · ' + x.o + (x.fc ? ' (' + x.fc + ')' : ''), act: '공장에 진행 상황 확인 연락' }));
-  (brief.ship || []).filter(x => { const d = dayDiff(x.d, today); return d >= 1 && d <= 3; })
-    .forEach(x => prep.push({ txt: '출고 D-' + dayDiff(x.d, today) + ' · ' + x.o, act: '장수·일정 미리 확인' }));
-  (brief.pickups || []).filter(p => p.w === '내일').forEach(p => prep.push({ txt: '픽업 내일 · ' + [p.sup, p.ty].filter(Boolean).join(' / '), act: null }));
+  // --- 미리 준비 (1~3일 내, 묶음) ---
+  const pG = [];
+  pG.push(G('검사 예정', '공장에 진행 상황 확인 연락', (brief.insp || []).filter(x => { const d = dayDiff(x.d, today); return d >= 1 && d <= 3; }).map(x => 'D-' + dayDiff(x.d, today) + ' ' + x.o + (x.fc ? ' (' + x.fc + ')' : ''))));
+  pG.push(G('출고 예정', '장수·일정 미리 확인', (brief.ship || []).filter(x => { const d = dayDiff(x.d, today); return d >= 1 && d <= 3; }).map(x => 'D-' + dayDiff(x.d, today) + ' ' + x.o)));
+  pG.push(G('픽업 내일', '', (brief.pickups || []).filter(p => p.w === '내일').map(p => [p.sup, p.ty].filter(Boolean).join(' / '))));
+  const prepGroups = pG.filter(Boolean);
 
   // --- 헤더 ---
   L.push('FPF 아침 브리핑 · ' + mmdd(today) + ' (' + yoil + ')' + (brief.co ? ' · ' + brief.co : ''));
   const payN = brief.payPendingCharges || 0;
-  L.push('급한 것 ' + urgent.length + ' · 오늘 ' + todayRows.length + ' · 미리 ' + prep.length + ' · 미결제 ' + payN + '건');
+  L.push('급한 것 ' + sum(urgentGroups) + ' · 오늘 ' + sum(todayGroups) + ' · 미리 ' + sum(prepGroups) + ' · 미결제 ' + payN + '건');
 
-  const emit = (title, rows, maxRows, maxActs) => {
-    if (!rows.length) return;
+  const gemit = (title, groups) => {
+    if (!groups.length) return;
     L.push('');
     L.push('[' + title + ']');
-    const c = cap(rows, maxRows);
-    c.show.forEach((r, i) => { L.push('- ' + r.txt); if (r.act && i < maxActs) L.push('  -> ' + r.act); });
-    if (c.more) L.push('- 외 ' + c.more + '건 (앱에서)');
+    groups.forEach(g => {
+      L.push(g.h);
+      const c = cap(g.rows, 6);
+      c.show.forEach(r => L.push('- ' + r));
+      if (c.more) L.push('- 외 ' + c.more + '건 (앱에서)');
+    });
   };
-  emit('급한 것부터', urgent, 6, 5);
-  emit('오늘', todayRows, 8, 4);
-  emit('미리 준비 (3일 내)', prep, 6, 3);
+  gemit('급한 것부터', urgentGroups);
+  gemit('오늘', todayGroups);
+  gemit('미리 준비 (3일 내)', prepGroups);
 
   if (payN > 0) {
     L.push('');
@@ -115,7 +126,7 @@ function buildMessage(brief, now) {
     if (W.length) { L.push(''); L.push('[주간 점검 — ' + (kstYoilIdx(now) === 1 ? '월' : '목') + '요판]'); W.forEach(w => L.push(w)); }
   }
 
-  if (urgent.length + todayRows.length + prep.length === 0 && payN === 0) {
+  if (sum(urgentGroups) + sum(todayGroups) + sum(prepGroups) === 0 && payN === 0) {
     L.push('');
     L.push('오늘은 잡힌 일정·밀린 것 없이 깨끗해요.');
   }
