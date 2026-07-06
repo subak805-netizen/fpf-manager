@@ -3113,7 +3113,7 @@ function buildMorningBrief(){
     Object.keys(o.factorySchedules||{}).forEach(function(fcId){
       var sch=o.factorySchedules[fcId]; if(!sch)return;
       var ins=_t(sch.inspectionDate); if(inWin(ins))out.insp.push({d:ins,o:oNm,fc:(S.factories[fcId]&&S.factories[fcId].name)||''});
-      var shp=_t(sch.shipExpectedDate||sch.shippingDate); if(inWin(shp)&&!sch.shipDoneDate)out.ship.push({d:shp,o:oNm});
+      var shp=_t(sch.shipExpectedDate||sch.shippingDate); if(inWin(shp)&&!(typeof fcShipped==='function'&&fcShipped(sch)))out.ship.push({d:shp,o:oNm}); // 출고 기록 있으면(회차·수량 포함) 예정 알림 제외
     });
     Object.keys(o.suppliers||{}).forEach(function(sn){
       var sup=o.suppliers[sn]; if(!sup||sup.arrivalDate)return;
@@ -3136,8 +3136,8 @@ function buildMorningBrief(){
   out.insp=out.insp.slice(0,40); out.ship=out.ship.slice(0,40); out.arrive=out.arrive.slice(0,60);
   // === 확장 신호 (2026-07-06, 비서형 브리핑) — 전부 기존 앱 함수 재사용, 없으면 생략 ===
   try{ if(typeof checkAlerts==='function')out.alerts=checkAlerts().slice(0,12).map(function(a){return {lv:a.level||'',t:a.title||'',d:a.desc||''};}); }catch(e){}
-  try{ if(typeof orderShipETAAuto==='function'){ var _td=(typeof todayISO==='function')?todayISO():new Date().toISOString().slice(0,10); out.lateShip=[];
-    Object.values(S.orders||{}).forEach(function(o){ if(!o||!o.orderItems||!o.orderItems.length)return; if(typeof orderAllShipped==='function'&&orderAllShipped(o))return; var eta=_t(orderShipETAAuto(o)); if(eta&&eta<_td)out.lateShip.push({d:eta,o:o.name||''}); });
+  try{ if(typeof orderOpenShipETA==='function'){ var _td=(typeof todayISO==='function')?todayISO():new Date().toISOString().slice(0,10); out.lateShip=[];
+    Object.values(S.orders||{}).forEach(function(o){ if(!o||!o.orderItems||!o.orderItems.length)return; var st=orderOpenShipETA(o); if(!st.open)return; if(st.eta&&st.eta<_td)out.lateShip.push({d:st.eta,o:o.name||''}); });
     out.lateShip.sort(byD); out.lateShip=out.lateShip.slice(0,10); } }catch(e){}
   try{ if(typeof isPickupToday==='function'){ out.pickups=(S.pickups||[]).filter(function(p){return p&&!p.archived&&(p.status==='waiting'||p.status==='expected'||p.status==='ready');}).map(function(p){ var w=isPickupToday(p)?'오늘':(typeof isPickupTomorrow==='function'&&isPickupTomorrow(p)?'내일':''); return w?{w:w,ty:p.type||'',sup:p.supplierName||p.directSup||'',it:p.itemName||''}:null; }).filter(Boolean).slice(0,12); } }catch(e){}
   try{ out.tasks=(S.tasks||[]).filter(function(t){return t&&!t.done&&(t.priority==='urgent'||t.priority==='today'||t.priority==='high');}).slice(0,8).map(function(t){return {n:t.name||t.text||''};}); }catch(e){}
@@ -12647,6 +12647,21 @@ function orderAllShipped(o){
   var fcs=Object.values(o.factorySchedules||{});if(!fcs.length)return false;
   return fcs.every(function(f){return fcShipped(f)||f.paymentSent;});
 }
+// 출고 지연/임박 판정 — 생산 대시보드와 같은 기준(아이템별 봉제공장 출고). 완성·검품 카드에 출고기록이 없다고 "미출고"로 오판하지 않음 (2026-07-06 유령긴급 수정)
+function orderOpenShipETA(o){
+  var open=false, eta='';
+  (o.orderItems||[]).forEach(function(oi){ var it=S.items[oi.itemId]; if(!it)return;
+    var fcId=(typeof orderFc==='function')?orderFc(o,it,'sewingFcId'):(it.sewingFcId||'');
+    var sch=fcId?(o.factorySchedules||{})[fcId]:null;
+    if(sch&&fcShipped(sch))return; // 이 아이템은 봉제 출고 끝
+    open=true;
+    var e=(sch&&(sch.shipExpectedDate||sch.shippingDate))||'';
+    try{ e=toISO(e)||''; }catch(x){}
+    if(e&&(!eta||e<eta))eta=e;
+  });
+  if(open&&!eta){ var d=o.shippingDate||''; try{ d=toISO(d)||''; }catch(x){} eta=d; }
+  return {open:open, eta:eta};
+}
 function orderSortKey(o){
   var fcs=Object.values(o.factorySchedules||{});
   if(fcs.some(function(f){return f.shippingQty>0;})||fcs.some(function(f){return f.paymentSent;}))return 2e9;
@@ -18365,8 +18380,8 @@ function pdKakaoBrand(oid,itemId,role){
 
 function renderDash(){
   const orders=dashFilteredOrders();const el=document.getElementById('dash-body');if(!el)return;
-  const urgent=orders.filter(o=>{if(orderAllShipped(o))return false;const e=orderShipETAAuto(o);const d=e?calcDday(e):null;return d!==null&&d>=0&&d<=3;});
-  const late=orders.filter(o=>{if(orderAllShipped(o))return false;const e=orderShipETAAuto(o);const d=e?calcDday(e):null;return d!==null&&d<0;});
+  const urgent=orders.filter(o=>{const s=orderOpenShipETA(o);if(!s.open)return false;const d=s.eta?calcDday(s.eta):null;return d!==null&&d>=0&&d<=3;});
+  const late=orders.filter(o=>{const s=orderOpenShipETA(o);if(!s.open)return false;const d=s.eta?calcDday(s.eta):null;return d!==null&&d<0;});
   let tot=0,paid=0;for(const o of orders){for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){for(const[ck,]of COST_DEFS){let b=0;for(const oi of(o.orderItems||[])){const it=S.items[oi.itemId];if(it)b+=(it[ck]||0)*(oi.grandTotal||0);}if(!b)continue;const v=Math.round(b*((sch.vatRate||10)/100));tot+=b+v;if(o.payments?.['fc_'+fcId+'_'+ck]?.paid)paid+=b+v;}}}
   el.innerHTML=`
     ${dashBrandBar()}
@@ -18376,7 +18391,7 @@ function renderDash(){
       <div class="stat" style="${late.length?'border-color:var(--red)':''}"><div class="stat-n" style="${late.length?'color:var(--red)':''}">${late.length}</div><div class="stat-l">출고 지연</div></div>
       <div class="stat"><div class="stat-n" style="font-size:14px">${num(tot-paid)}<span style="font-size:10px">원</span></div><div class="stat-l">미결제</div></div>
     </div>
-    ${urgent.length||late.length?`<div class="alert-bar"><b style="color:var(--red)">긴급 출고 알림</b><div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px">${[...late,...urgent].map(o=>{const di=ddayInfo(orderShipETAAuto(o));return`<span class="dday-badge ${di.cls}" style="cursor:pointer" onclick="goToOrder('${o.id}')">${esc(o.name)} ${di.text} ${o.clientName?'('+esc(o.clientName)+')':''}</span>`;}).join('')}</div></div>`:''}
+    ${urgent.length||late.length?`<div class="alert-bar"><b style="color:var(--red)">긴급 출고 알림</b><div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px">${[...late,...urgent].map(o=>{const di=ddayInfo(orderOpenShipETA(o).eta);return`<span class="dday-badge ${di.cls}" style="cursor:pointer" onclick="goToOrder('${o.id}')">${esc(o.name)} ${di.text} ${o.clientName?'('+esc(o.clientName)+')':''}</span>`;}).join('')}</div></div>`:''}
     <div id="dash-factory-section">${renderDashFactory()}</div>
     ${renderSupplierStatusBoard()}
     ${renderDeliveryCalendar()}
