@@ -27947,6 +27947,11 @@ function tpFileBase(){ var it=tpItem(); return [(it&&it.code)||'',(it&&it.name)|
 function tpData(){ var it=tpItem(); if(!it)return null; if(!it.techpack)it.techpack={}; return it.techpack; }
 function tpGet(path,dflt){ var o=tpData(); if(!o)return dflt; var s=path.split('.'); for(var i=0;i<s.length;i++){ if(o==null)return dflt; o=o[s[i]]; } return (o===undefined||o===null)?dflt:o; }
 function tpSet(path,val){ var d=tpData(); if(!d)return; var s=path.split('.'),o=d; for(var i=0;i<s.length-1;i++){ var k=s[i],nn=/^\d+$/.test(s[i+1]); if(o[k]==null)o[k]=nn?[]:{}; o=o[k]; } o[s[s.length-1]]=val; try{saveData();}catch(e){} }
+// 조용한 쓰기(saveData 안 함) + 디바운스 저장 — 치수 자동채움이 키 입력마다 saveData 여러 번 부르며 렉 걸리던 것 해소
+function tpSetQuiet(path,val){ var d=tpData(); if(!d)return; var s=path.split('.'),o=d; for(var i=0;i<s.length-1;i++){ var k=s[i],nn=/^\d+$/.test(s[i+1]); if(o[k]==null)o[k]=nn?[]:{}; o=o[k]; } o[s[s.length-1]]=val; }
+var _tpSaveT=null;
+function tpSaveSoon(){ if(_tpSaveT)clearTimeout(_tpSaveT); _tpSaveT=setTimeout(function(){_tpSaveT=null;try{saveData();}catch(e){}},400); }
+function tpSaveFlush(){ if(_tpSaveT){clearTimeout(_tpSaveT);_tpSaveT=null;try{saveData();}catch(e){}} }
 
 function tpEsc(v){ return (typeof esc==='function')?esc(v==null?'':String(v)):(v==null?'':String(v)); }
 function tpBrandName(it){ if(!it)return ''; var bs=S.brands; if(Array.isArray(bs)){ var b=bs.find(function(x){return x&&x.id===it.brandId;}); if(b)return b.name||b.label||''; } else if(bs&&typeof bs==='object'&&bs[it.brandId]){ var v=bs[it.brandId]; return v.name||v; } return it.brand||it.brandName||''; }
@@ -28407,11 +28412,12 @@ function tpGrade(el){
   var tr=el.closest('tr'); if(!tr)return;
   var sizes=[],pat={},fin={},dEl=null;
   tr.querySelectorAll('input.tpg').forEach(function(inp){ var k=inp.dataset.gk,s=inp.dataset.sz; if(k==='p'){pat[s]=inp;if(sizes.indexOf(s)<0)sizes.push(s);} else if(k==='f'){fin[s]=inp;} else if(k==='d'){dEl=inp;} });
-  if(el.tagName==='INPUT')el.dataset.auto='';
+  if(el.tagName==='INPUT')el.dataset.auto=(el.value===''?'0':''); // 사용자가 비우면 '0'=자동채움 금지(안 지워지던 버그), 값 넣으면 수동
   if(!sizes.length)return;
   var r1=function(x){return Math.round(x*10)/10;};
   var man=function(inp){return (inp&&inp.value!==''&&inp.dataset.auto!=='1')?parseFloat(inp.value):null;};
-  var setv=function(inp,v){ if(inp&&(inp.value===''||inp.dataset.auto==='1')&&v!=null&&!isNaN(v)){ inp.value=r1(v); inp.dataset.auto='1'; try{tpSet(inp.dataset.tp,inp.value);}catch(e){} } };
+  var _dirty=false;
+  var setv=function(inp,v){ if(inp&&inp.dataset.auto!=='0'&&(inp.value===''||inp.dataset.auto==='1')&&v!=null&&!isNaN(v)){ inp.value=r1(v); inp.dataset.auto='1'; try{tpSetQuiet(inp.dataset.tp,inp.value);_dirty=true;}catch(e){} } };
   var dd=null;
   for(var i=0;i<sizes.length-1;i++){ var a=man(pat[sizes[i]]),b=man(pat[sizes[i+1]]); if(a!=null&&b!=null){dd=b-a;break;} }
   if(dd==null){ var dm=man(dEl); if(dm!=null)dd=dm; }
@@ -28420,6 +28426,7 @@ function tpGrade(el){
   if(bi>=0&&dd!=null){ for(var i=0;i<sizes.length;i++)setv(pat[sizes[i]],bv+(i-bi)*dd); }
   var fi=-1,fv=null; for(var i=0;i<sizes.length;i++){ var v=man(fin[sizes[i]]); if(v!=null){fi=i;fv=v;break;} }
   if(fi>=0&&dd!=null){ for(var i=0;i<sizes.length;i++)setv(fin[sizes[i]],fv+(i-fi)*dd); }
+  if(_dirty)tpSaveSoon();
 }
 
 /* 자수·나염 표 */
@@ -28795,7 +28802,7 @@ function tpOpen(id){ var it=S.items&&S.items[id]; if(!it){ if(typeof showToast==
   if(/아루드|arude/i.test(_bn))_tpOrient='portrait';
   else if(/프루토|fruto|리틀|그로브|grove/i.test(_bn))_tpOrient='landscape';
   tpInitDefaults(); tpEnsureFileInput(); tpRender(); tpOrient(_tpOrient||'portrait'); var m=document.getElementById('tp-modal'); m.style.display='block'; m.scrollTop=0; document.body.style.overflow='hidden'; requestAnimationFrame(function(){ try{tpFit();}catch(e){} }); }
-function tpClose(){ document.getElementById('tp-modal').style.display='none'; document.body.style.overflow=''; }
+function tpClose(){ try{tpSaveFlush();}catch(e){} document.getElementById('tp-modal').style.display='none'; document.body.style.overflow=''; }
 function tpSaveNow(){ try{saveData();}catch(e){} if(typeof showToast==='function')showToast('작업지시서 저장됨'); }
 </script>
 </body>
