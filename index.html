@@ -63,6 +63,7 @@ function tryInitFirebase(attempts){
     try{ window.fbStorage = firebase.storage(); }catch(e){ console.warn('Storage init 실패', e); }
     window.fbReady = true;
     fbAuth.onAuthStateChanged(function(user){
+      if(user)window._cloudSyncReady=false; // 로그인 순간부터 초기 로드 끝날 때까지 푸시 금지(그전에 덮어쓰기 방지)
       window.fbUser = user;
       if(typeof setCloudInd === 'function'){
         setCloudInd(user ? 'ok' : 'off');
@@ -1392,6 +1393,23 @@ async function cloudSet(key,value){
   }catch(e){console.error('cloudSet '+key+':',e);window._cloudLastErr=(e&&(e.code||e.message))||String(e);return false;}
 }
 
+// === 동기화 옵티미스틱 락 (2026-07-07) — 낡은 기기가 최신 클라우드를 통째로 덮어쓰는 사고 방지 ===
+// base = 지금 내 로컬 S가 "기반으로 삼은" 클라우드 ts. 저장 직전 클라우드 ts가 base보다 새로우면 = 아직 못 받은 변경 → 덮어쓰기 중단.
+// 값(문서 ts)만 보면 개수가 같아도(V넥탑 검품단가 500→0 같은 한 칸 손실) 스테일을 잡아낸다.
+function _loadSyncBase(){ if(!window._syncBaseTs){ var v=null; try{v=JSON.parse(localStorage.getItem('fpm_syncbase')||'null');}catch(e){} window._syncBaseTs=v||{}; } return window._syncBaseTs; }
+function getSyncBase(key){ return _loadSyncBase()[key]||''; }
+function setSyncBase(key,ts){ if(!ts)return; var b=_loadSyncBase(); if(b[key]===ts)return; b[key]=ts; try{localStorage.setItem('fpm_syncbase',JSON.stringify(b));}catch(e){} }
+// 문서를 값+ts로 함께 가져오기 (cloudGet은 값만 줌)
+async function cloudGetDoc(key){
+  if(!isCloudOn())return null;
+  try{
+    const snap=await window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key).get();
+    if(!snap.exists)return null;
+    const dd=snap.data()||{};
+    return {value: dd.value?JSON.parse(dd.value):null, ts: dd.ts||''};
+  }catch(e){console.error('cloudGetDoc '+key+':',e);return null;}
+}
+
 // 어떤 객체든 인라인 dataURL 문자열을 깊이 제거(클라우드 문서 축소용). 로컬 원본은 안 건드림.
 function _stripDataUrlsDeep(v,cnt){
   if(typeof v==='string'){ if(v.indexOf('data:')===0){ if(cnt)cnt.n++; return ''; } return v; }
@@ -1473,8 +1491,9 @@ function tpPreserveLocalContent(inc,old){
   try{inc=_restoreLocalDataUrls(inc,old);}catch(e){}
   return inc;
 }
-function applyRemoteCoData(data){
+function applyRemoteCoData(data,ts){
   if(!data)return;
+  if(ts)try{setSyncBase('fpm_'+curCoId,ts);}catch(e){} // 원격을 반영했으니 내 기준 ts = 그 문서 ts
   var _oldItems=S.items||{};
   // 발주(orders)는 별도 문서(__orders)로 분리돼 메인 문서엔 없음 → 메인 스냅샷에 orders 없으면 기존 발주 보존(빈 값으로 덮어쓰기 금지)
   S.items=tpPreserveLocalContent(data.items||{},_oldItems);if(data.orders!==undefined&&data.orders!==null)S.orders=data.orders;S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
@@ -1508,7 +1527,7 @@ function applyPendingRemote(){
   var d=_rtPending;_rtPending=null;
   var od=_rtPendingOrders;_rtPendingOrders=null;
   hideRemoteBanner();
-  if(d&&d.coId===curCoId)applyRemoteCoData(d.data);
+  if(d&&d.coId===curCoId)applyRemoteCoData(d.data,d.ts);
   if(od&&od.coId===curCoId)applyRemoteOrders(od.orders);
   showToast('다른 기기 변경이 반영됐어요');
 }
@@ -1526,14 +1545,14 @@ function startRealtimeSync(){
       if(curCoId!==coAtSub)return; // 회사 전환됨
       var d=snap.data();if(!d)return;
       var ts=d.ts||'';
-      if(_first){_first=false;_rtAppliedTs[key]=ts;return;} // 구독 직후 첫 스냅샷 = 이미 가진 데이터
+      if(_first){_first=false;_rtAppliedTs[key]=ts;window._cloudSyncReady=true;return;} // 구독 직후 첫 스냅샷 = 이미 가진 데이터 (base는 로드 단계에서 설정)
       if(ts&&window._lastPushTs&&ts===window._lastPushTs[key])return; // 내가 방금 올림
       if(ts&&ts===_rtAppliedTs[key])return; // 이미 반영
       var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
       if(!data)return;
       _rtAppliedTs[key]=ts;
-      if(isEditingNow()){_rtPending={coId:coAtSub,data:data};showRemoteBanner();return;}
-      applyRemoteCoData(data);showToast('다른 기기 변경이 반영됐어요');
+      if(isEditingNow()){_rtPending={coId:coAtSub,data:data,ts:ts};showRemoteBanner();return;}
+      applyRemoteCoData(data,ts);showToast('다른 기기 변경이 반영됐어요');
     },function(err){console.error('onSnapshot 오류:',err);});
     // 발주(__orders) 별도 문서 리스너 — 메인 문서엔 orders가 없어서 이걸 따로 들어야 폰↔컴 발주 동기화됨
     var okey='fpm_'+curCoId+'__orders', _firstO=true;
@@ -1625,6 +1644,11 @@ function translateFbError(code){
 async function onFirebaseLogin(){
   // 로그인되면 무조건 클라우드의 회사 목록부터 본다.
   setCloudInd('sync');
+  // 초기 클라우드 로드가 끝나기 전엔 클라우드 푸시 금지 → "새로고침했는데 그전에 덮어쓰는" 사고 차단.
+  // 만약 로드가 20초 안에 안 끝나면(오프라인 등) 실패안전으로 풀어 로컬 저장이 영영 막히지 않게 함.
+  window._cloudSyncReady=false;
+  if(window._syncReadyFailsafe)clearTimeout(window._syncReadyFailsafe);
+  window._syncReadyFailsafe=setTimeout(function(){window._cloudSyncReady=true;},20000);
   try{
     const cloudCos=await cloudGet('fpm_cos');
     const localIds=Object.keys(companies||{});
@@ -1644,6 +1668,7 @@ async function onFirebaseLogin(){
       // 회사가 정해졌으면 그 회사의 데이터를 클라우드에서 통째로 끌어온다.
       loadCoData(curCoId);
       const changed=await cloudSyncLoad(curCoId);
+      window._cloudSyncReady=true; // 초기 로드 완료 → 이제부터 클라우드 푸시 허용
       renderCoSel();
       render();
       startRealtimeSync();
@@ -1661,11 +1686,13 @@ async function onFirebaseLogin(){
       // 클라우드가 비어 있음.
       if(localIds.length>0){
         // 로컬에 있는 데이터를 클라우드로 올린다 (첫 동기화).
+        window._cloudSyncReady=true; // 클라우드 비어있음 = 덮어쓸 것 없음 → 업로드 허용
         await cloudSyncSave();
         setCloudInd('ok');
         showToast('✓ 로컬 데이터를 클라우드에 업로드 완료', 3000);
       } else {
         // 양쪽 다 비어 있으면 진짜 새 사용자 — 회사 등록 모달을 띄운다.
+        window._cloudSyncReady=true;
         setCloudInd('ok');
         showToast('첫 회사를 등록해 주세요', 3000);
         setTimeout(function(){
@@ -1764,7 +1791,9 @@ async function cloudSyncSave(){
     var memEmpty=(memItemCount===0&&memOrderCount===0&&memBrandCount===0&&memSampleCount===0);
 
     try{
-      var cloudCurrent=await cloudGet('fpm_'+curCoId);
+      var _cloudDoc=await cloudGetDoc('fpm_'+curCoId); // 값+ts 함께 (스테일 감지용)
+      var cloudCurrent=_cloudDoc&&_cloudDoc.value;
+      var _cloudTs=(_cloudDoc&&_cloudDoc.ts)||'';
       var _cloudOrdDoc=await cloudGet('fpm_'+curCoId+'__orders'); // orders 별도 문서(쪼개기)
       if(cloudCurrent){
         var cloudItems=Object.keys(cloudCurrent.items||{}).length;
@@ -1807,6 +1836,23 @@ async function cloudSyncSave(){
             window._allowShrinkOnce=true; setTimeout(function(){window._allowShrinkOnce=false;},15000);
             console.warn('[cloudSyncSave] 사용자가 덮어쓰기 승인:',loss.join(', '));
           }
+        }
+
+        // (3) 스테일 감지 (옵티미스틱 락) — 개수가 같아도 잡음(V넥탑 검품단가 500→0 같은 한 칸 손실).
+        //     클라우드 ts가 내 기준(base)보다 새로움 = 아직 못 받은 다른 기기 변경이 있음 → 통째로 덮으면 그게 사라짐.
+        //     덮어쓰기 중단하고 최신을 받아온다. (편집 중이면 배너로 알림)
+        var _base=getSyncBase('fpm_'+curCoId);
+        var _myLast=(window._lastPushTs&&window._lastPushTs['fpm_'+curCoId])||'';
+        if(_cloudTs&&_base&&_cloudTs>_base&&_cloudTs!==_myLast&&!window._allowShrinkOnce){
+          console.warn('[cloudSyncSave] 스테일 감지: cloudTs '+_cloudTs+' > base '+_base+' → 덮어쓰기 중단, 최신 수신');
+          if(typeof isEditingNow==='function'&&isEditingNow()){
+            _rtPending={coId:curCoId,data:cloudCurrent,ts:_cloudTs}; if(typeof showRemoteBanner==='function')showRemoteBanner();
+          }else{
+            try{ applyRemoteCoData(cloudCurrent,_cloudTs); }catch(e){}
+            if(typeof showToast==='function')showToast('다른 기기의 최신을 받아 덮어쓰기를 막았어요',6000);
+          }
+          setCloudInd('ok');
+          return; // 이번 저장은 건너뜀 (로컬=클라우드가 됐으니 손실 없음)
         }
       }
     }catch(checkErr){
@@ -1857,6 +1903,7 @@ async function cloudSyncSave(){
       console.error('[cloudSyncSave] cloudSet 실패. coBytes='+_coBytes+' shBytes='+_shBytes+' coTop='+_topKeys(coData)+' shTop='+_topKeys(sharedData));
     }else{
       setCloudInd('ok');
+      try{ setSyncBase('fpm_'+curCoId,(window._lastPushTs&&window._lastPushTs['fpm_'+curCoId])||''); }catch(e){} // 방금 올린 상태가 내 새 기준 ts
       try{ if(typeof buildMorningBrief==='function')cloudSet('fpm_brief',buildMorningBrief()); }catch(e){} // 아침 브리핑 요약(실패해도 무시)
     }
   }catch(e){
@@ -2710,9 +2757,11 @@ async function cloudSyncLoad(id,opts){
   if(!isCloudOn())return false;
   setCloudInd('sync');
   try{
-    const[coData,sharedData,cosData,ordersDoc]=await Promise.all([
-      cloudGet('fpm_'+id),cloudGet('fpm_shared'),cloudGet('fpm_cos'),cloudGet('fpm_'+id+'__orders')
+    const[_coDoc,sharedData,cosData,ordersDoc]=await Promise.all([
+      cloudGetDoc('fpm_'+id),cloudGet('fpm_shared'),cloudGet('fpm_cos'),cloudGet('fpm_'+id+'__orders')
     ]);
+    const coData=_coDoc&&_coDoc.value;
+    const _coTs=(_coDoc&&_coDoc.ts)||'';
     let changed=false;
     if(cosData){companies={...cosData};lsSet('fpm_cos',companies);changed=true;}
     const d=coData||{};const sh=sharedData||{};
@@ -2734,11 +2783,22 @@ async function cloudSyncLoad(id,opts){
         var _cloudImgs=_countTpImages(d.items||{});
         var _cloudMoreComplete=(_cloudItems>=_localItems&&_cloudOrders>=_localOrders&&_cloudImgs>=_localImgs&&
                                 (_cloudItems>_localItems||_cloudOrders>_localOrders||_cloudImgs>_localImgs));
-        if(!_cloudMoreComplete){
+        // 개수는 같아도 클라우드 ts가 내 기준(base)보다 새로우면 = 다른 기기가 값 하나라도 고침 → 받아야 함(V넥탑 검품단가 사고 방지)
+        var _base=getSyncBase('fpm_'+id);
+        var _localMore=(_localItems>_cloudItems||_localOrders>_cloudOrders||_localImgs>_cloudImgs);
+        var _cloudNewer=(_coTs&&_base&&_coTs>_base);
+        // 최초 부팅(기준 ts 없음)엔 클라우드를 진실로 삼는다: 로컬이 더 풍부하지 않으면 클라우드 수신
+        //  → "폰이 옛 데이터로 클라우드를 통째로 덮던" 사고의 근원 차단. (오프라인 추가분=로컬이 더 많으면 보호)
+        var _cloudHasData=(_cloudItems>0||_cloudOrders>0||((d.brands||[]).length>0));
+        var _firstBootPreferCloud=(!_base&&!_localMore&&_cloudHasData);
+        if(!_cloudMoreComplete&&!_cloudNewer&&!_firstBootPreferCloud){
           console.warn('[cloudSyncLoad] 로컬 유지 (로컬이 더 완전하거나 동일). 다른 기기 변경은 새로고침으로');
+          if(_coTs&&!_base)setSyncBase('fpm_'+id,_coTs); // 최초 1회 기준 등록(부트스트랩)
           setCloudInd('ok');
           return false;
         }
+        if(_cloudNewer&&!_cloudMoreComplete){ console.log('[cloudSyncLoad] 클라우드 ts 더 새로움 → 자동 수신(개수 동일)'); if(typeof showToast==='function')showToast('다른 기기의 최신 데이터를 받았어요',4000); }
+        else if(_firstBootPreferCloud){ console.log('[cloudSyncLoad] 최초 부팅 → 클라우드 기준으로 시작'); }
         // 클라우드가 더 완전(최신) → 아래로 진행해 자동 수신 (tpPreserveLocalContent로 로컬 사진·내용 이중 보호)
         console.log('[cloudSyncLoad] 클라우드가 더 완전 → 자동 수신: 아이템 '+_localItems+'→'+_cloudItems+', 오더 '+_localOrders+'→'+_cloudOrders+', 사진 '+_localImgs+'→'+_cloudImgs);
         if(typeof showToast==='function')showToast('다른 기기의 최신 데이터를 받았어요',4000);
@@ -2771,6 +2831,7 @@ async function cloudSyncLoad(id,opts){
       });
       lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
       migrateData();changed=true;
+      try{ if(_coTs)setSyncBase('fpm_'+id,_coTs); }catch(e){} // 클라우드를 반영했으니 그 문서 ts가 내 새 기준
     }
     setCloudInd('ok');return changed;
   }catch(e){
@@ -2978,9 +3039,14 @@ function saveData(){
     _onSaveFailed();
   }
   // 클라우드에도 백그라운드 저장 (800ms 디바운스 — 빠른 변경 시 마지막에만 동기화)
+  // ★ 초기 클라우드 로드가 끝나기 전(_cloudSyncReady=false)엔 푸시 금지 → "새로고침했는데 그전에 덮어쓰는" 사고 차단.
+  //   (로컬 저장은 위에서 이미 끝남 — 클라우드 푸시만 미룸. 로드 끝나면 정상 저장/동기화됨)
   if(isCloudOn()){
     if(window._cloudSyncTimer)clearTimeout(window._cloudSyncTimer);
     window._cloudSyncTimer=setTimeout(function(){
+      if(window._cloudSyncReady===false){ // 발화 시점에도 재확인 — 초기 로드 전이면 미룸(로드 끝나면 다음 저장 때 올라감)
+        console.log('[saveData] 초기 클라우드 로드 전 — 푸시 보류'); return;
+      }
       cloudSyncSave().catch(function(e){
         console.error('[saveData → cloudSyncSave] 실패:',e);
         // setCloudInd는 이미 cloudSyncSave 내부에서 'err'로 설정됨
