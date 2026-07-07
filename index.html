@@ -1410,6 +1410,55 @@ async function cloudGetDoc(key){
   }catch(e){console.error('cloudGetDoc '+key+':',e);return null;}
 }
 
+// ===ENT-MERGE-START===
+// === 항목별 병합 엔진 (2026-07-08 재건축 1단계: 아이템+오더) ===
+// 문서 통째 교체(last-writer-wins)가 구멍 사고의 뿌리 → 노션처럼 "항목별로" 더 최신을 채택.
+// 각 항목에 _mt(수정시각) 도장, 삭제는 S._tomb(무덤)에 기록해 부활 방지.
+// 낡은 기기가 저장해도 자기가 고친 항목만 반영되고, 남이 고친 항목은 못 덮는다.
+window._entShadow=null; // 이 세션이 마지막으로 인지한 항목별 JSON (수정 감지용, 회사 로드 때 초기화)
+function _entJson(e){ try{ return e?JSON.stringify(e,function(k,v){return k==='_mt'?undefined:v;}):''; }catch(err){ return ''; } }
+function _entEnsureTomb(){ if(!S._tomb||typeof S._tomb!=='object')S._tomb={}; ['items','orders'].forEach(function(k){ if(!S._tomb[k]||typeof S._tomb[k]!=='object')S._tomb[k]={}; }); return S._tomb; }
+function _entShadowInit(){
+  var sh={items:{},orders:{}};
+  Object.keys(S.items||{}).forEach(function(id){ sh.items[id]=_entJson(S.items[id]); });
+  Object.keys(S.orders||{}).forEach(function(id){ sh.orders[id]=_entJson(S.orders[id]); });
+  window._entShadow=sh;
+}
+// 저장 직전: 이 세션에서 바뀐/새 항목에 _mt 도장, 사라진 항목은 무덤 기록.
+// 그림자(shadow)가 없으면 아무것도 안 함 — 부팅 마이그레이션의 기계적 변경이 "내가 고침"으로 오염되는 것 방지.
+function _entStampChanges(){
+  if(!window._entShadow)return;
+  var now=Date.now(); var tomb=_entEnsureTomb();
+  [['items',S.items||{}],['orders',S.orders||{}]].forEach(function(pair){
+    var kind=pair[0],map=pair[1],sh=window._entShadow[kind]||(window._entShadow[kind]={});
+    Object.keys(map).forEach(function(id){ var e=map[id]; if(!e)return; var j=_entJson(e);
+      if(sh[id]!==j){ e._mt=now; sh[id]=j; if(tomb[kind][id])delete tomb[kind][id]; } });
+    Object.keys(sh).forEach(function(id){ if(!map[id]){ tomb[kind][id]=now; delete sh[id]; } });
+  });
+  var lim=now-45*86400000; // 무덤 45일 보관 후 청소
+  ['items','orders'].forEach(function(k){ var t=tomb[k]; Object.keys(t).forEach(function(id){ if(+t[id]<lim)delete t[id]; }); });
+}
+// 항목별 병합: 항목마다 로컬/클라우드 중 더 최신(_mt)을 채택. 삭제(무덤)가 더 최신이면 삭제 유지.
+// tieWin: _mt 동률(옛 데이터 등)일 때 누굴 채택할지 — 저장 경로='local'(내가 올리는 중), 수신 경로='cloud'(문서 ts가 더 새로움이 확인된 상태)
+function _entMerge(localMap,cloudMap,localTomb,cloudTomb,tieWin){
+  localMap=localMap||{}; cloudMap=cloudMap||{}; localTomb=localTomb||{}; cloudTomb=cloudTomb||{};
+  var out={}, tomb={}, ids={};
+  Object.keys(localMap).forEach(function(id){ids[id]=1;});
+  Object.keys(cloudMap).forEach(function(id){ids[id]=1;});
+  Object.keys(localTomb).forEach(function(id){ids[id]=1;});
+  Object.keys(cloudTomb).forEach(function(id){ids[id]=1;});
+  Object.keys(ids).forEach(function(id){
+    var le=localMap[id], ce=cloudMap[id];
+    var lt=le?(+le._mt||0):-1, ct=ce?(+ce._mt||0):-1;
+    var dt=Math.max(+localTomb[id]||0,+cloudTomb[id]||0);
+    if(dt&&dt>=lt&&dt>=ct){ tomb[id]=dt; return; } // 삭제가 최신 → 없음(부활 금지)
+    if(le&&ce){ out[id]=(lt===ct)?((tieWin==='cloud')?ce:le):((lt>ct)?le:ce); }
+    else out[id]=le||ce;
+  });
+  return {map:out,tomb:tomb};
+}
+// ===ENT-MERGE-END===
+
 // 어떤 객체든 인라인 dataURL 문자열을 깊이 제거(클라우드 문서 축소용). 로컬 원본은 안 건드림.
 function _stripDataUrlsDeep(v,cnt){
   if(typeof v==='string'){ if(v.indexOf('data:')===0){ if(cnt)cnt.n++; return ''; } return v; }
@@ -1495,19 +1544,29 @@ function applyRemoteCoData(data,ts){
   if(!data)return;
   if(ts)try{setSyncBase('fpm_'+curCoId,ts);}catch(e){} // 원격을 반영했으니 내 기준 ts = 그 문서 ts
   var _oldItems=S.items||{};
+  // 아이템 = 항목별 병합(재건축 1단계): 통째 교체 대신 항목마다 더 최신 채택. 동률은 클라우드(문서 ts가 더 새로움 확인된 경로)
+  _entEnsureTomb();
+  var _ctombR=(data._tomb)||{};
+  var _miR=_entMerge(_oldItems,data.items||{},S._tomb.items,_ctombR.items,'cloud');
+  S.items=tpPreserveLocalContent(_miR.map,_oldItems); S._tomb.items=_miR.tomb;
   // 발주(orders)는 별도 문서(__orders)로 분리돼 메인 문서엔 없음 → 메인 스냅샷에 orders 없으면 기존 발주 보존(빈 값으로 덮어쓰기 금지)
-  S.items=tpPreserveLocalContent(data.items||{},_oldItems);if(data.orders!==undefined&&data.orders!==null)S.orders=data.orders;S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
+  if(data.orders!==undefined&&data.orders!==null){var _moR=_entMerge(S.orders||{},data.orders,S._tomb.orders,_ctombR.orders,'cloud');S.orders=_moR.map;S._tomb.orders=_moR.tomb;}
+  S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
   S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=data.tasks||[];
   S.brandConfig=data.brandConfig||{};S.deductions=data.deductions||[];
   S.trimLedger=data.trimLedger||S.trimLedger||{};S.trimLedgerPaid=data.trimLedgerPaid||S.trimLedgerPaid||{};S.courierLedger=data.courierLedger||S.courierLedger||{bank:'',entries:[]};S.refData=data.refData||S.refData||{};
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
+  try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
   try{switchTab(activeTab);}catch(e){try{render();}catch(e2){}}
 }
-// 발주(__orders) 전용 원격 반영 — 별도 문서라 리스너도 따로
-function applyRemoteOrders(orders){
+// 발주(__orders) 전용 원격 반영 — 별도 문서라 리스너도 따로. 항목별 병합(무덤 포함)
+function applyRemoteOrders(orders,tomb){
   if(!orders)return;
-  S.orders=orders;
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
+  _entEnsureTomb();
+  var _mo=_entMerge(S.orders||{},orders,S._tomb.orders,tomb,'cloud');
+  S.orders=_mo.map; S._tomb.orders=_mo.tomb;
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
+  try{_entShadowInit();}catch(e){}
   try{switchTab(activeTab);}catch(e){try{render();}catch(e2){}}
 }
 function showRemoteBanner(){
@@ -1528,7 +1587,7 @@ function applyPendingRemote(){
   var od=_rtPendingOrders;_rtPendingOrders=null;
   hideRemoteBanner();
   if(d&&d.coId===curCoId)applyRemoteCoData(d.data,d.ts);
-  if(od&&od.coId===curCoId)applyRemoteOrders(od.orders);
+  if(od&&od.coId===curCoId)applyRemoteOrders(od.orders,od.tomb);
   showToast('다른 기기 변경이 반영됐어요');
 }
 function startRealtimeSync(){
@@ -1569,8 +1628,9 @@ function startRealtimeSync(){
       var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
       if(!data||data._deleted||data.orders===undefined||data.orders===null)return; // 회사 삭제·발주 키 없음 → 무시
       _rtAppliedTs[okey]=ts;
-      if(isEditingNow()){_rtPendingOrders={coId:coAtSub,orders:data.orders};showRemoteBanner();return;}
-      applyRemoteOrders(data.orders);showToast('다른 기기 발주 변경이 반영됐어요');
+      var _oTomb=(data._tomb&&data._tomb.orders)||null;
+      if(isEditingNow()){_rtPendingOrders={coId:coAtSub,orders:data.orders,tomb:_oTomb};showRemoteBanner();return;}
+      applyRemoteOrders(data.orders,_oTomb);showToast('다른 기기 발주 변경이 반영됐어요');
     },function(err){console.error('onSnapshot(orders) 오류:',err);});
     console.log('실시간 동기화 시작:',key);
   }catch(e){console.error('startRealtimeSync 실패:',e);}
@@ -1865,9 +1925,30 @@ async function cloudSyncSave(){
       }
     }
 
+    // === 항목별 병합 (재건축 1단계) — 푸시 직전에 아이템·오더를 클라우드와 항목 단위로 합침 ===
+    // 통째 교체가 아니라 항목마다 더 최신(_mt)이 이김 → 낡은 기기가 저장해도 남의 최신 항목을 못 덮음.
+    // 동률(옛 데이터)은 로컬 승(저장 경로 = 내가 올리는 중). 병합 실패 시 기존 방식(통째)으로 폴백.
+    try{
+      if(cloudCurrent){
+        _entEnsureTomb();
+        var _ctombS=(cloudCurrent._tomb)||{};
+        var _miS=_entMerge(S.items||{},cloudCurrent.items||{},S._tomb.items,_ctombS.items,'local');
+        _miS.map=tpMergeLocalImages(_miS.map,S.items||{}); // 클라우드 승 항목의 사진(스트립됨)은 로컬 원본으로 복원
+        try{_miS.map=_restoreLocalDataUrls(_miS.map,S.items||{});}catch(e2){}
+        S.items=_miS.map; S._tomb.items=_miS.tomb;
+        var _cOrdMap=(_cloudOrdDoc&&_cloudOrdDoc.orders)||cloudCurrent.orders||{};
+        var _cOrdTomb=(_cloudOrdDoc&&_cloudOrdDoc._tomb&&_cloudOrdDoc._tomb.orders)||_ctombS.orders;
+        var _moS=_entMerge(S.orders||{},_cOrdMap,S._tomb.orders,_cOrdTomb,'local');
+        S.orders=_moS.map; S._tomb.orders=_moS.tomb;
+        _entShadowInit(); // 병합 결과가 새 기준
+        try{ if(typeof isEditingNow==='function'&&!isEditingNow())switchTab(activeTab); }catch(e3){}
+      }
+    }catch(eM){ console.warn('[entMerge] 병합 실패(통째 저장으로 진행):',eM); }
+
     // 회사별 데이터 전체 (작업지시서 dataURL 사진은 클라우드 문서에서 제외 — 1MB 초과로 동기화 깨짐 방지)
     var coData={
       items:tpStripDataUrls(S.items||{}),
+      _tomb:S._tomb||{},
       brands:S.brands||[],
       sampleOrders:S.sampleOrders||[],
       pickups:S.pickups||[],
@@ -1882,7 +1963,7 @@ async function cloudSyncSave(){
     // 인라인 dataURL 사진은 클라우드 문서에 넣지 않음(로컬엔 보존) — Firestore 1MB(바이트) 초과 방지
     var _stripCnt={n:0};
     coData=_stripDataUrlsDeep(coData,_stripCnt);
-    var ordersData=_stripDataUrlsDeep({orders:S.orders||{}},_stripCnt); // orders 별도 문서(쪼개기)로 분리
+    var ordersData=_stripDataUrlsDeep({orders:S.orders||{},_tomb:{orders:(S._tomb||{}).orders||{}}},_stripCnt); // orders 별도 문서(쪼개기)로 분리 + 무덤(삭제 전파용)
     var sharedData=_stripDataUrlsDeep({factories:S.factories,priceBook:S.priceBook},_stripCnt);
     function _docBytes(o){try{return new Blob([JSON.stringify(o)]).size;}catch(e){try{return JSON.stringify(o).length;}catch(e2){return 0;}}}
     function _topKeys(o){try{return Object.keys(o).map(function(k){return [k,_docBytes(o[k])];}).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(x){return x[0]+' '+Math.round(x[1]/1024)+'KB';}).join('·');}catch(e){return '';}}
@@ -2803,10 +2884,17 @@ async function cloudSyncLoad(id,opts){
       }
     }
     if(coData||sharedData){
+      // 아이템·오더 = 항목별 병합(재건축 1단계): 항목마다 더 최신 채택, 동률은 클라우드(수신 경로)
+      _entEnsureTomb();
+      var _ctombL=(d._tomb)||{};
+      var _miL=_entMerge(S.items||{},d.items||{},S._tomb.items,_ctombL.items,'cloud');
+      var _ordTombL=(ordersDoc&&ordersDoc._tomb&&ordersDoc._tomb.orders)||_ctombL.orders;
+      var _moL=_entMerge(S.orders||{},_ord,S._tomb.orders,_ordTombL,'cloud');
       // 모든 필드를 복원한다 (이전엔 items, orders만 받고 brands 등을 통째로 날려버렸음)
       S={
-        items:(typeof tpPreserveLocalContent==='function')?tpPreserveLocalContent(d.items||{},S.items||{}):(d.items||S.items||{}),
-        orders:(Object.keys(_ord).length?_ord:(S.orders||{})),
+        items:(typeof tpPreserveLocalContent==='function')?tpPreserveLocalContent(_miL.map,S.items||{}):_miL.map,
+        orders:_moL.map,
+        _tomb:{items:_miL.tomb,orders:_moL.tomb},
         brands:_restoreLocalDataUrls(d.brands||S.brands||[],S.brands||[]),
         sampleOrders:d.sampleOrders||S.sampleOrders||[],
         pickups:d.pickups||S.pickups||[],
@@ -2822,13 +2910,14 @@ async function cloudSyncLoad(id,opts){
       };
       // 로컬 캐시도 모든 필드로 업데이트
       lsSet('fpm_'+id,{
-        items:S.items,orders:S.orders,
+        items:S.items,orders:S.orders,_tomb:S._tomb||{},
         brands:S.brands,sampleOrders:S.sampleOrders,
         pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,
         brandConfig:S.brandConfig,deductions:S.deductions
       });
       lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
       migrateData();changed=true;
+      try{_entShadowInit();}catch(e){} // 병합 결과가 이 세션의 새 기준(마이그레이션 이후 시점)
       try{ if(_coTs)setSyncBase('fpm_'+id,_coTs); }catch(e){} // 클라우드를 반영했으니 그 문서 ts가 내 새 기준
     }
     setCloudInd('ok');return changed;
@@ -3020,11 +3109,12 @@ function autoHourlyBackup(){
 function saveData(){
   if(!curCoId)return;
   if(!window._undoSilent){try{_undoRecord();}catch(e){}}
+  try{_entStampChanges();}catch(e){} // 항목별 병합: 바뀐 아이템·오더에 _mt 도장 + 삭제는 무덤 기록 (부팅 그림자 없으면 아무것도 안 함)
   autoLocalBackup();
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   window._lsQuotaErr=false;
-  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false});
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
@@ -3058,9 +3148,10 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false};
+  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false};
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
+  try{_entShadowInit();}catch(e){} // 항목별 병합 기준선 — 마이그레이션 "이후"에 찍어야 기계적 변경이 _mt 오염 안 함
   try{ window._bkCacheCoId=null; if(typeof idbBkEnsureLoaded==='function')idbBkEnsureLoaded(); }catch(e){} // 백업 IndexedDB 로드/이사(회사 전환 시 캐시 갱신)
   try{ if(typeof pbBkEnsureLoaded==='function')pbBkEnsureLoaded(); }catch(e){} // 단가장 백업 IDB 로드/이사(A-③)
   try{ if(!window._dosikCleanupTimer){ window._dosikCleanupTimer=setTimeout(function(){ try{ if(typeof _dosikLegacyCleanup==='function')_dosikLegacyCleanup(); }catch(e){} },3000); } }catch(e){} // 도식화 옛 잔재 정리(새 집 확인 후에만)
