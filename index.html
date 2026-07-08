@@ -1935,13 +1935,23 @@ async function cloudSyncSave(){
         var _miS=_entMerge(S.items||{},cloudCurrent.items||{},S._tomb.items,_ctombS.items,'local');
         _miS.map=tpMergeLocalImages(_miS.map,S.items||{}); // 클라우드 승 항목의 사진(스트립됨)은 로컬 원본으로 복원
         try{_miS.map=_restoreLocalDataUrls(_miS.map,S.items||{});}catch(e2){}
-        S.items=_miS.map; S._tomb.items=_miS.tomb;
         var _cOrdMap=(_cloudOrdDoc&&_cloudOrdDoc.orders)||cloudCurrent.orders||{};
         var _cOrdTomb=(_cloudOrdDoc&&_cloudOrdDoc._tomb&&_cloudOrdDoc._tomb.orders)||_ctombS.orders;
         var _moS=_entMerge(S.orders||{},_cOrdMap,S._tomb.orders,_cOrdTomb,'local');
+        // 병합으로 실제 바뀐 항목이 있나 (클라우드 승·삭제) — 없으면 재렌더 불필요
+        var _entChanged=false;
+        var _chkChanged=function(merged,cur){ if(_entChanged)return;
+          var ks=Object.keys(merged),i;
+          for(i=0;i<ks.length;i++){ if(merged[ks[i]]!==cur[ks[i]]){_entChanged=true;return;} }
+          var cs=Object.keys(cur);
+          for(i=0;i<cs.length;i++){ if(!merged[cs[i]]){_entChanged=true;return;} }
+        };
+        _chkChanged(_miS.map,S.items||{}); _chkChanged(_moS.map,S.orders||{});
+        S.items=_miS.map; S._tomb.items=_miS.tomb;
         S.orders=_moS.map; S._tomb.orders=_moS.tomb;
         _entShadowInit(); // 병합 결과가 새 기준
-        try{ if(typeof isEditingNow==='function'&&!isEditingNow())switchTab(activeTab); }catch(e3){}
+        // 바뀐 것 있을 때만 다시 그림 + 스크롤 보존 (매 저장마다 무조건 재렌더→스크롤 맨위 튕김 버그 방지)
+        if(_entChanged){ try{ if(typeof isEditingNow!=='function'||!isEditingNow()){ var _sy=window.scrollY||document.documentElement.scrollTop||0; switchTab(activeTab); window.scrollTo(0,_sy); } }catch(e3){} }
       }
     }catch(eM){ console.warn('[entMerge] 병합 실패(통째 저장으로 진행):',eM); }
 
