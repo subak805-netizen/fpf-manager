@@ -539,13 +539,14 @@ tryInitFirebase();
       <div class="card" style="max-width:800px;margin:0 auto;box-sizing:border-box"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
         <div class="fg" style="margin-bottom:0;flex:1.2;min-width:110px"><label>브랜드</label><select id="cs-brand-flt" onchange="onCSBrandFilter()"><option value="">전체 브랜드</option></select></div>
         <div class="fg" style="margin-bottom:0;flex:2;min-width:140px"><label>아이템</label><select id="cs-sel" onchange="renderCS()"><option value="">선택</option></select></div>
-        <div class="fg" style="margin-bottom:0;flex:1;min-width:80px"><label>수량 (pcs)</label><input type="number" id="cs-qty" value="1" min="1" oninput="renderCS()"></div>
+        <div class="fg" style="margin-bottom:0;flex:1;min-width:80px"><label>수량 (pcs)</label><input type="number" id="cs-qty" value="1" min="1" oninput="csSaveSet();renderCS()"></div>
         <div class="fg" style="margin-bottom:0;flex:1;min-width:80px">
           <label>미니멈 <span class="muted" style="font-weight:400;font-size:10px">롤·lot비 기준</span></label>
           <input type="number" id="cs-min" value="30" min="1" oninput="csSaveSet();renderCS()">
         </div>
         <div class="fg" style="margin-bottom:0;flex:1;min-width:80px"><label>판매 배수 <span class="muted" style="font-weight:400;font-size:10px">원가×배수=판매가</span></label><input type="number" id="cs-mg" value="2.5" min="1" step="0.1" oninput="csSaveSet();renderCS()"></div>
-        <div class="fg" style="margin-bottom:0;flex:1;min-width:90px"><label>판매단가 (원) <span class="muted" style="font-weight:400;font-size:10px">직접입력</span></label><input type="number" id="cs-sale" min="0" placeholder="자동계산" oninput="renderCS()"></div>
+        <div class="fg" style="margin-bottom:0;flex:1;min-width:90px"><label>판매단가 (원) <span class="muted" style="font-weight:400;font-size:10px">직접입력·아이템별 저장</span></label><input type="number" id="cs-sale" min="0" placeholder="자동계산" oninput="csSaveSet();renderCS()"></div>
+        <div class="fg" style="margin-bottom:0;flex:0 0 auto"><button class="btn s" onclick="csSaveSet();if(typeof showToast==='function')showToast('원가 설정 저장됨')" title="입력하면 자동 저장돼요 — 이 버튼은 확인용">저장</button></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)">
         <div style="font-size:11px;font-weight:700;color:var(--t2);align-self:center">원가용 로스율</div>
@@ -7181,6 +7182,7 @@ function showItemForm(id){
   document.getElementById('if-t').textContent=id?'아이템 수정':'아이템 추가';
   _itemListScrollY=window.scrollY||0;
   document.getElementById('ipl').style.display='none';document.getElementById('ipf').style.display='';
+  try{_itemAutoSaveArm();}catch(e){} // 자동 저장 리스너 연결 (1회)
   window.scrollTo(0,0);
   window._autoWorkRoute='';window._wrManual=!!(it&&it.workRouteManual); // 자동경로 추적 초기화 + 수동입력 플래그
   updateSupDL();const p=it||{};
@@ -7284,7 +7286,7 @@ function showItemForm(id){
     
     <!-- 메모 (한줄) -->
     <div class="fg"><label>메모</label><textarea id="f-notes" rows="2" oninput="scheduleDraft()">${esc(p.notes||'')}</textarea></div>
-    <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="hideItemForm()">취소</button><button class="btn p" onclick="saveItemForm()">✓ 저장</button></div>`;
+    <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="hideItemForm()">닫기</button><button class="btn p" onclick="saveItemForm()">✓ 저장</button></div>`;
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
   setTimeout(refreshWorkRoute,0);
 }
@@ -7323,7 +7325,21 @@ function refreshWorkRoute(){
   var r=parts.join(' → ');
   if(r){el.value=r;window._autoWorkRoute=r;}
 }
-function hideItemForm(){document.getElementById('ipl').style.display='';document.getElementById('ipf').style.display='none';requestAnimationFrame(function(){window.scrollTo(0,_itemListScrollY);});}
+// 아이템 폼 자동 저장 (2026-07-09, 기존 아이템 수정만) — 입력 멈추고 2.5초 후 조용히 저장. 신규 작성은 임시저장(draft)이 담당하다 첫 수동 저장 후부터 자동 저장.
+function _itemAutoSaveArm(){
+  var ipf=document.getElementById('ipf'); if(!ipf||ipf._autoArmed)return; ipf._autoArmed=1;
+  var fire=function(){ window._itemAutoT=null; if(!editItemId)return; if(!ipf||ipf.style.display==='none')return; try{saveItemForm({silent:true});}catch(e){console.warn('[아이템 자동저장]',e);} };
+  var sched=function(){ if(!editItemId)return; if(window._itemAutoT)clearTimeout(window._itemAutoT); window._itemAutoT=setTimeout(fire,2500); };
+  ipf.addEventListener('input',sched,true);
+  ipf.addEventListener('change',sched,true);
+}
+function hideItemForm(){
+  // 닫기 전 마지막 변경 저장 (자동 저장 대기 중이던 것 즉시 반영)
+  try{ if(window._itemAutoT){clearTimeout(window._itemAutoT);window._itemAutoT=null; if(editItemId)saveItemForm({silent:true});} }catch(e){}
+  document.getElementById('ipl').style.display='';document.getElementById('ipf').style.display='none';
+  try{renderItemsList();}catch(e){} // 자동 저장 동안 생략한 리스트 갱신
+  requestAnimationFrame(function(){window.scrollTo(0,_itemListScrollY);});
+}
 
 // 가산 항목 UI (원단 전용)
 // 컬러별로 적용 여부를 선택할 수 있는 추가 단가 리스트
@@ -9262,12 +9278,14 @@ function onTrimType(i,v){
   else formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:3,sizeRates:t.sizeRates||[]};
   renderTrimRows();
 }
-function saveItemForm(){
-  colFR();colTR();colTrimCosts();const nm=document.getElementById('f-nm').value.trim();if(!nm){alert('아이템명 입력');return;}
-  var _compChk=validateFabComps();if(!_compChk.ok){showCompWarnModal(_compChk);return;}
+function saveItemForm(opts){
+  // silent=자동 저장 모드: 경고창을 띄울 상황(이름 없음·혼용률 오류·품번 중복)이면 조용히 건너뜀 — 수동 저장 때 처리
+  var _silent=!!(opts&&opts.silent);
+  colFR();colTR();colTrimCosts();const nm=document.getElementById('f-nm').value.trim();if(!nm){if(_silent)return;alert('아이템명 입력');return;}
+  var _compChk=validateFabComps();if(!_compChk.ok){if(_silent)return;showCompWarnModal(_compChk);return;}
   const id=editItemId||uid();
   const _cd=document.getElementById('f-cd').value.trim();
-  if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup&&!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}
+  if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup){if(_silent)return;if(!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}}
   const item={id,name:nm,code:document.getElementById('f-cd').value.trim(),client:document.getElementById('f-cl').value.trim(),season:document.getElementById('f-ss').value.trim(),notes:document.getElementById('f-notes').value.trim(),careInstructions:document.getElementById('f-care').value.trim(),colors:[...formColors],sizes:[...formSizes],fabrics:formFabs.map(f=>({...f,id:f.id||uid()})),trims:formTrims.map(t=>({...t,id:t.id||uid()})),trimCosts:formTrimCosts.map(tc=>({...tc,id:tc.id||uid()}))};
   try{(item.trims||[]).forEach(function(t){var _mp=_tMatrixPrice(t);if(_mp!=null&&_mp>0)t.unitPrice=_mp;});}catch(e){}
   COST_DEFS.forEach(([ck,,fk])=>{item[ck]=+document.getElementById('f-'+ck)?.value||0;item[fk]=document.getElementById('f-'+fk)?.value||'';});
@@ -9393,19 +9411,20 @@ function saveItemForm(){
   if(item.brandId){var _btnLogo=(item.trims||[]).find(function(t){return t.orderType==='button'&&t.hasButtonLogo&&(t.buttonLogoText||'').trim();});if(_btnLogo){if(!S.brandConfig)S.brandConfig={};if(!S.brandConfig[item.brandId])S.brandConfig[item.brandId]={};if((_btnLogo.buttonLogoText||'').trim())S.brandConfig[item.brandId].buttonLogo=_btnLogo.buttonLogoText.trim();}}
   // === 새 아이템 등록 시 샘플 자동 생성은 제거됨 (사용자가 필요할 때 샘플 탭에서 추가) ===
   var isNewItem=!editItemId;
-  try{var _uw=pbCheckUnits(item);if(_uw.length)showToast('단위 확인 — '+_uw.join(' / ')+' (다른 단위로 저장돼요)',7000);}catch(e){}
-  saveToPB(item);saveData();renderItemsList();renderCSDropdown();
+  try{var _uw=pbCheckUnits(item);if(_uw.length&&!_silent)showToast('단위 확인 — '+_uw.join(' / ')+' (다른 단위로 저장돼요)',7000);}catch(e){}
+  saveToPB(item);saveData();
+  if(!_silent){renderItemsList();renderCSDropdown();} // 자동 저장 땐 무거운 재렌더 생략 (폼 닫을 때 갱신)
   // 폼은 닫지 않고 그대로 유지 (사용자가 추가 편집할 수 있도록)
   // 다만 신규 → 편집 모드로 전환되어야 다음 저장 시 동일 아이템 업데이트됨
   if(isNewItem){
     editItemId=item.id;
     // "저장" 버튼이었던 것을 "수정 저장"으로 시각적 갱신은 다음 showItemForm 호출 때
   }
-  // 자재 동기화 알림: 편집 모드(기존 아이템 수정)일 때만
-  if(!isNewItem){
+  // 자재 동기화 알림: 편집 모드(기존 아이템 수정)일 때만 (자동 저장 땐 조용히)
+  if(!isNewItem&&!_silent){
     notifyOrdersAffectedByItemChange(item.id,item.name);
   }
-  showToast(isNewItem?'아이템 등록 완료':'저장됨 — 계속 편집하거나 ✕로 닫으세요',2500);
+  if(!_silent)showToast(isNewItem?'아이템 등록 완료':'저장됨 — 계속 편집하거나 ✕로 닫으세요',2500);
 }
 
 /* ===== ORDER CREATION (GRID) ===== */
@@ -20545,13 +20564,28 @@ function _csRestoreSet(){
   if(window._csSetLoaded)return; window._csSetLoaded=1;
   var v=null; try{v=(typeof lsGet==='function')?lsGet('fpm_csSet'):null;}catch(e){}
   if(!v||typeof v!=='object')return;
-  [['cs-min','min'],['cs-mg','mg'],['cs-fab-loss','fabLoss'],['cs-trim-loss','trimLoss']].forEach(function(p){
+  [['cs-min','min'],['cs-mg','mg'],['cs-fab-loss','fabLoss'],['cs-trim-loss','trimLoss'],['cs-qty','qty']].forEach(function(p){
     var el=document.getElementById(p[0]); if(el&&v[p[1]]!=null&&v[p[1]]!=='')el.value=v[p[1]];
   });
 }
 function csSaveSet(){
   var g=function(id){var el=document.getElementById(id);return el?el.value:'';};
-  try{lsSet('fpm_csSet',{min:g('cs-min'),mg:g('cs-mg'),fabLoss:g('cs-fab-loss'),trimLoss:g('cs-trim-loss')});}catch(e){}
+  var m=null; try{m=(typeof lsGet==='function')?lsGet('fpm_csSet'):null;}catch(e){}
+  if(!m||typeof m!=='object')m={};
+  m.min=g('cs-min');m.mg=g('cs-mg');m.fabLoss=g('cs-fab-loss');m.trimLoss=g('cs-trim-loss');m.qty=g('cs-qty');
+  // 판매단가는 아이템별 저장 (아이템 바꾸면 그 아이템 저장값 복원)
+  var _iid=g('cs-sel');
+  if(_iid){ if(!m.saleBy||typeof m.saleBy!=='object')m.saleBy={}; var _sv=g('cs-sale'); if(_sv==='')delete m.saleBy[_iid]; else m.saleBy[_iid]=_sv; }
+  try{lsSet('fpm_csSet',m);}catch(e){}
+}
+// 아이템 바뀔 때 그 아이템의 저장된 판매단가 복원 (renderCS 시작에서 호출)
+function _csRestoreSale(id){
+  try{
+    if(window._csSaleItem===id)return; window._csSaleItem=id;
+    var v=(typeof lsGet==='function')?lsGet('fpm_csSet'):null;
+    var sv=(v&&v.saleBy&&v.saleBy[id]!=null)?v.saleBy[id]:'';
+    var el=document.getElementById('cs-sale'); if(el)el.value=sv;
+  }catch(e){}
 }
 // 원가 체크 제외 상태 — localStorage 영속 (메모리에만 있어서 재진입/새로고침 때 풀리던 버그 수정 2026-07-09)
 function _csExclLoad(){ if(!window._csExclusions){ var v=null; try{v=(typeof lsGet==='function')?lsGet('fpm_csExcl'):null;}catch(e){} window._csExclusions=(v&&typeof v==='object')?v:{}; } return window._csExclusions; }
@@ -20636,8 +20670,10 @@ function getNegotiatedForMat(matName,matId){
 }
 
 function renderCS(){
-  try{_csRestoreSet();}catch(e){} // 저장된 미니멈·판매배수·로스율 복원 (최초 1회)
-  const id=document.getElementById('cs-sel').value;const qty=Math.max(1,parseInt(document.getElementById('cs-qty').value)||1);
+  try{_csRestoreSet();}catch(e){} // 저장된 미니멈·판매배수·로스율·수량 복원 (최초 1회)
+  const id=document.getElementById('cs-sel').value;
+  try{_csRestoreSale(id);}catch(e){} // 아이템별 저장된 판매단가 복원 (아이템 바뀔 때만)
+  const qty=Math.max(1,parseInt(document.getElementById('cs-qty').value)||1);
   const minQty=Math.max(1,parseInt(document.getElementById('cs-min').value)||30);
   const multi=Math.max(1,parseFloat(document.getElementById('cs-mg').value)||2.5);
   const fabLoss=Math.max(0,parseFloat(document.getElementById('cs-fab-loss')?.value)||10);
