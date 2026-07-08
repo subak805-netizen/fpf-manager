@@ -1959,6 +1959,7 @@ async function cloudSyncSave(){
     var coData={
       items:tpStripDataUrls(S.items||{}),
       _tomb:S._tomb||{},
+      _careSupMig1:S._careSupMig1||false,
       brands:S.brands||[],
       sampleOrders:S.sampleOrders||[],
       pickups:S.pickups||[],
@@ -2845,6 +2846,25 @@ async function forceCloudRefresh(){
   }
 }
 
+// 일괄 변경 1회 (2026-07-08 사용자 요청): 모든 아이템의 케어라벨 부자재처 "에이스라벨" → "하나라벨".
+// 반드시 동기화로 최신 데이터를 확보한 뒤에만 호출 — 스테일 데이터에 _mt 도장이 찍혀 최신을 이기는 사고 방지.
+// 바꾼 아이템엔 _mt를 직접 찍어 항목별 병합에서 전 기기로 전파. 플래그(S._careSupMig1)로 1회만, 재실행해도 무해(멱등).
+function _careSupMig1Run(){
+  try{
+    if(S._careSupMig1)return;
+    var n=0, now=Date.now();
+    Object.values(S.items||{}).forEach(function(it){
+      if(!it||!Array.isArray(it.trims))return;
+      var hit=false;
+      it.trims.forEach(function(t){ if(t&&t.orderType==='careLabel'&&((t.supplier||'').trim()==='에이스라벨')){ t.supplier='하나라벨'; hit=true; } });
+      if(hit){ it._mt=now; n++; }
+    });
+    S._careSupMig1=true;
+    try{_entShadowInit();}catch(e){}
+    try{saveData();}catch(e){}
+    if(n){ console.log('[careSupMig1] 케어라벨 부자재처 에이스라벨→하나라벨:',n,'개'); if(typeof showToast==='function')showToast('케어라벨 부자재처를 하나라벨로 변경했어요 ('+n+'개 아이템)',5000); }
+  }catch(e){console.warn('[careSupMig1]',e);}
+}
 async function cloudSyncLoad(id,opts){
   opts=opts||{};
   if(!isCloudOn())return false;
@@ -2884,6 +2904,7 @@ async function cloudSyncLoad(id,opts){
         if(!_cloudMoreComplete&&!_cloudNewer){
           console.warn('[cloudSyncLoad] 로컬 유지 (기준 ts 없거나 로컬이 더 완전/동일). 다른 기기 변경은 새로고침으로');
           if(_coTs&&!_base)setSyncBase('fpm_'+id,_coTs); // 최초 1회 기준 등록(부트스트랩)
+          if(_base)_careSupMig1Run(); // 기준 ts 있음 = 로컬이 최신임이 확인된 상태 → 1회 일괄변경 실행 가능
           setCloudInd('ok');
           return false;
         }
@@ -2916,7 +2937,8 @@ async function cloudSyncLoad(id,opts){
         deductions:d.deductions||S.deductions||[],
         factories:sh.factories||S.factories||{},
         priceBook:_restoreLocalDataUrls(sh.priceBook||S.priceBook||{},S.priceBook||{}),
-        _compMigrated:d._compMigrated||S._compMigrated||false
+        _compMigrated:d._compMigrated||S._compMigrated||false,
+        _careSupMig1:d._careSupMig1||S._careSupMig1||false
       };
       // 로컬 캐시도 모든 필드로 업데이트
       lsSet('fpm_'+id,{
@@ -2929,6 +2951,7 @@ async function cloudSyncLoad(id,opts){
       migrateData();changed=true;
       try{_entShadowInit();}catch(e){} // 병합 결과가 이 세션의 새 기준(마이그레이션 이후 시점)
       try{ if(_coTs)setSyncBase('fpm_'+id,_coTs); }catch(e){} // 클라우드를 반영했으니 그 문서 ts가 내 새 기준
+      if(coData)_careSupMig1Run(); // 병합 직후 = 최신 확보 상태 → 1회 일괄변경
     }
     setCloudInd('ok');return changed;
   }catch(e){
@@ -3124,7 +3147,7 @@ function saveData(){
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   window._lsQuotaErr=false;
-  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false});
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},courierLedger:S.courierLedger||{bank:'',entries:[]},refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
@@ -3158,7 +3181,7 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false};
+  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{_entShadowInit();}catch(e){} // 항목별 병합 기준선 — 마이그레이션 "이후"에 찍어야 기계적 변경이 _mt 오염 안 함
