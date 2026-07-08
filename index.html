@@ -542,17 +542,17 @@ tryInitFirebase();
         <div class="fg" style="margin-bottom:0;flex:1;min-width:80px"><label>수량 (pcs)</label><input type="number" id="cs-qty" value="1" min="1" oninput="renderCS()"></div>
         <div class="fg" style="margin-bottom:0;flex:1;min-width:80px">
           <label>미니멈 <span class="muted" style="font-weight:400;font-size:10px">롤·lot비 기준</span></label>
-          <input type="number" id="cs-min" value="30" min="1" oninput="renderCS()">
+          <input type="number" id="cs-min" value="30" min="1" oninput="csSaveSet();renderCS()">
         </div>
-        <div class="fg" style="margin-bottom:0;flex:1;min-width:80px"><label>판매 배수 <span class="muted" style="font-weight:400;font-size:10px">원가×배수=판매가</span></label><input type="number" id="cs-mg" value="2.5" min="1" step="0.1" oninput="renderCS()"></div>
+        <div class="fg" style="margin-bottom:0;flex:1;min-width:80px"><label>판매 배수 <span class="muted" style="font-weight:400;font-size:10px">원가×배수=판매가</span></label><input type="number" id="cs-mg" value="2.5" min="1" step="0.1" oninput="csSaveSet();renderCS()"></div>
         <div class="fg" style="margin-bottom:0;flex:1;min-width:90px"><label>판매단가 (원) <span class="muted" style="font-weight:400;font-size:10px">직접입력</span></label><input type="number" id="cs-sale" min="0" placeholder="자동계산" oninput="renderCS()"></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)">
         <div style="font-size:11px;font-weight:700;color:var(--t2);align-self:center">원가용 로스율</div>
         <div class="fg" style="margin-bottom:0;flex:1;min-width:80px"><label>원단 로스율</label>
-          <div style="display:flex;align-items:center;gap:4px"><input type="number" id="cs-fab-loss" value="10" min="0" max="50" step="0.5" oninput="renderCS()" style="flex:1"><span style="font-size:12px;color:var(--t2)">%</span></div></div>
+          <div style="display:flex;align-items:center;gap:4px"><input type="number" id="cs-fab-loss" value="10" min="0" max="50" step="0.5" oninput="csSaveSet();renderCS()" style="flex:1"><span style="font-size:12px;color:var(--t2)">%</span></div></div>
         <div class="fg" style="margin-bottom:0;flex:1;min-width:80px"><label>부자재 로스율</label>
-          <div style="display:flex;align-items:center;gap:4px"><input type="number" id="cs-trim-loss" value="20" min="0" max="50" step="0.5" oninput="renderCS()" style="flex:1"><span style="font-size:12px;color:var(--t2)">%</span></div></div>
+          <div style="display:flex;align-items:center;gap:4px"><input type="number" id="cs-trim-loss" value="20" min="0" max="50" step="0.5" oninput="csSaveSet();renderCS()" style="flex:1"><span style="font-size:12px;color:var(--t2)">%</span></div></div>
         <div style="font-size:10px;color:var(--t2);align-self:flex-end;padding-bottom:4px;line-height:1.5">순수원가=요척×수량×단가<br>로스반영=요척×수량×(1+로스%)×단가</div>
       </div>
       </div>
@@ -9116,6 +9116,7 @@ function backToItemsFromCost(){
 }
 
 function renderCSSummary(){
+  try{_csRestoreSet();}catch(e){} // 저장된 미니멈·판매배수·로스율 복원 (최초 1회)
   const el=document.getElementById('cs-summary-body');if(!el)return;
   const items=Object.values(S.items);
   const search=(document.getElementById('cs-search')?.value||'').toLowerCase();
@@ -20539,6 +20540,19 @@ function setCsMinSplitQty(itemId,trimId,val){
   saveData();
   renderCS();
 }
+// 원가 상단 설정(미니멈·판매배수·로스율) localStorage 영속 — 재진입 때 기본값(30 등)으로 리셋되던 버그 수정 (2026-07-09)
+function _csRestoreSet(){
+  if(window._csSetLoaded)return; window._csSetLoaded=1;
+  var v=null; try{v=(typeof lsGet==='function')?lsGet('fpm_csSet'):null;}catch(e){}
+  if(!v||typeof v!=='object')return;
+  [['cs-min','min'],['cs-mg','mg'],['cs-fab-loss','fabLoss'],['cs-trim-loss','trimLoss']].forEach(function(p){
+    var el=document.getElementById(p[0]); if(el&&v[p[1]]!=null&&v[p[1]]!=='')el.value=v[p[1]];
+  });
+}
+function csSaveSet(){
+  var g=function(id){var el=document.getElementById(id);return el?el.value:'';};
+  try{lsSet('fpm_csSet',{min:g('cs-min'),mg:g('cs-mg'),fabLoss:g('cs-fab-loss'),trimLoss:g('cs-trim-loss')});}catch(e){}
+}
 // 원가 체크 제외 상태 — localStorage 영속 (메모리에만 있어서 재진입/새로고침 때 풀리던 버그 수정 2026-07-09)
 function _csExclLoad(){ if(!window._csExclusions){ var v=null; try{v=(typeof lsGet==='function')?lsGet('fpm_csExcl'):null;}catch(e){} window._csExclusions=(v&&typeof v==='object')?v:{}; } return window._csExclusions; }
 function csIsExcluded(itemId,key){
@@ -20622,6 +20636,7 @@ function getNegotiatedForMat(matName,matId){
 }
 
 function renderCS(){
+  try{_csRestoreSet();}catch(e){} // 저장된 미니멈·판매배수·로스율 복원 (최초 1회)
   const id=document.getElementById('cs-sel').value;const qty=Math.max(1,parseInt(document.getElementById('cs-qty').value)||1);
   const minQty=Math.max(1,parseInt(document.getElementById('cs-min').value)||30);
   const multi=Math.max(1,parseFloat(document.getElementById('cs-mg').value)||2.5);
