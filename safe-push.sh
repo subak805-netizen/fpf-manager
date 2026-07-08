@@ -14,7 +14,7 @@ fi
 # 돈 계산 검산 (calc-check.sh) — 실패하면 push 중단. 건너뛰기: SKIP_CALC=1 ./safe-push.sh
 if [ -x ./calc-check.sh ] && [ "${SKIP_CALC:-0}" != "1" ]; then
   if ./calc-check.sh >/tmp/calccheck.out 2>&1; then
-    echo "✅ 돈 계산 검산 10문제 통과"
+    echo "✅ 돈 계산 검산 통과"
   else
     echo "❌ 돈 계산 검산 실패 — push 중단 (전체: cat /tmp/calccheck.out)"
     grep -E "실패|FAIL|추출" /tmp/calccheck.out | head -10
