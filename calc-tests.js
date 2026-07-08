@@ -188,6 +188,29 @@ TEST('문제 10. 공장 바꿔도 옛 오더는 fc1 고정', function(){
   CHECK('스냅샷 없는 옛 오더 폴백', orderFc({}, S.items.itC, 'sewingFcId'), 'fc2');
 });
 
+// ── 문제 11. 비품 출고 공임 할인 ─────────────────────────────
+// 공임 24,000원. 정상 100장 + 비품 25장(30% 할인 단가 16,800원).
+// 손계산: 24,000×100=2,400,000 + 16,800×25=420,000 → 2,820,000원.
+// 반올림: 공임 28,500원의 30% 할인 단가 = 28,500×0.7 = 19,950원(원 단위 반올림).
+// 할인율 비었으면 기본 30%. 비품 표시 없으면 전액 정상.
+TEST('문제 11. 비품 공임 30% 할인 = 2,820,000원', function(){
+  CHECK('비품 단가 24000→16800', bgUnitPrice(24000, 30), 16800);
+  CHECK('비품 단가 반올림 28500→19950', bgUnitPrice(28500, 30), 19950);
+  CHECK('할인율 비면 기본 30%', bgUnitPrice(24000, null), 16800);
+  CHECK('할인율 0%면 정상가', bgUnitPrice(24000, 0), 24000);
+  var recs = [
+    { qty:60, color:'블랙' }, { qty:40, color:'화이트' },          // 정상 100장
+    { qty:25, color:'블랙', bg:1, bgDc:30 }                        // 비품 25장
+  ];
+  var r = sewLaborBase(24000, recs);
+  CHECK('정상 수량', r.normalQty, 100);
+  CHECK('비품 수량', r.bgQty, 25);
+  CHECK('비품 금액', r.bgAmt, 420000);
+  CHECK('공임 합계', r.base, 2820000);
+  var r2 = sewLaborBase(24000, [{ qty:100 }]);
+  CHECK('비품 없으면 전액 정상', r2.base, 2400000);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){
@@ -195,5 +218,5 @@ if(_fails.length){
   print('실패 목록: ' + _fails.join(' / '));
   print('>>> 고치기 전에는 push 금지. (검사 자체를 건너뛰려면 SKIP_CALC=1 ./safe-push.sh)');
 }else{
-  print('CALC TESTS: OK — 10문제 전부 통과 (검사 ' + _okCount + '개)');
+  print('CALC TESTS: OK — 11문제 전부 통과 (검사 ' + _okCount + '개)');
 }
