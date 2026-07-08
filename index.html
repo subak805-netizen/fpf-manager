@@ -1781,8 +1781,10 @@ function buildMorningBrief(){
       var ins=_t(sch.inspectionDate); if(inWin(ins))out.insp.push({d:ins,o:oNm,fc:(S.factories[fcId]&&S.factories[fcId].name)||''});
       var shp=_t(sch.shipExpectedDate||sch.shippingDate); if(inWin(shp)&&!(typeof fcShipped==='function'&&fcShipped(sch)))out.ship.push({d:shp,o:oNm}); // 출고 기록 있으면(회차·수량 포함) 예정 알림 제외
     });
-    Object.keys(o.suppliers||{}).forEach(function(sn){
-      var sup=o.suppliers[sn]; if(!sup||sup.arrivalDate||sup.arrived)return; // 오더상세 입고완료 또는 대시보드 입고 체크
+    // 재단이 시작된 오더는 자재가 도착한 것 → 입고 예정/지연 잔소리 제외 (2026-07-09)
+    var _cutO=Object.values(o.factorySchedules||{}).some(function(sch){ if(!sch)return false; if(+sch.cuttingQty>0)return true; if(Array.isArray(sch.cuttingShipments)&&sch.cuttingShipments.some(function(r){return r&&+r.qty>0;}))return true; var cg=sch.cuttingGrid||{}; return Object.keys(cg).some(function(a){var ig=cg[a]||{};return Object.keys(ig).some(function(b){var m=ig[b]||{};return Object.keys(m).some(function(c){return +m[c]>0;});});}); });
+    if(!_cutO)Object.keys(o.suppliers||{}).forEach(function(sn){
+      var sup=o.suppliers[sn]; if(!sup||sup.arrivalDate||sup.arrived)return; // 오더상세 입고완료 또는 대시보드 입고 체크(날짜 없어도 체크=완료)
       if(o._prepArrived&&o._prepArrived[sn])return; // 대시보드 원·부자재 입고 체크(order-level) — 체크했는데 브리핑에 지연으로 뜨던 버그
       var d=_t(sup.expectedShipDate); if(inWin(d))out.arrive.push({d:d,sup:sn,o:oNm});
     });
@@ -9093,6 +9095,7 @@ function switchCSTab(t){
 function showItemCost(itemId){
   if(!itemId||!S.items||!S.items[itemId]){if(typeof showToast==='function')showToast('아이템을 찾을 수 없어요');return;}
   window._csFromItems=true;
+  window._itemListScrollY2=window.scrollY||0; // 아이템 리스트 위치 저장 — 돌아올 때 복원 (원가에서 뒤로가면 한참 아래에 떨어지던 버그)
   try{switchTab('costs');}catch(e){}
   setTimeout(function(){
     const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='block';
@@ -9109,6 +9112,7 @@ function backToItemsFromCost(){
   window._csFromItems=false;
   const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';
   try{switchTab('items');}catch(e){}
+  requestAnimationFrame(function(){window.scrollTo(0,window._itemListScrollY2||0);}); // 저장해둔 리스트 위치로 복원
 }
 
 function renderCSSummary(){
@@ -20535,18 +20539,23 @@ function setCsMinSplitQty(itemId,trimId,val){
   saveData();
   renderCS();
 }
+// 원가 체크 제외 상태 — localStorage 영속 (메모리에만 있어서 재진입/새로고침 때 풀리던 버그 수정 2026-07-09)
+function _csExclLoad(){ if(!window._csExclusions){ var v=null; try{v=(typeof lsGet==='function')?lsGet('fpm_csExcl'):null;}catch(e){} window._csExclusions=(v&&typeof v==='object')?v:{}; } return window._csExclusions; }
 function csIsExcluded(itemId,key){
-  if(!window._csExclusions)window._csExclusions={};
-  return window._csExclusions[itemId]?.[key]===true;
+  return _csExclLoad()[itemId]?.[key]===true;
 }
 function csToggleExcl(itemId,key){
-  if(!window._csExclusions)window._csExclusions={};
-  if(!window._csExclusions[itemId])window._csExclusions[itemId]={};
-  window._csExclusions[itemId][key]=!window._csExclusions[itemId][key];
+  var m=_csExclLoad();
+  if(!m[itemId])m[itemId]={};
+  m[itemId][key]=!m[itemId][key];
+  if(!m[itemId][key])delete m[itemId][key];
+  if(!Object.keys(m[itemId]).length)delete m[itemId];
+  try{lsSet('fpm_csExcl',m);}catch(e){}
   renderCS();
 }
 function csResetExcl(itemId){
-  if(window._csExclusions)delete window._csExclusions[itemId];
+  var m=_csExclLoad(); delete m[itemId];
+  try{lsSet('fpm_csExcl',m);}catch(e){}
   renderCS();
 }
 function addCsFinishCost(itemId){
@@ -27773,8 +27782,18 @@ function checkAlerts() {
     const orderAge = daysSince(o.createdAt);
     if (orderAge < ALERT_AFTER_DAYS) continue;
 
-    // 1. 원단 출고일 미입력 (발주 완료됐는데 출고일 없음)
+    // 이 오더 재단 시작 여부 — 재단이 됐으면 자재는 도착한 것이니 입고/출고일 관련 잔소리 금지 (2026-07-09)
+    const _hasCutting = Object.values(o.factorySchedules || {}).some(sch => {
+      if (!sch) return false;
+      if (+sch.cuttingQty > 0) return true;
+      if (Array.isArray(sch.cuttingShipments) && sch.cuttingShipments.some(r => r && +r.qty > 0)) return true;
+      return Object.values(sch.cuttingGrid || {}).some(ig => Object.values(ig || {}).some(cg => Object.values(cg || {}).some(v => +v > 0)));
+    });
+    // 1. 원단 출고일 미입력 (발주 완료됐는데 출고일 없음) — 입고 체크됐거나 재단 시작했으면 안 띄움
     for (const [sn, sup] of Object.entries(o.suppliers || {})) {
+      if (_hasCutting) break;
+      const _arrChk = !!(sup.arrivalDate || sup.arrived || (o._prepArrived && o._prepArrived[sn]));
+      if (_arrChk) continue; // 날짜 없어도 체크했으면 완료
       if (sup.status === 'sent' && !sup.actualShipDate) {
         alerts.push({
           type: 'fabric_ship',
