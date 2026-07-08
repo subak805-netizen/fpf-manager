@@ -1782,7 +1782,8 @@ function buildMorningBrief(){
       var shp=_t(sch.shipExpectedDate||sch.shippingDate); if(inWin(shp)&&!(typeof fcShipped==='function'&&fcShipped(sch)))out.ship.push({d:shp,o:oNm}); // 출고 기록 있으면(회차·수량 포함) 예정 알림 제외
     });
     Object.keys(o.suppliers||{}).forEach(function(sn){
-      var sup=o.suppliers[sn]; if(!sup||sup.arrivalDate)return;
+      var sup=o.suppliers[sn]; if(!sup||sup.arrivalDate||sup.arrived)return; // 오더상세 입고완료 또는 대시보드 입고 체크
+      if(o._prepArrived&&o._prepArrived[sn])return; // 대시보드 원·부자재 입고 체크(order-level) — 체크했는데 브리핑에 지연으로 뜨던 버그
       var d=_t(sup.expectedShipDate); if(inWin(d))out.arrive.push({d:d,sup:sn,o:oNm});
     });
     (o.orderItems||[]).forEach(function(oi){
@@ -27812,7 +27813,9 @@ function checkAlerts() {
 
     // 3. 입고일 지났는데 공장 출고 기록 없음
     for (const [sn, sup] of Object.entries(o.suppliers || {})) {
-      if (sup.arrivalDate && daysSince(sup.arrivalDate) >= 0) {
+      // 입고 판정: 오더상세 arrivalDate 또는 대시보드 입고 체크(arrived/_prepArrived + arrivedDate) — 필드 2계열 통일
+      const _arrD = sup.arrivalDate || ((sup.arrived || (o._prepArrived && o._prepArrived[sn])) ? (sup.arrivedDate || todayISO()) : '');
+      if (_arrD && daysSince(_arrD) >= 0) {
         const hasCutting = Object.values(o.factorySchedules || {}).some(sch => {
           const total = Object.values(sch.cuttingGrid || {}).reduce((t, ig) =>
             t + Object.values(ig).reduce((s, cg) => s + Object.values(cg).reduce((a, v) => a + (+v || 0), 0), 0), 0);
