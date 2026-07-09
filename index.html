@@ -228,6 +228,7 @@ tryInitFirebase();
 <div class="nav">
   <div class="nav-brand">생산관리</div>
   <button class="ntab" id="nt-items" onclick="setItemView('list');switchTab('items')">아이템</button>
+  <button class="ntab" id="nt-linesheet" onclick="switchTab('linesheet')">라인시트</button>
   <button class="ntab" id="nt-idea" onclick="setItemView('idea');switchTab('items')">아이디어</button>
   <button class="ntab" id="nt-dosik" onclick="dosikOpen()">도식화</button>
   <div class="nav-sep"></div>
@@ -309,6 +310,7 @@ tryInitFirebase();
   <!-- Dashboard -->
   <div id="pane-dash" class="panel" style="display:none"><div id="dash-body"></div></div>
   <div id="pane-defect" class="panel" style="display:none"><div id="defect-body"></div></div>
+  <div id="pane-linesheet" class="panel" style="display:none"><div id="linesheet-body"></div></div>
   <div id="pane-yocheok" class="panel" style="display:none"><div id="yocheok-body"></div></div>
   <div id="pane-jaedan" class="panel" style="display:none"><div id="jaedan-body"></div></div>
   <div id="pane-ledger" class="panel" style="display:none"><div id="ledger-body"></div></div>
@@ -4011,7 +4013,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','yocheok','jaedan','ledger','courier','pricecompare'].forEach(n=>{
+  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','yocheok','jaedan','ledger','courier','pricecompare'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -4046,6 +4048,7 @@ function switchTab(t){
     else if(t==='pay'){renderPayStats();switchPayTab(curPayTab);}
     else if(t==='track'){renderTrackFilter();renderTrack();}
     else if(t==='defect')renderDefectPane();
+    else if(t==='linesheet')renderLinesheet();
     else if(t==='notif'){renderNotifPane();updateNotifBadge();}
     else if(t==='pickup'){switchTab('tasks');return;}
     else if(t==='board')renderBoardPane();
@@ -4236,6 +4239,146 @@ function alPrint(){
 function renderVendors(){
   renderFactories();
   renderBrandManageList();
+}
+/* ===== 라인시트 (시즌 보드) — 브랜드·시즌별 아이템을 MD 판처럼 (2026-07-09) =====
+   일러스트=작지 도식화 자동 · 원가=원가계산서 요약과 같은 공식(REP 분산) · 품목(상의/하의)은 이름 자동추정+카드에서 수정(it.category 저장→동기화) */
+var LS_CATS=['상의','하의','원피스','아우터','기타'];
+function lsGuessCat(nm){
+  nm=(nm||'').toLowerCase();
+  var has=function(arr){return arr.some(function(k){return nm.indexOf(k)>=0;});};
+  if(has(['원피스','ops','드레스']))return '원피스';
+  if(has(['자켓','재킷','점퍼','블루종','코트','집업','패딩','베스트','가디건','아우터']))return '아우터';
+  if(has(['팬츠','바지','슬랙스','데님','스커트','치마','숏츠','쇼츠','레깅스','블루머','조거','트레이닝','밴딩','sk']))return '하의';
+  if(has(['티','탑','셔츠','블라우스','니트','후드','맨투맨','나시','수트','스웨트','폴로','터틀','홀터']))return '상의';
+  return '기타';
+}
+function lsCatOf(it){ return (it&&it.category&&LS_CATS.indexOf(it.category)>=0)?it.category:lsGuessCat(it&&it.name); }
+function lsSetCat(itemId,val){ var it=S.items[itemId]; if(!it)return; it.category=val; saveData(); renderLinesheet(); }
+function lsItemCost(it){ // 원가계산서 요약 탭과 동일 공식 (양산 1000장 분산 → 1장당)
+  var REP=1000;
+  try{
+    var fab=Math.round((it.fabrics||[]).reduce(function(s,f){return s+calcFabYards(f,REP).cost;},0)/REP);
+    var trm=Math.round((it.trims||[]).reduce(function(s,t){return s+calcTrimNeed(t,REP).cost;},0)/REP);
+    var proc=COST_DEFS.reduce(function(s,d){return s+(+it[d[0]]||0);},0);
+    var tproc=(typeof trimCostPerPcs==='function')?trimCostPerPcs(it):0;
+    var fin=(it.finishCosts||[]).reduce(function(s,fc2){return s+(+fc2.costPerPcs||0);},0);
+    return fab+trm+proc+tproc+fin;
+  }catch(e){return 0;}
+}
+function _lsEnsureStyle(){
+  if(document.getElementById('ls-style'))return;
+  var st=document.createElement('style');st.id='ls-style';st.textContent=
+    '#pane-linesheet .ls-ctrl{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px}'
+    +'#pane-linesheet .ls-chip{border:2px solid var(--ink,#0B0A05);background:#fff;font-weight:700;font-size:12px;padding:5px 12px;cursor:pointer;font-family:inherit}'
+    +'#pane-linesheet .ls-chip.on{background:var(--ink,#0B0A05);color:#fff}'
+    +'#ls-sheet{background:#fffdf8;border:1px solid #c9c2b0;box-shadow:0 2px 10px rgba(0,0,0,.08);padding:22px 24px;max-width:900px;color:#1a1a1a}'
+    +'#ls-sheet .ls-head{display:flex;align-items:baseline;justify-content:space-between;border-bottom:3px solid #1a1a1a;padding-bottom:9px;flex-wrap:wrap;gap:4px}'
+    +'#ls-sheet .ls-brand{font-size:24px;font-weight:900;letter-spacing:2px}'
+    +'#ls-sheet .ls-sub{font-size:12px;font-weight:700;letter-spacing:2px;color:#444}'
+    +'#ls-sheet .ls-season{text-align:center;font-size:13px;font-weight:800;letter-spacing:2px;border-bottom:1.5px solid #1a1a1a;padding:12px 0 8px;margin-bottom:12px}'
+    +'#ls-sheet .ls-cat{font-size:11px;font-weight:800;letter-spacing:1px;color:#555;margin:10px 0 6px;padding-left:8px;border-left:3px solid #1a1a1a}'
+    +'#ls-sheet .ls-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0;border-left:1px solid #ddd6c4}'
+    +'#ls-sheet .ls-card{border-right:1px solid #ddd6c4;border-bottom:1px solid #ddd6c4;padding:13px 11px 15px;text-align:center}'
+    +'#ls-sheet .ls-nm{font-size:12.5px;font-weight:800}'
+    +'#ls-sheet .ls-cd{font-size:10px;color:#777;margin-bottom:7px}'
+    +'#ls-sheet .ls-img{height:150px;display:flex;align-items:center;justify-content:center;margin-bottom:9px;background:#fff;border:1px dashed #e2dbc8;overflow:hidden}'
+    +'#ls-sheet .ls-img img{max-width:100%;max-height:146px;object-fit:contain}'
+    +'#ls-sheet .ls-noimg{font-size:10px;color:#b7ae97;line-height:1.6}'
+    +'#ls-sheet .ls-sw{display:flex;gap:6px;justify-content:center;margin:7px 0 5px;flex-wrap:wrap}'
+    +'#ls-sheet .ls-sw span{display:flex;align-items:center;gap:4px;font-size:9.5px;color:#555}'
+    +'#ls-sheet .ls-sw i{width:20px;height:14px;border:1px solid #999;display:inline-block}'
+    +'#ls-sheet .ls-meta{font-size:10.5px;line-height:1.75;text-align:left;display:inline-block}'
+    +'#ls-sheet .ls-cost{color:#0a7a4a;font-weight:800}'
+    +'#ls-sheet select.ls-edit{font-size:10px;padding:1px 3px;margin-top:5px;border:1px solid #d5cdb8;background:#fbf9f1;color:#777;font-family:inherit}'
+    +'#ls-sheet.ls-imgmode .ls-edit{display:none!important}';
+  document.head.appendChild(st);
+}
+function lsSetBrand(v){window._lsBrand=v;renderLinesheet();}
+function lsSetSeason(v){window._lsSeason=v;renderLinesheet();}
+function lsToggleCost(){window._lsCost=(window._lsCost===false);renderLinesheet();}
+function lsSaveImg(){
+  var el=document.getElementById('ls-sheet');if(!el){showToast('시트가 없어요');return;}
+  var go=function(){
+    el.classList.add('ls-imgmode');
+    html2canvas(el,{backgroundColor:'#fffdf8',scale:2,useCORS:true}).then(function(c){
+      var a=document.createElement('a');a.download='라인시트_'+((window._lsBrand&&typeof getBrandName==='function'&&getBrandName(window._lsBrand))||'전체')+'_'+(window._lsSeason||'전시즌')+'.png';
+      a.href=c.toDataURL('image/png');a.click();showToast('이미지 저장됨');
+    }).catch(function(){showToast('이미지 저장 실패');}).then(function(){el.classList.remove('ls-imgmode');});
+  };
+  if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){if(typeof showToast==='function')showToast('라이브러리 로드 실패 — 인터넷 확인');};document.head.appendChild(s);}else go();
+}
+function renderLinesheet(){
+  var el=document.getElementById('linesheet-body');if(!el)return;
+  _lsEnsureStyle();
+  if(window._lsCost===undefined)window._lsCost=true;
+  var items=Object.values(S.items||{});
+  var brands=(typeof getBrands==='function')?getBrands():[];
+  var brandSel=window._lsBrand||'';
+  var seasons=(typeof sortSeasonsDesc==='function')?sortSeasonsDesc([...new Set(items.map(function(i){return i.season;}).filter(Boolean))]):[];
+  var seasonSel=window._lsSeason||'';
+  var showCost=window._lsCost!==false;
+  var mg=2.5; try{var _set=lsGet('fpm_csSet');if(_set&&+_set.mg>0)mg=+_set.mg;}catch(e){}
+  // 컨트롤
+  var h='<div class="ls-ctrl">';
+  h+='<button class="ls-chip'+(brandSel===''?' on':'')+'" onclick="lsSetBrand(\'\')">전체 브랜드</button>';
+  brands.forEach(function(b){h+='<button class="ls-chip'+(brandSel===b.id?' on':'')+'" onclick="lsSetBrand(\''+b.id+'\')">'+esc(b.name)+'</button>';});
+  h+='<span style="width:8px"></span>';
+  h+='<button class="ls-chip'+(seasonSel===''?' on':'')+'" onclick="lsSetSeason(\'\')">전체 시즌</button>';
+  seasons.forEach(function(s2){h+='<button class="ls-chip'+(seasonSel===s2?' on':'')+'" onclick="lsSetSeason(\''+esc(s2)+'\')">'+esc(s2)+'</button>';});
+  h+='<span style="margin-left:auto"></span>';
+  h+='<button class="ls-chip'+(showCost?' on':'')+'" onclick="lsToggleCost()">'+(showCost?'원가 표시':'원가 숨김')+'</button>';
+  h+='<button class="ls-chip" onclick="lsSaveImg()">이미지 저장</button>';
+  h+='</div>';
+  // 필터
+  var list=items.filter(function(it){
+    if(!it||!it.name)return false;
+    if(brandSel&&it.brandId!==brandSel)return false;
+    if(seasonSel&&(it.season||'')!==seasonSel)return false;
+    return true;
+  });
+  var brandNm=brandSel?((brands.find(function(b){return b.id===brandSel;})||{}).name||''):'전체 브랜드';
+  h+='<div id="ls-sheet">';
+  h+='<div class="ls-head"><span class="ls-brand">'+esc(brandNm)+'</span><span class="ls-sub">'+esc(seasonSel||'ALL SEASONS')+' · LINE SHEET</span><span style="font-size:11px;color:#888">'+esc((typeof fmtKoDate==='function'?fmtKoDate(todayISO()):todayISO()))+'</span></div>';
+  if(!list.length){h+='<div style="text-align:center;color:#b7ae97;padding:40px 0;font-size:13px">해당 아이템이 없어요</div></div>';el.innerHTML=h;return;}
+  // 시즌 섹션 → 품목(카테고리) 서브섹션
+  var secSeasons=seasonSel?[seasonSel]:seasons.slice();
+  var noSeason=list.some(function(it){return !it.season;});
+  if(!seasonSel&&noSeason)secSeasons=secSeasons.concat(['(시즌 미지정)']);
+  var codeNum=function(it){var m=(it.code||'').match(/(\d+)/);return m?parseInt(m[1]):-1;};
+  secSeasons.forEach(function(ss){
+    var inSeason=list.filter(function(it){return ss==='(시즌 미지정)'?!it.season:(it.season===ss);});
+    if(!inSeason.length)return;
+    h+='<div class="ls-season">'+esc(ss)+' — '+inSeason.length+' STYLES</div>';
+    LS_CATS.forEach(function(cat){
+      var inCat=inSeason.filter(function(it){return lsCatOf(it)===cat;}).sort(function(a,b){return codeNum(b)-codeNum(a);});
+      if(!inCat.length)return;
+      h+='<div class="ls-cat">'+cat+' ('+inCat.length+')</div><div class="ls-grid">';
+      inCat.forEach(function(it){
+        var imgs=(it.techpack&&it.techpack.images)||{};
+        var sk=imgs.sewSketch||imgs.cutSketch||'';
+        var colors=(it.colors||[]).filter(Boolean);
+        var sizes=(it.sizes||[]).filter(Boolean);
+        var fab=(it.fabrics||[])[0];
+        var fabStr=fab?(fab.name+(fab.composition?' · '+((typeof fmtComp==='function'?fmtComp(fab.composition):fab.composition)||'').replace(/\n/g,' '):'')):'';
+        var cost=lsItemCost(it);
+        var sale=Math.round(cost*mg/100)*100;
+        h+='<div class="ls-card">'
+          +'<div class="ls-nm">'+esc(it.name)+'</div><div class="ls-cd">'+esc(it.code||'')+'</div>'
+          +'<div class="ls-img">'+(sk?('<img src="'+esc(sk)+'">'):'<div class="ls-noimg">도식화 없음<br>(작지에 넣으면 자동 표시)</div>')+'</div>'
+          +(colors.length?('<div class="ls-sw">'+colors.map(function(c){var hx=(typeof tpColorHex==='function'?tpColorHex(c):'')||'#eee';return '<span><i style="background:'+esc(hx)+'"></i>'+esc(c)+'</span>';}).join('')+'</div>'):'')
+          +'<div class="ls-meta">'
+          +(sizes.length?('<b>사이즈:</b> '+esc(sizes.join(' · '))+'<br>'):'')
+          +(fabStr?('<b>원단:</b> '+esc(fabStr)+'<br>'):'')
+          +(showCost&&cost>0?('<b>원가:</b> <span class="ls-cost">'+num(cost)+'원</span> · <b>판매가:</b> '+num(sale)+'원'):'')
+          +'</div>'
+          +'<div><select class="ls-edit" onchange="lsSetCat(\''+it.id+'\',this.value)" title="품목 구분 (이미지 저장 땐 숨겨져요)">'+LS_CATS.map(function(c){return '<option'+(lsCatOf(it)===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'
+          +'</div>';
+      });
+      h+='</div>';
+    });
+  });
+  h+='</div>';
+  el.innerHTML=h;
 }
 function vndSwitch(k){
   var fc=k==='fc';
@@ -9422,6 +9565,7 @@ function saveItemForm(opts){
     item.csQtyOvr=oldItem.csQtyOvr;item.csPriceOvr=oldItem.csPriceOvr;
     item.csLossMode=oldItem.csLossMode;item.csLossPct=oldItem.csLossPct; // 로스&기타 방식 보존
     item.techpack=oldItem.techpack; // 작업지시서 데이터 보존
+    item.category=oldItem.category; // 라인시트 품목 구분(상의/하의) 보존 (2026-07-09)
     // 폼 저장 시 리스트에서만 다루는 메타가 초기화되지 않도록 보존
     item.createdAt=oldItem.createdAt;item.startDate=oldItem.startDate;
     item.kcCert=oldItem.kcCert;item.kcCertAt=oldItem.kcCertAt;
