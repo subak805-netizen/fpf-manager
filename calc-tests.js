@@ -211,6 +211,30 @@ TEST('문제 11. 비품 공임 30% 할인 = 2,820,000원 · 기본율 50%', func
   CHECK('비품 없으면 전액 정상', r2.base, 2400000);
 });
 
+// ── 문제 12. 벌치 로스 = 컬러별 +N벌 (2026-07-09 사용자 확정) ─────────────────────────────
+// 지퍼(벌당 1개) 컬러링크 아이·블랙, 오더 아이 20 + 블랙 40.
+// 벌치 5 → 컬러마다 +5개: 아이 25 / 검정 45. (예전 비례분배+올림 22/44는 회귀)
+// +개 6은 총량을 컬러 비례 분배 유지: 아이 20+2=22 / 검정 40+4=44.
+TEST('문제 12. 벌치 5 = 컬러별 +5개 (아이 25 / 검정 45)', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  S.items.itZ = { id:'itZ', colors:['아이','블랙'], sizes:['S'], fabrics:[],
+    trims:[{ id:'z1', supplier:'메이드', name:'양면지퍼 10인치', orderType:'count', qtyPerPiece:1, buffer:3, unitPrice:280,
+      colorLinks:[{ itemColor:'아이', colorName:'030 아이' },{ itemColor:'블랙', colorName:'검정' }] }] };
+  var oi = { itemId:'itZ', qtyGrid:{ '아이':{ S:20 }, '블랙':{ S:40 } } };
+  S.orders.oZ = { id:'oZ', orderItems:[oi], loss:{ itZ:{ z1:'5b' } } };
+  var sups = calcSups(S.orders.oZ.orderItems);
+  var by = {};
+  (((sups['메이드']||{}).materials)||[]).forEach(function(m){ if(m.type==='trim') by[m.colorName] = m.calc.qty; });
+  CHECK('벌치 5: 아이 25개', by['030 아이'], 25);
+  CHECK('벌치 5: 검정 45개', by['검정'], 45);
+  S.orders.oZ.loss = { itZ:{ z1:'6a' } };
+  sups = calcSups(S.orders.oZ.orderItems);
+  by = {};
+  (((sups['메이드']||{}).materials)||[]).forEach(function(m){ if(m.type==='trim') by[m.colorName] = m.calc.qty; });
+  CHECK('+개 6: 아이 22개(비례)', by['030 아이'], 22);
+  CHECK('+개 6: 검정 44개(비례)', by['검정'], 44);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){
@@ -218,5 +242,5 @@ if(_fails.length){
   print('실패 목록: ' + _fails.join(' / '));
   print('>>> 고치기 전에는 push 금지. (검사 자체를 건너뛰려면 SKIP_CALC=1 ./safe-push.sh)');
 }else{
-  print('CALC TESTS: OK — 11문제 전부 통과 (검사 ' + _okCount + '개)');
+  print('CALC TESTS: OK — 12문제 전부 통과 (검사 ' + _okCount + '개)');
 }
