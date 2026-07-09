@@ -9760,6 +9760,8 @@ function renderOrderNewItems(){
   const pageItems=uncheckedItems.slice(window._onPage*PER_PAGE,(window._onPage+1)*PER_PAGE);
   // 렌더할 목록: 체크된 것(항상) + 현재 페이지 미체크분
   const renderList=[...checkedItems,...pageItems];
+  // 공장 잔여물 배지 (리오더 발주 전 확인, 2026-07-09) — 렌더당 1회 계산
+  const _lvMap={};try{if(typeof prodLeftovers==='function')prodLeftovers().forEach(function(r){if(r.eff>0)_lvMap[r.itemId]=(_lvMap[r.itemId]||0)+r.eff;});}catch(e){}
   function itemRowHTML(it){
     const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
     const hasC=it.colors?.length>0;const hasS=it.sizes?.length>0;
@@ -9772,7 +9774,8 @@ function renderOrderNewItems(){
     const brandNm=it.brandId?getBrandName(it.brandId):'';
     const brandCol=it.brandId?getBrandColor(it.brandId):'';
     const brandBadge=brandNm?`<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:20px;font-size:10px;font-weight:700;background:${brandCol}22;color:${brandCol}"><span style="width:5px;height:5px;border-radius:50%;background:${brandCol}"></span>${esc(brandNm)}</span>`:'';
-    return`<div data-item-row data-item-name="${esc(it.name)}" style="border:1px solid ${isChecked?'var(--blue)':'var(--bd)'};border-radius:var(--r);padding:.6rem;margin-bottom:8px;${isChecked?'background:#f0f7ff':''}"><div class="fb"><label style="font-size:13px;font-weight:600;margin-bottom:0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="nc_${it.id}" ${isChecked?'checked':''} onchange="toggleNC('${it.id}',this.checked)"> ${esc(it.name)} <span class="tag">${esc(it.code||'')}</span>${it.season?`<span class="muted">${esc(it.season)}</span>`:''} ${brandBadge}</label></div><div id="nc-grid-${it.id}" style="display:${isChecked?'block':'none'}">${g}</div></div>`;
+    const lvBadge=_lvMap[it.id]>0?`<span style="font-size:10px;font-weight:800;padding:1px 7px;border:1.5px solid var(--red);background:#fee2e2;color:var(--red)" title="공장에 재단해놓고 출고 안 된 수량 — 잔량 탭에서 확인 후 발주하세요">잔여 ${_lvMap[it.id]}장</span>`:'';
+    return`<div data-item-row data-item-name="${esc(it.name)}" style="border:1px solid ${isChecked?'var(--blue)':'var(--bd)'};border-radius:var(--r);padding:.6rem;margin-bottom:8px;${isChecked?'background:#f0f7ff':''}"><div class="fb"><label style="font-size:13px;font-weight:600;margin-bottom:0;display:flex;align-items:center;gap:6px;cursor:pointer;flex-wrap:wrap"><input type="checkbox" id="nc_${it.id}" ${isChecked?'checked':''} onchange="toggleNC('${it.id}',this.checked)"> ${esc(it.name)} <span class="tag">${esc(it.code||'')}</span>${it.season?`<span class="muted">${esc(it.season)}</span>`:''} ${brandBadge}${lvBadge}</label></div><div id="nc-grid-${it.id}" style="display:${isChecked?'block':'none'}">${g}</div></div>`;
   }
   let html='';
   // 선택된 아이템 섹션 (있으면)
@@ -15064,6 +15067,58 @@ function updTrimLeft(key,theo){var i=document.getElementById('rsent-'+key);var e
 function saveTrimSent(oid,key,val){var o=S.orders[oid];if(!o)return;if(!o.trimRecovery)o.trimRecovery={};if(!o.trimRecovery[key])o.trimRecovery[key]={sent:0,status:'',note:''};o.trimRecovery[key].sent=+val||0;saveData();}
 function autoSentFill(oid,key,qty,theo){var i=document.getElementById('rsent-'+key);if(i)i.value=qty;updTrimLeft(key,theo);saveTrimSent(oid,key,qty);showToast('↙ 발주량 '+qty+' 입력됨 (수정 가능)');}
 function cycleTrimRecov(oid,key){var o=S.orders[oid];if(!o)return;if(!o.trimRecovery)o.trimRecovery={};if(!o.trimRecovery[key])o.trimRecovery[key]={sent:0,status:'',note:''};var cur=o.trimRecovery[key].status||'';o.trimRecovery[key].status=cur===''?'요청':(cur==='요청'?'완료':'');saveData();var c=document.getElementById('trim-recov-'+oid);if(c)c.innerHTML=trimRecoveryHTML(o);}
+/* ===== 공장 잔여물 (재단-출고, 2026-07-09) — 자동 계산 + 수동 보정(실제값·메모). 리오더 발주 전 확인용 ===== */
+function _lvKey(oid,itemId,color){return oid+'|'+itemId+'|'+color;}
+function prodLeftovers(){
+  var out=[];
+  Object.values(S.orders||{}).forEach(function(o){
+    if(!o)return;
+    (o.orderItems||[]).forEach(function(oi){
+      var it=S.items[oi.itemId];if(!it)return;
+      var sewId=((typeof orderFc==='function')?orderFc(o,it,'sewingFcId'):(it.sewingFcId||''))||it.sewingFcId||'';
+      var sch=sewId&&(o.factorySchedules||{})[sewId];if(!sch)return;
+      var cut={};
+      (sch.cuttingShipments||[]).forEach(function(r){if(!r||!(+r.qty))return;if(r.itemId&&r.itemId!==oi.itemId)return;if(!r.itemId&&(o.orderItems||[]).length>1)return;cut[r.color||'']=(cut[r.color||'']||0)+(+r.qty||0);});
+      if(!Object.keys(cut).length){var cg=(sch.cuttingGrid||{})[oi.itemId]||{};Object.keys(cg).forEach(function(c){var t=0;Object.values(cg[c]||{}).forEach(function(v){t+=+v||0;});if(t)cut[c]=t;});}
+      var ship={};
+      (sch.shipments||[]).forEach(function(r){if(!r||!(+r.qty))return;if(r.itemId&&r.itemId!==oi.itemId)return;if(!r.itemId&&(o.orderItems||[]).length>1)return;ship[r.color||'']=(ship[r.color||'']||0)+(+r.qty||0);});
+      Object.keys(cut).forEach(function(c){
+        var lf=(cut[c]||0)-(ship[c]||0);
+        var adj=(o.leftoverAdj||{})[_lvKey(o.id,oi.itemId,c)];
+        var hasOvr=(adj&&adj.v!==''&&adj.v!=null);
+        var eff=hasOvr?(+adj.v||0):lf;
+        if(eff>0||hasOvr||(adj&&adj.memo))out.push({oid:o.id,orderName:o.name||'',itemId:oi.itemId,itemName:it.name,color:c,cut:cut[c]||0,ship:ship[c]||0,auto:lf,eff:eff,ovr:hasOvr?adj.v:null,memo:(adj&&adj.memo)||''});
+      });
+    });
+  });
+  return out;
+}
+function lvSetAdj(oid,itemId,colorEnc,field,val){
+  var o=S.orders[oid];if(!o)return;
+  if(!o.leftoverAdj)o.leftoverAdj={};
+  var k=_lvKey(oid,itemId,decodeURIComponent(colorEnc));
+  if(!o.leftoverAdj[k])o.leftoverAdj[k]={v:'',memo:''};
+  o.leftoverAdj[k][field]=val;
+  if(!o.leftoverAdj[k].v&&!o.leftoverAdj[k].memo)delete o.leftoverAdj[k];
+  saveData();renderLeftoverTab();
+}
+function itemLeftoverTotal(itemId){var t=0;prodLeftovers().forEach(function(r){if(r.itemId===itemId&&r.eff>0)t+=r.eff;});return t;}
+function prodLeftoverSecHTML(){
+  var pl=prodLeftovers().filter(function(r){return r.eff>0||r.memo;});
+  var h='<div style="margin-bottom:18px"><div style="font-size:14px;font-weight:700">공장 잔여물 (재단 - 출고)</div><div class="muted" style="font-size:11px;margin-top:3px">재단해놓고 아직 출고 안 된 수량 — <b>리오더 발주 전에 여기부터</b> 확인하세요. 실제와 다르면 실제값·메모로 보정</div>';
+  if(!pl.length){h+='<div class="muted" style="font-size:12px;padding:10px 2px">지금 잔여물 없음 (재단·출고 기록 기준)</div></div>';return h;}
+  h+='<div style="overflow-x:auto;margin-top:8px"><table class="tbl" style="width:100%;min-width:540px"><thead><tr style="background:var(--bg3)"><th style="text-align:left">아이템</th><th>컬러</th><th>재단</th><th>출고</th><th>잔여</th><th>실제값</th><th style="text-align:left">메모</th></tr></thead><tbody>';
+  pl.sort(function(a,b){return b.eff-a.eff;}).forEach(function(r){
+    var ce=encodeURIComponent(r.color);
+    h+='<tr><td style="text-align:left"><b>'+esc(r.itemName)+'</b><div class="muted" style="font-size:10px">'+esc(r.orderName)+'</div></td>'
+      +'<td style="text-align:center">'+esc(r.color||'-')+'</td><td style="text-align:center">'+r.cut+'</td><td style="text-align:center">'+r.ship+'</td>'
+      +'<td style="text-align:center;font-weight:800;color:var(--red)">'+r.eff+'장'+(r.ovr!=null?' <span class="muted" style="font-size:9px">(자동 '+r.auto+')</span>':'')+'</td>'
+      +'<td style="text-align:center"><input type="number" value="'+(r.ovr!=null?esc(r.ovr):'')+'" placeholder="'+r.auto+'" onchange="lvSetAdj(\''+r.oid+'\',\''+r.itemId+'\',\''+ce+'\',\'v\',this.value)" style="width:60px;text-align:center;font-size:12px;padding:3px" title="실제 잔여 수량 (비우면 자동값)"></td>'
+      +'<td><input type="text" value="'+esc(r.memo||'')+'" placeholder="예: 비품 2 포함" onchange="lvSetAdj(\''+r.oid+'\',\''+r.itemId+'\',\''+ce+'\',\'memo\',this.value)" style="width:100%;min-width:110px;font-size:12px;padding:3px"></td></tr>';
+  });
+  h+='</tbody></table></div></div>';
+  return h;
+}
 function renderLeftoverTab(){
   var el=document.getElementById('leftover-tab-body');if(!el)return;
   var byFc={};
@@ -15085,9 +15140,9 @@ function renderLeftoverTab(){
     });
   });
   var facs=Object.keys(byFc).sort();
-  if(!facs.length){el.innerHTML='<div class="empty" style="padding:40px;text-align:center">아직 "보낸 양"을 입력한 부자재가 없어요.<div style="font-size:12px;color:var(--t2);margin-top:8px">오더 → ④공장진행 → "부자재 잔량"에서 공장에 보낸 양을 적으면, 여기 <b>공장별</b>로 모여요.</div></div>';return;}
+  if(!facs.length){el.innerHTML=prodLeftoverSecHTML()+'<div class="empty" style="padding:40px;text-align:center">아직 "보낸 양"을 입력한 부자재가 없어요.<div style="font-size:12px;color:var(--t2);margin-top:8px">오더 → ④공장진행 → "부자재 잔량"에서 공장에 보낸 양을 적으면, 여기 <b>공장별</b>로 모여요.</div></div>';return;}
   var totPend=0;facs.forEach(function(fc){byFc[fc].forEach(function(r){if(r.left>0.05&&r.status!=='완료')totPend++;});});
-  var html='<div style="margin-bottom:12px"><div style="font-size:14px;font-weight:700">공장별 부자재 잔량 · 회수</div><div class="muted" style="font-size:11px;margin-top:3px">공장에 보낸 자재 중 "남아야 할 양"을 한눈에 — 회수 독촉 근거로 쓰세요'+(totPend?' · <span style="color:var(--red);font-weight:700">미회수 '+totPend+'건</span>':'')+'</div></div>';
+  var html=prodLeftoverSecHTML()+'<div style="margin-bottom:12px"><div style="font-size:14px;font-weight:700">공장별 부자재 잔량 · 회수</div><div class="muted" style="font-size:11px;margin-top:3px">공장에 보낸 자재 중 "남아야 할 양"을 한눈에 — 회수 독촉 근거로 쓰세요'+(totPend?' · <span style="color:var(--red);font-weight:700">미회수 '+totPend+'건</span>':'')+'</div></div>';
   facs.forEach(function(fc){
     var rows=byFc[fc];var pend=rows.filter(function(r){return r.left>0.05&&r.status!=='완료';}).length;
     html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px"><div class="fb" style="padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--bd)"><b style="font-size:13px">'+esc(fc)+'</b>'+(pend?'<span class="badge" style="background:var(--rbg);color:var(--red);font-weight:700">미회수 '+pend+'건</span>':'<span class="badge b3">정리됨</span>')+'</div>';
