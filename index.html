@@ -641,6 +641,15 @@ tryInitFirebase();
 #tp-modal .tp-wrap .tp-pack-imgs .iz{min-height:120px;height:100%;margin:0;}
 #tp-modal .tp-doc.land .tp-wrap .tp-pack-imgs .iz{min-height:110px;}
 #tp-modal .tp-wrap .tp-pack-photo .iz{min-height:300px;height:auto;margin:0;}
+/* 샘플 사진 시트 (앞/뒤/안감 · 드래그앤드롭) */
+#tp-modal .tp-smp-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:10px 12px;}
+#tp-modal .tp-smp-grid .tp-smp-box:nth-child(3){grid-column:1/-1;}
+#tp-modal .tp-smp-box{position:relative;border:1.5px dashed #cbd2da;border-radius:8px;min-height:340px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#fafbfc;}
+#tp-modal .tp-smp-box.drag{border-color:#185FA5;border-style:solid;background:#eef5fc;}
+#tp-modal .tp-smp-box img{max-width:100%;max-height:420px;object-fit:contain;display:block;}
+#tp-modal .tp-smp-lbl{position:absolute;top:7px;left:9px;font-size:11px;font-weight:800;background:#1f2937;color:#fff;padding:2px 10px;border-radius:5px;z-index:2;}
+#tp-modal .tp-smp-ph{color:#9aa0a8;font-size:12px;text-align:center;line-height:1.7;}
+#tp-modal .tp-doc.land .tp-smp-box{min-height:260px;}
 #tp-modal .tp-wrap .panel[data-panel="pack2"].on{display:flex;flex-direction:column;}
 #tp-modal .tp-wrap .tp-ship-row{display:flex;align-items:stretch;flex:0 0 auto;border-bottom:1.5px solid #cdebd8;background:#f3fbf6;}
 #tp-modal .tp-wrap .tp-ship-row .tp-ship-k{font-size:11px;font-weight:800;color:#1f7a4d;padding:7px 9px;white-space:nowrap;display:flex;align-items:center;background:#e3f3ea;border-right:1px solid #c4ddcd;}
@@ -28667,6 +28676,15 @@ function tpUpload(blob,itemId,slotKey,png){ var co=(typeof curCoId!=='undefined'
 function tpShowUp(msg){ var o=document.createElement('div'); o.className='tp-up-ovl'; o.textContent=msg; document.body.appendChild(o); return o; }
 function tpHideUp(o){ if(o&&o.parentNode)o.parentNode.removeChild(o); }
 function tpOnFile(input){ var f=input.files&&input.files[0]; var slot=_tpUpKey; _tpUpKey=null; tpProcessImageFile(f,slot); }
+// 드래그앤드롭 업로드 (샘플 사진 시트 등) — 파일을 슬롯 박스에 끌어다 놓으면 클릭 업로드와 같은 경로로 처리
+function tpDropImage(ev,slot){
+  ev.preventDefault(); ev.stopPropagation();
+  var el=ev.currentTarget; if(el&&el.classList)el.classList.remove('drag');
+  var f=ev.dataTransfer&&ev.dataTransfer.files&&ev.dataTransfer.files[0];
+  if(!f){ if(typeof showToast==='function')showToast('이미지 파일을 끌어다 놓아주세요'); return; }
+  if(f.type&&f.type.indexOf('image/')!==0){ if(typeof showToast==='function')showToast('이미지 파일만 넣을 수 있어요'); return; }
+  tpProcessImageFile(f,slot);
+}
 function tpProcessImageFile(f,slot){ if(!f||!slot)return; if(!/^image\//.test(f.type||'')){ if(typeof showToast==='function')showToast('이미지 파일만 가능해요'); return; } var ovl=tpShowUp('사진 업로드 중…'); var _pending=false; tpCompress(f,2600,1,true).then(function(c){
     function fallback(){ return tpCompress(f,1300,0.8).then(function(c2){ _pending=true; if(typeof showToast==='function')showToast('사진은 저장됐고, 인터넷/로그인되면 자동으로 클라우드에 올라가요'); return c2.dataUrl; }); }
     if(window.fbStorage&&window.fbUser){ return tpUpload(c.blob,_tpItemId,slot,c.png).catch(function(e){ console.warn('storage fail',e); return fallback(); }); }
@@ -28995,7 +29013,7 @@ function tpRender(){
   var hasEmb=!!it.embroideryFcId, hasPrt=!!it.printingFcId;
   var isPromo=tpIsPromo(it);
   var _dsheets=isPromo?[]:tpDesignSheets();
-  var _validTabs=(isPromo?['cs','pack','pack2','insp']:['sew','spat','grd','pack','pack2','insp']).concat(_dsheets.map(function(s){return s.k;}));
+  var _validTabs=(isPromo?['cs','pack','pack2','insp']:['sew','spat','grd','pack','pack2','insp']).concat(_dsheets.map(function(s){return s.k;})).concat(['smp']);
   var active=_tpTab; if(_validTabs.indexOf(active)<0)active=_tpTab=(isPromo?'cs':'sew');
   if(isPromo&&(active==='cut'||active==='sew'))active=_tpTab='cs';
   if(!isPromo&&(active==='cs'||active==='cut'))active=_tpTab='sew';
@@ -29006,7 +29024,7 @@ function tpRender(){
   var _route=tpAutoRoute(it);
   // 수동 입력 경로만 그대로, 아니면 현재 연결 공장·원단처로 자동 생성(아이템에서 바뀐 게 작지에도 반영되게)
   var _routeVal=(it.workRoute&&it.workRoute.trim()&&it.workRouteManual)?it.workRoute.trim():(_route.join(' → ')||(it.workRoute||'').trim()||tpGet('head.route',''));
-  var PROC={cut:'재단',sew:'봉제',pack:'완성',pack2:'포장',insp:'검품',cs:'지시서',emb:'자수',prt:'나염',spat:'샘플·패턴',grd:'그레이딩'};
+  var PROC={cut:'재단',sew:'봉제',pack:'완성',pack2:'포장',insp:'검품',cs:'지시서',emb:'자수',prt:'나염',spat:'샘플·패턴',grd:'그레이딩',smp:'샘플 사진'};
   window._tpIsPromo=isPromo; window._tpProc=PROC;
   var _activeSheet=_dsheets.find(function(s){return s.k===active;});
   var titlePfx=isPromo?'지시서':(active==='sew'?'작업지시서':(_activeSheet?('작업지시서('+((TP_DESIGN_CFG[_activeSheet.type]||{}).label||'')+')'):('작업지시서('+(PROC[active]||'')+')')));
@@ -29034,7 +29052,7 @@ function tpRender(){
   var designTabs=_dsheets.map(function(s){var cfg=TP_DESIGN_CFG[s.type]||{label:s.type}; _tIdx[s.type]=(_tIdx[s.type]||0)+1; var num=_tCnt[s.type]>1?_CIRC[_tIdx[s.type]]:''; return T(s.k,cfg.label+num);}).join('');
   var addMenu='<div id="tp-sheet-menu" style="display:none;position:fixed;z-index:100200;background:#fff;border:1.5px solid #374151;border-radius:6px;box-shadow:0 5px 16px rgba(0,0,0,.2);margin-top:3px;min-width:130px;overflow:hidden">'+['emb','prt','wash'].map(function(t){return '<div onclick="tpAddSheet(\''+t+'\')" style="padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;border-bottom:1px solid #eef0f3;color:#1f2937">＋ '+TP_DESIGN_CFG[t].label+' 지시서</div>';}).join('')+'</div>';
   var addBtn=isPromo?'':'<div class="tab tp-addtab" onclick="tpToggleSheetMenu(event)" style="position:relative;font-weight:800">＋'+addMenu+'</div>';
-  var tabs='<div class="tabs">'+(isPromo?(T('cs','지시서')+T('pack','완성')+T('pack2','포장')+T('insp','검품')):(T('sew','지시서')+T('spat','샘플·패턴')+T('grd','그레이딩')+T('pack','완성')+T('pack2','포장')+T('insp','검품')))+designTabs+addBtn+'</div>';
+  var tabs='<div class="tabs">'+(isPromo?(T('cs','지시서')+T('pack','완성')+T('pack2','포장')+T('insp','검품')):(T('sew','지시서')+T('spat','샘플·패턴')+T('grd','그레이딩')+T('pack','완성')+T('pack2','포장')+T('insp','검품')))+designTabs+T('smp','샘플 사진')+addBtn+'</div>';
   var _sk=function(ph){var u=tpGet('images.sewSketch','');return '<div class="sketch" onclick="tpPickImage(\'sewSketch\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\'sewSketch\')">×</button>'):('＋ '+tpEsc(ph)))+'<button class="tp-loadbtn" onclick="event.stopPropagation();dosikPick(\'sewSketch\')" title="도식화 탭에서 불러오기" style="position:absolute;left:6px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">불러오기</button></div>';};
   var _iz=function(slot,ph){var u=tpGet('images.'+slot,'');return '<div class="iz" onclick="tpPickImage(\''+slot+'\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'):('＋ '+tpEsc(ph)))+'</div>';};
   // 라벨 사진칸 — 아이템 개별 업로드 없으면 선택한 브랜드 라벨 사진 자동표시(브랜드 뱃지)
@@ -29154,8 +29172,19 @@ function tpRender(){
     +'</div></div></div>';
   var designPanels=_dsheets.map(function(s){var cfg=TP_DESIGN_CFG[s.type]; return cfg?tpDesignPanelHTML(it,s.k,cfg,on(s.k),qb):'';}).join('');
 
+  // 샘플 사진 시트 (2026-07-09, 맨 뒤) — 앞/뒤/안감 3장. 클릭=업로드/교체, 끌어다 놓기, ×=삭제
+  var _smpSlot=function(slot,lbl){var u=tpGet('images.'+slot,'');
+    return '<div class="tp-smp-box" ondragover="event.preventDefault();this.classList.add(\'drag\')" ondragleave="this.classList.remove(\'drag\')" ondrop="tpDropImage(event,\''+slot+'\')" onclick="tpPickImage(\''+slot+'\')">'
+      +'<div class="tp-smp-lbl">'+lbl+'</div>'
+      +(u?('<img src="'+tpEsc(u)+'"><button class="izdel tp-editonly" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>')
+          :('<div class="tp-smp-ph tp-editonly">＋ '+lbl+' 사진<br><span style="font-size:10px">클릭 또는 사진을 끌어다 놓기</span></div>'))
+      +'</div>';};
+  var smp='<div class="panel'+on('smp')+'" data-panel="smp">'
+    +'<div class="sec">샘플 이미지 <span class="tp-eh" style="font-weight:400;color:#9aa0a8">— 앞 · 뒤 · 안감 (클릭 업로드 · 드래그앤드롭 · ×삭제)</span></div>'
+    +'<div class="tp-smp-grid">'+_smpSlot('smpFront','앞')+_smpSlot('smpBack','뒤')+_smpSlot('smpLining','안감')+'</div>'
+    +'</div>';
   var doc=document.getElementById('tp-doc');
-  doc.innerHTML='<div class="tp-tabsbar">'+tabs+'</div><div class="tp-wrap"><div class="tp-head">'+head+'</div><div class="tp-fit">'+(isPromo?cs:sew)+(isPromo?'':spat)+(isPromo?'':grd)+pack+pack2+insp+designPanels+'</div></div>';
+  doc.innerHTML='<div class="tp-tabsbar">'+tabs+'</div><div class="tp-wrap"><div class="tp-head">'+head+'</div><div class="tp-fit">'+(isPromo?cs:sew)+(isPromo?'':spat)+(isPromo?'':grd)+pack+pack2+insp+designPanels+smp+'</div></div>';
   doc.classList.toggle('land',_tpOrient==='landscape');
   tpFit(); tpInitDrop();
 }
