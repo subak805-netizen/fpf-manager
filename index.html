@@ -559,6 +559,7 @@ tryInitFirebase();
         <div style="font-size:10px;color:var(--t2);align-self:flex-end;padding-bottom:4px;line-height:1.5">순수원가=요척×수량×단가<br>로스반영=요척×수량×(1+로스%)×단가</div>
       </div>
       </div>
+      <div id="cs-ctxbar" style="margin-top:8px"></div>
       <div id="cs-body" style="max-width:900px"></div>
     </div>
   </div>
@@ -607,6 +608,7 @@ tryInitFirebase();
 <div id="tp-modal" style="display:none">
   <div class="tp-ctrl">
     <span class="tp-ctrl-t">작업지시서</span>
+    <span id="tp-ctxbar"></span>
     <span class="tp-seg"><button id="tp-bP" class="on" onclick="tpOrient('portrait')">세로</button><button id="tp-bL" onclick="tpOrient('landscape')">가로</button></span>
     <button class="tp-print" onclick="tpSaveImg()">이미지</button>
     <button class="tp-print" onclick="tpSavePDF()">PDF</button>
@@ -7445,6 +7447,7 @@ function showItemForm(id){
   const draft=!id?lsGet(DRAFT_KEY):null;
   const hasDraft=draft&&draft.name;
   document.getElementById('if-inner').innerHTML=`
+    ${id?('<div style="margin-bottom:8px">'+itemCtxBarHTML(id,'edit')+'</div>'):''}
     ${!id&&hasDraft?`<div class="warn-box" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <span>이전에 작성하던 내용이 있어요 <span class="muted">(${draft.savedAt})</span></span>
       <div class="fr" style="gap:6px">
@@ -9361,6 +9364,30 @@ function switchCSTab(t){
   });
   if(t==='summary')renderCSSummary();
   else{renderCSDropdown();renderCS();}
+}
+/* 아이템 컨텍스트 탭 (2026-07-09) — 작지·원가·요척·수정을 화면 이동 없이 넘나들기. 4개 화면 상단에 공용 표시 */
+function itemCtxBarHTML(itemId,active){
+  if(!itemId||!S.items||!S.items[itemId])return '';
+  if(!document.getElementById('ctx-style')){
+    var st=document.createElement('style');st.id='ctx-style';st.textContent=
+      '.ctxbar{display:inline-flex;border:2px solid var(--ink,#0B0A05);overflow:hidden;vertical-align:middle;background:#fff}'
+      +'.ctxbar button{border:none;border-right:2px solid var(--ink,#0B0A05);background:#fff;font-weight:800;font-size:12px;padding:5px 13px;cursor:pointer;font-family:inherit;color:var(--ink,#0B0A05)}'
+      +'.ctxbar button:last-child{border-right:none}'
+      +'.ctxbar button.on{background:var(--ink,#0B0A05);color:#fff}';
+    document.head.appendChild(st);
+  }
+  var mk=function(v,l){return '<button type="button" class="'+(active===v?'on':'')+'" onclick="ctxGo(\''+v+'\',\''+itemId+'\')">'+l+'</button>';};
+  return '<span class="ctxbar">'+mk('tp','작지')+mk('cost','원가')+mk('yo','요척')+mk('edit','수정')+'</span>';
+}
+function ctxGo(view,itemId){
+  // 지금 열려 있는 화면 정리 (수정 폼은 자동 저장 flush 포함)
+  try{var tm=document.getElementById('tp-modal');if(tm&&tm.style.display!=='none'&&view!=='tp')tpClose();}catch(e){}
+  try{var ipf=document.getElementById('ipf');if(ipf&&ipf.style.display!=='none'&&view!=='edit')hideItemForm();}catch(e){}
+  try{if(view!=='yo'&&typeof closeGenericModal==='function')closeGenericModal();}catch(e){}
+  if(view==='tp'){tpOpen(itemId);}
+  else if(view==='cost'){showItemCost(itemId);}
+  else if(view==='yo'){openYocheokHist(itemId);}
+  else if(view==='edit'){switchTab('items');showItemForm(itemId);}
 }
 // 아이템 카드의 원가 버튼 → 원가계산서로 점프 + 그 아이템 자동 선택
 function showItemCost(itemId){
@@ -12161,7 +12188,7 @@ function openYocheokHist(itemId){
     }).join('')
     +'<div style="font-size:11px;color:#9a3a2e;background:#fff5f5;border:1px solid #f0c0c0;border-radius:7px;padding:8px 10px;line-height:1.55">계획 요척(작지·원가)은 <b>안 바뀜</b>. 실제발주량 ÷ 재단장수 · <b>재단 기록 있는 발주만</b> 집계.</div>';
   }
-  if(typeof showGenericModal==='function')showGenericModal('요척 히스토리 — '+esc(it.name||''),body);
+  if(typeof showGenericModal==='function')showGenericModal('요척 히스토리 — '+esc(it.name||''),'<div style="margin-bottom:8px">'+((typeof itemCtxBarHTML==='function')?itemCtxBarHTML(itemId,'yo'):'')+'</div>'+body);
 }
 // ===== 요척 정리 탭 (아이템별 · 계획 대비 실제 · 과생산 이상 점검) — 읽기전용 =====
 var _YO_TH=0.15; // 계획 대비 ±15% 넘으면 과다/여유
@@ -21122,6 +21149,7 @@ function renderCS(){
   try{_csRestoreSet();}catch(e){} // 저장된 미니멈·판매배수·로스율·수량 복원 (최초 1회)
   const id=document.getElementById('cs-sel').value;
   try{_csRestoreSale(id);}catch(e){} // 아이템별 저장된 판매단가 복원 (아이템 바뀔 때만)
+  try{var _cb9=document.getElementById('cs-ctxbar');if(_cb9)_cb9.innerHTML=id?itemCtxBarHTML(id,'cost'):'';}catch(e){} // 작지·원가·요척·수정 넘나들기 탭
   const qty=Math.max(1,parseInt(document.getElementById('cs-qty').value)||1);
   const minQty=Math.max(1,parseInt(document.getElementById('cs-min').value)||30);
   const multi=Math.max(1,parseFloat(document.getElementById('cs-mg').value)||2.5);
@@ -29434,6 +29462,7 @@ function tpRender(){
     +'</div>';
   var doc=document.getElementById('tp-doc');
   doc.innerHTML='<div class="tp-tabsbar">'+tabs+'</div><div class="tp-wrap"><div class="tp-head">'+head+'</div><div class="tp-fit">'+(isPromo?cs:sew)+(isPromo?'':spat)+(isPromo?'':grd)+pack+pack2+insp+designPanels+smp+'</div></div>';
+  try{var _cxb=document.getElementById('tp-ctxbar');if(_cxb)_cxb.innerHTML=(typeof itemCtxBarHTML==='function')?itemCtxBarHTML(_tpItemId,'tp'):'';}catch(e){}
   doc.classList.toggle('land',_tpOrient==='landscape');
   tpFit(); tpInitDrop();
 }
