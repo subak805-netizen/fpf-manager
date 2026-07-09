@@ -49,7 +49,7 @@ function buildMessage(brief, now) {
   const HR = '━━━━━━━━━━━━';
   const nm = (s) => String(s || '').replace(' 발주', ''); // 표시용: '~ 발주' 군더더기 제거
   // 같은 종류는 묶고, 행동 제안은 묶음당 한 번만 · 공장이 다 같으면 헤더로 올림 · 행엔 글머리표 없음(눈 어지러움) · 이모지는 헤더에만 (사용자 피드백 2026-07-06)
-  const EMO = { '출고 지연': '⏰', '입고 지연': '⏰', '원단 출고일 미입력': '📭', '재단수량 미입력': '✂️', '입고 후 재단 미확인': '✂️', '검사': '🔍', '검사 예정': '🔍', '출고': '🚚', '출고 예정': '🚚', '입고': '📦', '픽업': '🛵', '픽업 내일': '🛵', '할일': '✅', '꾸러미 발송 준비 완료': '📦', '공제 미반영': '💰' };
+  const EMO = { '출고 지연': '⏰', '입고 지연': '⏰', '원단 출고일 미입력': '📭', '재단수량 미입력': '✂️', '입고 후 재단 미확인': '✂️', '검사': '🔍', '검사 예정': '🔍', '출고': '🚚', '출고 예정': '🚚', '입고': '📦', '픽업': '🛵', '픽업 내일': '🛵', '할일': '✅', '꾸러미 발송 준비 완료': '📦', '공제 미반영': '💰', '수선 미회수': '🧵' };
   const G = (title, act, rows, tag) => rows.length ? { h: (EMO[title] ? EMO[title] + ' ' : '') + title + ' ' + rows.length + '건' + (tag ? ' · ' + tag : '') + (act ? ' → ' + act : ''), rows } : null;
   const sum = (gs) => gs.reduce((s, g) => s + g.rows.length, 0);
   const inspG = (title, act, arr) => { // 검사류: 공장이 전부 같으면 헤더에 1번만
@@ -67,6 +67,8 @@ function buildMessage(brief, now) {
     (brief.arrive || []).filter(x => x.d && x.d < today).map(x => (x.sup ? x.sup + ' / ' : '') + nm(x.o) + ' (D+' + Math.abs(dayDiff(x.d, today)) + ')')));
   uG.push(G('공제 미반영', '다음 결제에서 차감하기',
     (brief.dedLate || []).map(x => (x.e || '') + ' -' + (+x.amt || 0).toLocaleString() + '원 (' + mmdd(x.d) + ' 등록)')));
+  uG.push(G('수선 미회수', '공장에 확인 전화',
+    (brief.repairLate || []).map(x => (x.n || '') + (x.q ? ' ' + x.q + '장' : '') + ' (' + mmdd(x.d) + ' 발송, D+' + (x.dd || 0) + (x.fc ? ', ' + x.fc : '') + ((x.r || 1) > 1 ? ', ' + x.r + '회차' : '') + ')')));
   const ACT = { '원단 출고일 미입력': '미입력된 출고일 입력하기', '재단수량 미입력': '공장 확인 후 재단수량 입력하기', '입고 후 재단 미확인': '공장에 재단 투입 확인' };
   const byT = {};
   (brief.alerts || []).forEach(a => {

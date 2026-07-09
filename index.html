@@ -1833,6 +1833,17 @@ function buildMorningBrief(){
     ((S.courierLedger||{}).entries||[]).forEach(function(e3){ if(e3&&!e3.settled){ wk.cour.n++; wk.cour.amt+=(+e3.amount||0); } });
     out.wk=wk;
   }catch(e){}
+  try{ // 수선 미회수 (2026-07-09): 수선 발송 후 5일(또는 재입고 예정일) 지나도 회수 확인 없음 → 급한 것
+    out.repairLate=[]; var _rlNow=Date.now();
+    Object.values(S.orders||{}).forEach(function(o2){ if(!o2)return; (o2.trackBlocks||[]).forEach(function(b2){ if(!b2)return; (b2.defects||[]).forEach(function(df){
+      if(!df)return; var st2=(typeof defectStatusOf==='function')?defectStatusOf(df):(df.dfStatus||'waiting'); if(st2!=='repairing')return;
+      var due=df.dfReturnDate?_t(df.dfReturnDate):''; var sent=df.repairSentAt?_t(df.repairSentAt):'';
+      var dueT=due?new Date(due+'T00:00:00').getTime():(sent?new Date(sent+'T00:00:00').getTime()+5*86400000:0);
+      if(!dueT||_rlNow<dueT)return;
+      var dd=sent?Math.floor((_rlNow-new Date(sent+'T00:00:00').getTime())/86400000):0;
+      if(out.repairLate.length<8)out.repairLate.push({n:((b2.itemName||'')+' '+(df.colorName||'')).trim(),q:+df.qty||0,d:sent||due,dd:dd,fc:df.dfLocation||'',r:+df.repairRound||1});
+    });});});
+  }catch(e){}
   return out;
 }
 async function cloudSyncSave(){
@@ -18233,19 +18244,57 @@ function defectSend(oid,blockId,idx){
   var d=defectFind(oid,blockId,idx);if(!d)return;
   d.dfStatus='repairing';
   if(!d.dfLocation||d.dfLocation==='본사')d.dfLocation='메인 공장';
-  defectLog(d,'수선 발송 → '+(d.dfLocation||'공장'));
-  saveData();renderDefectPane();showToast('수선 중으로 이동');
+  // 수선 왕복 추적 (2026-07-09): 회차 + 발송일 도장 → D+5 미회수 감시·재수선 이력
+  d.repairRound=(+d.repairRound||0)+1;
+  d.repairSentAt=(typeof todayISO==='function')?todayISO():'';
+  defectLog(d,'수선 발송 '+d.repairRound+'회차 → '+(d.dfLocation||'공장'));
+  saveData();renderDefectPane();showToast('수선 발송 ('+d.repairRound+'회차) — 5일 지나면 브리핑이 챙겨요');
 }
 function defectReturn(oid,blockId,idx){
   var d=defectFind(oid,blockId,idx);if(!d)return;
   d.dfStatus='done';d.dfLocation='본사';
-  defectLog(d,'재입고 완료');
+  defectLog(d,'재입고 완료'+(d.repairRound>1?' ('+d.repairRound+'회차 만에)':''));
   if(d.deductType==='공제예정'&&!d.deductDone){
     if(typeof markDefectDeductDone==='function'){markDefectDeductDone(oid,blockId,idx);}
     else {d.deductDone=true;}
     defectLog(d,'공제 확정');
   }
+  // 왕복 택배비 → 공장 귀책 공제 (선택 시에만, 1회만 생성) — 다음 결제에서 차감 파이프라인에 합류
+  if((+d.repairShipFee||0)>0&&d.repairFeeDeduct&&!d.repairFeeDeductDone){
+    var _o=S.orders[oid];var _b=_o&&(_o.trackBlocks||[]).find(function(x){return x.id===blockId;});
+    var _fcId=_b&&_b.factoryId;var _fc=_fcId&&S.factories[_fcId];
+    if(_fc){
+      if(!S.deductions)S.deductions=[];
+      S.deductions.push({id:uid(),entity:_fc.name,entityId:_fcId,entityType:'factory',
+        itemName:(_b.itemName||''),type:'ship',qty:0,amount:+d.repairShipFee||0,
+        note:'[수선 택배비] '+(d.type||'')+' '+(d.repairRound||1)+'회차 왕복',
+        createdAt:(typeof today==='function')?today():'',resolved:false,fromDefect:true,defectId:d.id,ordId:oid,blockId:blockId});
+      d.repairFeeDeductDone=true;
+      defectLog(d,'수선 택배비 '+num(+d.repairShipFee)+'원 → '+_fc.name+' 공제 등록');
+      showToast('수선 택배비 '+num(+d.repairShipFee)+'원 공제 등록 — 다음 결제에서 차감돼요',4500);
+    }else{
+      showToast('택배비 공제 대상 공장을 못 찾았어요 (블록에 공장 미지정) — 공제는 수동으로',5000);
+    }
+  }
   saveData();renderDefectPane();showToast('재입고·종결 처리');
+}
+// 수선 안 됨 → 재발송 대기 (같은 카드에서 회차 이어짐 — 반복 이력 추적)
+function defectRepairFail(oid,blockId,idx){
+  var d=defectFind(oid,blockId,idx);if(!d)return;
+  d.dfStatus='waiting';
+  defectLog(d,'수선 불완전 — '+(d.repairRound||1)+'회차 실패, 재발송 필요');
+  saveData();renderDefectPane();showToast('재발송 대기로 — 다음 발송이 '+((+d.repairRound||1)+1)+'회차예요');
+}
+// 수선장 전달 문구 (공장이 뭘 해야 하는지 서면으로 — 불완전 수선 방지)
+function defectRepairMsg(oid,blockId,idx){
+  var d=defectFind(oid,blockId,idx);if(!d)return;
+  var _o=S.orders[oid];var _b=_o&&(_o.trackBlocks||[]).find(function(x){return x.id===blockId;});
+  var t='[수선 요청'+((d.repairRound||0)>1?' · '+d.repairRound+'회차 (재수선)':'')+']\n'
+    +(_b&&_b.itemName?_b.itemName+' ':'')+(d.colorName?d.colorName+' ':'')+(d.qty||0)+'장\n'
+    +'불량 내용: '+(d.type||'')+(d.note?' — '+d.note:'')+'\n\n'
+    +'수선 후 사무실로 바로 보내주세요.\n완료되면 사진 1장 부탁드립니다.';
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){showToast('수선장 문구 복사됨 — 카톡에 붙여넣으세요');}).catch(function(){prompt('복사해서 쓰세요:',t);});}
+  else prompt('복사해서 쓰세요:',t);
 }
 function defectReopen(oid,blockId,idx){
   var d=defectFind(oid,blockId,idx);if(!d)return;
@@ -18409,6 +18458,7 @@ function renderDefectPane(){
     h+='<span class="badge" style="font-size:10px;background:'+(defectPhaseOf(d)==='after'?'#fee2e2;color:#b91c1c':'#dbeafe;color:#1e40af')+';font-weight:700">'+(defectPhaseOf(d)==='after'?'↩ 출고 후':'출고 전')+'</span>';
     if(d.dfOrigin)h+='<span class="badge" style="font-size:10px;background:#fef9c3;color:#854d0e">'+esc(d.dfOrigin)+'</span>';
     if(d.dfLocation)h+='<span class="badge" style="font-size:10px;background:#fee2e2;color:#b91c1c">'+esc(d.dfLocation)+'</span>';
+    if(+d.repairRound>0){var _rrSt=defectStatusOf(d);var _rrTxt='수선 '+d.repairRound+'회차';if(_rrSt==='repairing'&&d.repairSentAt){var _rrDd=Math.floor((Date.now()-new Date(d.repairSentAt+'T00:00:00').getTime())/86400000);_rrTxt+=' · 발송 D+'+_rrDd;}h+='<span class="badge" style="font-size:10px;font-weight:700;background:'+(_rrSt==='repairing'?'#fff3cd;color:#92580b':'#e5e7eb;color:#374151')+'">'+_rrTxt+'</span>';}
     h+='</div>';
     h+='<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--t2)">귀책/비용: </span><b style="color:'+(deductStr?'var(--red)':'var(--t2)')+'">'+faultStr+'</b>'+(d.deductDone?' <span class="badge b3" style="font-size:9px">공제완료</span>':'')+'</div>';
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
@@ -18416,12 +18466,14 @@ function renderDefectPane(){
     h+='<label style="font-size:10px;color:var(--t2);flex:1;min-width:88px">어디서 왔나<select onchange="setDefectField(\''+oid+'\',\''+bid+'\','+idx+',\'dfOrigin\',this.value)" style="width:100%;font-size:11px;padding:4px"><option value="">선택</option>'+DEFECT_ORIGINS.map(function(o){return '<option'+(d.dfOrigin===o?' selected':'')+'>'+o+'</option>';}).join('')+'</select></label>';
     h+='<label style="font-size:10px;color:var(--t2);flex:1;min-width:88px">현재 위치<select onchange="setDefectField(\''+oid+'\',\''+bid+'\','+idx+',\'dfLocation\',this.value)" style="width:100%;font-size:11px;padding:4px"><option value="">선택</option>'+DEFECT_LOCATIONS.map(function(o){return '<option'+(d.dfLocation===o?' selected':'')+'>'+o+'</option>';}).join('')+'</select></label>';
     h+='<label style="font-size:10px;color:var(--t2);flex:1;min-width:88px">재입고 예정<input type="date" value="'+(d.dfReturnDate||'')+'" onchange="setDefectField(\''+oid+'\',\''+bid+'\','+idx+',\'dfReturnDate\',this.value)" style="width:100%;font-size:11px;padding:3px"></label>';
+    h+='<label style="font-size:10px;color:var(--t2);flex:1;min-width:88px">왕복 택배비(원)<input type="number" inputmode="numeric" value="'+(d.repairShipFee||'')+'" placeholder="예: 10000" onchange="setDefectField(\''+oid+'\',\''+bid+'\','+idx+',\'repairShipFee\',+this.value||0)" style="width:100%;font-size:11px;padding:3px"></label>';
+    h+='<label style="font-size:10px;color:var(--t2);display:flex;align-items:center;gap:4px;min-width:100px;align-self:flex-end;padding-bottom:6px;cursor:pointer"><input type="checkbox" '+(d.repairFeeDeduct?'checked':'')+' onchange="setDefectField(\''+oid+'\',\''+bid+'\','+idx+',\'repairFeeDeduct\',this.checked)" style="margin:0">공장 공제 포함</label>';
     h+='</div>';
     h+='<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">';
     h+='<button class="btn s" onclick="openDefectHistory(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:11px;margin-right:auto;color:var(--t2)">기록'+((d.dfHistory&&d.dfHistory.length)?' ('+d.dfHistory.length+')':'')+'</button>';
     var st=defectStatusOf(d);
-    if(st==='waiting')h+='<button class="btn p s" onclick="defectSend(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:12px">공장으로 발송</button>';
-    else if(st==='repairing'){h+='<button class="btn s" onclick="defectReopen(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:11px">↩ 대기</button>';h+='<button class="btn ok s" onclick="defectReturn(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:12px">재입고 확인</button>';}
+    if(st==='waiting'){h+='<button class="btn s" onclick="defectRepairMsg(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:11px">수선장 문구</button>';h+='<button class="btn p s" onclick="defectSend(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:12px">공장으로 발송</button>';}
+    else if(st==='repairing'){h+='<button class="btn s" onclick="defectReopen(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:11px" title="실수로 발송 눌렀을 때 되돌리기">↩ 대기</button>';h+='<button class="btn s" onclick="defectRepairMsg(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:11px">수선장 문구</button>';h+='<button class="btn s" onclick="defectRepairFail(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:11px;color:var(--red)">수선 안 됨</button>';h+='<button class="btn ok s" onclick="defectReturn(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:12px">재입고 확인</button>';}
     else h+='<button class="btn s" onclick="defectReopen(\''+oid+'\',\''+bid+'\','+idx+')" style="font-size:11px;color:var(--t2)">↩ 다시 열기</button>';
     h+='</div></div>';
   });
