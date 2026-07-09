@@ -4137,9 +4137,92 @@ function render(){var _r=_keepScroll();try{if(!window._nim){window._nim=1;try{ne
 /* ===== FACTORIES ===== */
 function renderFactories(){
   const el=document.getElementById('fc-list');if(!el)return;const fcs=Object.values(S.factories||{});
-  if(!fcs.length){el.innerHTML='<div class="empty">공장/처를 등록하세요</div>';return;}
+  const _alBar='<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn s" onclick="openAddrLabelSheet()" title="공장·거래처 주소를 라벨지로 인쇄 (한 업체 = 한 줄 5장)">주소 라벨 시트</button></div>';
+  if(!fcs.length){el.innerHTML=_alBar+'<div class="empty">공장/처를 등록하세요</div>';return;}
   const byType={};fcs.forEach(f=>{const t=f.type||'기타';if(!byType[t])byType[t]=[];byType[t].push(f);});
-  el.innerHTML=Object.entries(byType).map(([type,flist])=>`<div class="sec">${esc(type)}</div>`+flist.map(f=>`<div class="card" style="margin-bottom:6px"><div class="fb"><div><div style="font-weight:600">${esc(f.name)}</div><div class="muted">${[f.contact,f.phone].filter(Boolean).map(esc).join(' · ')}</div><div class="muted">${esc(f.address||'')}</div></div><div class="fr"><button class="btn s" onclick="showFcForm('${f.id}')">수정</button><button class="btn s d" onclick="deleteFc('${f.id}')">🗑</button></div></div></div>`).join('')).join('');
+  el.innerHTML=_alBar+Object.entries(byType).map(([type,flist])=>`<div class="sec">${esc(type)}</div>`+flist.map(f=>`<div class="card" style="margin-bottom:6px"><div class="fb"><div><div style="font-weight:600">${esc(f.name)}</div><div class="muted">${[f.contact,f.phone].filter(Boolean).map(esc).join(' · ')}</div><div class="muted">${esc(f.address||'')}</div></div><div class="fr"><button class="btn s" onclick="showFcForm('${f.id}')">수정</button><button class="btn s d" onclick="deleteFc('${f.id}')">🗑</button></div></div></div>`).join('')).join('');
+}
+// === 주소 라벨 시트 (2026-07-09) — 공장·직접입력 주소를 라벨지(A4 가로·5칸)로 인쇄. 한 업체 = 한 줄(같은 라벨 5장) ===
+// 여백은 사용자가 쓰던 라벨 문서 실측(위·아래 0.635 / 왼 0.965 / 오른 0.744cm), 6줄/장.
+function _alCustom(){ var v=null; try{v=lsGet('fpm_addrCustom');}catch(e){} return Array.isArray(v)?v:[]; }
+function _alSel(){ if(!window._alSelMap){ var v=null; try{v=lsGet('fpm_addrSheetSel');}catch(e){} window._alSelMap=(v&&typeof v==='object'&&!Array.isArray(v))?v:{}; } return window._alSelMap; }
+function alToggle(k,on){ var m=_alSel(); if(on)m[k]=1; else delete m[k]; try{lsSet('fpm_addrSheetSel',m);}catch(e){} alRenderBody(); }
+function alAddCustom(){ var t=prompt('라벨 내용 (줄바꿈 그대로 인쇄돼요)\n예:\n차은실 02-6191-6138\n경기 과천시 과천대로7나길 48\nKOTITI제품인증팀'); if(!t||!t.trim())return; var a=_alCustom(); var id=uid(); a.push({id:id,text:t.trim()}); try{lsSet('fpm_addrCustom',a);}catch(e){} var m=_alSel(); m['c:'+id]=1; try{lsSet('fpm_addrSheetSel',m);}catch(e){} alRenderBody(); }
+function alDelCustom(id){ if(!confirm('이 직접입력 라벨을 삭제할까요?'))return; var a=_alCustom().filter(function(x){return x.id!==id;}); try{lsSet('fpm_addrCustom',a);}catch(e){} var m=_alSel(); delete m['c:'+id]; try{lsSet('fpm_addrSheetSel',m);}catch(e){} alRenderBody(); }
+function alEntries(){
+  var out=[],m=_alSel();
+  Object.values(S.factories||{}).forEach(function(f){ if(!f||!m['f:'+f.id])return;
+    var lines=[f.name||'']; if(f.phone)lines.push(f.phone);
+    String(f.address||'').split(/\n+/).forEach(function(l){ if(l.trim())lines.push(l.trim()); });
+    out.push({lines:lines});
+  });
+  _alCustom().forEach(function(c){ if(!m['c:'+c.id])return; out.push({lines:String(c.text||'').split(/\n/).filter(function(l){return l.trim();})}); });
+  return out;
+}
+function openAddrLabelSheet(){
+  showGenericModal('주소 라벨 시트','<div style="font-size:12px;color:var(--t2);margin-bottom:10px">체크한 업체마다 <b>한 줄(같은 라벨 5장)</b>씩 들어가요. 라벨지(A4 가로)에 그대로 인쇄하세요.</div><div id="al-body"></div>');
+  alRenderBody();
+}
+function alRenderBody(){
+  var el=document.getElementById('al-body');if(!el)return;
+  var m=_alSel();
+  var h='';
+  var fcs=Object.values(S.factories||{});
+  if(fcs.length){
+    h+='<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:5px">공장 · 처 (주소는 공장 수정에서)</div>';
+    h+=fcs.map(function(f){
+      var k='f:'+f.id;var has=!!(f.address&&String(f.address).trim());
+      return '<label style="display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border:1px solid var(--bd);border-radius:7px;margin-bottom:5px;cursor:pointer;background:'+(m[k]?'var(--gbg,#ecfdf5)':'var(--bg)')+'">'
+        +'<input type="checkbox" '+(m[k]?'checked':'')+' onchange="alToggle(\''+k+'\',this.checked)" style="margin-top:2px">'
+        +'<span style="flex:1;min-width:0"><b style="font-size:13px">'+esc(f.name||'')+'</b>'
+        +'<span style="display:block;font-size:11px;color:var(--t2)">'+esc(f.phone||'')+(has?' · '+esc(f.address):' · <span style="color:var(--amber,#b45309)">주소 없음 (이름·전화만 인쇄)</span>')+'</span></span></label>';
+    }).join('');
+  }
+  var cus=_alCustom();
+  h+='<div style="display:flex;align-items:center;gap:8px;margin:12px 0 5px"><span style="font-size:11px;font-weight:700;color:var(--t2)">직접 입력 (공장 목록에 없는 곳)</span><button class="btn s" onclick="alAddCustom()">+ 추가</button></div>';
+  h+=cus.length?cus.map(function(c){
+    var k='c:'+c.id;
+    return '<label style="display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border:1px solid var(--bd);border-radius:7px;margin-bottom:5px;cursor:pointer;background:'+(m[k]?'var(--gbg,#ecfdf5)':'var(--bg)')+'">'
+      +'<input type="checkbox" '+(m[k]?'checked':'')+' onchange="alToggle(\''+k+'\',this.checked)" style="margin-top:2px">'
+      +'<span style="flex:1;min-width:0;font-size:12px;white-space:pre-line;line-height:1.5">'+esc(c.text||'')+'</span>'
+      +'<button class="btn s d" onclick="event.preventDefault();alDelCustom(\''+c.id+'\')" style="font-size:11px">삭제</button></label>';
+  }).join(''):'<div class="muted" style="font-size:11px;margin-bottom:5px">아직 없음 — KOTITI처럼 공장 목록에 없는 주소는 여기로</div>';
+  var n=alEntries().length;
+  h+='<div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:12px;padding-top:10px;border-top:1px dashed var(--bd)">'
+    +'<span style="font-size:12px;color:var(--t2);margin-right:auto">선택 '+n+'곳 = '+n+'줄 (장당 6줄)</span>'
+    +'<button class="btn" onclick="closeGenericModal()">닫기</button>'
+    +'<button class="btn p" onclick="alPrint()" '+(n?'':'disabled')+'>인쇄</button></div>';
+  el.innerHTML=h;
+}
+function alPrint(){
+  var ents=alEntries(); if(!ents.length){showToast('선택된 업체가 없어요');return;}
+  var COLS=5,ROWS=6;
+  var el=document.getElementById('al-sheet');
+  if(!el){el=document.createElement('div');el.id='al-sheet';document.body.appendChild(el);}
+  var pages=[];for(var i=0;i<ents.length;i+=ROWS)pages.push(ents.slice(i,i+ROWS));
+  el.innerHTML=pages.map(function(pg){
+    return '<div class="al-page"><table class="al-tbl">'+pg.map(function(e){
+      var cell='<td><div class="al-cell">'+e.lines.map(function(l){return '<div>'+esc(l)+'</div>';}).join('')+'</div></td>';
+      var r='<tr>';for(var c2=0;c2<COLS;c2++)r+=cell;return r+'</tr>';
+    }).join('')+'</table></div>';
+  }).join('');
+  if(!document.getElementById('al-style')){
+    var st=document.createElement('style');st.id='al-style';st.textContent=
+      '#al-sheet{display:none}'
+      +'@media print{body.al-printing>*{display:none!important}body.al-printing #al-sheet{display:block!important}'
+      +'@page{size:A4 landscape;margin:0}'
+      +'.al-page{width:29.7cm;height:20.9cm;padding:0.635cm 0.744cm 0.635cm 0.965cm;box-sizing:border-box;page-break-after:always;overflow:hidden}'
+      +'.al-tbl{width:100%;border-collapse:collapse;table-layout:fixed}'
+      +'.al-tbl tr{height:3.27cm}'
+      +'.al-tbl td{vertical-align:middle;padding:0.1cm 0.28cm;overflow:hidden}'
+      +'.al-cell{font-family:Pretendard,-apple-system,sans-serif;font-size:12.5pt;font-weight:600;line-height:1.42;word-break:keep-all;color:#000}'
+      +'}';
+    document.head.appendChild(st);
+  }
+  document.body.classList.add('al-printing');
+  var done=function(){document.body.classList.remove('al-printing');window.removeEventListener('afterprint',done);};
+  window.addEventListener('afterprint',done);
+  setTimeout(function(){window.print();},80);
 }
 function renderVendors(){
   renderFactories();
