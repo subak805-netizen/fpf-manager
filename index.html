@@ -1825,7 +1825,11 @@ function buildMorningBrief(){
     });
     (typeof getSampleOrders==='function'?getSampleOrders():(S.sampleOrders||[])).forEach(function(so){ if(!so)return; var st=so.status||''; if(st==='done'||st==='arrived'||st==='confirmed'||st==='complete')return; var d=_t(so.expectedArrivalDate); if(d&&d<_td2&&wk.smp.length<6)wk.smp.push({n:so.name||so.itemName||'',d:d}); });
     try{ if(typeof getAllDefects==='function'&&typeof defectStatusOf==='function'){ wk.dfx=getAllDefects().filter(function(x){var st=defectStatusOf(x.d); return st==='waiting'||st==='repairing';}).length; } }catch(e2){}
-    (S.deductions||[]).forEach(function(d){ if(d&&!d.resolved){ wk.ded.n++; wk.ded.amt+=(+d.amount||0); } });
+    var _dl=[];var _nowD=Date.now();
+    (S.deductions||[]).forEach(function(d){ if(d&&!d.resolved){ wk.ded.n++; wk.ded.amt+=(+d.amount||0);
+      try{ var _ci=_t(d.createdAt)||''; var _tt2=_ci?new Date(_ci+'T00:00:00').getTime():0; if(_tt2&&(_nowD-_tt2)>=15*86400000&&_dl.length<8)_dl.push({d:_ci,e:d.entity||'',amt:+d.amount||0}); }catch(e2){}
+    } });
+    out.dedLate=_dl; // 보름 넘은 미해소 공제 → 브리핑 '급한 것' 승격 (2026-07-09)
     ((S.courierLedger||{}).entries||[]).forEach(function(e3){ if(e3&&!e3.settled){ wk.cour.n++; wk.cour.amt+=(+e3.amount||0); } });
     out.wk=wk;
   }catch(e){}
@@ -19574,7 +19578,7 @@ function renderItemPay(opts){
         const total=base+vat+noVatFeeTot;
         const payKey='fc:'+fcId;
         const st=getPaySt(o.id,payKey);
-        fcs.push({fcId,fc,role,name:fc.name,rate,qty,lbl,ck,fees,feeTot,noVatFeeTot,base,vat,total,paid:st.paid,payKey,isSewing,bgQty,bgAmt});
+        fcs.push({fcId,fc,role,name:fc.name,rate,qty,lbl,ck,fees,feeTot,noVatFeeTot,base,vat,total,paid:st.paid,payKey,isSewing,bgQty,bgAmt,vatRate});
       }
       if(!fcs.length)continue;
       sewShipRecs.sort((a,b)=>cmpDate(a.date).localeCompare(cmpDate(b.date)));
@@ -19674,6 +19678,15 @@ function renderItemPay(opts){
         });
       }
       if(!costLines)costLines='<div class="ln" style="color:#9ca3af">비용 미입력</div>';
+      // 불량공제 대기: 이 공장 앞으로 걸린 미해소 공제 — 다음 결제에서 차감 (2026-07-09, 누락 방지)
+      const _pd=(typeof fcPendingDeductions==='function')?fcPendingDeductions(f.fcId):[];
+      const _pdTot=_pd.reduce((s,d)=>s+(+d.amount||0),0);
+      if(_pdTot>0&&!f.paid){
+        const _netBase=Math.max(0,f.base-_pdTot);
+        const _netTotal=_netBase+Math.round(_netBase*(f.vatRate||10)/100)+(f.noVatFeeTot||0);
+        costLines+=`<div class="ln" style="color:var(--red,#dc2626);font-weight:700"><span>불량공제 대기 ${_pd.length}건</span><span class="v">-${num(_pdTot)}원</span></div>`;
+        costLines+=`<div class="ln" style="color:var(--red,#dc2626)"><span>공제 반영 실결제 (VAT포함)</span><span class="v" style="font-weight:800">${num(_netTotal)}원</span></div>`;
+      }
       const btnLbl=f.paid?'✓ 완료':'결제 체크';
       const btnCls=f.paid?'done':'primary';
       return `<div class="ip-fc${f.paid?' paid':''}">
@@ -19723,10 +19736,30 @@ function renderItemPay(opts){
   el.innerHTML=html;
 }
 // 아이템 중심 결제 카드 — 체크 버튼 핸들러
+// 공장 앞으로 걸린 미해소 불량공제 (다음 결제에서 차감할 것들 — 오더 무관, 공장 단위)
+function fcPendingDeductions(fcId){
+  return (S.deductions||[]).filter(function(d){return d&&!d.resolved&&d.entityType==='factory'&&d.entityId===fcId;});
+}
 function ipTogglePay(btn){
   const oid=btn.dataset.oid;const key=btn.dataset.key;
   if(!oid||!key)return;
   const cur=getPaySt(oid,key);
+  // 결제 완료 체크 = 공제 소화 (2026-07-09): 이 공장 미해소 공제가 있으면 반영 확인 후에만 완료 — 공제 누락 방지
+  if(!cur.paid&&key.indexOf('fc:')===0){
+    const _fcId=key.substring(3);
+    const _peds=fcPendingDeductions(_fcId);
+    if(_peds.length){
+      const _tot=_peds.reduce(function(s,d){return s+(+d.amount||0);},0);
+      const _list=_peds.slice(0,6).map(function(d){return '· '+(d.itemName||'')+' '+(d.qty?d.qty+'장 ':'')+num(+d.amount||0)+'원'+(d.note?' ('+d.note.slice(0,24)+')':'');}).join('\n');
+      const ok=confirm('이 공장에 미해소 불량공제 '+_peds.length+'건 (-'+num(_tot)+'원) 있어요:\n\n'+_list+(_peds.length>6?'\n· 외 '+(_peds.length-6)+'건':'')+'\n\n[확인] = 이번 결제에서 차감 반영했음 → 공제 완료 처리\n[취소] = 결제 체크 중단 (공제 먼저 확인)');
+      if(!ok)return;
+      _peds.forEach(function(d){ d.resolved=true; d.resolvedAt=(typeof todayISO==='function'?todayISO():'');
+        // 불량 기록 쪽 배지도 동기화
+        try{ if(d.defectId&&d.ordId){var _o=S.orders[d.ordId];var _b=_o&&(_o.trackBlocks||[]).find(function(x){return x.id===d.blockId;});var _df=_b&&(_b.defects||[]).find(function(x){return x.id===d.defectId;});if(_df)_df.deductDone=true;} }catch(e){}
+      });
+      if(typeof showToast==='function')showToast('공제 '+_peds.length+'건 완료 처리 (-'+num(_tot)+'원 반영)',4000);
+    }
+  }
   setPaySt(oid,key,!cur.paid,cur.paid?'':todayISO());
   // setPaySt가 saveData + renderPayStats + renderPayContent까지 호출 → 자동 새로고침
 }
@@ -19867,6 +19900,12 @@ function ipBuildGroupReceipt(fcId,brandId,items){
       if(f.noVat)noVatSum+=amt;
     });
   });
+  // 불량공제 마이너스 줄 — 공장 단위 1회 (미해소 공제 = 이번 결제에서 차감, 2026-07-09)
+  ((typeof fcPendingDeductions==='function')?fcPendingDeductions(fcId):[]).forEach(function(d){
+    const amt=+d.amount||0;if(!amt)return;const q=+d.qty||1;
+    allRows.push({date:d.createdAt||'',item:'[불량공제] '+(d.itemName||''),color:'',qty:q,unit:-Math.round(amt/q),amount:-amt,kind:'deduct'});
+    costSum+=-amt;
+  });
   if(!allRows.length)return {hasRows:false};
   // 출고일 오름차순 정렬
   allRows.sort((a,b)=>cmpDate(a.date).localeCompare(cmpDate(b.date)));
@@ -20000,6 +20039,12 @@ function buildItemReceiptHTML(oid,fcId,itemId){
       kind:'fee',
       exempt:!!f.noVat
     });
+  });
+  // 불량공제 마이너스 줄 (이 공장 미해소 공제 전체 — 다음 결제 차감분, 2026-07-09)
+  ((typeof fcPendingDeductions==='function')?fcPendingDeductions(fcId):[]).forEach(function(d){
+    const amt=+d.amount||0;if(!amt)return;
+    const q=+d.qty||1;
+    rows.push({date:d.createdAt||'',item:'[불량공제] '+(d.itemName||'')+(d.note?' '+d.note.replace('[불량공제]','').trim():''),color:'',qty:q,unit:-Math.round(amt/q),amount:-amt,kind:'deduct'});
   });
   if(!rows.length)return {hasRows:false};
   // 소계 계산 (출고일 + 아이템별 그룹 합계)
