@@ -17830,7 +17830,7 @@ function renderTrackFilter(){
 // 불량 유형 상수
 const DEFECT_STAGES=['재단','봉제','워싱','자수','나염','검품','기타'];
 const DEFECT_TYPES=['원단불량','봉제불량','오염','자수불량','나염불량','기타'];
-const DEFECT_ACTIONS=['수선','폐기','B급(저가판매)','참고'];
+const DEFECT_ACTIONS=['수선','비품 전환','공제','폐기','B급(저가판매)','참고'];
 const DEFECT_ORIGINS=['본사 발견','손님 반품','공장 발견','원단처 발견','부자재처 발견','기타'];
 const DEFECT_LOCATIONS=['본사','메인 공장','수선집','원단처','폐기'];
 const DEFECT_STATUS_TABS=[{key:'waiting',label:'수선 대기'},{key:'repairing',label:'수선 중'},{key:'done',label:'재입고·종결'}];
@@ -18663,6 +18663,105 @@ function saveDefectAdd(){
   window._defectStatusTab='waiting';renderDefectPane();
   showToast('불량 추가됨');
 }
+/* ===== 불량 빠른입력 (2026-07-09 리뉴얼 1단계) — 모달 없이 칩+추가. 처리 칩이 돈 흐름까지 연결:
+   수선=왕복 추적 / 비품 전환=출고에 50% 회차 자동 생성(B안) / 공장 공제=다음 결제 차감 ===== */
+function dfqPick(g,v,el){window._dfq[g]=v;var grp=el.parentNode;if(grp)grp.querySelectorAll('.dfq-chip').forEach(function(c){c.classList.remove('on');});el.classList.add('on');}
+function dfqItemChange(inp){var nm=(inp.value||'').trim();var it=Object.values(S.items||{}).find(function(x){return x&&x.name===nm;});var dl=document.getElementById('dl-dfq-color');if(dl)dl.innerHTML=((it&&it.colors)||[]).map(function(c){return '<option value="'+esc(c)+'">';}).join('');}
+function dfQuickHTML(){
+  if(!window._dfq)window._dfq={st:'검품',ty:'오염',ac:'수선'};
+  var q=window._dfq;
+  if(!document.getElementById('dfq-style')){
+    var st=document.createElement('style');st.id='dfq-style';st.textContent=
+      '.dfq-row{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:6px}'
+      +'.dfq-lbl{font-size:10px;font-weight:800;color:var(--t3,#9a988f);width:44px;flex:0 0 44px}'
+      +'.dfq-chip{border:2px solid var(--ink,#0B0A05);background:var(--bg,#fff);font-weight:700;font-size:12px;padding:5px 11px;cursor:pointer;font-family:inherit;border-radius:0}'
+      +'.dfq-chip.on{background:var(--ink,#0B0A05);color:#fff}';
+    document.head.appendChild(st);
+  }
+  var chip=function(g,v){return '<button type="button" class="dfq-chip'+(q[g]===v?' on':'')+'" onclick="dfqPick(\''+g+'\',\''+v+'\',this)">'+v+'</button>';};
+  var itemsDl='<datalist id="dl-dfq">'+Object.values(S.items||{}).map(function(x){return x&&x.name?'<option value="'+esc(x.name)+'">'+esc(x.code||'')+'</option>':'';}).join('')+'</datalist>';
+  return '<div class="card" style="padding:11px 12px;margin-bottom:12px">'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
+    +'<input id="dfq-item" list="dl-dfq" placeholder="아이템 검색" oninput="dfqItemChange(this)" style="flex:2;min-width:130px;font-size:13px;padding:8px 10px">'+itemsDl
+    +'<input id="dfq-color" list="dl-dfq-color" placeholder="컬러" style="flex:1;min-width:70px;font-size:13px;padding:8px 10px"><datalist id="dl-dfq-color"></datalist>'
+    +'<input id="dfq-qty" type="number" inputmode="numeric" min="1" value="1" style="width:64px;text-align:center;font-size:13px;padding:8px 4px">'
+    +'</div>'
+    +'<div class="dfq-row"><span class="dfq-lbl">어디서</span>'+['검품','공장','출고 후(반품)','본사'].map(function(v){return chip('st',v);}).join('')+'</div>'
+    +'<div class="dfq-row"><span class="dfq-lbl">유형</span>'+['오염','봉제','원단','부자재','기타'].map(function(v){return chip('ty',v);}).join('')+'</div>'
+    +'<div class="dfq-row"><span class="dfq-lbl">처리</span>'+['수선','비품 전환','공장 공제','폐기','참고'].map(function(v){return chip('ac',v);}).join('')+'</div>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><span style="font-size:10.5px;color:var(--t3,#9a988f);flex:1;line-height:1.5">수선=왕복 추적 시작 · 비품 전환=출고에 50% 회차 자동 · 공장 공제=다음 결제 차감</span><button class="btn p" onclick="dfQuickAdd()" style="padding:9px 22px;font-weight:800">추가</button></div>'
+    +'</div>';
+}
+function dfQuickAdd(){
+  var raw=((document.getElementById('dfq-item')||{}).value||'').trim();
+  if(!raw){showToast('아이템을 입력하세요');return;}
+  var items=Object.values(S.items||{});
+  var it=items.find(function(x){return x&&x.name===raw;})||items.find(function(x){return x&&(x.code||'')===raw;})||items.find(function(x){return x&&x.name&&x.name.indexOf(raw)>=0;});
+  if(!it){showToast('아이템을 못 찾았어요: '+raw);return;}
+  var color=((document.getElementById('dfq-color')||{}).value||'').trim();
+  var qty=+((document.getElementById('dfq-qty')||{}).value)||0;
+  if(!qty){showToast('수량을 입력하세요');return;}
+  // 대상 오더 = 이 아이템이 든 최신 오더 (추적 블록 있는 오더 우선)
+  var cands=Object.values(S.orders||{}).filter(function(o){return o&&(o.orderItems||[]).some(function(oi){return oi&&oi.itemId===it.id;});});
+  if(!cands.length){showToast('이 아이템이 들어간 오더가 없어요 — 오더 생성 후 등록하세요',4500);return;}
+  var dkey=function(o){try{return (typeof toISO==='function'?toISO(o.createdAt||''):(o.createdAt||''))||'';}catch(e){return '';}};
+  cands.sort(function(a,b){return dkey(b).localeCompare(dkey(a));});
+  var o=cands.find(function(c){return (c.trackBlocks||[]).some(function(b2){return b2&&(b2.itemId===it.id||b2.itemName===it.name);});})||cands[0];
+  if(!o.trackBlocks)o.trackBlocks=[];
+  var b=o.trackBlocks.find(function(x){return x&&(x.itemId===it.id||x.itemName===it.name);});
+  if(!b&&!o.trackBlocks.length&&typeof initTrackBlocks==='function'){initTrackBlocks(o.id);b=(o.trackBlocks||[]).find(function(x){return x&&(x.itemId===it.id||x.itemName===it.name);});}
+  if(!b){ // 다른 아이템 블록만 있는 오더 → 이 아이템 블록만 추가 (initTrackBlocks와 같은 모양, 기존 블록 안 건드림)
+    var oi0=(o.orderItems||[]).find(function(x){return x&&x.itemId===it.id;})||{};
+    var colors0=(it.colors&&it.colors.length)?it.colors:[''];
+    var sizes0=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+    var mkQ0=function(){var q2={};sizes0.forEach(function(sz){q2[sz]=0;});return q2;};
+    b={id:uid(),itemId:it.id,itemName:it.name,factoryId:it.sewingFcId||'',orderDate:o.createdAt||today(),shippingDate:o.shippingDate||'',
+      planYardage:(it.fabrics&&it.fabrics[0]&&it.fabrics[0].consumption)||0,colorFabricUsed:{},
+      colors:colors0.map(function(c){var q3={};sizes0.forEach(function(sz){q3[sz]=(oi0.qtyGrid&&oi0.qtyGrid[c]&&oi0.qtyGrid[c][sz])||0;});return {colorName:c,orderQty:q3,cuttingQty:mkQ0(),shippingQty:mkQ0()};}),
+      defects:[]};
+    o.trackBlocks.push(b);
+  }
+  if(!b.defects)b.defects=[];
+  var q=window._dfq||{};var st=q.st||'검품',ty=q.ty||'기타',ac=q.ac||'수선';
+  var stageMap={'검품':'검품','공장':'봉제','본사':'기타','출고 후(반품)':'기타'};
+  var typeMap={'오염':'오염','봉제':'봉제불량','원단':'원단불량','부자재':'기타','기타':'기타'};
+  var actMap={'수선':'수선','비품 전환':'비품 전환','공장 공제':'공제','폐기':'폐기','참고':'참고'};
+  var phase=(st==='출고 후(반품)')?'after':'before';
+  var origin=(st==='출고 후(반품)')?'손님 반품':(st==='공장'?'공장 발견':(st==='본사'?'본사 발견':''));
+  var fcId=((typeof orderFc==='function')?orderFc(o,it,'sewingFcId'):(it.sewingFcId||''))||it.sewingFcId||'';
+  var defObj={id:uid(),stage:stageMap[st]||'기타',type:typeMap[ty]||'기타',colorName:color,qty:qty,action:actMap[ac]||'참고',note:'',
+    createdAt:today(),dfStatus:(ac==='비품 전환'||ac==='폐기'||ac==='참고')?'done':'waiting',dfLocation:'본사',dfOrigin:origin,dfPhase:phase,dfReturnDate:'',dfHistory:[],
+    deductType:'',deductTargets:[],deductDone:false,deductEntity:'',deductEntityId:'',deductAmount:0};
+  var extraToast='';
+  if(ac==='공장 공제'){
+    var fc=fcId&&S.factories[fcId];
+    if(fc){
+      var amt=0;try{var costs=calcDefectCosts(o.id,b.id,qty);amt=getEntityCost(costs,'fc:'+fcId,o.id,b.id)||0;}catch(e){}
+      if(!amt)amt=(+it.laborCost||0)*qty; // 폴백: 공임×수량 (사용자 확정 기준)
+      defObj.deductType='공제예정';
+      defObj.deductTargets=[{entityVal:'fc:'+fcId,entityName:fc.name,entityId:fcId,entityType:'factory',amount:amt}];
+      defObj.deductEntity=fc.name;defObj.deductEntityId=fcId;defObj.deductAmount=amt;
+      if(!S.deductions)S.deductions=[];
+      S.deductions.push({id:uid(),entity:fc.name,entityId:fcId,entityType:'factory',itemName:it.name,type:'product',qty:qty,amount:amt,
+        note:('[불량공제] '+(defObj.type||'')+(color?' ·'+color:'')).trim(),createdAt:today(),resolved:false,fromDefect:true,defectId:defObj.id,ordId:o.id,blockId:b.id});
+      extraToast=' + 공제 '+num(amt)+'원 (다음 결제 차감)';
+    }else extraToast=' (봉제공장 미지정 — 공제는 [상세 추가]로)';
+  }
+  if(ac==='비품 전환'){
+    if(fcId){
+      if(!o.factorySchedules)o.factorySchedules={};
+      if(!o.factorySchedules[fcId])o.factorySchedules[fcId]=(typeof mkFcSch==='function'?mkFcSch():{});
+      var sch=o.factorySchedules[fcId];if(!Array.isArray(sch.shipments))sch.shipments=[];
+      var rec={id:uid(),date:(typeof todayISO==='function'?todayISO():today()),color:color,size:'',qty:qty,memo:'[비품 전환] 불량관리 자동',itemId:it.id,bg:1,bgDc:50};
+      sch.shipments.push(rec);defObj.bgShipRecId=rec.id;
+      extraToast=' + 출고에 비품 '+qty+'장(공임 50%) 자동 생성';
+    }else extraToast=' (봉제공장 미지정 — 비품 회차는 출고 입력에서 직접)';
+  }
+  try{defectLog(defObj,'빠른입력: '+st+' · '+ty+' · '+ac+(color?' · '+color:'')+' '+qty+'장');}catch(e){}
+  b.defects.push(defObj);
+  saveData();renderDefectPane();if(typeof updateNotifBadge==='function')updateNotifBadge();
+  showToast(it.name+' '+qty+'장 등록'+extraToast,4500);
+}
 function renderDefectPane(){
   var el=document.getElementById('defect-body');if(!el)return;
   var all=getAllDefects();
@@ -18670,8 +18769,9 @@ function renderDefectPane(){
   var counts={waiting:0,repairing:0,done:0};
   all.forEach(function(x){var s=defectStatusOf(x.d);counts[s]=(counts[s]||0)+1;});
   var h='<div style="padding:14px">';
-  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px"><div style="font-size:17px;font-weight:800">불량 관리</div><button class="btn p s" onclick="openDefectAdd()" style="font-size:12px">불량 추가</button></div>';
-  h+='<div style="font-size:11px;color:var(--t2);margin-bottom:12px">불량 난 샘플이 지금 어디 있고 언제 돌아오는지 추적해요</div>';
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px"><div style="font-size:17px;font-weight:800">불량 관리</div><button class="btn s" onclick="openDefectAdd()" style="font-size:12px" title="오더 직접 선택·거래처 귀책 등 자세한 입력">상세 추가</button></div>';
+  h+='<div style="font-size:11px;color:var(--t2);margin-bottom:10px">아이템·수량 적고 칩 세 번 누르면 등록 — 처리에 따라 수선 추적·비품 회차·공제까지 자동으로 이어져요</div>';
+  h+=dfQuickHTML();
   h+='<div style="display:flex;gap:6px;margin-bottom:14px">';
   DEFECT_STATUS_TABS.forEach(function(t){
     var on=cur===t.key;var c=counts[t.key]||0;
