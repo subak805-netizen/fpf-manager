@@ -19758,6 +19758,7 @@ function renderTrimLedger(){
 
   html+='<div class="tl-card">'
     +'<div class="tl-card-h"><h3>'+esc(sel)+(bsel?' › '+esc(bsel):'')+' 원장 · '+(paidV?'결제완료':'미결제')+'</h3><span class="tl-spc"></span>'
+    +'<button class="tl-btn" onclick="tlPasteOpen()" title="카톡으로 보낸 발주서 텍스트를 붙여넣으면 원장 줄로 자동 등록">발주서 붙여넣기</button>'
     +'<button class="tl-btn" onclick="tlToggleForm()">＋ 수동 추가</button>'
     +'<button class="tl-btn pri" onclick="tlSaveImage()">명세서 저장</button></div>';
   html+='<div class="tl-form" id="tl-form">'
@@ -19783,6 +19784,99 @@ function renderTrimLedger(){
 }
 function _tlMetric(l,v,cls){return '<div class="tl-metric '+(cls||'')+'"><span class="ml">'+l+'</span><span class="mv">'+v+'</span></div>';}
 function tlToggleForm(){var f=document.getElementById('tl-form');if(f)f.classList.toggle('open');}
+/* ===== 발주서 텍스트 붙여넣기 → 원장 줄 자동 생성 (2026-07-10) — 앱이 만든 카톡 발주서 형식 파싱 ===== */
+function tlParsePO(text){
+  var lines=String(text||'').split(/\n/);
+  var brand='',item='',date='',rows=[],header='',prevBlank=true,stop=false;
+  lines.forEach(function(raw){
+    if(stop)return;
+    var l=raw.trim();
+    if(!l){prevBlank=true;return;}
+    if(/^\[출고요청/.test(l)||/^\[요청/.test(l)||/^>/.test(l)){stop=true;return;}
+    var m;
+    if((m=l.match(/^상호\s+(.+)$/))){brand=m[1].trim();prevBlank=false;return;}
+    if((m=l.match(/^품명\s+(.+)$/))){
+      var t=m[1].trim();
+      var dm=t.match(/\((\d{1,2})\/(\d{1,2})\)/);
+      if(dm){var yr=(typeof todayISO==='function'?todayISO().slice(0,4):'2026');date=yr+'-'+String(dm[1]).padStart(2,'0')+'-'+String(dm[2]).padStart(2,'0');}
+      item=t.replace(/\(\d{1,2}\/\d{1,2}\)/,'').replace(/추가발주|재발주|추가 발주/g,'').trim();
+      prevBlank=false;return;
+    }
+    if(/^합계\s/.test(l)||/^합계\d/.test(l)){prevBlank=false;return;}
+    if((m=l.match(/^#\s*([^\s(#-]+)\s*(?:\([^)]*\))?\s*[-–—]\s*([\d,\.]+)\s*(개|y|야드|장|롤|절|봉|박스|콘|pcs|벌)?/))){
+      var color=m[1].trim(),q=parseFloat(m[2].replace(/,/g,''))||0,unit=m[3]||'개';
+      if(unit==='야드')unit='y';
+      if(q>0)rows.push({header:header,color:color,qty:q,unit:unit});
+      prevBlank=false;return;
+    }
+    if(prevBlank)header=l; // 빈 줄 다음 첫 일반 줄 = 자재 블록 제목 (설명줄은 무시)
+    prevBlank=false;
+  });
+  // 줄 → 원장 행 (단가는 이 거래처 단가장에서 자동 매칭, 없으면 0=직접 입력)
+  var sel=window._tlSup||'';
+  var pbMats=(sel&&S.priceBook&&S.priceBook[sel]&&S.priceBook[sel].materials)||{};
+  var pbList=Object.keys(pbMats).map(function(k){return pbMats[k];});
+  return rows.map(function(r){
+    var base=(r.header||'').split('—')[0].split(' - ')[0].trim();
+    var name=base?(base+' · '+r.color):r.color;
+    var spec='';var sm=(r.header||'').match(/(\d+(?:\.\d+)?\s*mm)/);if(sm)spec=sm[1].replace(/\s/g,'');
+    var price=0;
+    for(var i=0;i<pbList.length;i++){var e2=pbList[i];if(e2&&e2.name&&e2.name.length>=2&&base.indexOf(e2.name)>=0){price=+e2.unitPrice||0;if(price)break;}}
+    return {date:date,name:name,spec:spec,qty:r.qty,unit:r.unit,price:price,brand:brand,item:item};
+  });
+}
+function tlPasteOpen(){
+  var sel=window._tlSup;
+  if(!sel){showToast('거래처를 먼저 선택하세요');return;}
+  window._tlPasteRows=null;
+  showGenericModal('발주서 붙여넣기 — '+sel,
+    '<div style="font-size:11.5px;color:var(--t2);line-height:1.6;margin-bottom:8px">카톡으로 보낸 발주서 텍스트를 그대로 붙여넣으세요. 상호·품명·<b>#컬러 - N개</b> 줄을 읽어서 이 거래처 원장에 줄로 넣어요. 단가는 단가장에서 자동, 없으면 미리보기에서 직접 입력.</div>'
+    +'<textarea id="tl-paste-ta" style="width:100%;min-height:150px;font-size:13px;padding:9px 10px;border:2px solid var(--ink,#0B0A05);border-radius:0;font-family:inherit;box-sizing:border-box" placeholder="상호 더프루토\n품명 스트라이프긴팔바디수트 (5/24)\n\n너트 둥근이도 10mm 2구멍 (생지)\n#생지 - 45개\n..."></textarea>'
+    +'<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px"><button class="tl-btn pri" onclick="tlPastePreview()">미리보기</button></div>'
+    +'<div id="tl-paste-prev" style="margin-top:10px"></div>');
+}
+function tlPastePreview(){
+  var ta=document.getElementById('tl-paste-ta');if(!ta)return;
+  var rows=tlParsePO(ta.value);
+  window._tlPasteRows=rows;
+  var pv=document.getElementById('tl-paste-prev');if(!pv)return;
+  if(!rows.length){pv.innerHTML='<div style="font-size:12px;color:var(--red,#c0392b)">읽을 수 있는 줄이 없어요 — "#컬러 - 수량개" 형식이 있는지 확인해 주세요</div>';return;}
+  var h='<div style="font-size:11px;font-weight:800;color:var(--t2);margin-bottom:6px">'+rows.length+'줄 — 수량·단가 확인 후 등록하세요 (단가 0=단가장에 없음, 직접 입력)</div>';
+  h+='<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;min-width:460px;font-size:12px">';
+  h+='<tr>'+['품명','규격','수량','단가','금액'].map(function(x){return '<th style="border-bottom:2px solid var(--ink,#0B0A05);padding:4px 6px;text-align:left;font-size:10.5px">'+x+'</th>';}).join('')+'</tr>';
+  rows.forEach(function(r,i){
+    h+='<tr>'
+      +'<td style="padding:4px 6px;border-bottom:1px solid #e3ddcd"><input value="'+esc(r.name)+'" onchange="tlPasteSet('+i+',\'name\',this.value)" style="width:100%;min-width:150px;border:1.5px solid #cfc8b6;padding:3px 5px;font-size:12px;font-family:inherit"></td>'
+      +'<td style="padding:4px 6px;border-bottom:1px solid #e3ddcd"><input value="'+esc(r.spec)+'" onchange="tlPasteSet('+i+',\'spec\',this.value)" style="width:56px;border:1.5px solid #cfc8b6;padding:3px 5px;font-size:12px;font-family:inherit"></td>'
+      +'<td style="padding:4px 6px;border-bottom:1px solid #e3ddcd;white-space:nowrap"><input type="number" value="'+r.qty+'" onchange="tlPasteSet('+i+',\'qty\',+this.value||0)" style="width:56px;border:1.5px solid #cfc8b6;padding:3px 5px;font-size:12px;font-family:inherit;text-align:right">'+esc(r.unit)+'</td>'
+      +'<td style="padding:4px 6px;border-bottom:1px solid #e3ddcd"><input type="number" value="'+r.price+'" onchange="tlPasteSet('+i+',\'price\',+this.value||0)" style="width:64px;border:1.5px solid '+(r.price?'#cfc8b6':'var(--red,#c0392b)')+';padding:3px 5px;font-size:12px;font-family:inherit;text-align:right"></td>'
+      +'<td style="padding:4px 6px;border-bottom:1px solid #e3ddcd;text-align:right;font-weight:700" id="tl-paste-amt-'+i+'">'+num(Math.round(r.qty*r.price))+'원</td>'
+      +'</tr>';
+  });
+  h+='</table></div>';
+  var tot=0;rows.forEach(function(r){tot+=Math.round(r.qty*r.price);});
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><b id="tl-paste-tot" style="font-size:13px">합계 '+num(tot)+'원</b><button class="tl-btn pri" onclick="tlPasteCommit()">원장에 '+rows.length+'줄 추가</button></div>';
+  pv.innerHTML=h;
+}
+function tlPasteSet(i,f,v){
+  var rows=window._tlPasteRows;if(!rows||!rows[i])return;
+  rows[i][f]=v;
+  var amt=document.getElementById('tl-paste-amt-'+i);if(amt)amt.textContent=num(Math.round((+rows[i].qty||0)*(+rows[i].price||0)))+'원';
+  var tot=0;rows.forEach(function(r){tot+=Math.round((+r.qty||0)*(+r.price||0));});
+  var te=document.getElementById('tl-paste-tot');if(te)te.textContent='합계 '+num(tot)+'원';
+}
+function tlPasteCommit(){
+  var sel=window._tlSup,rows=window._tlPasteRows;
+  if(!sel||!rows||!rows.length)return;
+  if(!S.trimLedger)S.trimLedger={};if(!S.trimLedger[sel])S.trimLedger[sel]=[];
+  var base=(typeof todayISO==='function'?todayISO():today());
+  rows.forEach(function(r){
+    if(!(+r.qty>0)&&!(+r.price>0))return;
+    S.trimLedger[sel].push({id:'tl_'+uid(),date:r.date||base,name:r.name||'발주',spec:r.spec||'',qty:(+r.qty||1),unit:r.unit||'개',price:(+r.price||0),brand:r.brand||'',item:r.item||''});
+  });
+  saveData();closeGenericModal();renderTrimLedger();
+  showToast(rows.length+'줄 원장에 추가됨'+(rows.some(function(r){return !(+r.price>0);})?' — 단가 0인 줄은 표에서 입력하세요':''));
+}
 function tlAddManual(){
   var sel=window._tlSup;if(!sel)return;
   var name=(document.getElementById('tl-m-name').value||'').trim();
