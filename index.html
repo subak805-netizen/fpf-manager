@@ -18800,14 +18800,19 @@ function dfQuickHTML(){
     +'<span class="dfq-modesw"><span class="'+(modeNL?'on':'')+'" onclick="dfSetMode(\'nl\')">한 줄</span><span class="'+(modeNL?'':'on')+'" onclick="dfSetMode(\'btn\')">버튼</span></span></div>';
   var body;
   if(modeNL){
-    body='<div class="dfq-nl"><input id="dfq-nl" placeholder="예: 6/29 아루드 호타데님 블루데님 1 검품 오염 (쉼표로 여러 건)" onkeydown="if(event.key===\'Enter\'&&!event.isComposing)dfQuickNL()"><button class="btn p" onclick="dfQuickNL()" style="padding:9px 20px;font-weight:800">추가</button></div>'
-      +'<div style="font-size:10.5px;color:var(--t3,#9a988f);margin-top:7px;line-height:1.55">날짜(6/29)·브랜드·어디서(검품/공장/출고후·반품/본사)·유형(오염/봉제/원단/부자재) 자동 인식 · <b>쉼표로 여러 건</b> · 숫자=수량</div>';
+    body='<div class="dfq-nl"><input id="dfq-nl" placeholder="예: 6/29 블루데님 1장 사무실에서 넘버파이브로 가죽라벨 수선" onkeydown="if(event.key===\'Enter\'&&!event.isComposing)dfQuickNL()"><button class="btn p" onclick="dfQuickNL()" style="padding:9px 20px;font-weight:800">추가</button></div>'
+      +'<div style="font-size:10.5px;color:var(--t3,#9a988f);margin-top:7px;line-height:1.55">날짜(6/29)·브랜드·어디서(검품/공장/반품/본사)·유형(오염/봉제/원단/부자재)·<b>출발지(~에서)·도착지(~로)·수선내용(~수선)</b> 자동 인식 · 쉼표로 여러 건 · 숫자=수량</div>';
   }else{
     body='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
       +'<input id="dfq-item" list="dl-dfq" placeholder="아이템 검색" oninput="dfqItemChange(this)" style="flex:2;min-width:130px;font-size:13px;padding:8px 10px">'+itemsDl
       +'<input id="dfq-color" list="dl-dfq-color" placeholder="컬러" style="flex:1;min-width:70px;font-size:13px;padding:8px 10px"><datalist id="dl-dfq-color"></datalist>'
       +'<input id="dfq-qty" type="number" inputmode="numeric" min="1" value="1" style="width:64px;text-align:center;font-size:13px;padding:8px 4px">'
       +'</div>'
+      +(function(){var _pl='<datalist id="dl-dfq-place"><option value="사무실">'+Object.values(S.factories||{}).map(function(f){return f&&f.name?'<option value="'+esc(f.name)+'">':'';}).join('')+'</datalist>';
+        return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
+        +'<input id="dfq-from" list="dl-dfq-place" placeholder="출발지 (사무실…)" style="flex:1;min-width:90px;font-size:13px;padding:8px 10px">'
+        +'<input id="dfq-to" list="dl-dfq-place" placeholder="도착지 (공장…)" style="flex:1;min-width:90px;font-size:13px;padding:8px 10px">'
+        +'<input id="dfq-repair" placeholder="수선 내용 (가죽라벨…)" style="flex:1.4;min-width:110px;font-size:13px;padding:8px 10px">'+_pl+'</div>';})()
       +'<div class="dfq-row"><span class="dfq-lbl">어디서</span>'+['검품','공장','출고 후(반품)','본사'].map(function(v){return chip('st',v);}).join('')+'</div>'
       +'<div class="dfq-row"><span class="dfq-lbl">유형</span>'+['오염','봉제','원단','부자재','기타'].map(function(v){return chip('ty',v);}).join('')+'</div>'
       +'<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><span style="font-size:10.5px;color:var(--t3,#9a988f);flex:1;line-height:1.5">순수 기록만 — 자동 발송·공제 없음</span><button class="btn p" onclick="dfQuickAdd()" style="padding:9px 22px;font-weight:800">추가</button></div>';
@@ -18891,7 +18896,9 @@ function dfQuickAdd(){ // 순수 기록(2026-07-10) — 오더에 안 붙고 S.d
   if(!S.defectRecs)S.defectRecs=[];
   S.defectRecs.push({id:uid(),date:(typeof todayISO==='function'?todayISO():today()),brandId:(it&&it.brandId)||'',
     itemId:it?it.id:'',itemName:it?it.name:raw,code:it?(it.code||''):'',color:color,
-    type:q.ty||'기타',qty:qty,stage:st,phase:(st==='출고 후(반품)')?'after':'before',memo:''});
+    type:q.ty||'기타',qty:qty,stage:st,phase:(st==='출고 후(반품)')?'after':'before',memo:'',
+    from:((document.getElementById('dfq-from')||{}).value||'').trim(),to:((document.getElementById('dfq-to')||{}).value||'').trim(),
+    repair:((document.getElementById('dfq-repair')||{}).value||'').trim(),returned:false,returnDate:''});
   saveData();renderDefectPane();
   showToast((it?it.name:raw)+' '+qty+'장 기록');
 }
@@ -18904,6 +18911,10 @@ function dfParseNL(text){
   else{var dm2=t.match(/(?:^|\s)(\d{1,2})[.\/](\d{1,2})(?=\s|$)/);if(dm2){var yr=(typeof todayISO==='function'?todayISO().slice(0,4):'2026');date=yr+'-'+_clPad2(dm2[1])+'-'+_clPad2(dm2[2]);t=t.replace(dm2[0],' ');}}
   var brandId='';
   (typeof _clBrands==='function'?_clBrands():[]).forEach(function(bb){if(bb.name&&!brandId&&t.indexOf(bb.name)>=0){brandId=bb.id;t=t.replace(bb.name,' ');}});
+  // 출발지·도착지·수선내용 (2026-07-10): 'X에서'=출발, 'X로/으로'=도착, 'Y 수선'=수선내용 — 어디서(사무실 등) 판정보다 먼저 캡처
+  var from='',_fm=t.match(/(?:^|\s)([^\s,，、·]+?)에서(?=\s|$)/); if(_fm){from=_fm[1];t=t.replace(_fm[0],' ');}
+  var to='',_tm=t.match(/(?:^|\s)([^\s,，、·]+?)(?:으로|로)(?=\s|$)/); if(_tm){to=_tm[1];t=t.replace(_tm[0],' ');}
+  var repair='',_rm=t.match(/(?:^|\s)([^\s,，、·]+)\s+수선(?=\s|$)/); if(_rm){repair=_rm[1];t=t.replace(_rm[0],' ');}
   var ac='';
   if(/공장\s*공제|공제/.test(t)){ac='공장 공제';t=t.replace(/공장\s*공제|공제/g,' ');}
   else if(/비품\s*전환|비품/.test(t)){ac='비품 전환';t=t.replace(/비품\s*전환|비품/g,' ');}
@@ -18940,11 +18951,11 @@ function dfParseNL(text){
       var remToks=rem.split(/\s+/).filter(Boolean);
       var cols=(found.colors||[]);
       remToks.forEach(function(tk){if(!color){var hit=cols.find(function(c){return c===tk||(c&&(c.indexOf(tk)>=0||tk.indexOf(c)>=0));});if(hit)color=hit;}});
-      if(!color&&remToks.length)color=remToks[0];
+      if(!color)remToks.some(function(tk){if(found.name.indexOf(tk)<0){color=tk;return true;}return false;}); // 아이템명 조각은 컬러로 안 잡음
     }
     return {it:found,color:color,qty:qty,raw:raw,guess:seg.replace(/\s{2,}/g,' ').trim()};
   });
-  return {date:date,brandId:brandId,st:st,ty:ty,ac:ac,segs:out};
+  return {date:date,brandId:brandId,st:st,ty:ty,ac:ac,from:from,to:to,repair:repair,segs:out};
 }
 function dfQuickNL(){ // 순수 기록(2026-07-10) — 오더에 안 붙고 S.defectRecs에 독립 저장
   var inp=document.getElementById('dfq-nl');if(!inp)return;
@@ -18957,7 +18968,8 @@ function dfQuickNL(){ // 순수 기록(2026-07-10) — 오더에 안 붙고 S.de
     if(!nm)return;
     S.defectRecs.push({id:uid(),date:o.date||base,brandId:(s.it&&s.it.brandId)||o.brandId||'',
       itemId:s.it?s.it.id:'',itemName:nm,code:s.it?(s.it.code||''):'',color:s.color||'',
-      type:o.ty||'기타',qty:+s.qty||1,stage:o.st||'검품',phase:(o.st==='출고 후(반품)')?'after':'before',memo:''});
+      type:o.ty||'기타',qty:+s.qty||1,stage:o.st||'검품',phase:(o.st==='출고 후(반품)')?'after':'before',memo:'',
+      from:o.from||'',to:o.to||'',repair:o.repair||'',returned:false,returnDate:''});
     added++;
   });
   if(!added){showToast('내용을 입력하세요');return;}
@@ -19070,6 +19082,7 @@ function _renderDefectPane_full_disabled(){ // 옛 카드+수선추적 UI (2026-
 
 // ===== 불량 = 순수 기록 (2026-07-10) — 오더 자동연결·발송·공제·수선추적 전부 없음. 브랜드별 표 =====
 function dfRecSet(id,f,v){var r=(S.defectRecs||[]).find(function(x){return x&&x.id===id;});if(!r)return;r[f]=v;saveData();}
+function dfRecRet(id,chk){var r=(S.defectRecs||[]).find(function(x){return x&&x.id===id;});if(!r)return;r.returned=!!chk;if(chk&&!r.returnDate)r.returnDate=(typeof todayISO==='function'?todayISO():today());saveData();renderDefectPane();}
 function dfRecDel(id){if(!confirm('이 불량 기록을 삭제할까요?'))return;S.defectRecs=(S.defectRecs||[]).filter(function(x){return x&&x.id!==id;});saveData();renderDefectPane();}
 function dfLegacyMemo(oid,bid,idx,v){var d=defectFind(oid,bid,idx);if(!d)return;d.note=v;saveData();}
 function dfLegacyDel(oid,bid,idx){
@@ -19084,12 +19097,14 @@ function _dfAllRows(){
     var it=byName[x.itemName];
     rows.push({legacy:1,oid:x.oid,bid:x.blockId,idx:x.idx,date:(typeof toISO==='function'?toISO(x.createdAt||''):String(x.createdAt||'')),
       code:x.code||'',itemName:x.itemName||'',type:x.d.type||'',color:x.d.colorName||'',qty:+x.d.qty||0,
-      stage:x.d.stage||'',phase:defectPhaseOf(x.d),memo:x.d.note||'',brandId:(it&&it.brandId)||''});
+      stage:x.d.stage||'',phase:defectPhaseOf(x.d),memo:x.d.note||'',brandId:(it&&it.brandId)||'',
+      from:'',to:'',repair:'',returned:(typeof defectStatusOf==='function'&&defectStatusOf(x.d)==='done'),returnDate:x.d.dfReturnDate||''});
   });
   (S.defectRecs||[]).forEach(function(r){
     if(!r)return;
     rows.push({rec:1,id:r.id,date:r.date||'',code:r.code||'',itemName:r.itemName||'',type:r.type||'',color:r.color||'',
-      qty:+r.qty||0,stage:r.stage||'',phase:r.phase||'before',memo:r.memo||'',brandId:r.brandId||''});
+      qty:+r.qty||0,stage:r.stage||'',phase:r.phase||'before',memo:r.memo||'',brandId:r.brandId||'',
+      from:r.from||'',to:r.to||'',repair:r.repair||'',returned:!!r.returned,returnDate:r.returnDate||''});
   });
   return rows;
 }
@@ -19101,7 +19116,7 @@ function renderDefectPane(){
       +'#defect-body .dft-hd{background:#B0DBF0;border-bottom:2px solid var(--ink,#0B0A05);padding:8px 12px;font-size:13px;font-weight:900;display:flex;align-items:center;gap:8px}'
       +'#defect-body .dft-hd .cnt{margin-left:auto;font-size:11px;font-weight:700;color:#0d3a63}'
       +'#defect-body .dft-wrap{overflow-x:auto}'
-      +'#defect-body table.dft{border-collapse:collapse;width:100%;min-width:560px}'
+      +'#defect-body table.dft{border-collapse:collapse;width:100%;min-width:900px}'
       +'#defect-body .dft th,#defect-body .dft td{border-bottom:1.5px solid #e3ddcd;padding:9px 10px;text-align:left;font-size:12.5px;vertical-align:middle}'
       +'#defect-body .dft th{background:#f4f1e8;border-bottom:2px solid var(--ink,#0B0A05);font-size:11px;font-weight:800;color:#5c5340;white-space:nowrap}'
       +'#defect-body .dft tr:last-child td{border-bottom:none}'
@@ -19143,17 +19158,29 @@ function renderDefectPane(){
       var list=grp[k];var bq=0;list.forEach(function(r){bq+=r.qty;});
       var bnm=k?((getBrands().find(function(b){return b.id===k;})||{}).name||'기타'):'미지정';
       h+='<div class="dft-box"><div class="dft-hd">'+esc(bnm)+' · 불량 기록 <span class="cnt">'+list.length+'건 · '+bq+'장</span></div><div class="dft-wrap"><table class="dft">';
-      h+='<thead><tr><th>날짜</th><th>아이템</th><th>유형 · 컬러</th><th>수량</th><th>어디서</th><th>메모</th><th></th></tr></thead><tbody>';
+      h+='<thead><tr><th>날짜</th><th>아이템</th><th>유형 · 컬러</th><th>수량</th><th>어디서</th><th>이동</th><th>수선</th><th>메모</th><th>회수</th><th></th></tr></thead><tbody>';
       list.forEach(function(r){
         var whereBadge=(r.phase==='after')?'<span class="bg pa">↩ 출고 후</span>':'<span class="bg">'+esc(r.stage||'')+'</span>';
         var memoAct=r.rec?('dfRecSet(\''+r.id+'\',\'memo\',this.value)'):('dfLegacyMemo(\''+r.oid+'\',\''+r.bid+'\','+r.idx+',this.value)');
         var delAct=r.rec?('dfRecDel(\''+r.id+'\')'):('dfLegacyDel(\''+r.oid+'\',\''+r.bid+'\','+r.idx+')');
+        var moveTd=(r.from||r.to)?('<span class="bg">'+esc(r.from||'?')+' → '+esc(r.to||'?')+'</span>'):'<span style="color:var(--t3)">-</span>';
+        var repairTd=r.repair?('<span class="bg" style="background:#fef9c3">'+esc(r.repair)+' 수선</span>'):'<span style="color:var(--t3)">-</span>';
+        var retTd;
+        if(r.rec){
+          retTd='<label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer"><input type="checkbox" '+(r.returned?'checked':'')+' onchange="dfRecRet(\''+r.id+'\',this.checked)" style="margin:0">'
+            +(r.returned?('<input type="date" value="'+esc(r.returnDate||'')+'" onchange="dfRecSet(\''+r.id+'\',\'returnDate\',this.value)" style="border:1.5px solid #cfc8b6;font-size:11px;padding:2px 4px;font-family:inherit;border-radius:0;background:#fffdf8">'):'<span style="font-size:10.5px;color:var(--t3)">받으면 체크</span>')+'</label>';
+        }else{
+          retTd=r.returned?('<span class="bg" style="background:#e6f6ec;color:var(--green,#1a7a4a)">회수'+(r.returnDate?' '+esc(String(r.returnDate).slice(5).replace('-','/')):'')+'</span>'):'<span style="color:var(--t3)">-</span>';
+        }
         h+='<tr><td class="d">'+esc(String(r.date).slice(5).replace('-','/'))+'</td>'
           +'<td class="nm">'+(r.code?'<span class="td-code">'+esc(r.code)+'</span> ':'')+'<b>'+esc(r.itemName)+'</b></td>'
           +'<td><span class="bg t">'+esc(r.type||'')+(r.color?' · '+esc(r.color):'')+'</span></td>'
           +'<td class="qty">'+r.qty+'</td>'
           +'<td>'+whereBadge+'</td>'
+          +'<td>'+moveTd+'</td>'
+          +'<td>'+repairTd+'</td>'
           +'<td><input class="memo-in" value="'+esc(r.memo||'')+'" placeholder="메모" onchange="'+memoAct+'"></td>'
+          +'<td>'+retTd+'</td>'
           +'<td><button class="xbtn" onclick="'+delAct+'">×</button></td></tr>';
       });
       h+='</tbody></table></div></div>';
