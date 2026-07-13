@@ -9138,7 +9138,10 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r)=>{const i=+r
     if(maxCons>0)formFabs[i].consumption=maxCons;
   }
 });}
-function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{const _id=r.getAttribute('data-tcid');const tc=formTrimCosts.find(x=>x.id===_id);if(!tc)return;const g=f=>r.querySelector('[data-f='+f+']')?.value;tc.name=g('name')||'';tc.factory=g('factory')||'';const ct=g('costType')||'perPcs';tc.costType=ct;const amt=+g('costAmt')||0;if(ct==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}else{tc.costPerLot=amt;tc.costPerPcs=0;}r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(tc.colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
+function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{const _id=r.getAttribute('data-tcid');const tc=formTrimCosts.find(x=>x.id===_id);if(!tc)return;const g=f=>r.querySelector('[data-f='+f+']')?.value;tc.name=g('name')||'';tc.factory=g('factory')||'';const ct=g('costType')||'perPcs';tc.costType=ct;
+  if(ct==='tier'){tc.tierQty=+g('tierQty')||300;tc.tierUnder=+g('tierUnder')||0;tc.tierOver=+g('tierOver')||0;tc.costPerPcs=tc.tierOver;tc.costPerLot=0;} // 원가는 기존처럼 개당(초과단가) 기준 — 결제 원장만 조건부 분기
+  else{const amt=+g('costAmt')||0;if(ct==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}else{tc.costPerLot=amt;tc.costPerPcs=0;}}
+  r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(tc.colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
 function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r.id.replace('tr-','');if(!formTrims[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const tp=g('orderType')||'count';formTrims[i].orderType=tp;formTrims[i].supplier=g('supplier')||'';formTrims[i].name=g('name')||'';formTrims[i].size=g('size')||'';formTrims[i].color=g('color')||'';formTrims[i].part=g('part')||'';if(g('building')!=null)formTrims[i].building=g('building')||'';if(g('floorRoom')!=null)formTrims[i].floorRoom=g('floorRoom')||'';
     // 추가 옵션: 공통 사용/로고/팁/비고
     const commonChk=r.querySelector('[data-trim-common]');
@@ -9343,33 +9346,44 @@ function _tcPer(tc,mode){var amt=(mode==='perPcs')?(+tc.costPerPcs||0):(+tc.cost
   if(mode==='perLot'){var _ac=(typeof formColors!=='undefined'&&formColors.length)?formColors:[''];var actC=tcEffColors(tc,(typeof formTrims!=='undefined'?formTrims:[]),_ac).length||1;return {per:Math.round(amt*actC/TC_MIN),sub:amt?'('+num(amt)+'×'+actC+'색÷'+TC_MIN+')':''};}
   return {per:Math.round(amt),sub:''};}
 function trimCostRowHTML(tc,i){
-  const mode=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':'perPcs');
+  const mode=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':(tc.costType==='tier'?'tier':'perPcs'));
   const amtVal=(mode==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0);
-  const modeLab=mode==='once'?'한번에':(mode==='perLot'?'컬러별':'개당');
-  const c=_tcPer(tc,mode);
+  const modeLab=mode==='once'?'한번에':(mode==='perLot'?'컬러별':(mode==='tier'?'조건부':'개당'));
+  const c=_tcPer(tc,mode==='tier'?'perPcs':mode);
   const _basis=_tcColorBasis(tc);
   const _effC=(mode==='perLot')?tcEffColors(tc,(typeof formTrims!=='undefined'?formTrims:[]),(typeof formColors!=='undefined'&&formColors.length?formColors:[''])):[];
   const _basisBtns=`<div style="display:flex;gap:5px;margin-bottom:5px;align-items:center"><span style="font-weight:700">적용:</span><span onclick="setTcBasis(${i},'dye')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='dye'?'background:#a21caf;color:#fff':'background:#fff;color:#a21caf;border:1px solid #f0abfc'}">염색 켠 색만</span><span onclick="setTcBasis(${i},'all')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='all'?'background:#7c3aed;color:#fff':'background:#fff;color:#7c3aed;border:1px solid #ddd6fe'}">전체 컬러</span></div>`;
   const colorSec=(mode==='perLot')?`<div style="margin-top:7px;padding:8px 10px;background:#fae8ff;border:1px solid #f0abfc;border-radius:6px;font-size:11px;color:#86198f;line-height:1.5">${_basisBtns}<b>${_basis==='dye'?'염색 켠':'전체'} ${_effC.length}색</b>${_effC.length?` <span style="color:#a21caf">(${_effC.map(esc).join(' · ')})</span>`:''} 에 적용<br><span style="color:#a21caf;opacity:.78">로고 등 염색과 무관하면 「전체 컬러」로 (컬러·염색여부는 「적용 컬러」 탭에서)</span></div>`:'';
+  const amtSec=(mode==='tier')
+    ?`<input class="tcl-amt" data-f="tierQty" type="number" value="${tc.tierQty!=null?tc.tierQty:300}" min="1" title="기준 수량(개)" oninput="colTrimCosts()" style="width:54px"><span class="tcl-u">개↓</span>
+    <input class="tcl-amt" data-f="tierUnder" type="number" value="${tc.tierUnder||0}" min="0" title="기준 이하: 컬러당 정액(원)" oninput="colTrimCosts()" style="width:64px"><span class="tcl-u">원/컬러</span>
+    <input class="tcl-amt" data-f="tierOver" type="number" value="${tc.tierOver||0}" min="0" title="기준 초과: 개당(원)" oninput="colTrimCosts();tclRecost(this)" style="width:54px"><span class="tcl-u">원/개</span>`
+    :`<input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">원</span>`;
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
     <input class="tcl-nm" data-f="name" list="dl-proc" value="${esc(tc.name||'')}" placeholder="예: 코팅, 염색, 로고" onchange="tcAutoFillRate(this)">
-    <input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">원</span>
-    <button type="button" class="tcl-mode tcl-mode-${mode}" onclick="cycleTcMode(${i})">${modeLab} ▾</button>
+    ${amtSec}
+    <button type="button" class="tcl-mode tcl-mode-${mode}" onclick="cycleTcMode(${i})" ${mode==='tier'?'title="기준수량 이하=컬러당 정액 · 초과=개당 (결제 원장에 자동 적용)"':''}>${modeLab} ▾</button>
     <input class="tcl-fac" data-f="factory" list="dl-sup" value="${esc(tc.factory||'')}" placeholder="담당 업체" onchange="tcAutoFillRate(this)">
     <span class="tcl-cost">원가 +${num(c.per)}원/장${c.sub?` <span class="tcl-sub">${c.sub}</span>`:''}</span>
     <button class="tcl-x" type="button" onclick="rmTrimCostRow(${i})">×</button>
     ${colorSec?`<div class="tcl-colors">${colorSec}</div>`:''}
   </div>`;}
-// 청구방식 순환: 개당 → 한번에 → 컬러별
+// 청구방식 순환: 개당 → 한번에 → 컬러별 → 조건부(수량따라)
 function cycleTcMode(i){
   colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;
-  var order=['perPcs','once','perLot'];
-  var curM=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':'perPcs');
-  var amt=(curM==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0);
-  var next=order[(order.indexOf(curM)+1)%3];
+  var order=['perPcs','once','perLot','tier'];
+  var curM=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':(tc.costType==='tier'?'tier':'perPcs'));
+  var amt=(curM==='perPcs'||curM==='tier')?(tc.costPerPcs||0):(tc.costPerLot||0);
+  var next=order[(order.indexOf(curM)+1)%order.length];
   tc.costType=next;
-  if(next==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}else{tc.costPerLot=amt;tc.costPerPcs=0;}
+  if(next==='tier'){
+    if(tc.tierQty==null)tc.tierQty=300;
+    if(!tc.tierOver)tc.tierOver=amt; // 지금 개당 금액을 초과 개당으로 이어받음
+    tc.costPerPcs=+tc.tierOver||0;tc.costPerLot=0; // 원가계산서는 기존처럼 개당 기준 유지(결제만 조건부)
+  }
+  else if(next==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}
+  else{tc.costPerLot=amt;tc.costPerPcs=0;}
   renderTrimAndCosts();
 }
 // 금액 입력 시 원가 칩만 실시간 갱신(포커스 유지)
@@ -19547,6 +19561,7 @@ function trimLedgerAuto(){
         var L=_tlLine(m);L.date=dISO;L.src='auto';L.orderId=oid;L.orderName=o.name||'';L.inout='out';
         L.key='a|'+oid+'|'+(L.name||'')+'|'+(L.spec||'')+'|'+(L.brand||''); // 결제완료 표시용 고유키
         // 개당(perPcs) 가공비(로고·코팅 등)가 이 부자재에 연결돼 있으면 단가에 합산 (2026-07-10 사용자 확정 — 컬러당·1회 정액은 별도 줄 유지)
+        var _tierLines=[];
         try{
           var _it2=m.itemId&&S.items[m.itemId];
           if(_it2&&_it2.trimCosts&&m.id&&L.qty>0){
@@ -19554,15 +19569,27 @@ function trimLedgerAuto(){
             _it2.trimCosts.forEach(function(tc){
               if(!tc||tc.trimId!==m.id)return;
               if(tc.costType==='once'||tc.costType==='perLot')return; // 정액은 별도 줄 유지
-              var _p=+tc.costPerPcs||0;if(!_p)return;
               var _mc=m.colorName||m.color||'';
               if(tc.colorLinks&&tc.colorLinks.length&&_mc&&!tc.colorLinks.find(function(l){return l.itemColor===_mc;}))return; // 이 컬러엔 미적용
+              if(tc.costType==='tier'){ // 조건부(2026-07-10): 기준수량 이하=컬러당 정액 별도 줄, 초과=개당 단가 합산
+                _mergedTc[(tc.id||tc.name||'')+'|'+_it2.id]=1;
+                var _tq=+tc.tierQty||300,_tu=+tc.tierUnder||0,_tov=+tc.tierOver||0;
+                if(L.qty>_tq){ if(_tov>0){_add+=_tov;_nms.push(tc.name||'가공');} }
+                else if(_tu>0){_tierLines.push({tcId:(tc.id||tc.name||''),nm:(tc.name||'가공')+(_mc?' ('+_mc+')':''),price:_tu});}
+                return;
+              }
+              var _p=+tc.costPerPcs||0;if(!_p)return;
               _add+=_p;_nms.push(tc.name||'가공');_mergedTc[(tc.id||tc.name||'')+'|'+_it2.id]=1;
             });
             if(_add>0){L.price=(+L.price||0)+_add;L.amount=Math.round(L.qty*L.price);L.procInc=_nms.join('·');}
           }
         }catch(e){}
         (bySup[sn]=bySup[sn]||[]).push(L);
+        _tierLines.forEach(function(tl){ // 기준 이하 컬러 = 코팅비 컬러당 정액 별도 줄
+          (bySup[sn]=bySup[sn]||[]).push({name:tl.nm,spec:'가공',qty:1,unit:'컬러',price:tl.price,amount:Math.round(tl.price),
+            itemName:m.itemName||'',brand:L.brand,date:dISO,src:'auto',orderId:oid,orderName:o.name||'',inout:'out',isProc:true,
+            key:'pt|'+oid+'|'+tl.tcId+'|'+tl.nm});
+        });
       });
     });
     // 가공비(＋가공비 = 염색비·바이어스재단비 등) — it.trimCosts, 가공처(factory)별로 거래처 원장에 합류
