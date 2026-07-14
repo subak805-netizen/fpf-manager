@@ -5646,9 +5646,36 @@ function pbNormalizeBuildings(){
   else showToast('이미 모두 통일되어 있어요 ✓');
 }
 function toggleBookInfo(si){ var el=document.getElementById('bookinfo-'+si); if(!el)return; var open=el.style.display==='none'; el.style.display=open?'block':'none'; var c=document.getElementById('bookinfocaret-'+si); if(c)c.textContent=open?'▾':'▸'; }
-function pbFilterMats(si,q){ q=(q||'').toLowerCase().trim(); var tbl=document.getElementById('pbtbl-'+si); if(!tbl)return; var trs=tbl.querySelectorAll('tbody > tr'); var grpRow=null,grpVis=false; var closeGrp=function(){ if(grpRow)grpRow.style.display=grpVis?'':'none'; }; trs.forEach(function(tr){ if(tr.classList.contains('pb-grp')){ closeGrp(); grpRow=tr; grpVis=false; return; } if(!tr.hasAttribute('data-pbrow'))return; var txt=tr.getAttribute('data-pbrow')||''; var show=!q||txt.indexOf(q)>=0; tr.style.display=show?'':'none'; if(show)grpVis=true; }); closeGrp(); }
+// 텍스트검색 + 종류필터(칩 탭) 통합 적용 (2026-07-10) — 종류 칩=스크롤 대신 그 종류만 표시
+function _pbApplyFilter(si){
+  var tbl=document.getElementById('pbtbl-'+si); if(!tbl)return;
+  var q=(((window._pbQ||{})[si])||'').toLowerCase().trim();
+  var cat=((window._pbCat||{})[si])||'';
+  var trs=tbl.querySelectorAll('tbody > tr'); var grpRow=null,grpVis=false;
+  var closeGrp=function(){ if(grpRow)grpRow.style.display=grpVis?'':'none'; };
+  trs.forEach(function(tr){
+    if(tr.classList.contains('pb-grp')){ closeGrp(); grpRow=tr; grpVis=false; return; }
+    if(!tr.hasAttribute('data-pbrow'))return;
+    var okCat=!cat||(tr.getAttribute('data-pbcat')||'')===cat;
+    var okTxt=!q||(tr.getAttribute('data-pbrow')||'').indexOf(q)>=0;
+    var show=okCat&&okTxt; tr.style.display=show?'':'none'; if(show)grpVis=true;
+  });
+  closeGrp();
+}
+function pbFilterMats(si,q){ if(!window._pbQ)window._pbQ={}; window._pbQ[si]=q||''; _pbApplyFilter(si); }
+function pbSetCat(si,cat){
+  if(!window._pbCat)window._pbCat={};
+  window._pbCat[si]=(window._pbCat[si]===cat)?'':cat; // 같은 칩 다시 누르면 전체로
+  var cur=window._pbCat[si]||'';
+  document.querySelectorAll('.pb-catchip[data-si="'+si+'"]').forEach(function(ch){
+    var on=((ch.dataset.cat)||'')===cur;
+    ch.style.background=on?'var(--t1,#111827)':'var(--bg2)'; ch.style.color=on?'#fff':'var(--t2)'; ch.style.borderColor=on?'var(--t1,#111827)':'var(--br)';
+  });
+  _pbApplyFilter(si);
+}
 function renderBookList(){
   const lst=document.getElementById('book-list');if(!lst)return;
+  window._pbCat={};window._pbQ={}; // 종류필터·검색은 재렌더 시 초기화(인덱스 기준이라)
   const allSups=Object.keys(S.priceBook).sort((a,b)=>{const ba=_normBuilding(S.priceBook[a]?.building||'')||'zzz',bb=_normBuilding(S.priceBook[b]?.building||'')||'zzz';if(ba!==bb)return ba<bb?-1:1;const fa=_effectiveFloor(S.priceBook[a]||{}),fb=_effectiveFloor(S.priceBook[b]||{});const faN=parseInt(fa)||999,fbN=parseInt(fb)||999;if(faN!==fbN)return faN-fbN;return a<b?-1:1;});
   const qBook=(window._bookSearch||'').toLowerCase().trim();
   const _scope=window._bookScope||'fabric';
@@ -5722,9 +5749,9 @@ function renderBookList(){
     ${mats.length?`<div>
       <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:5px">단가 수정 <span class="muted" style="font-weight:400">매장단가는 원가계산 / 네고가는 결제에 사용</span></div>
       ${mats.length>6?`<input type="text" placeholder="이 거래처 품목 검색 (이름·색상)" oninput="pbFilterMats(${si},this.value)" style="width:100%;box-sizing:border-box;font-size:12px;padding:7px 10px;margin-bottom:7px;border-radius:6px;border:1px solid var(--br)">`:''}
-      ${(function(){var _gl=_pbGroupList(mats);if(_gl.length<2)return '';return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">'+_gl.map(function(gr,gi){return '<span onclick="pbJump('+si+','+gi+')" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 10px;border-radius:14px;border:1.3px solid var(--br);background:var(--bg2);color:var(--t2)">'+esc(gr.g)+' <span style="opacity:.6;font-size:9.5px">'+gr.n+'</span></span>';}).join('')+'</div>';})()}
+      ${(function(){var _gl=_pbGroupList(mats);if(_gl.length<2)return '';var _cur=((window._pbCat||{})[si])||'';var _chip=function(cat,label,cnt,on){return '<span class="pb-catchip" data-si="'+si+'" data-cat="'+esc(cat).replace(/"/g,'&quot;')+'" onclick="pbSetCat('+si+',this.dataset.cat)" style="cursor:pointer;font-size:11px;font-weight:700;padding:3px 10px;border-radius:14px;border:1.3px solid '+(on?'var(--t1,#111827)':'var(--br)')+';background:'+(on?'var(--t1,#111827)':'var(--bg2)')+';color:'+(on?'#fff':'var(--t2)')+'">'+esc(label)+(cnt!=null?' <span style="opacity:.6;font-size:9.5px">'+cnt+'</span>':'')+'</span>';};var h='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">'+_chip('','전체',mats.length,!_cur);_gl.forEach(function(gr){h+=_chip(gr.g,gr.g,gr.n,_cur===gr.g);});return h+'</div>';})()}
       <div style="overflow-x:auto"><table id="pbtbl-${si}" class="tbl${_scope==='trim'?' pb-trim-tbl':''}"><thead><tr><th>품목</th><th>색상</th><th>유형</th><th style="background:#fffdf5">종류</th><th style="background:#FBF7EC">크기/규격</th><th style="background:#FBF7EC">롤당yard</th><th style="background:#f0fdf4">혼용률</th><th>매장단가 <span class="muted" style="font-weight:400;font-size:10px">(고정)</span></th><th>네고가 <span class="muted" style="font-weight:400;font-size:10px">(유동)</span></th><th>갱신일</th><th style="width:32px"></th></tr></thead><tbody>
-      ${(function(){var _gm=_pbGroupSort(mats);var _cnt={};_pbGroupList(mats).forEach(function(x){_cnt[x.g]=x.n;});var _multi=Object.keys(_cnt).length>1;var _pg=null,_gi=-1;return _gm.map(([key,m])=>{var _cg=_pbCatLabel(m);var _hdr='';if(_cg!==_pg){_pg=_cg;_gi++;_hdr=_multi?('<tr class="pb-grp" id="pbgrp-'+si+'-'+_gi+'"><td colspan="11" style="padding:7px 8px 3px;background:#fafbfc;border-top:1px solid #eef1f4;font-weight:800;font-size:11.5px;color:#475569">'+esc(_cg)+' <span style="font-weight:600;color:#94a3b8;font-size:10px">'+(_cnt[_cg]||'')+'</span></td></tr>'):'';}const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return _hdr+`<tr data-pbrow="${esc((nm+' '+cl).toLowerCase())}">
+      ${(function(){var _gm=_pbGroupSort(mats);var _cnt={};_pbGroupList(mats).forEach(function(x){_cnt[x.g]=x.n;});var _multi=Object.keys(_cnt).length>1;var _pg=null,_gi=-1;return _gm.map(([key,m])=>{var _cg=_pbCatLabel(m);var _hdr='';if(_cg!==_pg){_pg=_cg;_gi++;_hdr=_multi?('<tr class="pb-grp" id="pbgrp-'+si+'-'+_gi+'" data-pbcat="'+esc(_cg)+'"><td colspan="11" style="padding:7px 8px 3px;background:#fafbfc;border-top:1px solid #eef1f4;font-weight:800;font-size:11.5px;color:#475569">'+esc(_cg)+' <span style="font-weight:600;color:#94a3b8;font-size:10px">'+(_cnt[_cg]||'')+'</span></td></tr>'):'';}const isKg=m.pricingUnit==='kg';const isFab=m.type==='fabric';const storeP=isKg?(m.pricePerKg||0):(m.unitPrice||0);const negoP=isKg?(m.negoPricePerKg!==undefined?m.negoPricePerKg:''):(m.negoPrice!==undefined?m.negoPrice:'');const nm=m.name||pbDecodeKey(key)[0];const cl=m.color||pbDecodeKey(key)[1]||'';return _hdr+`<tr data-pbrow="${esc((nm+' '+cl).toLowerCase())}" data-pbcat="${esc(_cg)}">
         <td><input type="text" value="${esc(nm)}" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'name')" style="font-size:12px;width:100%;border:none;background:transparent;padding:3px 5px;border-radius:4px" onfocus="this.style.background='#fff8e1';this.style.border='1px solid #fde68a'" onblur="this.style.background='transparent';this.style.border='none'"></td>
         <td>${isFab?'<span class="muted" style="font-size:10px">-</span>':`<input type="text" value="${esc(cl)}" placeholder="색상" list="dl-clr" onchange="renamePBMaterial('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value,'color')" style="font-size:11px;width:70px;padding:3px 5px">`}</td>
         <td>${isFab?(isKg?'<span class="badge b2">KG</span>':'<span class="badge b1">YARD</span>'):`<select onchange="updatePBOrderType('${encodeURIComponent(s)}','${encodeURIComponent(key)}',this.value)" style="font-size:11px;padding:3px 5px"><option value="count"${m.orderType==='count'||!m.orderType?' selected':''}>개수</option><option value="yard"${m.orderType==='yard'?' selected':''}>야드</option><option value="roll"${m.orderType==='roll'?' selected':''}>롤</option><option value="thread"${m.orderType==='thread'?' selected':''}>실</option><option value="zipper"${m.orderType==='zipper'?' selected':''}>지퍼</option><option value="button"${m.orderType==='button'?' selected':''}>단추</option></select>`}</td>
