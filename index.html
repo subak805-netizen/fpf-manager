@@ -1578,6 +1578,14 @@ function tpPreserveLocalContent(inc,old){
   try{inc=_restoreLocalDataUrls(inc,old);}catch(e){}
   return inc;
 }
+// 할일 배열 병합(id union) — 통째 덮어쓰기로 다른 기기 추가분이 사라지던 것 방지. 같은 id는 remote(클라우드) 우선. id 없는 옛 할일은 전부 보존.
+function _mergeTasksById(a,b){
+  a=Array.isArray(a)?a:[]; b=Array.isArray(b)?b:[];
+  var seen={}, out=[];
+  function add(t){ if(!t)return; if(t.id){ if(seen[t.id]){ out[seen[t.id]-1]=t; return; } seen[t.id]=out.length+1; } out.push(t); }
+  a.forEach(add); b.forEach(add);   // 로컬 먼저(순서 보존) → remote로 같은 id 덮어쓰고 새 id append
+  return out;
+}
 function applyRemoteCoData(data,ts){
   if(!data)return;
   if(ts)try{setSyncBase('fpm_'+curCoId,ts);}catch(e){} // 원격을 반영했으니 내 기준 ts = 그 문서 ts
@@ -1590,7 +1598,7 @@ function applyRemoteCoData(data,ts){
   // 발주(orders)는 별도 문서(__orders)로 분리돼 메인 문서엔 없음 → 메인 스냅샷에 orders 없으면 기존 발주 보존(빈 값으로 덮어쓰기 금지)
   if(data.orders!==undefined&&data.orders!==null){var _moR=_entMerge(S.orders||{},data.orders,S._tomb.orders,_ctombR.orders,'cloud');S.orders=_moR.map;S._tomb.orders=_moR.tomb;}
   S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
-  S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=data.tasks||[];
+  S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=_mergeTasksById(S.tasks,data.tasks);   // 할일=id병합(덮어쓰기 금지) — 다른 기기 추가분 보존
   S.brandConfig=data.brandConfig||{};S.deductions=data.deductions||[];
   S.trimLedger=data.trimLedger||S.trimLedger||{};S.trimLedgerPaid=data.trimLedgerPaid||S.trimLedgerPaid||{};S.trimLedgerOvr=data.trimLedgerOvr||S.trimLedgerOvr||{};S.courierLedger=data.courierLedger||S.courierLedger||{bank:'',entries:[]};S.refData=data.refData||S.refData||{};
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
@@ -2005,6 +2013,7 @@ async function cloudSyncSave(){
         _chkChanged(_miS.map,S.items||{}); _chkChanged(_moS.map,S.orders||{});
         S.items=_miS.map; S._tomb.items=_miS.tomb;
         S.orders=_moS.map; S._tomb.orders=_moS.tomb;
+        S.tasks=_mergeTasksById(S.tasks,cloudCurrent.tasks);   // 할일도 클라우드와 병합 후 푸시 → 낡은 기기가 남의 할일 안 덮음
         _entShadowInit(); // 병합 결과가 새 기준
         // 바뀐 것 있을 때만 다시 그림 + 스크롤 보존 (매 저장마다 무조건 재렌더→스크롤 맨위 튕김 버그 방지)
         if(_entChanged){ try{ if(typeof isEditingNow!=='function'||!isEditingNow()){ var _sy=window.scrollY||document.documentElement.scrollTop||0; switchTab(activeTab); window.scrollTo(0,_sy); } }catch(e3){} }
@@ -2997,7 +3006,7 @@ async function cloudSyncLoad(id,opts){
         packages:d.packages||S.packages||[],todoBoard:_tbPick(S.todoBoard,d.todoBoard),
         goals:d.goals||S.goals||[],
         trimLedger:d.trimLedger||S.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||S.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||S.trimLedgerOvr||{},courierLedger:d.courierLedger||S.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||S.defectRecs||[],refData:d.refData||S.refData||{},
-        tasks:d.tasks||S.tasks||[],
+        tasks:_mergeTasksById(S.tasks,d.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
         brandConfig:d.brandConfig||S.brandConfig||{},
         deductions:d.deductions||S.deductions||[],
         factories:sh.factories||S.factories||{},
