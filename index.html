@@ -1578,14 +1578,16 @@ function tpPreserveLocalContent(inc,old){
   try{inc=_restoreLocalDataUrls(inc,old);}catch(e){}
   return inc;
 }
-// 할일 배열 병합(id union) — 통째 덮어쓰기로 다른 기기 추가분이 사라지던 것 방지. 같은 id는 remote(클라우드) 우선. id 없는 옛 할일은 전부 보존.
-function _mergeTasksById(a,b){
+// id 배열 병합(union) — 통째 덮어쓰기로 다른 기기 추가분이 사라지던 것 방지(할일·픽업·샘플발주·차감·패키지·골·불량기록 공용).
+// 같은 id는 b(뒤 인자)가 이김: 수신 경로는 b=클라우드(원격 최신), 송신 경로는 b=로컬(내 수정 보존). id 없는 옛 항목은 전부 보존.
+function _mergeById(a,b){
   a=Array.isArray(a)?a:[]; b=Array.isArray(b)?b:[];
   var seen={}, out=[];
   function add(t){ if(!t)return; if(t.id){ if(seen[t.id]){ out[seen[t.id]-1]=t; return; } seen[t.id]=out.length+1; } out.push(t); }
-  a.forEach(add); b.forEach(add);   // 로컬 먼저(순서 보존) → remote로 같은 id 덮어쓰고 새 id append
+  a.forEach(add); b.forEach(add);   // a 먼저(순서 보존) → b가 같은 id 덮어쓰고 새 id append
   return out;
 }
+var _mergeTasksById=_mergeById;   // 구명 호환
 function applyRemoteCoData(data,ts){
   if(!data)return;
   if(ts)try{setSyncBase('fpm_'+curCoId,ts);}catch(e){} // 원격을 반영했으니 내 기준 ts = 그 문서 ts
@@ -1598,8 +1600,12 @@ function applyRemoteCoData(data,ts){
   // 발주(orders)는 별도 문서(__orders)로 분리돼 메인 문서엔 없음 → 메인 스냅샷에 orders 없으면 기존 발주 보존(빈 값으로 덮어쓰기 금지)
   if(data.orders!==undefined&&data.orders!==null){var _moR=_entMerge(S.orders||{},data.orders,S._tomb.orders,_ctombR.orders,'cloud');S.orders=_moR.map;S._tomb.orders=_moR.tomb;}
   S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
-  S.sampleOrders=data.sampleOrders||[];S.pickups=data.pickups||[];S.tasks=_mergeTasksById(S.tasks,data.tasks);   // 할일=id병합(덮어쓰기 금지) — 다른 기기 추가분 보존
-  S.brandConfig=data.brandConfig||{};S.deductions=data.deductions||[];
+  // id 배열은 전부 병합(덮어쓰기 금지) — 다른 기기 추가분 보존. b=클라우드(원격 최신 우선)
+  S.tasks=_mergeById(S.tasks,data.tasks);S.pickups=_mergeById(S.pickups,data.pickups);S.sampleOrders=_mergeById(S.sampleOrders,data.sampleOrders);S.deductions=_mergeById(S.deductions,data.deductions);
+  // 이전엔 실시간 수신에서 아예 빠져 있던 필드들(다른 기기 변경이 새로고침 전 미반영) — 병합으로 반영
+  S.packages=_mergeById(S.packages,data.packages);S.goals=_mergeById(S.goals,data.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs);
+  if(typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
+  S.brandConfig=data.brandConfig||{};
   S.trimLedger=data.trimLedger||S.trimLedger||{};S.trimLedgerPaid=data.trimLedgerPaid||S.trimLedgerPaid||{};S.trimLedgerOvr=data.trimLedgerOvr||S.trimLedgerOvr||{};S.courierLedger=data.courierLedger||S.courierLedger||{bank:'',entries:[]};S.refData=data.refData||S.refData||{};
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
@@ -2013,7 +2019,10 @@ async function cloudSyncSave(){
         _chkChanged(_miS.map,S.items||{}); _chkChanged(_moS.map,S.orders||{});
         S.items=_miS.map; S._tomb.items=_miS.tomb;
         S.orders=_moS.map; S._tomb.orders=_moS.tomb;
-        S.tasks=_mergeTasksById(S.tasks,cloudCurrent.tasks);   // 할일도 클라우드와 병합 후 푸시 → 낡은 기기가 남의 할일 안 덮음
+        // id 배열들도 클라우드와 병합 후 푸시 → 낡은 기기가 남의 추가분을 안 덮음. b=로컬(저장 경로 = 내 수정이 이겨야 함 — 클라우드 우선이면 방금 체크한 완료가 되돌아감)
+        S.tasks=_mergeById(cloudCurrent.tasks,S.tasks);
+        S.pickups=_mergeById(cloudCurrent.pickups,S.pickups);S.sampleOrders=_mergeById(cloudCurrent.sampleOrders,S.sampleOrders);S.deductions=_mergeById(cloudCurrent.deductions,S.deductions);
+        S.packages=_mergeById(cloudCurrent.packages,S.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs);
         _entShadowInit(); // 병합 결과가 새 기준
         // 바뀐 것 있을 때만 다시 그림 + 스크롤 보존 (매 저장마다 무조건 재렌더→스크롤 맨위 튕김 버그 방지)
         if(_entChanged){ try{ if(typeof isEditingNow!=='function'||!isEditingNow()){ var _sy=window.scrollY||document.documentElement.scrollTop||0; switchTab(activeTab); window.scrollTo(0,_sy); } }catch(e3){} }
@@ -3001,14 +3010,14 @@ async function cloudSyncLoad(id,opts){
         orders:_moL.map,
         _tomb:{items:_miL.tomb,orders:_moL.tomb},
         brands:_restoreLocalDataUrls(d.brands||S.brands||[],S.brands||[]),
-        sampleOrders:d.sampleOrders||S.sampleOrders||[],
-        pickups:d.pickups||S.pickups||[],
-        packages:d.packages||S.packages||[],todoBoard:_tbPick(S.todoBoard,d.todoBoard),
-        goals:d.goals||S.goals||[],
-        trimLedger:d.trimLedger||S.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||S.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||S.trimLedgerOvr||{},courierLedger:d.courierLedger||S.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||S.defectRecs||[],refData:d.refData||S.refData||{},
-        tasks:_mergeTasksById(S.tasks,d.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
+        sampleOrders:_mergeById(S.sampleOrders,d.sampleOrders),
+        pickups:_mergeById(S.pickups,d.pickups),
+        packages:_mergeById(S.packages,d.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
+        goals:_mergeById(S.goals,d.goals),
+        trimLedger:d.trimLedger||S.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||S.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||S.trimLedgerOvr||{},courierLedger:d.courierLedger||S.courierLedger||{bank:'',entries:[]},defectRecs:_mergeById(S.defectRecs,d.defectRecs),refData:d.refData||S.refData||{},
+        tasks:_mergeById(S.tasks,d.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
         brandConfig:d.brandConfig||S.brandConfig||{},
-        deductions:d.deductions||S.deductions||[],
+        deductions:_mergeById(S.deductions,d.deductions),
         factories:sh.factories||S.factories||{},
         priceBook:_restoreLocalDataUrls(sh.priceBook||S.priceBook||{},S.priceBook||{}),
         _compMigrated:d._compMigrated||S._compMigrated||false,
@@ -3255,7 +3264,7 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};
+  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{_entShadowInit();}catch(e){} // 항목별 병합 기준선 — 마이그레이션 "이후"에 찍어야 기계적 변경이 _mt 오염 안 함
