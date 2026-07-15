@@ -29780,6 +29780,31 @@ function tpGrade(el){
   if(_dirty)tpSaveSoon();
 }
 
+/* 자수·나염 위치·크기 — 편차 자동채움 (2026-07-15): 편차0=한 칸 값을 전 사이즈 동일 복사(문자열 그대로 '2.5×3'도 OK) · 편차N=등차(순수 숫자만) */
+function tpPosCell(path,sz){ return '<input class="tp-cell tppg" data-tp="'+path+'" data-sz="'+tpEsc(sz)+'" value="'+tpEsc(tpGet(path,''))+'" oninput="tpPosGrade(this)" onchange="tpSet(this.dataset.tp,this.value)">'; }
+function tpPosTol(path){ return '<input class="tp-cell d tppg-tol" data-tp="'+path+'" value="'+tpEsc(tpGet(path,''))+'" placeholder="±" oninput="tpPosGrade(this)" onchange="tpSet(this.dataset.tp,this.value)">'; }
+function tpPosGrade(el){
+  var tr=el.closest('tr'); if(!tr)return;
+  var sizeInps=[]; tr.querySelectorAll('input.tppg').forEach(function(inp){sizeInps.push(inp);});
+  var tolEl=tr.querySelector('input.tppg-tol');
+  if(el.classList.contains('tppg'))el.dataset.auto=''; // 편집한 사이즈 칸=수동값(자동채움 대상 제외)
+  if(!sizeInps.length)return;
+  var tolS=(tolEl&&tolEl.value!=='')?tolEl.value.trim():''; if(tolS==='')return; // 편차 비면 자동채움 안 함
+  var _dirty=false;
+  var fill=function(inp,val){ if(inp&&inp!==el&&(inp.value===''||inp.dataset.auto==='1')){ inp.value=val; inp.dataset.auto='1'; try{tpSetQuiet(inp.dataset.tp,val);}catch(e){} _dirty=true; } };
+  var isNum=function(s){return /^-?\d+(\.\d+)?$/.test(String(s).trim());};
+  if(isNum(tolS)&&parseFloat(tolS)===0){ // 편차 0 → 전부 동일 (문자열 그대로 복사)
+    var baseStr=null; for(var i=0;i<sizeInps.length;i++){ if(sizeInps[i].value!==''&&sizeInps[i].dataset.auto!=='1'){baseStr=sizeInps[i].value;break;} }
+    if(baseStr==null){ if(_dirty&&typeof tpSaveSoon==='function')tpSaveSoon(); return; }
+    sizeInps.forEach(function(inp){fill(inp,baseStr);});
+  } else if(isNum(tolS)){ // 편차 N → 등차 (순수 숫자 base만)
+    var tol=parseFloat(tolS), r1=function(x){return Math.round(x*100)/100;};
+    var man=function(inp){return (inp&&inp.value!==''&&inp.dataset.auto!=='1'&&isNum(inp.value))?parseFloat(inp.value):null;};
+    var bi=-1,bv=null; for(var j=0;j<sizeInps.length;j++){ var v=man(sizeInps[j]); if(v!=null){bi=j;bv=v;break;} }
+    if(bi>=0){ for(var k=0;k<sizeInps.length;k++)fill(sizeInps[k], String(r1(bv+(k-bi)*tol))); }
+  }
+  if(_dirty&&typeof tpSaveSoon==='function')tpSaveSoon();
+}
 /* 자수·나염 표 */
 function tpPosHTML(it,pfx){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE'];
   var rows=tpGet(pfx+'.posRows',null);
@@ -29792,8 +29817,8 @@ function tpPosHTML(it,pfx){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FRE
   rows.forEach(function(r,ri){ var so=!(r&&r.seam==='in');
     h+='<tr><td class="rl">'+tpInpL(pfx+'.posRows.'+ri+'.label','예: 앞목중심 아래')+'</td>'
       +'<td><button type="button" class="tp-seam '+(so?'out':'in')+'" onclick="tpPosSeam(\''+pfx+'\','+ri+')">'+(so?'시접빼고':'시접포함')+'</button></td>'
-      +'<td class="d">'+tpInp(pfx+'.posRows.'+ri+'.tol','±')+'</td>';
-    sizes.forEach(function(s){h+='<td>'+tpInp(pfx+'.posRows.'+ri+'.vals.'+s,'')+'</td>';});
+      +'<td class="d">'+tpPosTol(pfx+'.posRows.'+ri+'.tol')+'</td>';
+    sizes.forEach(function(s){h+='<td>'+tpPosCell(pfx+'.posRows.'+ri+'.vals.'+s,s)+'</td>';});
     h+='<td class="tp-editonly" style="white-space:nowrap"><button type="button" class="tp-rmv" onclick="tpPosMove(\''+pfx+'\','+ri+',-1)" title="위로">▲</button><button type="button" class="tp-rmv" onclick="tpPosMove(\''+pfx+'\','+ri+',1)" title="아래로">▼</button><button type="button" class="tp-rx" onclick="tpDelRow(\''+pfx+'.posRows\','+ri+')" title="삭제">×</button></td></tr>';
   });
   return h+'</table><div class="tp-editonly" style="padding:3px 0 0"><button class="gbtn" onclick="tpAddRow(\''+pfx+'.posRows\',{label:\'\',seam:\'out\',tol:\'\',vals:{}})">＋ 항목</button></div>'; }
