@@ -1580,14 +1580,26 @@ function tpPreserveLocalContent(inc,old){
 }
 // id 배열 병합(union) — 통째 덮어쓰기로 다른 기기 추가분이 사라지던 것 방지(할일·픽업·샘플발주·차감·패키지·골·불량기록 공용).
 // 같은 id는 b(뒤 인자)가 이김: 수신 경로는 b=클라우드(원격 최신), 송신 경로는 b=로컬(내 수정 보존). id 없는 옛 항목은 전부 보존.
-function _mergeById(a,b){
+// tomb(묘비 {id:삭제일})를 주면 지운 항목이 병합으로 되살아나지 않음.
+function _mergeById(a,b,tomb){
   a=Array.isArray(a)?a:[]; b=Array.isArray(b)?b:[];
   var seen={}, out=[];
-  function add(t){ if(!t)return; if(t.id){ if(seen[t.id]){ out[seen[t.id]-1]=t; return; } seen[t.id]=out.length+1; } out.push(t); }
+  function add(t){ if(!t)return; if(t.id){ if(tomb&&tomb[t.id])return; if(seen[t.id]){ out[seen[t.id]-1]=t; return; } seen[t.id]=out.length+1; } out.push(t); }
   a.forEach(add); b.forEach(add);   // a 먼저(순서 보존) → b가 같은 id 덮어쓰고 새 id append
   return out;
 }
 var _mergeTasksById=_mergeById;   // 구명 호환
+// ── 배열 묘비(tombstone): 지운 id를 S._tomb.<배열명>에 기록 → 병합 때 부활 차단 (items/orders의 _entMerge 무덤과 동일 사상)
+var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs'];
+function _tombArr(name,id){ try{ if(!id)return; if(!S._tomb)S._tomb={}; if(!S._tomb[name])S._tomb[name]={}; S._tomb[name][id]=(typeof todayISO==='function'?todayISO():new Date().toISOString().slice(0,10)); }catch(e){} }
+// 배열에서 조건에 맞는 항목 삭제 + 묘비 기록 (모든 삭제는 가급적 이걸 통해서)
+function _arrDelWhere(name,pred){ var a=S[name]||[],keep=[],n=0; a.forEach(function(x){ if(x&&pred(x)){ if(x.id)_tombArr(name,x.id); n++; } else keep.push(x); }); S[name]=keep; return n; }
+function _mergeTomb(a,b){ a=(a&&typeof a==='object')?a:{}; b=(b&&typeof b==='object')?b:{}; var out={},k; for(k in a)out[k]=a[k]; for(k in b){ if(!out[k]||String(b[k])>String(out[k]))out[k]=b[k]; } return out; }
+function _mergeArrTombs(remoteTomb){ if(!S._tomb)S._tomb={}; remoteTomb=remoteTomb||{}; _ID_ARRS.forEach(function(n){ var m=_mergeTomb(S._tomb[n],remoteTomb[n]); if(Object.keys(m).length)S._tomb[n]=m; }); }
+// 객체맵 병합(키 단위 union, 같은 키는 b 승) — trimLedger·시재·참고·브랜드설정 등 "통째 교체" 유실 방지
+function _mergeMap(a,b){ a=(a&&typeof a==='object'&&!Array.isArray(a))?a:{}; b=(b&&typeof b==='object'&&!Array.isArray(b))?b:{}; var out={},k; for(k in a)out[k]=a[k]; for(k in b)out[k]=b[k]; return out; }
+// 택배장부 전용: bank는 b(비어있지 않으면) 승, entries는 id 병합
+function _mergeCourier(a,b){ a=(a&&typeof a==='object')?a:{bank:'',entries:[]}; b=(b&&typeof b==='object')?b:{bank:'',entries:[]}; return {bank:(b.bank!=null&&b.bank!=='')?b.bank:(a.bank||''), entries:_mergeById(a.entries,b.entries)}; }
 function applyRemoteCoData(data,ts){
   if(!data)return;
   if(ts)try{setSyncBase('fpm_'+curCoId,ts);}catch(e){} // 원격을 반영했으니 내 기준 ts = 그 문서 ts
@@ -1600,13 +1612,15 @@ function applyRemoteCoData(data,ts){
   // 발주(orders)는 별도 문서(__orders)로 분리돼 메인 문서엔 없음 → 메인 스냅샷에 orders 없으면 기존 발주 보존(빈 값으로 덮어쓰기 금지)
   if(data.orders!==undefined&&data.orders!==null){var _moR=_entMerge(S.orders||{},data.orders,S._tomb.orders,_ctombR.orders,'cloud');S.orders=_moR.map;S._tomb.orders=_moR.tomb;}
   S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
-  // id 배열은 전부 병합(덮어쓰기 금지) — 다른 기기 추가분 보존. b=클라우드(원격 최신 우선)
-  S.tasks=_mergeById(S.tasks,data.tasks);S.pickups=_mergeById(S.pickups,data.pickups);S.sampleOrders=_mergeById(S.sampleOrders,data.sampleOrders);S.deductions=_mergeById(S.deductions,data.deductions);
+  // id 배열은 전부 병합(덮어쓰기 금지) — 다른 기기 추가분 보존. b=클라우드(원격 최신 우선). 묘비 필터로 지운 항목 부활 차단
+  _mergeArrTombs(_ctombR);
+  S.tasks=_mergeById(S.tasks,data.tasks,S._tomb.tasks);S.pickups=_mergeById(S.pickups,data.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(S.sampleOrders,data.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(S.deductions,data.deductions,S._tomb.deductions);
   // 이전엔 실시간 수신에서 아예 빠져 있던 필드들(다른 기기 변경이 새로고침 전 미반영) — 병합으로 반영
-  S.packages=_mergeById(S.packages,data.packages);S.goals=_mergeById(S.goals,data.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs);
+  S.packages=_mergeById(S.packages,data.packages,S._tomb.packages);S.goals=_mergeById(S.goals,data.goals,S._tomb.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs,S._tomb.defectRecs);
   if(typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
-  S.brandConfig=data.brandConfig||{};
-  S.trimLedger=data.trimLedger||S.trimLedger||{};S.trimLedgerPaid=data.trimLedgerPaid||S.trimLedgerPaid||{};S.trimLedgerOvr=data.trimLedgerOvr||S.trimLedgerOvr||{};S.courierLedger=data.courierLedger||S.courierLedger||{bank:'',entries:[]};S.refData=data.refData||S.refData||{};
+  // 객체맵도 키 단위 병합(통째 교체 금지) — 원격 키 승, 로컬 전용 키 보존
+  S.brandConfig=_mergeMap(S.brandConfig,data.brandConfig);
+  S.trimLedger=_mergeMap(S.trimLedger,data.trimLedger);S.trimLedgerPaid=_mergeMap(S.trimLedgerPaid,data.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(S.trimLedgerOvr,data.trimLedgerOvr);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeMap(S.refData,data.refData);
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
   try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
@@ -2019,10 +2033,14 @@ async function cloudSyncSave(){
         _chkChanged(_miS.map,S.items||{}); _chkChanged(_moS.map,S.orders||{});
         S.items=_miS.map; S._tomb.items=_miS.tomb;
         S.orders=_moS.map; S._tomb.orders=_moS.tomb;
-        // id 배열들도 클라우드와 병합 후 푸시 → 낡은 기기가 남의 추가분을 안 덮음. b=로컬(저장 경로 = 내 수정이 이겨야 함 — 클라우드 우선이면 방금 체크한 완료가 되돌아감)
-        S.tasks=_mergeById(cloudCurrent.tasks,S.tasks);
-        S.pickups=_mergeById(cloudCurrent.pickups,S.pickups);S.sampleOrders=_mergeById(cloudCurrent.sampleOrders,S.sampleOrders);S.deductions=_mergeById(cloudCurrent.deductions,S.deductions);
-        S.packages=_mergeById(cloudCurrent.packages,S.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs);
+        // id 배열들도 클라우드와 병합 후 푸시 → 낡은 기기가 남의 추가분을 안 덮음. b=로컬(저장 경로 = 내 수정이 이겨야 함 — 클라우드 우선이면 방금 체크한 완료가 되돌아감). 묘비 필터로 지운 항목 부활 차단
+        _mergeArrTombs(_ctombS);
+        S.tasks=_mergeById(cloudCurrent.tasks,S.tasks,S._tomb.tasks);
+        S.pickups=_mergeById(cloudCurrent.pickups,S.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(cloudCurrent.sampleOrders,S.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(cloudCurrent.deductions,S.deductions,S._tomb.deductions);
+        S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);
+        // 객체맵 키 단위 병합(b=로컬 승) — 다른 기기가 추가한 키를 내 저장이 안 지움
+        S.trimLedger=_mergeMap(cloudCurrent.trimLedger,S.trimLedger);S.trimLedgerPaid=_mergeMap(cloudCurrent.trimLedgerPaid,S.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(cloudCurrent.trimLedgerOvr,S.trimLedgerOvr);
+        S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeMap(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMap(cloudCurrent.brandConfig,S.brandConfig);
         _entShadowInit(); // 병합 결과가 새 기준
         // 바뀐 것 있을 때만 다시 그림 + 스크롤 보존 (매 저장마다 무조건 재렌더→스크롤 맨위 튕김 버그 방지)
         if(_entChanged){ try{ if(typeof isEditingNow!=='function'||!isEditingNow()){ var _sy=window.scrollY||document.documentElement.scrollTop||0; switchTab(activeTab); window.scrollTo(0,_sy); } }catch(e3){} }
@@ -3005,19 +3023,23 @@ async function cloudSyncLoad(id,opts){
       var _ordTombL=(ordersDoc&&ordersDoc._tomb&&ordersDoc._tomb.orders)||_ctombL.orders;
       var _moL=_entMerge(S.orders||{},_ord,S._tomb.orders,_ordTombL,'cloud');
       // 모든 필드를 복원한다 (이전엔 items, orders만 받고 brands 등을 통째로 날려버렸음)
+      // 배열 묘비: 로컬↔클라우드 union 후 새 _tomb에 보존 (이전엔 items/orders만 재구성해 배열 묘비가 여기서 소실됐음)
+      _mergeArrTombs(_ctombL);
+      var _tombNew={items:_miL.tomb,orders:_moL.tomb};
+      _ID_ARRS.forEach(function(n){ if(S._tomb&&S._tomb[n]&&Object.keys(S._tomb[n]).length)_tombNew[n]=S._tomb[n]; });
       S={
         items:(typeof tpPreserveLocalContent==='function')?tpPreserveLocalContent(_miL.map,S.items||{}):_miL.map,
         orders:_moL.map,
-        _tomb:{items:_miL.tomb,orders:_moL.tomb},
+        _tomb:_tombNew,
         brands:_restoreLocalDataUrls(d.brands||S.brands||[],S.brands||[]),
-        sampleOrders:_mergeById(S.sampleOrders,d.sampleOrders),
-        pickups:_mergeById(S.pickups,d.pickups),
-        packages:_mergeById(S.packages,d.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
-        goals:_mergeById(S.goals,d.goals),
-        trimLedger:d.trimLedger||S.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||S.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||S.trimLedgerOvr||{},courierLedger:d.courierLedger||S.courierLedger||{bank:'',entries:[]},defectRecs:_mergeById(S.defectRecs,d.defectRecs),refData:d.refData||S.refData||{},
-        tasks:_mergeById(S.tasks,d.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
-        brandConfig:d.brandConfig||S.brandConfig||{},
-        deductions:_mergeById(S.deductions,d.deductions),
+        sampleOrders:_mergeById(S.sampleOrders,d.sampleOrders,_tombNew.sampleOrders),
+        pickups:_mergeById(S.pickups,d.pickups,_tombNew.pickups),
+        packages:_mergeById(S.packages,d.packages,_tombNew.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
+        goals:_mergeById(S.goals,d.goals,_tombNew.goals),
+        trimLedger:_mergeMap(S.trimLedger,d.trimLedger),trimLedgerPaid:_mergeMap(S.trimLedgerPaid,d.trimLedgerPaid),trimLedgerOvr:_mergeMap(S.trimLedgerOvr,d.trimLedgerOvr),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refData:_mergeMap(S.refData,d.refData),
+        tasks:_mergeById(S.tasks,d.tasks,_tombNew.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
+        brandConfig:_mergeMap(S.brandConfig,d.brandConfig),
+        deductions:_mergeById(S.deductions,d.deductions,_tombNew.deductions),
         factories:sh.factories||S.factories||{},
         priceBook:_restoreLocalDataUrls(sh.priceBook||S.priceBook||{},S.priceBook||{}),
         _compMigrated:d._compMigrated||S._compMigrated||false,
@@ -3277,6 +3299,8 @@ function loadCoData(id){
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
 function migrateData(){
+  // 배열 묘비 90일 청소(무한 누적 방지) — 90일이면 모든 기기가 이미 삭제를 반영했을 시간
+  try{ var _cut=new Date(Date.now()-90*864e5).toISOString().slice(0,10); if(S._tomb&&typeof _ID_ARRS!=='undefined')_ID_ARRS.forEach(function(n){ var t=S._tomb[n]; if(t)Object.keys(t).forEach(function(id){ if(String(t[id])<_cut)delete t[id]; }); }); }catch(e){}
   // 결제 수동완료 1회 마이그레이션: 지금 '결제완료'인 오더의 아이템은 완료로 고정(안 그러면 브랜드별보기에 폭주). 이후부터는 수동 완료.
   try{if(S.orders)Object.keys(S.orders).forEach(function(k){var o=S.orders[k];if(!o||o.payArchivedItems)return;var lbl=(typeof oLabel==='function')?oLabel(o)[0]:'';if(lbl==='결제완료'){o.payArchivedItems={};(o.orderItems||[]).forEach(function(oi){if(oi&&oi.itemId)o.payArchivedItems[oi.itemId]=(typeof todayISO==='function'?todayISO():'');});}});}catch(e){}
   // 오더별 공장 스냅샷 1회: 기존 모든 오더에 현재 아이템 공장을 얼려둠(이후 아이템 공장 바꿔도 옛 오더 결제 불변)
@@ -3907,15 +3931,15 @@ function clearDemoData(){
   if(!confirm('데모로 추가된 모든 항목을 제거합니다.\n(내가 직접 만든 데이터는 그대로 유지됨)\n계속할까요?'))return;
   var removed=0;
   // pickups
-  if(S.pickups){var n=S.pickups.length;S.pickups=S.pickups.filter(function(p){return !p._demo;});removed+=n-S.pickups.length;}
+  if(S.pickups){removed+=_arrDelWhere('pickups',function(p){return !!p._demo;});}
   // tasks
-  if(S.tasks){var n=S.tasks.length;S.tasks=S.tasks.filter(function(t){return !t._demo;});removed+=n-S.tasks.length;}
+  if(S.tasks){removed+=_arrDelWhere('tasks',function(t){return !!t._demo;});}
   // items
   for(var iid in S.items){if(S.items[iid]._demo){delete S.items[iid];removed++;}}
   // orders
   for(var oid in S.orders){if(S.orders[oid]._demo){delete S.orders[oid];removed++;}}
   // sample orders
-  if(S.sampleOrders&&Array.isArray(S.sampleOrders)){var n=S.sampleOrders.length;S.sampleOrders=S.sampleOrders.filter(function(so){return !so._demo;});removed+=n-S.sampleOrders.length;}
+  if(S.sampleOrders&&Array.isArray(S.sampleOrders)){removed+=_arrDelWhere('sampleOrders',function(so){return !!so._demo;});}
   // brands (only if all demo)
   if(S.brands)S.brands=S.brands.filter(function(b){return !b._demo;});
   // factories
@@ -19162,7 +19186,7 @@ function _renderDefectPane_full_disabled(){ // 옛 카드+수선추적 UI (2026-
 // ===== 불량 = 순수 기록 (2026-07-10) — 오더 자동연결·발송·공제·수선추적 전부 없음. 브랜드별 표 =====
 function dfRecSet(id,f,v){var r=(S.defectRecs||[]).find(function(x){return x&&x.id===id;});if(!r)return;r[f]=v;saveData();}
 function dfRecRet(id,chk){var r=(S.defectRecs||[]).find(function(x){return x&&x.id===id;});if(!r)return;r.returned=!!chk;if(chk&&!r.returnDate)r.returnDate=(typeof todayISO==='function'?todayISO():today());saveData();renderDefectPane();}
-function dfRecDel(id){if(!confirm('이 불량 기록을 삭제할까요?'))return;S.defectRecs=(S.defectRecs||[]).filter(function(x){return x&&x.id!==id;});saveData();renderDefectPane();}
+function dfRecDel(id){if(!confirm('이 불량 기록을 삭제할까요?'))return;_arrDelWhere('defectRecs',function(x){return x&&x.id===id;});saveData();renderDefectPane();}
 function dfLegacyMemo(oid,bid,idx,v){var d=defectFind(oid,bid,idx);if(!d)return;d.note=v;saveData();}
 function dfLegacyDel(oid,bid,idx){
   if(!confirm('이 불량 기록을 삭제할까요?'))return;
@@ -21561,7 +21585,7 @@ function addDeduction(){
 
 function resolveDeduction(idx){if(!S.deductions[idx])return;S.deductions[idx].resolved=true;S.deductions[idx].resolvedAt=today();saveData();renderDeductPanel();updateNotifBadge();}
 function toggleDeduction(idx,done){if(!S.deductions[idx])return;S.deductions[idx].resolved=done;if(done)S.deductions[idx].resolvedAt=today();else delete S.deductions[idx].resolvedAt;saveData();renderDeductPanel();updateNotifBadge();}
-function deleteDeduction(idx){if(!confirm('삭제?'))return;S.deductions.splice(idx,1);saveData();renderDeductPanel();}
+function deleteDeduction(idx){if(!confirm('삭제?'))return;var _dd=(S.deductions||[])[idx];if(_dd&&_dd.id)_tombArr('deductions',_dd.id);S.deductions.splice(idx,1);saveData();renderDeductPanel();}
 function renderCSDropdown(){
   const s=document.getElementById('cs-sel');if(!s)return;
   const brandFlt=document.getElementById('cs-brand-flt')?.value||'';
@@ -23281,8 +23305,8 @@ function onConfirmPickupToggle(orderId,supplierName,checked){
     // 이 오더+거래처 컨펌용 픽업 전부 삭제 (중복 쌓인 것까지 청소)
     var ids=(S.pickups||[]).filter(function(p){return p.source==='order_confirm'&&p.orderId===orderId&&p.supplierName===supplierName;}).map(function(p){return p.id;});
     if(sup.confirmPickupId&&ids.indexOf(sup.confirmPickupId)<0)ids.push(sup.confirmPickupId);
-    S.pickups=(S.pickups||[]).filter(function(p){return ids.indexOf(p.id)<0;});
-    S.tasks=(S.tasks||[]).filter(function(t){return!(t.link&&ids.indexOf(t.link.id)>=0);});
+    _arrDelWhere('pickups',function(p){return ids.indexOf(p.id)>=0;});
+    _arrDelWhere('tasks',function(t){return !!(t.link&&ids.indexOf(t.link.id)>=0);});
     sup.confirmPickupCreated=false;sup.confirmPickupId='';
     saveData();_renderOTabKeepScroll();showToast(ids.length>1?('픽업 예약 '+ids.length+'건 모두 취소됨'):'픽업 예약 취소됨');
   }
@@ -23836,7 +23860,7 @@ function cleanEmptySamples(){
   var empty=getSampleOrders().filter(function(s){return !s.name&&!s.itemId;});
   if(!empty.length){showToast('정리할 빈 샘플 없음');return;}
   if(!confirm('이름·아이템 모두 비어있는 샘플 '+empty.length+'개를 삭제할까요?'))return;
-  S.sampleOrders=getSampleOrders().filter(function(s){return s.name||s.itemId;});
+  S.sampleOrders=getSampleOrders();_arrDelWhere('sampleOrders',function(s){return !(s.name||s.itemId);});
   saveData();
   renderBoardPane();
   showToast(''+empty.length+'개 정리됨');
@@ -23846,7 +23870,7 @@ function delSampleFromBoard(soId){
   var so=getSampleOrders().find(function(s){return s.id===soId;});
   if(!so)return;
   if(!confirm('"'+(so.name||'이름없음')+'" 샘플을 삭제할까요?'))return;
-  S.sampleOrders=getSampleOrders().filter(function(s){return s.id!==soId;});
+  S.sampleOrders=getSampleOrders();_arrDelWhere('sampleOrders',function(s){return s.id===soId;});
   saveData();
   renderBoardPane();
   showToast('삭제됨');
@@ -23854,7 +23878,7 @@ function delSampleFromBoard(soId){
 
 function delSampleOrder(id){
   if(!confirm('이 샘플 발주를 삭제할까요?'))return;
-  S.sampleOrders=getSampleOrders().filter(function(s){return s.id!==id;});
+  S.sampleOrders=getSampleOrders();_arrDelWhere('sampleOrders',function(s){return s.id===id;});
   saveData();
   renderSamplePane();
   showToast('삭제됨');
@@ -24476,7 +24500,7 @@ function updatePickupField(pid,field,val){
 
 function delSamplePickup(pickupId,soId){
   if(!confirm('이 픽업을 삭제할까요?'))return;
-  S.pickups=(S.pickups||[]).filter(function(p){return p.id!==pickupId;});
+  _arrDelWhere('pickups',function(p){return p.id===pickupId;});
   saveData();
   renderSamplePane();
   showToast('픽업 삭제됨');
@@ -26091,7 +26115,7 @@ function qbDeleteGoal(id){
     body:'이 보낼 곳을 삭제할까요?'+(used?'<div style="margin-top:8px;padding:8px 10px;background:#FFF6B8;border:1.5px solid #0B0A05;font-size:12px;font-weight:600;border-radius:2px">이 목적지로 진행 중인 패키지 '+used+'건이 있어요 (패키지는 유지되지만 존이 사라져요)</div>':''),
     okLabel:'삭제',okStyle:'background:#FF6B6B;color:#fff;',
     onOk:function(){
-      S.goals=(S.goals||[]).filter(function(g){return g.id!==id;});
+      _arrDelWhere('goals',function(g){return g.id===id;});
       saveData();
       var bd=document.getElementById('qb-goal-modal');if(bd)bd.innerHTML=qbGoalModalHTML();
       renderRoutePane();
@@ -26417,11 +26441,11 @@ function qbDeletePackage(pkgId){
     okLabel:'삭제',
     okStyle:'background:#FF6B6B;color:#fff;',
     onOk:function(){
-      S.packages=S.packages.filter(function(x){return x.id!==pkgId;});
+      _arrDelWhere('packages',function(x){return x.id===pkgId;});
       if(linkedPickups.length){
         var idsToDel={};
         linkedPickups.forEach(function(pk){idsToDel[pk.id]=true;});
-        S.pickups=(S.pickups||[]).filter(function(pk){return !idsToDel[pk.id];});
+        _arrDelWhere('pickups',function(pk){return !!idsToDel[pk.id];});
       }
       saveData();renderRoutePane();
       qbToast('삭제됨','#FF6B6B');
@@ -26521,7 +26545,7 @@ function qbDeleteQuest(destKey,questKey){
     okStyle:'background:#FF6B6B;color:#fff;',
     onOk:function(){
       var ids={};matched.forEach(function(p){ids[p.id]=true;});
-      S.pickups=(S.pickups||[]).filter(function(p){return !ids[p.id];});
+      _arrDelWhere('pickups',function(p){return !!ids[p.id];});
       saveData();renderRoutePane();
       qbToast('삭제됨','#FF6B6B');
     }
@@ -28111,14 +28135,14 @@ function taskNextDone(id){
 
 function deleteTaskManual(id){
   if(!confirm('이 업무를 삭제할까요?'))return;
-  S.tasks=getTasks().filter(t=>t.id!==id);
+  S.tasks=getTasks();_arrDelWhere('tasks',function(t){return t.id===id;});
   saveData();
   renderTasksPane();
 }
 
 function clearDoneTasks(){
   if(!confirm('완료된 업무를 모두 삭제할까요?'))return;
-  S.tasks=getTasks().filter(t=>!t.done);
+  S.tasks=getTasks();_arrDelWhere('tasks',function(t){return !!t.done;});
   saveData();
   renderTasksPane();
   showToast('완료 항목 정리됨');
@@ -28459,7 +28483,7 @@ function setPickupStatus(pid,status){
 
 function deletePickup(pid){
   if(!confirm('이 픽업을 삭제하시겠어요?'))return;
-  S.pickups=S.pickups.filter(p=>p.id!==pid);
+  _arrDelWhere('pickups',function(p){return p.id===pid;});
   saveData();renderPickupPane();
 }
 
