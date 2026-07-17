@@ -2127,8 +2127,12 @@ function _collectInlineImages(){
     var imgs=it.techpack&&it.techpack.images;
     if(imgs)Object.keys(imgs).forEach(function(k){if(isData(imgs[k]))out.push({dataUrl:imgs[k],path:'techpack/'+co+'/'+id+'/'+k+'_'+stamp()+'.jpg',apply:function(u){imgs[k]=u;}});});
     // 아이디어보드 사진(dataURL 폴백)도 자동 이사 — 빠져 있어 로컬에만 쌓이던 구멍(2026-07-03)
+    // ⚠️ 항목이 {u,t}(사진+생각 메모)일 수 있음 → 통째 교체하면 메모가 날아감. URL만 갈아끼울 것 (2026-07-17)
     var refs=it.ideaData&&it.ideaData.refs;
-    if(refs&&refs.length)refs.forEach(function(v,ri){if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/'+id+'/idea'+ri+'_'+stamp()+'.jpg',apply:function(u){refs[ri]=u;}});});
+    if(refs&&refs.length)refs.forEach(function(v,ri){
+      var du=_ideaRefU(v); if(!isData(du))return;
+      out.push({dataUrl:du,path:'techpack/'+co+'/'+id+'/idea'+ri+'_'+stamp()+'.jpg',apply:function(u){ if(refs[ri]&&typeof refs[ri]==='object')refs[ri].u=u; else refs[ri]=u; }});
+    });
   });
   (S.brands||[]).forEach(function(b){
     ['mainLabels','careLabels','finishMaterials'].forEach(function(kind){(b[kind]||[]).forEach(function(row,idx){if(row&&isData(row.img))out.push({dataUrl:row.img,path:'brandlabels/'+co+'/'+b.id+'_'+kind+idx+'_'+stamp()+'.jpg',apply:function(u){row.img=u;}});});});
@@ -6720,36 +6724,162 @@ function createIdea(){
   window._itemView='idea'; renderItemsList();
   if(typeof showToast==='function')showToast('아이디어 추가됨 — 카드를 눌러 내용을 채워보세요',4000);
 }
+/* ===== 아이디어 카드 (2026-07-17 개편) — 상세 모달 없이 카드에서 바로 입력 =====
+   · 보드=좌우 2열(폰 1열) · 카드에 사진 드래그앤드롭 + 사진마다 생각 메모 · 나머지(메모·예산·일정)는 카드 안에서 펼침
+   · 사진 항목 = 옛 데이터 '문자열 URL' | 새 데이터 {u:URL,t:'생각'} — 두 모양 다 읽음(마이그레이션 없음 → 롤백 안전).
+     메모를 달 때만 객체로 승격. ⚠️ 사진 이사(_collectInlineImages)는 객체면 .u만 갈아끼워야 메모가 안 날아감.
+   · 타이핑 중엔 재렌더 금지(커서 튕김) → 저장은 디바운스, 합계·런칭월만 부분 갱신(ideaCardCalc). 계산식은 기존 그대로. */
+function _ideaRefU(r){ return (r&&typeof r==='object')?(r.u||''):(r||''); }
+function _ideaRefT(r){ return (r&&typeof r==='object')?(r.t||''):''; }
+function _ideaSaveSoon(){ if(window._ideaSaveT)clearTimeout(window._ideaSaveT); window._ideaSaveT=setTimeout(function(){ try{saveData();}catch(e){} },600); }
+function ideaSetRefNote(id,i,txt){ var it=S.items[id]; if(!it||!it.ideaData)return; var a=it.ideaData.refs; if(!a||a[i]==null)return; if(typeof a[i]!=='object')a[i]={u:a[i],t:''}; a[i].t=txt; _ideaSaveSoon(); }
+function ideaSetItem(id,key,val){ var it=S.items[id]; if(!it)return; it[key]=val; _ideaSaveSoon(); } // 이름·브랜드·시즌은 아이템 필드
+function ideaToggleMore(id){ window._ideaOpen=window._ideaOpen||{}; window._ideaOpen[id]=!window._ideaOpen[id]; try{lsSet('fpm_ideaOpen',window._ideaOpen);}catch(e){} renderIdeaBoard(); }
+// 예산 합계·런칭월만 다시 그림 (카드 통째 재렌더하면 입력 중 커서가 튕김). 계산식은 옛 ideaRecalc와 동일
+function ideaCardCalc(id){
+  var it=S.items[id]; if(!it)return; var d=it.ideaData||{};
+  var c=document.querySelector('[data-idea-card="'+id+'"]'); if(!c)return;
+  var tot=(+d.bSample||0)+(+d.bFabric||0)+(+d.bTrim||0)+(+d.bLabor||0);
+  var t=c.querySelector('[data-idea-tot]'); if(t)t.textContent=num(tot)+'원';
+  var o=c.querySelector('[data-idea-sched]'); if(!o)return;
+  var st=d.schStart||'';
+  if(!st){ o.innerHTML='<span style="color:#9a988f">시작 연·월을 넣으면 런칭월이 계산돼요</span>'; return; }
+  var sm=+d.schSampleM||0, pm=+d.schProdM||0, lm=+d.schLaunchM||0;
+  o.innerHTML='<div>샘플 '+sm+'달 · '+ymAdd(st,0)+' → '+ymAdd(st,sm)+'</div>'
+    +'<div>생산 '+pm+'달 · '+ymAdd(st,sm)+' → '+ymAdd(st,sm+pm)+'</div>'
+    +'<div style="margin-top:4px">런칭 목표 <b style="color:var(--green,#1a7a4a)">'+ymAdd(st,sm+pm+lm)+'</b></div>';
+}
+function _ideaStyle(){
+  if(document.getElementById('idea-style'))return;
+  var st=document.createElement('style'); st.id='idea-style'; st.textContent=
+     '#i-list .idea-board{display:grid;grid-template-columns:1fr;gap:11px;align-items:start}'
+    +'@media(min-width:720px){#i-list .idea-board{grid-template-columns:1fr 1fr}}'
+    +'#i-list .ic{background:#fff;border:2.5px solid var(--ink,#0B0A05);box-shadow:3px 3px 0 rgba(11,10,5,.18);border-radius:3px;padding:10px}'
+    +'#i-list .ic.idea-over{background:#eefaf1;border-style:dashed;box-shadow:3px 3px 0 rgba(26,122,74,.3)}'
+    +'#i-list .ic-hd{display:flex;gap:5px;margin-bottom:8px;align-items:center}'
+    +'#i-list .ic-brand{border:1.5px solid var(--ink,#0B0A05);border-radius:3px;background:#f0ebde;font-size:11px;font-weight:700;color:#7c6a4a;padding:4px 5px;font-family:inherit;max-width:96px;flex-shrink:0}'
+    +'#i-list .ic-nm{flex:1;min-width:0;border:none;border-bottom:2px solid #e6e3da;background:transparent;font-size:15px;font-weight:700;padding:3px 2px;font-family:inherit;color:var(--ink,#0B0A05)}'
+    +'#i-list .ic-nm:focus{outline:none;border-bottom-color:var(--ink,#0B0A05)}'
+    +'#i-list .ic-season{width:64px;flex-shrink:0;border:1.5px solid #cfc8b6;border-radius:3px;background:#fffdf8;font-size:11px;font-weight:700;padding:4px 5px;text-align:center;font-family:inherit}'
+    +'#i-list .ic-x{flex-shrink:0;border:1.5px solid #e0dbcd;background:#fff;color:#b9b3a4;font-size:12px;font-weight:800;width:24px;height:24px;cursor:pointer;border-radius:3px;line-height:1;padding:0}'
+    +'#i-list .ic-x:hover{border-color:#c0392b;color:#c0392b}'
+    +'#i-list .ic-ph{display:flex;gap:8px;align-items:stretch;margin-bottom:6px}'
+    +'#i-list .ic-img{width:74px;height:74px;flex-shrink:0;border:2px solid var(--ink,#0B0A05);border-radius:3px;overflow:hidden;background:#efeadd;position:relative}'
+    +'#i-list .ic-img img{width:100%;height:100%;object-fit:cover;display:block}'
+    +'#i-list .ic-phx{position:absolute;top:-6px;right:-6px;width:19px;height:19px;border-radius:50%;border:1.5px solid var(--ink,#0B0A05);background:#fff;color:#c0392b;font-size:11px;font-weight:800;cursor:pointer;line-height:1;padding:0}'
+    +'#i-list .ic-note{flex:1;min-width:0;border:1.5px solid #cfc8b6;border-radius:3px;background:#fffdf8;font-size:12px;padding:6px 8px;font-family:inherit;resize:none;line-height:1.5;color:var(--ink,#0B0A05)}'
+    +'#i-list .ic-note:focus{outline:none;border-color:var(--ink,#0B0A05);background:#fff}'
+    +'#i-list .ic-drop{border:2px dashed #c9c2b0;border-radius:3px;padding:11px;text-align:center;font-size:11.5px;color:#9a988f;font-weight:700;cursor:pointer;background:rgba(255,255,255,.5)}'
+    +'#i-list .ic-drop:hover{border-color:var(--ink,#0B0A05);color:var(--ink,#0B0A05);background:#faf8f2}'
+    +'#i-list .ic.idea-over .ic-drop{border-color:#1a7a4a;color:#1a7a4a;background:#e6f5ec}'
+    +'#i-list .ic-more{margin-top:8px;border-top:1.5px dashed #d8d2c2;padding-top:7px}'
+    +'#i-list .ic-mbtn{width:100%;border:none;background:transparent;font-size:11.5px;font-weight:800;color:#6b6a63;cursor:pointer;font-family:inherit;padding:3px;text-align:left}'
+    +'#i-list .ic-mbtn:hover{color:var(--ink,#0B0A05)}'
+    +'#i-list .ic-fld{margin-bottom:7px}'
+    +'#i-list .ic-fld label{display:block;font-size:10px;font-weight:800;color:#9a988f;margin-bottom:3px}'
+    +'#i-list .ic-fld textarea,#i-list .ic-fld input{width:100%;border:1.5px solid #cfc8b6;border-radius:3px;background:#fffdf8;font-size:12px;padding:5px 7px;font-family:inherit;resize:vertical;color:var(--ink,#0B0A05)}'
+    +'#i-list .ic-fld textarea:focus,#i-list .ic-fld input:focus{outline:none;border-color:var(--ink,#0B0A05);background:#fff}'
+    +'#i-list .ic-grp{border:1.5px solid #e0dbcd;border-radius:3px;background:#faf8f2;padding:8px;margin-bottom:7px}'
+    +'#i-list .ic-grpt{font-size:10px;font-weight:800;color:#6b6a63;margin-bottom:6px}'
+    +'#i-list .ic-g4{display:grid;grid-template-columns:1fr 1fr;gap:5px}'
+    +'#i-list .ic-g4 input{width:100%;border:1.5px solid #cfc8b6;border-radius:3px;background:#fff;font-size:12px;padding:4px 5px;text-align:right;font-family:inherit}'
+    +'#i-list .ic-gs{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:4px}'
+    +'#i-list .ic-gs input{width:100%;border:1.5px solid #cfc8b6;border-radius:3px;background:#fff;font-size:11px;padding:4px 3px;text-align:center;font-family:inherit}'
+    +'#i-list .ic-gl{font-size:9px;color:#9a988f;font-weight:700;margin-bottom:2px;display:block}'
+    +'#i-list .ic-tot{display:flex;justify-content:space-between;margin-top:7px;padding-top:6px;border-top:1.5px solid #e0dbcd;font-weight:800;font-size:12.5px}'
+    +'#i-list .ic-out{margin-top:7px;font-size:11px;color:#54514a;line-height:1.7}'
+    +'#i-list .ic-promote{width:100%;margin-top:4px;border:2px solid var(--ink,#0B0A05);background:var(--neon-green,#A5E6BA);font-weight:800;font-size:12.5px;padding:8px;cursor:pointer;font-family:inherit;border-radius:3px;box-shadow:2px 2px 0 rgba(11,10,5,.15)}'
+    +'#i-list .ic-sum{margin-top:7px;font-size:11.5px;color:#8a8470}'
+    +'#i-list .ic-add{border:2.5px dashed var(--ink,#0B0A05);border-radius:3px;padding:16px;text-align:center;font-weight:700;font-size:14px;cursor:pointer;background:rgba(255,255,255,.4)}';
+  document.head.appendChild(st);
+}
+function _icFld(id,key,label,ph,val,multi){
+  var v=(val==null?'':val);
+  return '<div class="ic-fld"><label>'+esc(label)+'</label>'+(multi
+    ? '<textarea rows="2" placeholder="'+esc(ph)+'" oninput="ideaSet(\''+id+'\',\''+key+'\',this.value)">'+esc(v)+'</textarea>'
+    : '<input value="'+esc(v)+'" placeholder="'+esc(ph)+'" oninput="ideaSet(\''+id+'\',\''+key+'\',this.value)">')+'</div>';
+}
+function _icNum(id,key,label,val,cls){
+  return '<div><span class="ic-gl">'+esc(label)+'</span><input type="number" min="0" inputmode="numeric" value="'+(val!=null&&val!==''?esc(val):'')+'" placeholder="0" oninput="ideaSet(\''+id+'\',\''+key+'\',+this.value||0);ideaCardCalc(\''+id+'\')"></div>';
+}
 function renderIdeaBoard(){
   var el=document.getElementById('i-list'); if(!el)return;
+  _ideaStyle(); _ideaWireDrop();
+  if(!window._ideaOpen){ try{window._ideaOpen=lsGet('fpm_ideaOpen')||{};}catch(e){window._ideaOpen={};} }
   var ideas=Object.values(S.items).filter(function(it){return deriveItemBadge(it).phase==='idea';});
   var bf=window._itemBrandFlt;
   if(bf&&bf!=='__none')ideas=ideas.filter(function(it){return it.brandId===bf;});
   else if(bf==='__none')ideas=ideas.filter(function(it){return !it.brandId;});
   var cnt=document.getElementById('i-cnt'); if(cnt)cnt.textContent='아이디어 '+ideas.length+'개';
-  var INK='var(--ink,#1a1a1a)';
-  var rows=ideas.map(function(it){
-    var brand=(it.brandId&&typeof getBrandName==='function')?(getBrandName(it.brandId)||''):'';
-    var d=it.ideaData||{}; var refs=d.refs||[];
-    var firstImg=refs[0]||''; var nImg=refs.length;
-    if(!firstImg){var imgs=(it.techpack&&it.techpack.images)||{};for(var k in imgs){if(imgs[k]){if(!firstImg)firstImg=imgs[k];nImg++;}}}
-    var imgInner=firstImg?('<img src="'+esc(firstImg)+'" alt="" style="width:100%;height:100%;object-fit:cover">'):('레퍼런스<br>'+(nImg?nImg+'장':'없음'));
-    var tags='';
-    if(it.season)tags+='<span style="font-size:11px;padding:2px 7px;border:1.5px solid '+INK+';border-radius:3px;margin:0 4px 4px 0;display:inline-block;background:#A5E6BA">'+esc(it.season)+'</span>';
-    (it.fabrics||[]).slice(0,1).forEach(function(f){if(f.name)tags+='<span style="font-size:11px;padding:2px 7px;border:1.5px solid '+INK+';border-radius:3px;margin:0 4px 4px 0;display:inline-block;background:#B0DBF0">'+esc(f.name)+'</span>';});
-    var brandMark=brand?('<span style="font-size:11px;font-weight:600;color:#7c6a4a;background:#f0ebde;border:1.5px solid '+INK+';border-radius:3px;padding:1px 6px;margin-right:6px">'+esc(brand)+'</span>'):'';
-    var bd=(+d.bSample||0)+(+d.bFabric||0)+(+d.bTrim||0)+(+d.bLabor||0);
-    var launch=d.schStart?ymAdd(d.schStart,(+d.schSampleM||0)+(+d.schProdM||0)+(+d.schLaunchM||0)):'';
-    var parts=[]; if(d.targetPrice)parts.push('목표가 '+num(+d.targetPrice||0)+'원'); if(bd)parts.push('투입 '+num(bd)+'원'); if(launch)parts.push(''+launch);
-    var sub=parts.length?'<div style="font-size:12px;color:#8a8470;margin-top:5px">'+parts.join(' · ')+'</div>':'';
-    return '<div onclick="openIdeaDetail(\''+it.id+'\')" style="display:flex;gap:11px;background:#fff;border:2.5px solid '+INK+';box-shadow:3px 3px 0 rgba(11,10,5,.18);border-radius:3px;padding:10px;margin-bottom:11px;cursor:pointer">'
-      +'<div style="width:120px;height:120px;flex-shrink:0;border:2px solid '+INK+';border-radius:3px;background:#efeadd;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8a8470;text-align:center;overflow:hidden">'+imgInner+'</div>'
-      +'<div style="flex:1;min-width:0"><div style="margin-bottom:6px">'+brandMark+'</div><div style="font-size:15px;font-weight:700;margin:0 0 7px;word-break:keep-all">'+esc(it.name)+'</div>'+tags+sub+'</div>'
+  var brandOpts=function(sel){ return '<option value="">브랜드</option>'+(S.brands||[]).map(function(b){
+      var bid=b.id||b; var bnm=b.name||((typeof getBrandName==='function')?(getBrandName(bid)||''):'')||bid;
+      return '<option value="'+esc(bid)+'"'+(sel===bid?' selected':'')+'>'+esc(bnm)+'</option>';}).join(''); };
+  var cards=ideas.map(function(it){
+    var id=it.id, d=it.ideaData||{}, refs=d.refs||[];
+    var open=!!(window._ideaOpen&&window._ideaOpen[id]);
+    var phs=refs.map(function(r,i){
+      return '<div class="ic-ph"><div class="ic-img"><img src="'+esc(_ideaRefU(r))+'" alt="">'
+        +'<button class="ic-phx" onclick="ideaDelImage(\''+id+'\','+i+')" title="사진 삭제">&times;</button></div>'
+        +'<textarea class="ic-note" rows="3" placeholder="이 사진에 대한 생각..." oninput="ideaSetRefNote(\''+id+'\','+i+',this.value)">'+esc(_ideaRefT(r))+'</textarea></div>';
+    }).join('');
+    var tot=(+d.bSample||0)+(+d.bFabric||0)+(+d.bTrim||0)+(+d.bLabor||0);
+    var st=d.schStart||'';
+    var sm=+d.schSampleM||0, pm=+d.schProdM||0, lm=+d.schLaunchM||0;
+    var launch=st?ymAdd(st,sm+pm+lm):'';
+    var schedOut=!st?'<span style="color:#9a988f">시작 연·월을 넣으면 런칭월이 계산돼요</span>'
+      :'<div>샘플 '+sm+'달 · '+ymAdd(st,0)+' → '+ymAdd(st,sm)+'</div>'
+       +'<div>생산 '+pm+'달 · '+ymAdd(st,sm)+' → '+ymAdd(st,sm+pm)+'</div>'
+       +'<div style="margin-top:4px">런칭 목표 <b style="color:var(--green,#1a7a4a)">'+launch+'</b></div>';
+    var body=!open?'':'<div style="margin-top:8px">'
+      +_icFld(id,'inspiration','영감 메모','빈티지 워크웨어 무드 · 자연스러운 워싱감...',d.inspiration,1)
+      +_icFld(id,'material','소재 아이디어','8oz 워싱 데님 · 가먼트워싱...',d.material,1)
+      +_icFld(id,'fit','핏 아이디어','루즈 배기 · 밑단 롤업...',d.fit,1)
+      +_icFld(id,'targetPrice','목표 판매가 (원)','59000',d.targetPrice,0)
+      +'<div class="ic-grp"><div class="ic-grpt">예산 미리 계산</div><div class="ic-g4">'
+        +_icNum(id,'bSample','샘플비',d.bSample)+_icNum(id,'bFabric','원단',d.bFabric)
+        +_icNum(id,'bTrim','부자재',d.bTrim)+_icNum(id,'bLabor','공임',d.bLabor)
+      +'</div><div class="ic-tot"><span>예상 투입금</span><span data-idea-tot>'+num(tot)+'원</span></div></div>'
+      +'<div class="ic-grp"><div class="ic-grpt">일정 미리 계산 <span style="font-weight:400;color:#9a988f">(개월 단위 대략)</span></div><div class="ic-gs">'
+        +'<div><span class="ic-gl">시작(연·월)</span><input type="month" value="'+esc(st)+'" onchange="ideaSet(\''+id+'\',\'schStart\',this.value);ideaCardCalc(\''+id+'\')"></div>'
+        +_icNum(id,'schSampleM','샘플(달)',d.schSampleM)+_icNum(id,'schProdM','생산(달)',d.schProdM)+_icNum(id,'schLaunchM','런칭준비',d.schLaunchM)
+      +'</div><div class="ic-out" data-idea-sched>'+schedOut+'</div></div>'
+      +'<button class="ic-promote" onclick="ideaPromote(\''+id+'\')">샘플로 승격 — 이 내용 그대로 이어짐</button>'
+      +'</div>';
+    var parts=[]; if(d.targetPrice)parts.push('목표가 '+num(+d.targetPrice||0)+'원'); if(tot)parts.push('투입 '+num(tot)+'원'); if(launch)parts.push('런칭 '+launch);
+    var sum=(parts.length&&!open)?'<div class="ic-sum">'+esc(parts.join(' · '))+'</div>':'';
+    return '<div class="ic" data-idea-card="'+esc(id)+'">'
+      +'<div class="ic-hd">'
+        +'<select class="ic-brand" onchange="ideaSetItem(\''+id+'\',\'brandId\',this.value)">'+brandOpts(it.brandId||'')+'</select>'
+        +'<input class="ic-nm" value="'+esc(it.name||'')+'" placeholder="아이디어 이름" oninput="ideaSetItem(\''+id+'\',\'name\',this.value)">'
+        +'<input class="ic-season" value="'+esc(it.season||'')+'" placeholder="시즌" oninput="ideaSetItem(\''+id+'\',\'season\',this.value)">'
+        +'<button class="ic-x" onclick="delItem(\''+id+'\')" title="아이디어 삭제">&times;</button>'
+      +'</div>'
+      +phs
+      +'<div class="ic-drop" onclick="ideaPickImage(\''+id+'\')">＋ 사진 끌어다 놓기 <span style="color:#c9c2b0">·</span> 눌러서 고르기</div>'
+      +sum
+      +'<div class="ic-more"><button class="ic-mbtn" onclick="ideaToggleMore(\''+id+'\')">'+(open?'▲':'▼')+' 메모 · 예산 · 일정</button>'+body+'</div>'
       +'</div>';
   }).join('');
   var empty=ideas.length?'':'<div style="text-align:center;color:#9a958a;font-size:13px;padding:24px 0">아직 아이디어가 없어요. 아래 버튼으로 첫 아이디어를 추가해보세요</div>';
-  el.innerHTML=empty+rows
-    +'<div onclick="createIdea()" style="border:2.5px dashed '+INK+';border-radius:3px;padding:16px;text-align:center;font-weight:700;font-size:14px;cursor:pointer;background:rgba(255,255,255,.4)">＋ 새 아이디어</div>';
+  el.innerHTML=empty+'<div class="idea-board">'+cards
+    +'<div class="ic-add" onclick="createIdea()">＋ 새 아이디어</div></div>';
+}
+/* 드롭 배선 — #i-list는 innerHTML만 갈리고 요소는 살아있어 위임으로 1회만 건다.
+   + 카드를 빗맞혀 페이지에 떨궈도 브라우저가 사진을 새 탭으로 열지 않게 막음(적던 내용 날아감 방지). #pane-items로만 한정. */
+function _ideaWireDrop(){
+  var el=document.getElementById('i-list');
+  if(el&&!el._ideaDrop){ el._ideaDrop=1;
+    var card=function(e){ return (e.target&&e.target.closest)?e.target.closest('[data-idea-card]'):null; };
+    el.addEventListener('dragover',function(e){ var c=card(e); if(!c)return; e.preventDefault(); e.stopPropagation(); c.classList.add('idea-over'); });
+    el.addEventListener('dragleave',function(e){ var c=card(e); if(!c)return; if(!c.contains(e.relatedTarget))c.classList.remove('idea-over'); });
+    el.addEventListener('drop',function(e){ var c=card(e); if(!c)return; e.preventDefault(); e.stopPropagation(); c.classList.remove('idea-over');
+      var dt=e.dataTransfer; if(dt&&dt.files&&dt.files.length)ideaAddFiles(c.getAttribute('data-idea-card'),dt.files); });
+  }
+  var pane=document.getElementById('pane-items');
+  if(pane&&!pane._ideaGuard){ pane._ideaGuard=1;
+    pane.addEventListener('dragover',function(e){ if(e.dataTransfer&&Array.prototype.indexOf.call(e.dataTransfer.types||[],'Files')>=0)e.preventDefault(); });
+    pane.addEventListener('drop',function(e){ if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)e.preventDefault(); });
+  }
 }
 
 // ===== 아이디어 상세 편집기 (깔끔한 화면) =====
@@ -6758,7 +6888,8 @@ function ymAdd(ym,months){
   var t=(y*12+(m-1))+(+months||0); var ny=Math.floor(t/12), nm=t%12+1;
   return ny+'.'+String(nm).padStart(2,'0');
 }
-function ideaSet(id,key,val){ var it=S.items[id]; if(!it)return; it.ideaData=it.ideaData||{}; it.ideaData[key]=val; saveData(); }
+// 저장은 디바운스 — 카드에서 바로 타이핑(oninput)하므로 글자마다 saveData()면 동기화까지 매번 탐
+function ideaSet(id,key,val){ var it=S.items[id]; if(!it)return; it.ideaData=it.ideaData||{}; it.ideaData[key]=val; _ideaSaveSoon(); }
 function ideaRecalc(id){
   function v(k){var el=document.getElementById('idea-'+k);return el?(+el.value||0):0;}
   var tot=v('bSample')+v('bFabric')+v('bTrim')+v('bLabor');
@@ -6832,24 +6963,46 @@ function openIdeaDetail(id){
   try{ideaRecalc(id);}catch(e){}
 }
 function closeIdeaDetail(){ var m=document.getElementById('idea-detail-modal'); if(m)m.style.display='none'; try{renderIdeaBoard();}catch(e){} }
-function ideaPickImage(id){ window._ideaUpId=id; var inp=document.getElementById('idea-file'); if(!inp){inp=document.createElement('input');inp.type='file';inp.id='idea-file';inp.accept='image/*';inp.style.display='none';inp.onchange=function(){ideaOnFile(this);};document.body.appendChild(inp);} inp.value=''; inp.click(); }
-function ideaOnFile(input){
-  var f=input.files&&input.files[0]; if(!f)return; var id=window._ideaUpId;
-  var ov=(typeof tpShowUp==='function')?tpShowUp('이미지 올리는 중...'):null;
-  tpCompress(f,1400,0.82,false).then(function(r){
-    if(window.fbStorage)return tpUpload(r.blob,id,'idea',false);
-    return r.dataUrl; // Storage 없으면 인라인 폴백
-  }).then(function(url){
-    var it=S.items[id]; if(!it)return; it.ideaData=it.ideaData||{}; it.ideaData.refs=it.ideaData.refs||[]; it.ideaData.refs.push(url); saveData();
-    if(typeof tpHideUp==='function')tpHideUp(ov); openIdeaDetail(id);
-  }).catch(function(e){ if(typeof tpHideUp==='function')tpHideUp(ov); if(typeof showToast==='function')showToast('이미지 업로드 실패 — 텍스트는 저장됐어요'); console.error('idea img',e); });
+function ideaPickImage(id){ window._ideaUpId=id; var inp=document.getElementById('idea-file'); if(!inp){inp=document.createElement('input');inp.type='file';inp.id='idea-file';inp.accept='image/*';inp.multiple=true;inp.style.display='none';inp.onchange=function(){ideaOnFile(this);};document.body.appendChild(inp);} inp.value=''; inp.click(); }
+function ideaOnFile(input){ ideaAddFiles(window._ideaUpId,input.files); }
+/* 사진 추가 — 드래그앤드롭·눌러서 고르기 공용. 여러 장이면 순서대로(동시에 올리면 Storage가 버벅임).
+   업로드 흐름(압축→Storage, 없으면 dataURL 폴백)은 기존 그대로. 새 항목은 {u,t} 모양으로 저장. */
+function ideaAddFiles(id,files){
+  var it=S.items[id]; if(!it)return;
+  var arr=Array.prototype.slice.call(files||[]).filter(function(f){return f&&/^image\//.test(f.type);});
+  if(!arr.length)return;
+  var ov=(typeof tpShowUp==='function')?tpShowUp(arr.length>1?('이미지 '+arr.length+'장 올리는 중...'):'이미지 올리는 중...'):null;
+  var chain=Promise.resolve(), added=0;
+  arr.forEach(function(f){
+    chain=chain.then(function(){
+      return tpCompress(f,1400,0.82,false).then(function(r){
+        if(window.fbStorage)return tpUpload(r.blob,id,'idea',false);
+        return r.dataUrl; // Storage 없으면 인라인 폴백
+      }).then(function(url){
+        var t=S.items[id]; if(!t)return; t.ideaData=t.ideaData||{}; t.ideaData.refs=t.ideaData.refs||[];
+        t.ideaData.refs.push({u:url,t:''}); added++;
+      });
+    });
+  });
+  chain.then(function(){
+    if(typeof tpHideUp==='function')tpHideUp(ov);
+    if(!added)return;
+    saveData(); renderIdeaBoard();
+    // 방금 붙인 사진의 생각칸에 바로 커서 — 떨구자마자 타이핑
+    setTimeout(function(){ var c=document.querySelector('[data-idea-card="'+id+'"]'); if(!c)return; var n=c.querySelectorAll('.ic-note'); if(n.length)n[n.length-1].focus(); },30);
+  }).catch(function(e){
+    if(typeof tpHideUp==='function')tpHideUp(ov);
+    if(added){saveData();renderIdeaBoard();}
+    if(typeof showToast==='function')showToast('이미지 업로드 실패 — 적은 내용은 저장됐어요');
+    console.error('idea img',e);
+  });
 }
-function ideaDelImage(id,idx){ var it=S.items[id]; if(!it||!it.ideaData||!it.ideaData.refs)return; it.ideaData.refs.splice(idx,1); saveData(); openIdeaDetail(id); }
+function ideaDelImage(id,idx){ var it=S.items[id]; if(!it||!it.ideaData||!it.ideaData.refs)return; it.ideaData.refs.splice(idx,1); saveData(); renderIdeaBoard(); }
 function ideaPromote(id){
   var it=S.items[id]; if(!it)return;
   if(!confirm('이 아이디어를 샘플 단계 아이템으로 시작할까요?\n입력한 내용(소재·핏·예산·일정·이미지)은 그대로 유지돼요.'))return;
   it.statusManual={auto:true,phase:'sample',round:0,stage:'none'};
-  saveData(); closeIdeaDetail();
+  saveData();
   window._itemView='list'; try{renderItemsList();}catch(e){}
   if(typeof showToast==='function')showToast('샘플로 시작! 아이템 목록에서 이어가세요',4000);
 }
