@@ -9911,7 +9911,9 @@ function renderOrderNewItems(){
   // 렌더할 목록: 체크된 것(항상) + 현재 페이지 미체크분
   const renderList=[...checkedItems,...pageItems];
   // 공장 잔여물 배지 (리오더 발주 전 확인, 2026-07-09) — 렌더당 1회 계산
-  const _lvMap={};try{if(typeof prodLeftovers==='function')prodLeftovers().forEach(function(r){if(r.eff>0)_lvMap[r.itemId]=(_lvMap[r.itemId]||0)+r.eff;});}catch(e){}
+  // 2026-07-17: 자동(재단-출고)이 아니라 **잔량 탭에서 실제값을 직접 넣은 것만** 합산.
+  // 재단-출고 차이는 불량으로 버렸거나 애초에 안 맞을 수 있어 믿고 발주를 줄일 수 없었음 → 확인한 숫자만 배지로.
+  const _lvMap={};try{if(typeof prodLeftovers==='function')prodLeftovers().forEach(function(r){if(r.manual&&r.eff>0)_lvMap[r.itemId]=(_lvMap[r.itemId]||0)+r.eff;});}catch(e){}
   function itemRowHTML(it){
     const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
     const hasC=it.colors?.length>0;const hasS=it.sizes?.length>0;
@@ -9924,7 +9926,7 @@ function renderOrderNewItems(){
     const brandNm=it.brandId?getBrandName(it.brandId):'';
     const brandCol=it.brandId?getBrandColor(it.brandId):'';
     const brandBadge=brandNm?`<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:20px;font-size:10px;font-weight:700;background:${brandCol}22;color:${brandCol}"><span style="width:5px;height:5px;border-radius:50%;background:${brandCol}"></span>${esc(brandNm)}</span>`:'';
-    const lvBadge=_lvMap[it.id]>0?`<span style="font-size:10px;font-weight:800;padding:1px 7px;border:1.5px solid var(--red);background:#fee2e2;color:var(--red)" title="공장에 재단해놓고 출고 안 된 수량 — 잔량 탭에서 확인 후 발주하세요">잔여 ${_lvMap[it.id]}장</span>`:'';
+    const lvBadge=_lvMap[it.id]>0?`<span style="font-size:10px;font-weight:800;padding:1px 7px;border:1.5px solid var(--red);background:#fee2e2;color:var(--red)" title="잔량 탭에서 실제값으로 확인해 넣은 수량 — 이만큼 발주에서 빼세요">잔여 ${_lvMap[it.id]}장</span>`:'';
     return`<div data-item-row data-item-name="${esc(it.name)}" style="border:1px solid ${isChecked?'var(--blue)':'var(--bd)'};border-radius:var(--r);padding:.6rem;margin-bottom:8px;${isChecked?'background:#f0f7ff':''}"><div class="fb"><label style="font-size:13px;font-weight:600;margin-bottom:0;display:flex;align-items:center;gap:6px;cursor:pointer;flex-wrap:wrap"><input type="checkbox" id="nc_${it.id}" ${isChecked?'checked':''} onchange="toggleNC('${it.id}',this.checked)"> ${esc(it.name)} <span class="tag">${esc(it.code||'')}</span>${it.season?`<span class="muted">${esc(it.season)}</span>`:''} ${brandBadge}${lvBadge}</label></div><div id="nc-grid-${it.id}" style="display:${isChecked?'block':'none'}">${g}</div></div>`;
   }
   let html='';
@@ -15241,7 +15243,8 @@ function prodLeftovers(){
         var adj=(o.leftoverAdj||{})[_lvKey(o.id,oi.itemId,c)];
         var hasOvr=(adj&&adj.v!==''&&adj.v!=null);
         var eff=hasOvr?(+adj.v||0):lf;
-        if(eff>0||hasOvr||(adj&&adj.memo))out.push({oid:o.id,orderName:o.name||'',itemId:oi.itemId,itemName:it.name,color:c,cut:cut[c]||0,ship:ship[c]||0,auto:lf,eff:eff,ovr:hasOvr?adj.v:null,memo:(adj&&adj.memo)||''});
+        // manual=실제값을 직접 넣었나(0 포함). 배지·상태는 이걸로 판단 — 자동(재단-출고)은 불량·오차일 수 있어 확인 전엔 안 믿음
+        if(eff>0||hasOvr||(adj&&adj.memo))out.push({oid:o.id,orderName:o.name||'',itemId:oi.itemId,itemName:it.name,color:c,cut:cut[c]||0,ship:ship[c]||0,auto:lf,eff:eff,manual:!!hasOvr,ovr:hasOvr?adj.v:null,memo:(adj&&adj.memo)||''});
       });
     });
   });
@@ -15256,18 +15259,27 @@ function lvSetAdj(oid,itemId,colorEnc,field,val){
   if(!o.leftoverAdj[k].v&&!o.leftoverAdj[k].memo)delete o.leftoverAdj[k];
   saveData();renderLeftoverTab();
 }
-function itemLeftoverTotal(itemId){var t=0;prodLeftovers().forEach(function(r){if(r.itemId===itemId&&r.eff>0)t+=r.eff;});return t;}
+// (현재 미사용) 아이템별 잔여 합계 — 배지와 같은 기준: 실제값을 넣어 확인한 것만. 자동(재단-출고)은 안 셈
+function itemLeftoverTotal(itemId){var t=0;prodLeftovers().forEach(function(r){if(r.itemId===itemId&&r.manual&&r.eff>0)t+=r.eff;});return t;}
 function prodLeftoverSecHTML(){
-  var pl=prodLeftovers().filter(function(r){return r.eff>0||r.memo;});
-  var h='<div style="margin-bottom:18px"><div style="font-size:14px;font-weight:700">공장 잔여물 (재단 - 출고)</div><div class="muted" style="font-size:11px;margin-top:3px">재단해놓고 아직 출고 안 된 수량 — <b>리오더 발주 전에 여기부터</b> 확인하세요. 실제와 다르면 실제값·메모로 보정</div>';
+  // manual 포함 필수: 실제값 0("확인해보니 없음")은 eff=0·memo 없어도 줄이 남아야 함 (안 그러면 0 넣는 순간 줄이 사라져 되돌릴 수도 없음)
+  var pl=prodLeftovers().filter(function(r){return r.eff>0||r.memo||r.manual;});
+  var h='<style>.lv-st{font-size:9.5px;font-weight:800;padding:1px 6px;border:1.5px solid;white-space:nowrap;display:inline-block}'
+    +'.lv-st.wait{border-color:#c9c2b0;background:#f1efe8;color:#8a857a}'
+    +'.lv-st.ok{border-color:var(--red);background:#fee2e2;color:var(--red)}'
+    +'.lv-st.zero{border-color:var(--green);background:#dff0e4;color:var(--green)}</style>'
+    +'<div style="margin-bottom:18px"><div style="font-size:14px;font-weight:700">공장 잔여물 (재단 - 출고)</div><div class="muted" style="font-size:11px;margin-top:3px">재단해놓고 아직 출고 안 된 수량(자동) — <b>리오더 발주 전에 여기부터</b> 확인하세요. <b>실제값을 넣어야</b> 아이템 리스트에 잔여 배지가 떠요 (0 = 확인해보니 없음)</div>';
   if(!pl.length){h+='<div class="muted" style="font-size:12px;padding:10px 2px">지금 잔여물 없음 (재단·출고 기록 기준)</div></div>';return h;}
-  h+='<div style="overflow-x:auto;margin-top:8px"><table class="tbl" style="width:100%;min-width:540px"><thead><tr style="background:var(--bg3)"><th style="text-align:left">아이템</th><th>컬러</th><th>재단</th><th>출고</th><th>잔여</th><th>실제값</th><th style="text-align:left">메모</th></tr></thead><tbody>';
+  h+='<div style="overflow-x:auto;margin-top:8px"><table class="tbl" style="width:100%;min-width:620px"><thead><tr style="background:var(--bg3)"><th style="text-align:left">아이템</th><th>컬러</th><th>재단</th><th>출고</th><th>자동</th><th>실제값</th><th>상태</th><th style="text-align:left">메모</th></tr></thead><tbody>';
   pl.sort(function(a,b){return b.eff-a.eff;}).forEach(function(r){
     var ce=encodeURIComponent(r.color);
+    var st=!r.manual?'<span class="lv-st wait">미확인</span>':(r.eff>0?'<span class="lv-st ok">잔여 '+r.eff+'장</span>':'<span class="lv-st zero">없음 확인</span>');
     h+='<tr><td style="text-align:left"><b>'+esc(r.itemName)+'</b><div class="muted" style="font-size:10px">'+esc(r.orderName)+'</div></td>'
       +'<td style="text-align:center">'+esc(r.color||'-')+'</td><td style="text-align:center">'+r.cut+'</td><td style="text-align:center">'+r.ship+'</td>'
-      +'<td style="text-align:center;font-weight:800;color:var(--red)">'+r.eff+'장'+(r.ovr!=null?' <span class="muted" style="font-size:9px">(자동 '+r.auto+')</span>':'')+'</td>'
-      +'<td style="text-align:center"><input type="number" value="'+(r.ovr!=null?esc(r.ovr):'')+'" placeholder="'+r.auto+'" onchange="lvSetAdj(\''+r.oid+'\',\''+r.itemId+'\',\''+ce+'\',\'v\',this.value)" style="width:60px;text-align:center;font-size:12px;padding:3px" title="실제 잔여 수량 (비우면 자동값)"></td>'
+      +'<td class="muted" style="text-align:center">'+r.auto+'</td>'
+      // placeholder는 '미입력' — 옛 placeholder=자동값은 바로 옆 '자동' 칸과 중복인데다 이미 입력한 것처럼 보여서 헷갈렸음
+      +'<td style="text-align:center"><input type="number" value="'+(r.ovr!=null?esc(r.ovr):'')+'" placeholder="미입력" onchange="lvSetAdj(\''+r.oid+'\',\''+r.itemId+'\',\''+ce+'\',\'v\',this.value)" style="width:64px;text-align:center;font-size:12px;padding:3px" title="실제로 확인한 잔여 수량. 넣어야 배지가 떠요 (0=확인해보니 없음 · 비우면 미확인)"></td>'
+      +'<td style="text-align:center">'+st+'</td>'
       +'<td><input type="text" value="'+esc(r.memo||'')+'" placeholder="예: 비품 2 포함" onchange="lvSetAdj(\''+r.oid+'\',\''+r.itemId+'\',\''+ce+'\',\'memo\',this.value)" style="width:100%;min-width:110px;font-size:12px;padding:3px"></td></tr>';
   });
   h+='</tbody></table></div></div>';
