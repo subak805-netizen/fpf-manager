@@ -1484,7 +1484,10 @@ function _entShadowInit(){
   Object.keys(S.items||{}).forEach(function(id){ sh.items[id]=_entJson(S.items[id]); });
   Object.keys(S.orders||{}).forEach(function(id){ sh.orders[id]=_entJson(S.orders[id]); });
   window._entShadow=sh;
+  try{window._tbShadowJson=_tbJson();}catch(e){}   // 할일판 기준선도 함께 (부팅·수신 직후 = 변경 아님)
 }
+// 할일판 직렬화(_mt 제외) — 변경 감지용
+function _tbJson(){ try{ var t=S.todoBoard; if(!t)return 'null'; var c={},k; for(k in t){ if(k!=='_mt')c[k]=t[k]; } return JSON.stringify(c); }catch(e){ return 'err'; } }
 // 저장 직전: 이 세션에서 바뀐/새 항목에 _mt 도장, 사라진 항목은 무덤 기록.
 // 그림자(shadow)가 없으면 아무것도 안 함 — 부팅 마이그레이션의 기계적 변경이 "내가 고침"으로 오염되는 것 방지.
 function _entStampChanges(){
@@ -2064,6 +2067,8 @@ async function cloudSyncSave(){
         // 객체맵 키 단위 병합(b=로컬 승) — 다른 기기가 추가한 키를 내 저장이 안 지움
         S.trimLedger=_mergeMap(cloudCurrent.trimLedger,S.trimLedger);S.trimLedgerPaid=_mergeMap(cloudCurrent.trimLedgerPaid,S.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(cloudCurrent.trimLedgerOvr,S.trimLedgerOvr);
         S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeMap(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMap(cloudCurrent.brandConfig,S.brandConfig);
+        // 할일판: 송신에도 _mt 최신판정 — 낡은 기기의 옛 보드가 클라우드의 새 보드(다른 기기 삭제 반영본)를 안 덮음. 동률=로컬 승(내가 저장 중)
+        if(typeof _tbPick==='function')S.todoBoard=_tbPick(cloudCurrent.todoBoard,S.todoBoard);
         _entShadowInit(); // 병합 결과가 새 기준
         // 바뀐 것 있을 때만 다시 그림 + 스크롤 보존 (매 저장마다 무조건 재렌더→스크롤 맨위 튕김 버그 방지)
         if(_entChanged){ try{ if(typeof isEditingNow!=='function'||!isEditingNow()){ var _sy=window.scrollY||document.documentElement.scrollTop||0; switchTab(activeTab); window.scrollTo(0,_sy); } }catch(e3){} }
@@ -3275,6 +3280,9 @@ function saveData(){
   if(!curCoId)return;
   if(!window._undoSilent){try{_undoRecord();}catch(e){}}
   try{_entStampChanges();}catch(e){} // 항목별 병합: 바뀐 아이템·오더에 _mt 도장 + 삭제는 무덤 기록 (부팅 그림자 없으면 아무것도 안 함)
+  // 할일판 변경 자동 감지 → _mt 도장. 이게 없으면 _tbPick이 항상 동률→원격승이라, 다른 기기 옛 보드가 내 삭제를 되살림.
+  // 그림자 없으면(부팅 직후 첫 저장) 기준만 기록 — 안 바꿨는데 최신인 척해서 남의 삭제를 되살리는 것 방지.
+  try{ var _tbJ=_tbJson(); if(window._tbShadowJson!==undefined&&_tbJ!==window._tbShadowJson&&S.todoBoard)S.todoBoard._mt=Date.now(); window._tbShadowJson=_tbJ; }catch(e){}
   autoLocalBackup();
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
