@@ -8211,6 +8211,7 @@ function getTrimColorPriceFromPB(supplier,name,size,orderNm){
 }
 
 function setClrName(prefix,idx,colorEnc,val){
+  try{colFR();colTR();}catch(e){} // 재렌더 전 폼 값 수집 (원단명·단가 등 입력 날아감 방지)
   const cn=decodeURIComponent(colorEnc);
   let arr;
   if(prefix==='fab'){if(formFabs[idx])arr=formFabs[idx].colorLinks;}
@@ -8235,8 +8236,8 @@ function setClrName(prefix,idx,colorEnc,val){
 
 function _clrArr(prefix,idx){ if(prefix==='fab'||prefix==='fr')return formFabs[idx]&&formFabs[idx].colorLinks; if(prefix==='tc')return formTrimCosts[idx]&&formTrimCosts[idx].colorLinks; return formTrims[idx]&&formTrims[idx].colorLinks; }
 function _clrObj(prefix,idx){ if(prefix==='fab'||prefix==='fr')return formFabs[idx]; if(prefix==='tc')return formTrimCosts[idx]; return formTrims[idx]; }
-function onClrDye(prefix,idx,colorEnc){ var cn=decodeURIComponent(colorEnc); var arr=_clrArr(prefix,idx); var l=arr&&arr.find(function(x){return x.itemColor===cn;}); if(!l)return; l.dye=!l.dye; renderTrimRows(); }
-function onClrSwatch(prefix,idx,colorEnc){ var cn=decodeURIComponent(colorEnc); var arr=_clrArr(prefix,idx); var l=arr&&arr.find(function(x){return x.itemColor===cn;}); if(!l)return; l.swatch=!l.swatch; renderTrimRows(); }
+function onClrDye(prefix,idx,colorEnc){ try{colFR();colTR();}catch(e){} var cn=decodeURIComponent(colorEnc); var arr=_clrArr(prefix,idx); var l=arr&&arr.find(function(x){return x.itemColor===cn;}); if(!l)return; l.dye=!l.dye; renderTrimRows(); }
+function onClrSwatch(prefix,idx,colorEnc){ try{colFR();colTR();}catch(e){} var cn=decodeURIComponent(colorEnc); var arr=_clrArr(prefix,idx); var l=arr&&arr.find(function(x){return x.itemColor===cn;}); if(!l)return; l.swatch=!l.swatch; renderTrimRows(); }
 function setDyeNote(prefix,idx,val){ var o=_clrObj(prefix,idx); if(o)o.dyeNote=val; }
 function onClrSel(prefix,idx,el){
   const c=decodeURIComponent(el.dataset.clSel);
@@ -8318,6 +8319,7 @@ function onTrimSizeChange(i,val){
 
 // 절당yard·단가 입력 시 현재 사이즈를 단가표에 자동 저장 → 다음에 그 사이즈 고르면 자동 호출
 function upsertTrimSizeRate(i){
+  try{colTR();}catch(e){} // 재렌더 전 폼 값 수집 (입력 날아감 방지)
   var t=formTrims[i]; if(!t)return;
   var sz=String(t.size||t.buttonSize||'').trim(); if(!sz)return;
   var ypr=+t.yardsPerRoll||0, pr=+t.unitPrice||0;
@@ -8331,6 +8333,7 @@ function upsertTrimSizeRate(i){
   if(typeof showToast==='function')showToast(''+sz+' 단가표에 저장됨 (다음에 자동 호출)');
 }
 function onTrimSizePick(i,val){
+  try{colTR();}catch(e){} // 재렌더 전 폼 값 수집
   if(val==='__custom__'){
     var cur=(formTrims[i]&&formTrims[i].size)||'';
     var v=prompt('크기/규격 입력 (예: 60")',cur);
@@ -9357,6 +9360,9 @@ function renderUnregisteredMats(){
     +'</div>';
 }
 function pbRegisterFormMat(type,idx){
+  // ⚠️ 먼저 폼에 타이핑한 값을 메모리로 수집해야 함 — 안 하면 ①낡은 값으로 등록되고 ②끝의 renderFabRows/renderTrimRows가
+  //    아직 수집 안 된 입력칸(원단명·폭·단가 등)을 지워버림(입력 날아감). 2026-07-20 데이터 유실 원인
+  try{colFR();colTR();}catch(e){}
   if(type==='fab'){
     var f=(formFabs||[])[idx];if(!f||!f.supplier||!f.name){showToast('원단처와 원단명을 먼저 입력해주세요');return;}
     var pb=getPB(f.supplier),existing=pb.materials[f.name]||{};
@@ -9902,7 +9908,9 @@ function saveItemForm(opts){
   // silent=자동 저장 모드: 경고창을 띄울 상황(이름 없음·혼용률 오류·품번 중복)이면 조용히 건너뜀 — 수동 저장 때 처리
   var _silent=!!(opts&&opts.silent);
   colFR();colTR();colTrimCosts();const nm=document.getElementById('f-nm').value.trim();if(!nm){if(_silent)return;alert('아이템명 입력');return;}
-  var _compChk=validateFabComps();if(!_compChk.ok){if(_silent)return;showCompWarnModal(_compChk);return;}
+  // 혼용률 100% 미달: 수동 저장만 안내 모달로 막고, 자동저장은 그대로 저장한다.
+  // (예전엔 자동저장도 조용히 return → 혼용률 미완성이면 원단명·단가 등 적어둔 게 전부 저장 안 되고 폼 닫으면 소실. 2026-07-20 유실 원인)
+  var _compChk=validateFabComps();if(!_compChk.ok&&!_silent){showCompWarnModal(_compChk);return;}
   const id=editItemId||uid();
   const _cd=document.getElementById('f-cd').value.trim();
   if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup){if(_silent)return;if(!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}}
@@ -23275,6 +23283,7 @@ function updateBrandLabel(brandId,kind,idx,field,val){
   saveData();
 }
 function deleteBrandLabel(brandId,kind,idx){
+  try{colTR();}catch(e){} // 재렌더 전 폼 값 수집
   const b=getBrands().find(x=>x.id===brandId);if(!b)return;
   const arr=_brandLabelArr(b,kind);
   arr.splice(idx,1);
@@ -23304,6 +23313,7 @@ async function addLabelToBrandInline(brandId,kind,trimIdx){
 }
 // 메인라벨 폼: 브랜드 변경 → 라벨 목록 갱신
 function onMainLabelBrandChange(i,brandId){
+  try{colTR();}catch(e){} // 재렌더 전 폼 값 수집
   if(!formTrims[i])return;
   formTrims[i].brandId=brandId;
   formTrims[i].labelName=''; // 브랜드 바뀌면 라벨 초기화
@@ -23362,7 +23372,8 @@ function onCareLabelNameChange(i,name){
     showToast('저장된 단가 불러옴: '+num(rec.price)+'원');
   }
 }
-function onMainLabelSelect(i,labelName){  if(!formTrims[i])return;
+function onMainLabelSelect(i,labelName){  try{colTR();}catch(e){} // 재렌더 전 폼 값 수집
+  if(!formTrims[i])return;
   formTrims[i].labelName=labelName;
   const b=formTrims[i].brandId?getBrands().find(function(x){return x.id===formTrims[i].brandId;}):null;
   if(b&&b.mainLabels){
