@@ -1650,7 +1650,8 @@ function _mergeArrTombs(remoteTomb){ if(!S._tomb)S._tomb={}; remoteTomb=remoteTo
 function _mergeMap(a,b){ a=(a&&typeof a==='object'&&!Array.isArray(a))?a:{}; b=(b&&typeof b==='object'&&!Array.isArray(b))?b:{}; var out={},k; for(k in a)out[k]=a[k]; for(k in b)out[k]=b[k]; return out; }
 // 택배장부 전용: bank는 b(비어있지 않으면) 승, entries는 id 병합
 function _mergeCourier(a,b){ a=(a&&typeof a==='object')?a:{bank:'',entries:[]}; b=(b&&typeof b==='object')?b:{bank:'',entries:[]}; return {bank:(b.bank!=null&&b.bank!=='')?b.bank:(a.bank||''), entries:_mergeById(a.entries,b.entries)}; }
-function applyRemoteCoData(data,ts){
+function applyRemoteCoData(data,ts,opts){
+  // opts.noRender: 병합·저장만 하고 화면 재렌더는 생략 — 편집 중 저장 경로(cloudSyncSave 스테일 병합)에서 입력 방해 방지 (2026-07-21)
   if(!data)return;
   if(ts)try{setSyncBase('fpm_'+curCoId,ts);}catch(e){} // 원격을 반영했으니 내 기준 ts = 그 문서 ts
   var _oldItems=S.items||{};
@@ -1673,7 +1674,7 @@ function applyRemoteCoData(data,ts){
   S.trimLedger=_mergeMap(S.trimLedger,data.trimLedger);S.trimLedgerPaid=_mergeMap(S.trimLedgerPaid,data.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(S.trimLedgerOvr,data.trimLedgerOvr);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeMap(S.refData,data.refData);
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
-  try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
+  if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
 // 발주(__orders) 전용 원격 반영 — 별도 문서라 리스너도 따로. 항목별 병합(무덤 포함)
 function applyRemoteOrders(orders,tomb){
@@ -2038,15 +2039,17 @@ async function cloudSyncSave(){
         var _base=getSyncBase('fpm_'+curCoId);
         var _myLast=(window._lastPushTs&&window._lastPushTs['fpm_'+curCoId])||'';
         if(_cloudTs&&_base&&_cloudTs>_base&&_cloudTs!==_myLast&&!window._allowShrinkOnce){
-          console.warn('[cloudSyncSave] 스테일 감지: cloudTs '+_cloudTs+' > base '+_base+' → 덮어쓰기 중단, 최신 수신');
-          if(typeof isEditingNow==='function'&&isEditingNow()){
-            _rtPending={coId:curCoId,data:cloudCurrent,ts:_cloudTs}; if(typeof showRemoteBanner==='function')showRemoteBanner();
-          }else{
-            try{ applyRemoteCoData(cloudCurrent,_cloudTs); }catch(e){}
-            if(typeof showToast==='function')showToast('다른 기기의 최신을 받아 덮어쓰기를 막았어요',6000);
-          }
-          setCloudInd('ok');
-          return; // 이번 저장은 건너뜀 (로컬=클라우드가 됐으니 손실 없음)
+          // 스테일 = 아직 못 받은 다른 기기(또는 다른 탭) 변경이 클라우드에 있음.
+          // 예전: 이번 저장을 통째로 건너뜀(return) + 편집 중이면 배너만 → 배너를 안 누르면 base가 안 갱신돼
+          //       다음 저장도 계속 스킵 = "저장이 안 된다" 체감 (2026-07-21 사용자 보고).
+          // 지금: 원격을 병합으로 받아들인 뒤(항목별 병합이라 내 최신 편집은 살아남음) 저장을 계속 진행.
+          //       편집 중이면 noRender로 화면은 안 건드림(입력 보존) — 데이터만 합쳐짐.
+          console.warn('[cloudSyncSave] 스테일 감지: cloudTs '+_cloudTs+' > base '+_base+' → 병합 후 계속 저장');
+          var _editing=(typeof isEditingNow==='function'&&isEditingNow());
+          try{ applyRemoteCoData(cloudCurrent,_cloudTs,{noRender:_editing}); }catch(e){console.warn('[cloudSyncSave] 스테일 병합 실패:',e);}
+          // 방금 그 문서를 병합했으니 메인 문서 배너 대기분은 해소 (발주 문서 대기분은 별도 유지)
+          if(_rtPending&&_rtPending.coId===curCoId){_rtPending=null; if(!_rtPendingOrders&&typeof hideRemoteBanner==='function')hideRemoteBanner();}
+          if(typeof showToast==='function')showToast('다른 기기 변경을 합쳐서 저장했어요',4000);
         }
       }
     }catch(checkErr){
