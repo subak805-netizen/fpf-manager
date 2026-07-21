@@ -4756,13 +4756,37 @@ function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.t
     const bEl=r.querySelector('[data-f=building]');if(bEl&&!bEl.value&&e.building)bEl.value=e.building;
     const frEl=r.querySelector('[data-f=floorRoom]');if(frEl&&!frEl.value&&e.floorRoom)frEl.value=e.floorRoom;
   }}
+  // 1.5) 같은 원단처 + 같은 원단명이 다른 아이템에 있으면 → 폭·단가·혼용률까지 그대로 (단가장 미등록이어도 동작).
+  //      거래처가 같으니 단가도 신뢰 가능 — 이름만 매칭(2)과 달리 단가를 가져온다. (2026-07-21)
+  if(sup&&nm){var e15=_fabFromItems(sup,nm);if(e15){
+    var wE=r.querySelector('[data-f=width]');if(wE&&!wE.value&&e15.width){wE.value=e15.width;flash(wE);filled=true;}
+    if((e15.pricingUnit||'yard')==='kg'){
+      var pk=r.querySelector('[data-f=pricePerKg]');if(pk&&!+pk.value&&+e15.pricePerKg){pk.value=e15.pricePerKg;flash(pk);filled=true;}
+      var yk=r.querySelector('[data-f=yardsPerKg]');if(yk&&!+yk.value&&+e15.yardsPerKg)yk.value=e15.yardsPerKg;
+    }else{
+      var pu=r.querySelector('[data-f=unitPrice]');if(pu&&!+pu.value&&+e15.unitPrice){pu.value=e15.unitPrice;flash(pu);filled=true;}
+    }
+    var cE=r.querySelector('[data-f=composition]');
+    if(cE&&!cE.value&&e15.composition){cE.value=e15.composition;flash(cE);var _i15=(r.id||'').replace('fr-','');if(_i15!==''&&typeof setCompFromString==='function')setCompFromString(_i15,e15.composition);filled=true;}
+  }}
   // 2) 이름만으로 — 다른 아이템/단가장에서 같은 원단명의 폭·혼용률(물리값만). 단가는 거래처마다 달라 안 끌어옴.
   if(nm){var fdb=buildFabDB();var e2=fdb[nm];if(e2){
     var wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e2.width){wEl.value=e2.width;flash(wEl);filled=true;}
     var cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e2.composition){cEl.value=e2.composition;flash(cEl);var _idx2=(r.id||'').replace('fr-','');if(_idx2!==''&&typeof setCompFromString==='function')setCompFromString(_idx2,e2.composition);filled=true;}
     var sEl=r.querySelector('[data-f=supplier]');if(sEl&&!sEl.value&&e2.supplier){sEl.value=e2.supplier;flash(sEl);filled=true;}
   }}
-  if(filled)showToast('원단명으로 폭·혼용률 자동입력');
+  if(filled)showToast('같은 원단 정보 자동입력 (폭·단가·혼용률)');
+}
+// 같은 원단처 + 같은 원단명을 다른 아이템에서 찾아 가장 정보가 많은 것 반환 (단가장 등록 안 했어도 재사용 가능하게)
+function _fabFromItems(sup,nm){
+  sup=(sup||'').trim(); nm=(nm||'').trim(); if(!sup||!nm)return null;
+  var best=null,bestScore=-1;
+  Object.values(S.items||{}).forEach(function(it){(it.fabrics||[]).forEach(function(f){
+    if(!f||(f.name||'').trim()!==nm||(f.supplier||'').trim()!==sup)return;
+    var score=(f.width?1:0)+((+f.unitPrice>0||+f.pricePerKg>0)?1:0)+(f.composition?1:0);
+    if(score>bestScore){bestScore=score;best=f;}
+  });});
+  return bestScore>0?best:null;
 }
 // ===== 혼용률 Row 빌더 (한 줄에 하나씩) =====
 function parseComp(str){
@@ -8113,7 +8137,7 @@ function fabRowHTML(f,i){
         <div style="flex:.6;min-width:56px"><label>호수</label><input data-f="floorRoom" value="${esc(f.floorRoom||'')}" placeholder="215호"></div>
       </div>
       <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
-        <div style="flex:2;min-width:150px"><label>원단명 <span class="muted" style="font-size:9px">↔ 넓어짐</span></label><input list="dl-fnm" data-f="name" value="${esc(f.name||'')}" onchange="autofillFab(document.getElementById('fr-${i}'))" placeholder="20수 옥스포드 (이름 길어도 넉넉히)"></div>
+        <div style="flex:2;min-width:150px"><label>원단명 <span class="muted" style="font-size:9px">↔ 넓어짐</span></label><input list="dl-fnm" data-f="name" value="${esc(f.name||'')}" onfocus="updFnmDLRow(this)" onchange="autofillFab(document.getElementById('fr-${i}'))" placeholder="20수 옥스포드 (이름 길어도 넉넉히)"></div>
         <div style="flex:.5;min-width:54px"><label>폭 (인치)</label><input data-f="width" type="number" value="${f.width||''}" min="0" step="0.5" placeholder="58"></div>
         ${isKg?`<div style="flex:.8;min-width:68px"><label>KG단가(원)</label><input data-f="pricePerKg" type="number" value="${f.pricePerKg||0}" min="0"></div><div style="flex:.7;min-width:58px"><label>야드/KG</label><input data-f="yardsPerKg" type="number" value="${f.yardsPerKg||1}" min="0.01" step="0.01"></div>`
         :`<div style="flex:.8;min-width:68px"><label>야드단가(원)</label><input data-f="unitPrice" type="number" value="${f.unitPrice||0}" min="0"></div>`}
@@ -9150,7 +9174,25 @@ function onTrimMinOrderQty(i,val){
   persistTrimEdit(i);
 }
 
-function updFnmDL(inp){const sup=inp.value.trim();const dl=document.getElementById('dl-fnm');if(!dl)return;const m=S.priceBook[sup]?.materials||{};dl.innerHTML=Object.keys(m).filter(k=>m[k].type==='fabric').map(k=>`<option value="${esc(k)}">`).join('');}
+// 원단명 추천목록 = 그 원단처에 저장된 원단만 (단가장 + 다른 아이템에서 쓴 것 모두). 원단처가 비었거나 그 처 원단이 하나도 없으면 전체 (2026-07-21)
+function _fabNamesOfSup(sup){
+  var names=[],seen={};
+  var push=function(n){n=(n||'').trim();if(!n||seen[n])return;seen[n]=1;names.push(n);};
+  if(sup){
+    var m=(S.priceBook[sup]||{}).materials||{};
+    Object.keys(m).forEach(function(k){if(m[k]&&m[k].type==='fabric')push(k);});
+    Object.values(S.items||{}).forEach(function(it){(it.fabrics||[]).forEach(function(f){if(f&&(f.supplier||'').trim()===sup)push(f.name);});});
+  }
+  if(!names.length&&typeof buildFabDB==='function')Object.keys(buildFabDB()).forEach(push); // 폴백: 전체
+  return names.sort();
+}
+function _fillFnmDL(sup){const dl=document.getElementById('dl-fnm');if(!dl)return;dl.innerHTML=_fabNamesOfSup((sup||'').trim()).map(k=>`<option value="${esc(k)}">`).join('');}
+function updFnmDL(inp){_fillFnmDL(inp.value);}                       // 원단처 칸에서 호출
+function updFnmDLRow(inp){                                            // 원단명 칸 포커스 — 그 행의 원단처 기준으로 좁힘
+  var row=inp.closest?inp.closest('.fab-row'):null;
+  var supEl=row?row.querySelector('[data-f=supplier]'):null;
+  _fillFnmDL(supEl?supEl.value:'');
+}
 // 부자재명: 선택한 부자재처의 자재 이름을 목록으로 (거래처 없으면 전체) — 원단의 updFnmDL과 동일 컨셉
 function updTnmDL(el){
   var row=(el&&el.closest)?el.closest('[id^=tr-]'):null;
@@ -9265,7 +9307,8 @@ function openTrimPicker(rowId){
   var ex=document.getElementById('trim-pick-ov');if(ex)ex.remove();
   var ov=document.createElement('div');ov.id='trim-pick-ov';
   ov.style.cssText='position:fixed;inset:0;z-index:100090;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center';
-  ov.innerHTML='<div style="background:#fff;border-radius:14px 14px 0 0;max-width:560px;width:100%;max-height:84vh;display:flex;flex-direction:column;box-shadow:0 -8px 30px rgba(0,0,0,.25)">'
+  // height 고정(max-height 아님) — 검색어 칠 때마다 결과 수에 따라 시트가 늘었다 줄었다 하던 것 방지 (2026-07-21)
+  ov.innerHTML='<div style="background:#fff;border-radius:14px 14px 0 0;max-width:560px;width:100%;height:84vh;max-height:84vh;display:flex;flex-direction:column;box-shadow:0 -8px 30px rgba(0,0,0,.25)">'
     +'<div style="display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid #e2e8f0"><b style="flex:1;font-size:15px">단가장에서 부자재 불러오기</b><span onclick="closeTrimPicker()" style="cursor:pointer;font-size:20px;color:#6b7280;padding:0 4px">✕</span></div>'
     +'<div style="padding:11px 15px 8px"><input id="trim-pick-q" placeholder="부자재명·부자재처로 검색" oninput="_renderTrimPick()" autocomplete="off" style="width:100%;padding:9px 11px;font-size:14px;border:1.5px solid #cdd8e6;border-radius:9px;box-sizing:border-box"></div>'
     +'<div id="trim-pick-list" style="overflow-y:auto;flex:1;border-top:1px solid #eef1f4"></div>'
