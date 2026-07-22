@@ -12107,10 +12107,25 @@ function fcShipETA(sch){
   return '';
 }
 // 출고 여부: 수동 출고완료 OR 출고기록(출고수량) 있음 — "첫 출고 적히면 출고완료"
+/* === 잔량(미출고) 회차 (2026-07-21) ===
+   출고 입력에서 「잔량」 체크 = 만들었지만 아직 안 나간 물건(예: 단추 부족).
+   lv=1 & lvShipped 없음 → 출고 집계·결제에서 전부 제외. 나중에 실제 출고하면 lvShipped(날짜) 도장 →
+   그때부터 정상 출고로 편입돼 결제에 올라간다(사용자 결정 Q1-ⓐ: 나갈 때 청구).
+   ※ 비품(bg)은 "명세서에 올라가되 공임 할인"이라 성격이 다름 — 섞지 말 것. */
+function _lvPending(r){ return !!(r&&r.lv&&!r.lvShipped); }
 function fcShippedQty(sch){
   if(!sch)return 0;
-  var s=(sch.shipments||[]).reduce(function(a,x){return a+(+(x&&x.qty)||0);},0);
+  var s=(sch.shipments||[]).reduce(function(a,x){return a+(_lvPending(x)?0:(+(x&&x.qty)||0));},0);
   return s||(+sch.shippingQty||0);
+}
+// 이 스케줄의 미출고 잔량 합 (사유는 첫 기록 기준)
+function fcLeftoverQty(sch,itemId){
+  if(!sch)return 0;
+  return (sch.shipments||[]).reduce(function(a,x){
+    if(!_lvPending(x))return a;
+    if(itemId&&x.itemId&&x.itemId!==itemId)return a;
+    return a+(+x.qty||0);
+  },0);
 }
 function fcShipped(sch){return !!(sch&&(sch.shipDone||fcShippedQty(sch)>0));}
 // === 비품 출고 공임 할인 (2026-07-08) — 비품(bg=1) 회차는 공임 단가에서 bgDc%(기본 50) 할인. 봉제 공임에만 적용 ===
@@ -15499,19 +15514,53 @@ function prodLeftovers(){
       var cut={};
       (sch.cuttingShipments||[]).forEach(function(r){if(!r||!(+r.qty))return;if(r.itemId&&r.itemId!==oi.itemId)return;if(!r.itemId&&(o.orderItems||[]).length>1)return;cut[r.color||'']=(cut[r.color||'']||0)+(+r.qty||0);});
       if(!Object.keys(cut).length){var cg=(sch.cuttingGrid||{})[oi.itemId]||{};Object.keys(cg).forEach(function(c){var t=0;Object.values(cg[c]||{}).forEach(function(v){t+=+v||0;});if(t)cut[c]=t;});}
-      var ship={};
-      (sch.shipments||[]).forEach(function(r){if(!r||!(+r.qty))return;if(r.itemId&&r.itemId!==oi.itemId)return;if(!r.itemId&&(o.orderItems||[]).length>1)return;ship[r.color||'']=(ship[r.color||'']||0)+(+r.qty||0);});
+      var ship={},lvQ={},lvMemo={};
+      (sch.shipments||[]).forEach(function(r){if(!r||!(+r.qty))return;if(r.itemId&&r.itemId!==oi.itemId)return;if(!r.itemId&&(o.orderItems||[]).length>1)return;
+        var c=r.color||'';
+        if(_lvPending(r)){ // 출고 입력에서 「잔량」 체크한 미출고분 — 출고로 안 세고 잔량으로 집계
+          lvQ[c]=(lvQ[c]||0)+(+r.qty||0); if(r.lvMemo&&!lvMemo[c])lvMemo[c]=r.lvMemo; return;
+        }
+        ship[c]=(ship[c]||0)+(+r.qty||0);});
+      // 잔량 체크만 있고 재단 기록이 없는 컬러도 표에 나오게
+      Object.keys(lvQ).forEach(function(c){if(cut[c]===undefined)cut[c]=0;});
       Object.keys(cut).forEach(function(c){
         var lf=(cut[c]||0)-(ship[c]||0);
         var adj=(o.leftoverAdj||{})[_lvKey(o.id,oi.itemId,c)];
         var hasOvr=(adj&&adj.v!==''&&adj.v!=null);
+        // 출고 입력의 잔량 체크 = 확인된 실제값 (손으로 적은 실제값이 있으면 그게 우선)
+        var lvRec=+lvQ[c]||0;
+        if(!hasOvr&&lvRec>0){hasOvr=true;adj={v:lvRec,memo:lvMemo[c]||'',_fromShip:1};}
         var eff=hasOvr?(+adj.v||0):lf;
         // manual=실제값을 직접 넣었나(0 포함). 배지·상태는 이걸로 판단 — 자동(재단-출고)은 불량·오차일 수 있어 확인 전엔 안 믿음
-        if(eff>0||hasOvr||(adj&&adj.memo))out.push({oid:o.id,orderName:o.name||'',itemId:oi.itemId,itemName:it.name,color:c,cut:cut[c]||0,ship:ship[c]||0,auto:lf,eff:eff,manual:!!hasOvr,ovr:hasOvr?adj.v:null,memo:(adj&&adj.memo)||''});
+        if(eff>0||hasOvr||(adj&&adj.memo))out.push({oid:o.id,orderName:o.name||'',itemId:oi.itemId,itemName:it.name,color:c,cut:cut[c]||0,ship:ship[c]||0,auto:lf,eff:eff,manual:!!hasOvr,ovr:hasOvr?adj.v:null,memo:(adj&&adj.memo)||'',fromShip:!!(adj&&adj._fromShip),fcId:sewId});
       });
     });
   });
   return out;
+}
+/* 잔량 → 실제 출고 처리 (2026-07-21). 그 회차 기록에 lvShipped(날짜) 도장을 찍으면
+   _lvPending이 false가 되어 출고 집계·결제에 정상 편입된다 (Q1-ⓐ: 나갈 때 청구). */
+function lvShipNow(oid,fcId,itemId,colorEnc){
+  var o=S.orders[oid];if(!o)return;
+  var sch=(o.factorySchedules||{})[fcId];if(!sch||!Array.isArray(sch.shipments)){showToast('출고 기록을 찾을 수 없어요');return;}
+  var color=decodeURIComponent(colorEnc);
+  var targets=sch.shipments.filter(function(r){
+    if(!_lvPending(r))return false;
+    if((r.color||'')!==color)return false;
+    if(r.itemId&&r.itemId!==itemId)return false;
+    if(!r.itemId&&(o.orderItems||[]).length>1)return false;
+    return true;
+  });
+  if(!targets.length){showToast('처리할 잔량이 없어요');return;}
+  var q=targets.reduce(function(a,r){return a+(+r.qty||0);},0);
+  var d=prompt('잔량 '+q+'장 ('+(color||'-')+') 출고일을 입력하세요.\n\n출고 처리하면 이 수량이 결제에 올라가요.',todayISO());
+  if(d===null)return;
+  d=(d||'').trim()||todayISO();
+  targets.forEach(function(r){r.lvShipped=d;});
+  saveData();
+  try{renderLeftoverTab();}catch(e){}
+  try{if(typeof renderProdDash==='function')renderProdDash();}catch(e){}
+  showToast('잔량 '+q+'장 출고 처리 — 이제 결제에 올라가요',4000);
 }
 function lvSetAdj(oid,itemId,colorEnc,field,val){
   var o=S.orders[oid];if(!o)return;
@@ -15533,17 +15582,22 @@ function prodLeftoverSecHTML(){
     +'.lv-st.zero{border-color:var(--green);background:#dff0e4;color:var(--green)}</style>'
     +'<div style="margin-bottom:18px"><div style="font-size:14px;font-weight:700">공장 잔여물 (재단 - 출고)</div><div class="muted" style="font-size:11px;margin-top:3px">재단해놓고 아직 출고 안 된 수량(자동) — <b>리오더 발주 전에 여기부터</b> 확인하세요. <b>실제값을 넣어야</b> 아이템 리스트에 잔여 배지가 떠요 (0 = 확인해보니 없음)</div>';
   if(!pl.length){h+='<div class="muted" style="font-size:12px;padding:10px 2px">지금 잔여물 없음 (재단·출고 기록 기준)</div></div>';return h;}
-  h+='<div style="overflow-x:auto;margin-top:8px"><table class="tbl" style="width:100%;min-width:620px"><thead><tr style="background:var(--bg3)"><th style="text-align:left">아이템</th><th>컬러</th><th>재단</th><th>출고</th><th>자동</th><th>실제값</th><th>상태</th><th style="text-align:left">메모</th></tr></thead><tbody>';
+  h+='<div style="overflow-x:auto;margin-top:8px"><table class="tbl" style="width:100%;min-width:620px"><thead><tr style="background:var(--bg3)"><th style="text-align:left">아이템</th><th>컬러</th><th>재단</th><th>출고</th><th>자동</th><th>실제값</th><th>상태</th><th style="text-align:left">메모</th><th>출고</th></tr></thead><tbody>';
   pl.sort(function(a,b){return b.eff-a.eff;}).forEach(function(r){
     var ce=encodeURIComponent(r.color);
-    var st=!r.manual?'<span class="lv-st wait">미확인</span>':(r.eff>0?'<span class="lv-st ok">잔여 '+r.eff+'장</span>':'<span class="lv-st zero">없음 확인</span>');
+    var st=!r.manual?'<span class="lv-st wait">미확인</span>':(r.eff>0?(r.fromShip?'<span class="lv-st ok">미출고 '+r.eff+'장</span>':'<span class="lv-st ok">잔여 '+r.eff+'장</span>'):'<span class="lv-st zero">없음 확인</span>');
+    // 출고 입력에서 「잔량」 체크로 들어온 것만 출고 처리 가능 (그 회차 기록에 도장을 찍어야 하므로)
+    var shipBtn=(r.fromShip&&r.eff>0)
+      ? '<button class="btn s p" style="font-size:11px;padding:3px 8px;white-space:nowrap" onclick="lvShipNow(\''+r.oid+'\',\''+r.fcId+'\',\''+r.itemId+'\',\''+ce+'\')">출고 처리</button>'
+      : '<span class="muted" style="font-size:10px">-</span>';
     h+='<tr><td style="text-align:left"><b>'+esc(r.itemName)+'</b><div class="muted" style="font-size:10px">'+esc(r.orderName)+'</div></td>'
       +'<td style="text-align:center">'+esc(r.color||'-')+'</td><td style="text-align:center">'+r.cut+'</td><td style="text-align:center">'+r.ship+'</td>'
       +'<td class="muted" style="text-align:center">'+r.auto+'</td>'
       // placeholder는 '미입력' — 옛 placeholder=자동값은 바로 옆 '자동' 칸과 중복인데다 이미 입력한 것처럼 보여서 헷갈렸음
       +'<td style="text-align:center"><input type="number" value="'+(r.ovr!=null?esc(r.ovr):'')+'" placeholder="미입력" onchange="lvSetAdj(\''+r.oid+'\',\''+r.itemId+'\',\''+ce+'\',\'v\',this.value)" style="width:64px;text-align:center;font-size:12px;padding:3px" title="실제로 확인한 잔여 수량. 넣어야 배지가 떠요 (0=확인해보니 없음 · 비우면 미확인)"></td>'
       +'<td style="text-align:center">'+st+'</td>'
-      +'<td><input type="text" value="'+esc(r.memo||'')+'" placeholder="예: 비품 2 포함" onchange="lvSetAdj(\''+r.oid+'\',\''+r.itemId+'\',\''+ce+'\',\'memo\',this.value)" style="width:100%;min-width:110px;font-size:12px;padding:3px"></td></tr>';
+      +'<td><input type="text" value="'+esc(r.memo||'')+'" placeholder="예: 비품 2 포함" onchange="lvSetAdj(\''+r.oid+'\',\''+r.itemId+'\',\''+ce+'\',\'memo\',this.value)" style="width:100%;min-width:110px;font-size:12px;padding:3px"></td>'
+      +'<td style="text-align:center">'+shipBtn+'</td></tr>';
   });
   h+='</tbody></table></div></div>';
   return h;
@@ -16213,7 +16267,7 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
           var _rowDate=_shipISO?(typeof fmtKoDate==='function'?fmtKoDate(_shipISO):_shipISO):'';
           // --- 출고수량 소스: 이 공장 회차/그리드 → (없으면) 봉제공장 실제 출고(생산수량) → (없으면) 오더수량 ---
           var _gt=function(g){var t=0;if(g){for(var a in g){for(var b in g[a])t+=+g[a][b]||0;}}return t;};
-          var _rf=function(s){return (s&&s.shipments)?s.shipments.filter(function(x){if(!x||!(+x.qty))return false;if(x.itemId)return x.itemId===oi.itemId;return (o.orderItems||[]).length===1;}):[];};
+          var _rf=function(s){return (s&&s.shipments)?s.shipments.filter(function(x){if(!x||!(+x.qty))return false;if(_lvPending(x))return false;/* 잔량(미출고)은 명세서에 안 올림 */if(x.itemId)return x.itemId===oi.itemId;return (o.orderItems||[]).length===1;}):[];};
           var _srcRecs=_rf(_sch);
           var _srcGrid=(_sch&&_sch.shippingGrid&&_sch.shippingGrid[oi.itemId])||null;
           if(!_srcRecs.length&&_gt(_srcGrid)<=0&&_sewSch){
@@ -17366,7 +17420,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
     // 회차별(날짜 기준) 그룹 — 출고/봉제/완성/검품 모드에서 목록·수정·삭제용
     const byDate={};const dOrder=[];
     if(!isCut){
-      itRecs.forEach(function(r){ if(!r||!(+r.qty))return; var d=r.date||''; if(!byDate[d]){byDate[d]={total:0,grid:{}};dOrder.push(d);} var c=r.color||'',sz=r.size||''; byDate[d].total+=(+r.qty||0); if(!byDate[d].grid[c])byDate[d].grid[c]={}; byDate[d].grid[c][sz]=(byDate[d].grid[c][sz]||0)+(+r.qty||0); if(r.bg){byDate[d].bg=true;byDate[d].bgDc=(r.bgDc!=null&&r.bgDc!=='')?(+r.bgDc||0):50;} });
+      itRecs.forEach(function(r){ if(!r||!(+r.qty))return; var d=r.date||''; if(!byDate[d]){byDate[d]={total:0,grid:{}};dOrder.push(d);} var c=r.color||'',sz=r.size||''; byDate[d].total+=(+r.qty||0); if(!byDate[d].grid[c])byDate[d].grid[c]={}; byDate[d].grid[c][sz]=(byDate[d].grid[c][sz]||0)+(+r.qty||0); if(r.bg){byDate[d].bg=true;byDate[d].bgDc=(r.bgDc!=null&&r.bgDc!=='')?(+r.bgDc||0):50;} if(r.lv){byDate[d].lv=true;if(r.lvMemo&&!byDate[d].lvMemo)byDate[d].lvMemo=r.lvMemo;if(r.lvShipped)byDate[d].lvShipped=r.lvShipped;} });
       dOrder.sort(_cmpDateFn);
     }
     // 수정 모드: 그 회차(editDate) 값을 그리드에 미리 채움 + 날짜 그 회차로
@@ -17416,7 +17470,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
           var cs=colors.filter(function(c){return g.grid[c];}).map(function(c){var t=sizes.reduce(function(s,sz){return s+(+(g.grid[c]&&g.grid[c][sz])||0);},0);return esc(c||'-')+' '+t;}).join(' · ');
           var isEd=(editDate===d);var dEnc=encodeURIComponent(d);
           return '<div style="display:flex;align-items:center;gap:6px;padding:7px 9px;background:'+(isEd?'#fef9c3':'#f0fdf4')+';border:1px solid '+(isEd?'#fde047':'#bbf7d0')+';border-radius:6px;margin-bottom:5px;font-size:12px">'
-            +'<div style="flex:1;color:#065f46;min-width:0"><b>'+esc(dd)+'</b> <span style="color:#16a34a">'+cs+' = '+g.total+'장</span>'+(g.bg?' <b style="color:#b45309">비품 '+((g.bgDc!=null&&g.bgDc!=='')?+g.bgDc:50)+'%할인</b>':'')+(isEd?' <b style="color:#a16207">· 수정 중</b>':'')+'</div>'
+            +'<div style="flex:1;color:#065f46;min-width:0"><b>'+esc(dd)+'</b> <span style="color:#16a34a">'+cs+' = '+g.total+'장</span>'+(g.bg?' <b style="color:#b45309">비품 '+((g.bgDc!=null&&g.bgDc!=='')?+g.bgDc:50)+'%할인</b>':'')+(g.lv?(g.lvShipped?' <b style="color:#1a7a4a">잔량→출고 '+esc(g.lvShipped)+'</b>':' <b style="color:#1a7a4a">잔량 미출고'+(g.lvMemo?' ('+esc(g.lvMemo)+')':'')+'</b>'):'')+(isEd?' <b style="color:#a16207">· 수정 중</b>':'')+'</div>'
             +'<button onclick="pdEditShipBatch(\''+oid+'\',\''+itemId+'\',\''+role+'\',\''+fcId+'\',\''+dEnc+'\')" style="padding:4px 9px;background:#fff;border:1px solid #93c5fd;color:#1d4ed8;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">수정</button>'
             +'<button onclick="pdDeleteShipBatch(\''+oid+'\',\''+itemId+'\',\''+role+'\',\''+fcId+'\',\''+dEnc+'\')" style="padding:4px 8px;background:#fff;border:1px solid #fca5a5;color:#dc2626;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">🗑</button>'
           +'</div>';
@@ -17427,6 +17481,10 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
     let bgOn=false,bgDcVal=50;
     if(editDate&&byDate[editDate]&&byDate[editDate].bg){bgOn=true;bgDcVal=(byDate[editDate].bgDc!=null)?+byDate[editDate].bgDc:50;}
     const bgBar=(role==='출고')?`<div style="flex:0 0 auto"><div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">출고 구분</div><div style="display:flex;align-items:center;gap:8px"><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#92400e;cursor:pointer;padding:9px 12px;border:1px solid #fde68a;background:#fffbeb;border-radius:7px;margin:0"><input id="pd-grid-bg" type="checkbox" ${bgOn?'checked':''} onchange="var w=document.getElementById('pd-grid-bgdc-wrap');if(w)w.style.display=this.checked?'flex':'none'">비품 출고</label><span id="pd-grid-bgdc-wrap" style="display:${bgOn?'flex':'none'};align-items:center;gap:4px;font-size:12px;color:#92400e;font-weight:700">공임 할인 <input id="pd-grid-bgdc" type="number" inputmode="numeric" value="${bgDcVal}" min="0" max="100" style="width:58px;padding:8px 6px;border:1px solid #fde68a;border-radius:6px;text-align:center;font-family:inherit;font-size:13px"> %</span></div></div>`:'';
+    // 잔량(미출고) 토글 — 만들었지만 아직 안 나간 물건. 결제 제외 + 잔량 탭에 사유와 함께 남음 (2026-07-21)
+    let lvOn=false,lvMemoVal='';
+    if(editDate&&byDate[editDate]&&byDate[editDate].lv){lvOn=true;lvMemoVal=byDate[editDate].lvMemo||'';}
+    const lvBar=(role==='출고')?`<div style="flex:0 0 auto"><div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">잔량</div><div style="display:flex;align-items:center;gap:8px"><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#14532d;cursor:pointer;padding:9px 12px;border:1px solid #9ed7b4;background:#eefaf1;border-radius:7px;margin:0"><input id="pd-grid-lv" type="checkbox" ${lvOn?'checked':''} onchange="var w=document.getElementById('pd-grid-lv-wrap');if(w)w.style.display=this.checked?'flex':'none'">잔량 (미출고)</label><span id="pd-grid-lv-wrap" style="display:${lvOn?'flex':'none'};align-items:center;gap:4px"><input id="pd-grid-lvmemo" value="${esc(lvMemoVal)}" placeholder="왜 남았나요? (예: 단추 부족)" style="width:210px;padding:8px 9px;border:1px solid #9ed7b4;border-radius:6px;font-family:inherit;font-size:13px"></span></div></div>`:'';
     const html=`<div style="font-family:'Pretendard',-apple-system,sans-serif">
       <div style="font-size:12px;color:#6b7280;margin:0 0 14px">${esc(fc.name||'공장')} · 오더 ${orderTotal}장 · ${esc(role)} 입력</div>
       ${prevSummary}
@@ -17434,6 +17492,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
         <div style="flex:0 0 180px"><div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">${dateLabel}</div><input id="pd-grid-date" type="date" value="${esc(curDate)}" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:7px;font-size:14px;color:#333;font-family:inherit"></div>
         <div style="flex:1;min-width:160px"><div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">메모(선택)</div><input id="pd-grid-memo" type="text" placeholder="메모" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:7px;font-size:14px;color:#333;font-family:inherit"></div>
         ${bgBar}
+        ${lvBar}
       </div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px">
         <table style="width:100%;border-collapse:collapse;font-family:inherit;min-width:${Math.max(360,80+sizes.length*100+80)}px">
@@ -17543,12 +17602,18 @@ function pdGridSave(){
   let _bgDc=50;
   const _bgDcEl=document.getElementById('pd-grid-bgdc');
   if(_bgDcEl&&_bgDcEl.value!==''){_bgDc=+_bgDcEl.value;if(!(_bgDc>=0))_bgDc=50;if(_bgDc>100)_bgDc=100;}
+  // 잔량(미출고) — 체크 시 이 회차 전체에 lv=1 + 사유. 결제·출고집계에서 빠지고 잔량 탭에 뜬다
+  const _lvEl=document.getElementById('pd-grid-lv');
+  const _lvOn=!!(_lvEl&&_lvEl.checked);
+  const _lvMemoEl=document.getElementById('pd-grid-lvmemo');
+  const _lvMemo=(_lvMemoEl&&_lvMemoEl.value.trim())||'';
   const newRecs=[];
   inputs.forEach(inp=>{
     const c=inp.dataset.color,sz=inp.dataset.size,q=+inp.value||0;
     if(!q)return;
     const rec={id:(typeof uid==='function'?uid():'cs'+Date.now()+Math.random()),date:date||todayISO(),color:c,size:sz,qty:q,memo:memo,itemId:ctx.itemId};
     if(_bgOn){rec.bg=1;rec.bgDc=_bgDc;}
+    if(_lvOn){rec.lv=1;if(_lvMemo)rec.lvMemo=_lvMemo;}
     newRecs.push(rec);
   });
   const o=S.orders[ctx.oid];if(!o)return;
@@ -20843,6 +20908,7 @@ function renderItemPay(opts){
         if(sewSch){
           (sewSch.shipments||[]).forEach(function(s){
             if(!s||!+s.qty)return;
+            if(_lvPending(s))return; // 잔량(미출고) = 아직 안 나감 → 이번 결제 제외. 출고 처리하면 그때 청구
             if(s.itemId&&s.itemId!==oi.itemId)return;
             if(!s.itemId&&o.orderItems.length>1)return;
             sewShipQty+=(+s.qty||0);
