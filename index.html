@@ -13385,7 +13385,8 @@ function renderOTab(){
     else if(curOTab==='paysht')el.innerHTML=renderPayShtTab(o);
     else if(curOTab==='memo')el.innerHTML=renderMemoTab(o);
   }catch(err){el.innerHTML=`<div class="warn-box">오류: ${esc(err.message)}</div><pre style="font-size:10px;overflow:auto">${esc(err.stack||'')}</pre>`;}
-  if(_useWin)window.scrollTo(0,_top);else _sc.scrollTop=_top;
+  var _restore=function(){if(_useWin)window.scrollTo(0,_top);else _sc.scrollTop=_top;};
+  _restore();if(typeof requestAnimationFrame==='function')requestAnimationFrame(_restore); // 모바일: innerHTML 교체 직후 동기 복원이 안 먹어서 다음 프레임에 한 번 더
 }
 
 // 발주서 진입 시 최신 아이템 정의(로스율·요척 등)로 자재 재계산
@@ -13569,7 +13570,7 @@ function orderLossPanelHTML(o){
     });
   });
   if(!rows)return '';
-  return '<div class="lp-panel"><button type="button" class="lp-head" onclick="window._poLossOpen=!window._poLossOpen;renderOTab()">'+(open?'▾':'▸')+' 로스 / 여분 <span class="lp-hint">자재별 % · 벌치 · +개 (이 발주서에만)</span></button><div class="lp-bd"'+(open?'':' style="display:none"')+'>'+lossPresetBarHTML(o)+rows+'</div></div>';
+  return '<div class="lp-panel"><button type="button" class="lp-head" onclick="togglePoLossInline(this)"><span class="lp-car">'+(open?'▾':'▸')+'</span> 로스 / 여분 <span class="lp-hint">자재별 % · 벌치 · +개 (이 발주서에만)</span></button><div class="lp-bd"'+(open?'':' style="display:none"')+'>'+lossPresetBarHTML(o)+rows+'</div></div>';
 }
 function renderPoTab(o){
   // 최신 아이템 정의(로스율 등) 반영 — actualOrderedQty/메타 보존하며 재계산
@@ -13599,6 +13600,12 @@ function poCardCollapsed(oid,sn){return !!_poCollGet('fpm_poCardColl')[_poCK(oid
 function togglePoCard(oid,sn){_poCollTog('fpm_poCardColl',oid,sn);}
 function poMatCollapsed(oid,sn){return !!_poCollGet('fpm_poMatColl')[_poCK(oid,sn)];}
 function togglePoMat(oid,sn){_poCollTog('fpm_poMatColl',oid,sn);}
+// ── 발주 카드 패널 in-place 토글: 재렌더(renderOTab) 없이 그 자리에서만 열고 닫음 → 스크롤 안 튐·다른 카드 영향 0 ──
+function _poCollSetVal(key,oid,sn,collapsed){var m=_poCollGet(key),k=_poCK(oid,sn);if(collapsed)m[k]=1;else delete m[k];try{localStorage.setItem(key,JSON.stringify(m));}catch(e){}}
+function togglePoCardInline(btn,oid,sn){var card=btn.closest('.po2');if(!card)return;var coll=card.classList.toggle('po2-collapsed');btn.textContent=coll?'▸':'▾';_poCollSetVal('fpm_poCardColl',oid,sn,coll);}
+function togglePoMatInline(btn,oid,sn){var fold=btn.closest('.po2-matfold');if(!fold)return;var bd=fold.querySelector('.po2-matbd');if(!bd)return;var willOpen=bd.style.display==='none';bd.style.display=willOpen?'':'none';var car=btn.querySelector('.po2-car');if(car)car.textContent=willOpen?'▾':'▸';_poCollSetVal('fpm_poMatColl',oid,sn,!willOpen);}
+function togglePoLossInline(btn){var panel=btn.closest('.lp-panel');if(!panel)return;var bd=panel.querySelector('.lp-bd');if(!bd)return;var willOpen=bd.style.display==='none';bd.style.display=willOpen?'':'none';var car=btn.querySelector('.lp-car');if(car)car.textContent=willOpen?'▾':'▸';window._poLossOpen=willOpen;}
+function togglePoCheckInline(btn,oid,sn){var wrap=btn.closest('.po2-check');if(!wrap)return;var bd=wrap.querySelector('.po2-check-b');if(!bd)return;window._poCheckOpen=(window._poCheckOpen&&typeof window._poCheckOpen==='object')?window._poCheckOpen:{};var key=oid+'|'+sn;var willOpen=!window._poCheckOpen[key];window._poCheckOpen[key]=willOpen;if(willOpen){var o=poResolveOrder(oid);try{bd.innerHTML=o?renderCheckTab(o,sn):'';}catch(e){bd.innerHTML='<div class="warn-box">오류: '+esc(e.message)+'</div>';}bd.style.display='';}else{bd.style.display='none';}var car=btn.querySelector('.po2-check-car');if(car)car.textContent=willOpen?'▾':'▸';}
 // 거래처 발주 카드 1개 — 첫 발주(S.orders)·추가발주(orderLike) 공용. o는 실주문 또는 추가발주용 orderLike
 function poCardHTML(o,sn){
     const sup=o.suppliers[sn];if(!sup)return'';const sent=sup.status==='sent';const opts=sup.poOpts||{};const pb=S.priceBook[sn]||{};
@@ -13761,9 +13768,9 @@ function poCardHTML(o,sn){
     const _cardColl=(typeof poCardCollapsed==='function')&&poCardCollapsed(o.id,sn);
     const _matColl=(typeof poMatCollapsed==='function')&&poMatCollapsed(o.id,sn);
     const _rowCnt=(String(poParts.matTbl).match(/class="mitem/g)||[]).length;
-    const _matFold=poParts.matTbl?`<div class="po2-matfold"><button type="button" class="po2-matfold-h" onclick="togglePoMat('${o.id}','${sn}')">${_matColl?'▸':'▾'} 자재 ${_rowCnt}건</button>${_matColl?'':poParts.matTbl}</div>`:'';
+    const _matFold=poParts.matTbl?`<div class="po2-matfold"><button type="button" class="po2-matfold-h" onclick="togglePoMatInline(this,'${o.id}','${sn}')"><span class="po2-car">${_matColl?'▸':'▾'}</span> 자재 ${_rowCnt}건</button><div class="po2-matbd"${_matColl?' style="display:none"':''}>${poParts.matTbl}</div></div>`:'';
     return`<div class="sc po2${_cardColl?' po2-collapsed':''}"><div class="sc-h">
-      <div class="po2-hd"><button type="button" class="po2-fold" onclick="togglePoCard('${o.id}','${sn}')">${_cardColl?'▸':'▾'}</button><span class="po2-nm">${esc(sn)}</span><span class="badge ${sent?'b1':'b0'}"${sent?` title="발송됨 — 수량 고정 (아이템·오더수량·요척 바꿔도 이 발주서는 안 변함). 더 필요하면 추가발주로."`:''}>${sent?'발송 · 고정':'미발송'}</span><span class="po2-collsum">자재 ${_rowCnt}건</span><span class="po2-acts"><button class="po2-ab copy" onclick="cpPO('${o.id}','${sn}')">복사</button><button class="po2-ab kakao" onclick="sharePoKakao('${o.id}','${sn}')">카톡</button><button class="po2-ab sub" onclick="sendPoEmail('${o.id}','${sn}')">메일</button><button class="po2-ab sub" onclick="sendPoSMS('${o.id}','${sn}')">문자</button>${!sent?`<button class="po2-ab done" onclick="markPoSent('${o.id}','${sn}')">발송완료</button>`:`<button class="po2-ab undo" onclick="unSent('${o.id}','${sn}')" title="발송 ${esc(sup.sentAt||'')}">발송취소</button>`}</span><button class="po2-del" onclick="deleteOrderSupplier('${o.id}','${sn}')" title="이 발주서 삭제">🗑</button></div>
+      <div class="po2-hd"><button type="button" class="po2-fold" onclick="togglePoCardInline(this,'${o.id}','${sn}')">${_cardColl?'▸':'▾'}</button><span class="po2-nm">${esc(sn)}</span><span class="badge ${sent?'b1':'b0'}"${sent?` title="발송됨 — 수량 고정 (아이템·오더수량·요척 바꿔도 이 발주서는 안 변함). 더 필요하면 추가발주로."`:''}>${sent?'발송 · 고정':'미발송'}</span><span class="po2-collsum">자재 ${_rowCnt}건</span><span class="po2-acts"><button class="po2-ab copy" onclick="cpPO('${o.id}','${sn}')">복사</button><button class="po2-ab kakao" onclick="sharePoKakao('${o.id}','${sn}')">카톡</button><button class="po2-ab sub" onclick="sendPoEmail('${o.id}','${sn}')">메일</button><button class="po2-ab sub" onclick="sendPoSMS('${o.id}','${sn}')">문자</button>${!sent?`<button class="po2-ab done" onclick="markPoSent('${o.id}','${sn}')">발송완료</button>`:`<button class="po2-ab undo" onclick="unSent('${o.id}','${sn}')" title="발송 ${esc(sup.sentAt||'')}">발송취소</button>`}</span><button class="po2-del" onclick="deleteOrderSupplier('${o.id}','${sn}')" title="이 발주서 삭제">🗑</button></div>
       <div class="po2-meta"><span class="m1">출고처 <select onchange="setPoDelivery('${o.id}','${sn}',this.value)">${fcOpts(sup.deliveryFcId||'')}</select></span>${pb.email||pb.phone?`<span class="m1 muted" style="color:var(--t3,#9aa0a6)">${pb.email?esc(pb.email)+' ':''}${pb.phone?esc(pb.phone):''}</span>`:''}</div>
     </div>
     <div class="sc-b">
@@ -13781,7 +13788,7 @@ function poCardHTML(o,sn){
       </details>
       <div class="po2-folds">
         ${poParts.calcHtml}
-        ${(()=>{window._poCheckOpen=(window._poCheckOpen&&typeof window._poCheckOpen==='object')?window._poCheckOpen:{};const _op=!!window._poCheckOpen[sn];return `<div class="po2-check"><button type="button" class="po2-check-h" onclick="window._poCheckOpen['${sn}']=!window._poCheckOpen['${sn}'];renderOTab()">${_op?'▾':'▸'} 거래처 확인 <span class="hint">협상단가·자재</span></button><div class="po2-check-b"${_op?'':' style="display:none"'}>${_op?renderCheckTab(o,sn):''}</div></div>`;})()}
+        ${(()=>{window._poCheckOpen=(window._poCheckOpen&&typeof window._poCheckOpen==='object')?window._poCheckOpen:{};const _ck=o.id+'|'+sn;const _op=!!window._poCheckOpen[_ck];return `<div class="po2-check"><button type="button" class="po2-check-h" onclick="togglePoCheckInline(this,'${o.id}','${sn}')"><span class="po2-check-car">${_op?'▾':'▸'}</span> 거래처 확인 <span class="hint">협상단가·자재</span></button><div class="po2-check-b"${_op?'':' style="display:none"'}>${_op?renderCheckTab(o,sn):''}</div></div>`;})()}
       </div>
     </div></div>`;
 }
@@ -20662,6 +20669,115 @@ function clDel(id){var cl=clEnsure();var i=cl.entries.findIndex(function(e){retu
 function clSettle(brandId,val){var cl=clEnsure();var t=(typeof todayISO==='function'?todayISO():'');cl.entries.forEach(function(e){if((e.brandId||'')===(brandId||'')&&_clPeriodOk(e.date)){e.settled=!!val;if(val)e.settledAt=t;}});saveData();renderCourierLedger();showToast(val?'정산 완료로 표시했어요':'정산 취소했어요');}
 
 function _clBrandDone(id){ var rows=_clRows(id); return rows.length>0&&rows.every(function(e){return e.settled;}); }
+
+/* ===== 경기택배 송장 인쇄 (전용 스티커 오버프린트 110×90mm) — 2026-07-23 =====
+   수신·담당·전화·주소=거래처(S.factories) 검색 자동채움 / 날짜=당일 / 선불·착불 체크(O) / 비고 칩.
+   발신(포애…)은 스티커에 이미 인쇄돼 있어 값만 얹음. 인쇄 땐 alPrint처럼 @page를 110×90으로 덮고 복원. */
+var _CI_FILL={date:{x:4,y:4.4,size:9.5,w:25},name:{x:12,y:39.5,size:13,bold:1,w:46},cont:{x:75,y:40,size:9.5,w:32},phone:{x:12,y:49,size:11,w:94},addr:{x:12,y:58,size:9,w:95,lh:1.2},fare:{y:74,size:15,bold:1,w:19,center:1},bigo:{x:81,y:73.5,size:10,w:26,center:1,lh:1.15}};
+var _CI_FAREX={seon:11,chak:30};
+function _ciEnsureStyle(){
+  if(document.getElementById('ci-style'))return;
+  var st=document.createElement('style');st.id='ci-style';
+  st.textContent='#ci-form label{display:block;font-size:11px;color:#667;font-weight:700;margin:0 0 3px}'
+  +'#ci-form .ci-fg{margin-bottom:9px}'
+  +'#ci-form input{width:100%;font-size:13px;padding:7px 8px;border:1px solid #cccfd6;border-radius:7px;box-sizing:border-box;font-family:inherit;color:#111;background:#fff}'
+  +'#ci-form .ci-row{display:flex;gap:8px}#ci-form .ci-row>*{flex:1}'
+  +'.ci-seg{display:flex;border:1px solid #cccfd6;border-radius:8px;overflow:hidden}'
+  +'.ci-seg button{flex:1;font-size:13px;padding:8px 0;border:0;background:#fff;cursor:pointer;font-family:inherit;color:#111}'
+  +'.ci-seg button.on{background:#111;color:#fff}'
+  +'.ci-chip{font-size:12px;padding:5px 11px;border:1px solid #cccfd6;border-radius:999px;background:#fff;cursor:pointer;display:inline-block;margin:0 5px 5px 0;color:#111}'
+  +'.ci-chip.on{background:#111;color:#fff;border-color:#111}'
+  +'.ci-nudge{display:flex;align-items:center;gap:6px;font-size:12px;color:#556;margin:8px 0;flex-wrap:wrap}'
+  +'#ci-form .ci-nudge input{width:52px;padding:4px;font-size:12px}'
+  +'.ci-tog{display:flex;align-items:center;gap:7px;font-size:12px;color:#445;margin:6px 0}'
+  +'.ci-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}'
+  +'.ci-cap{font-size:11px;color:#889;margin:10px 0 6px;line-height:1.5}'
+  +'.ci-preview-wrap{overflow:auto;background:#fff;border:1px solid #e3e6ea;border-radius:8px;padding:8px}'
+  +'.ci-label{position:relative;width:110mm;height:90mm;background:#fff;outline:1px dashed #c9ccd2;overflow:hidden}'
+  +'.ci-label,.ci-label *{box-sizing:border-box}'
+  +'.ci-label>div{position:absolute;left:0;top:0;width:110mm;height:90mm}'
+  +'.ci-guide>div,.ci-gband,.ci-gsend,.ci-glogo,.ci-gbox,.ci-lbl,.ci-grecv,.ci-gfare,.ci-fcol,.ci-fhead,.ci-hr{position:absolute}'
+  +'.ci-guide>div{color:#111}'
+  +'.ci-gband{background:#dff0e2;height:13.5mm;width:110mm;left:0;top:0}'
+  +'.ci-gsend{background:#dff0e2;height:17mm;width:110mm;left:0;top:20mm;border-top:.35mm solid #6a8f76}'
+  +'.ci-glogo{left:34mm;top:2.2mm;width:74mm;font-weight:800;font-size:15pt;color:#123b22;line-height:1.05}'
+  +'.ci-glogo small{display:block;font-size:8pt;font-weight:700;letter-spacing:.06em;color:#2b5a38}'
+  +'.ci-lbl{font-weight:800;font-size:9pt}'
+  +'.ci-grecv{border:.7mm solid #e11;left:1.5mm;top:37mm;width:107mm;height:29mm}'
+  +'.ci-gfare{border:.35mm solid #333;left:1.5mm;top:66mm;width:107mm;height:16mm}'
+  +'.ci-fcol{border-left:.35mm solid #333;top:66mm;height:16mm;width:0}'
+  +'.ci-fhead{top:67mm;font-size:8.5pt;font-weight:800;text-align:center}'
+  +'.ci-hr{height:0;border-top:.3mm solid #eaa}'
+  +'.ci-fill{position:absolute;left:0;top:0;width:110mm;height:90mm}'
+  +'.ci-fill>div{position:absolute;color:#000;white-space:pre-line}'
+  +'#ci-sheet{display:none}'
+  +'@media print{body.ci-printing>*{display:none!important}body.ci-printing #ci-sheet{display:block!important;position:static;margin:0;padding:0}}';
+  document.head.appendChild(st);
+}
+function _ciFactories(){return Object.keys(S.factories||{}).map(function(k){return S.factories[k];}).filter(function(f){return f&&f.name;}).map(function(f){return {name:f.name,cont:f.contact||'',phone:f.phone||'',addr:f.address||''};}).sort(function(a,b){return a.name.localeCompare(b.name,'ko');});}
+function _ciFrameHTML(){
+  return '<div class="ci-guide">'
+  +'<div class="ci-gband"></div>'
+  +'<div class="ci-gbox" style="left:2mm;top:1.5mm;width:29mm;height:11.5mm;border:.35mm solid #2b5a38;background:#fff"></div>'
+  +'<div class="ci-glogo">서울경기특송(경기택배)<small>Seoul Kyunggi Express</small></div>'
+  +'<div class="ci-gbox" style="left:5mm;top:15mm;width:104mm;font-size:7.8pt;font-weight:700;white-space:nowrap">[서울] 1588-8170 &nbsp;[경기] 031-865-0546 &nbsp;[대구] 053-588-0546 <b style="color:#c00">[부산배송]</b></div>'
+  +'<div class="ci-gsend"></div>'
+  +'<div class="ci-lbl" style="left:2mm;top:22.4mm">발신</div><div class="ci-lbl" style="left:2mm;top:30mm">주소</div>'
+  +'<div class="ci-gbox" style="left:11mm;top:21.2mm;font-size:12pt;font-weight:800">포애<span style="font-size:9pt;font-weight:700">&nbsp;&nbsp;담당 : 박수빈</span></div>'
+  +'<div class="ci-gbox" style="left:11mm;top:29mm;width:97mm;font-size:8.4pt;line-height:1.25">010-7642-0805 강서구 공항대로213, 보타닉파크 2차 910호 (마곡동774-2)</div>'
+  +'<div class="ci-grecv"></div>'
+  +'<div class="ci-lbl" style="left:3mm;top:40.5mm">수신</div><div class="ci-lbl" style="left:3mm;top:49.5mm">전화</div><div class="ci-lbl" style="left:3mm;top:58.5mm">주소</div>'
+  +'<div class="ci-gbox" style="left:62mm;top:39.4mm;font-size:9pt;font-weight:700">담당 :</div>'
+  +'<div class="ci-hr" style="left:1.5mm;top:47mm;width:107mm"></div><div class="ci-hr" style="left:1.5mm;top:56mm;width:107mm"></div>'
+  +'<div class="ci-gfare"></div><div class="ci-lbl" style="left:2.5mm;top:72mm">운임</div>'
+  +'<div class="ci-fcol" style="left:11mm"></div><div class="ci-fcol" style="left:30mm"></div><div class="ci-fcol" style="left:49mm"></div><div class="ci-fcol" style="left:80mm"></div>'
+  +'<div class="ci-fhead" style="left:11mm;width:19mm">선 불</div><div class="ci-fhead" style="left:30mm;width:19mm">착 불</div><div class="ci-fhead" style="left:49mm;width:31mm">물품수량</div><div class="ci-fhead" style="left:80mm;width:28mm">비 고</div>'
+  +'<div class="ci-gbox" style="left:2mm;top:82.8mm;font-size:8pt;font-weight:700;color:#333">3자 청구</div>'
+  +'</div>';
+}
+function _ciVal(id){var e=document.getElementById(id);return e?e.value:'';}
+function _ciVals(){return {date:_ciVal('ci-date'),name:_ciVal('ci-name'),cont:_ciVal('ci-cont'),phone:_ciVal('ci-phone'),addr:_ciVal('ci-addr'),bigo:_ciVal('ci-bigo'),fare:window._ciFare||'seon'};}
+function _ciCell(f,txt){if(txt==null||txt==='')return '';var s='position:absolute;left:'+f.x+'mm;top:'+f.y+'mm;width:'+(f.w||40)+'mm;font-size:'+f.size+'pt;font-weight:'+(f.bold?800:500)+';line-height:'+(f.lh||1.1)+';'+(f.center?'text-align:center;':'');return '<div style="'+s+'">'+esc(txt)+'</div>';}
+function _ciFillHTML(v){var F=_CI_FILL,h='';h+=_ciCell(F.date,v.date);h+=_ciCell(F.name,v.name);h+=_ciCell(F.cont,v.cont);h+=_ciCell(F.phone,v.phone);h+=_ciCell(F.addr,v.addr);var fx={};for(var k in F.fare)fx[k]=F.fare[k];fx.x=_CI_FAREX[v.fare]||11;h+=_ciCell(fx,'O');h+=_ciCell(F.bigo,v.bigo);return h;}
+function ciRender(){var fl=document.getElementById('ci-fill');if(!fl)return;var nx=parseFloat(_ciVal('ci-nx'))||0,ny=parseFloat(_ciVal('ci-ny'))||0;fl.style.transform='translate('+nx+'mm,'+ny+'mm)';fl.innerHTML=_ciFillHTML(_ciVals());}
+function ciOnVendor(){var q=(_ciVal('ci-vendor')||'').trim();var v=_ciFactories().find(function(x){return x.name===q;});if(v){document.getElementById('ci-name').value=v.name;document.getElementById('ci-cont').value=v.cont;document.getElementById('ci-phone').value=v.phone;document.getElementById('ci-addr').value=v.addr;}else if(q){document.getElementById('ci-name').value=q;}ciRender();}
+function ciSetFare(f){window._ciFare=f;var s=document.getElementById('ci-seg-seon'),c=document.getElementById('ci-seg-chak');if(s)s.classList.toggle('on',f==='seon');if(c)c.classList.toggle('on',f==='chak');ciRender();}
+function ciSetBigo(t){var b=document.getElementById('ci-bigo');if(b)b.value=t;var box=document.getElementById('ci-bigochips');if(box)[].forEach.call(box.querySelectorAll('.ci-chip'),function(c){c.classList.toggle('on',c.textContent===t);});ciRender();}
+function ciResetNudge(){var x=document.getElementById('ci-nx'),y=document.getElementById('ci-ny');if(x)x.value=0;if(y)y.value=0;ciRender();}
+function openCourierInvoice(){
+  _ciEnsureStyle();window._ciFare='seon';
+  var todayStr=(typeof fmtKoDate==='function'&&typeof todayISO==='function')?fmtKoDate(todayISO()):'';
+  var opts=_ciFactories().map(function(v){return '<option value="'+esc(v.name)+'">';}).join('');
+  var body='<div id="ci-form">'
+  +'<div class="ci-fg"><label>거래처 검색 → 수신 자동채움</label><input id="ci-vendor" list="ci-vlist" placeholder="거래처 이름 검색/선택" autocomplete="off" oninput="ciOnVendor()"><datalist id="ci-vlist">'+opts+'</datalist></div>'
+  +'<div class="ci-fg"><label>수신 (상호)</label><input id="ci-name" oninput="ciRender()"></div>'
+  +'<div class="ci-row"><div class="ci-fg"><label>담당</label><input id="ci-cont" oninput="ciRender()"></div><div class="ci-fg"><label>전화</label><input id="ci-phone" oninput="ciRender()"></div></div>'
+  +'<div class="ci-fg"><label>주소</label><input id="ci-addr" oninput="ciRender()"></div>'
+  +'<div class="ci-row"><div class="ci-fg"><label>운임 구분</label><div class="ci-seg"><button id="ci-seg-seon" class="on" onclick="ciSetFare(\'seon\')">선불 체크</button><button id="ci-seg-chak" onclick="ciSetFare(\'chak\')">착불 체크</button></div></div><div class="ci-fg"><label>날짜</label><input id="ci-date" value="'+esc(todayStr)+'" oninput="ciRender()"></div></div>'
+  +'<div class="ci-fg"><label>비고</label><div id="ci-bigochips"><span class="ci-chip" onclick="ciSetBigo(\'샘플\')">샘플</span><span class="ci-chip" onclick="ciSetBigo(\'메인\')">메인</span><span class="ci-chip" onclick="ciSetBigo(\'수선\')">수선</span></div><input id="ci-bigo" placeholder="직접 입력 가능" oninput="ciRender()" style="margin-top:6px"></div>'
+  +'<div class="ci-nudge">위치 미세조정 X <input type="number" id="ci-nx" value="0" step="0.5" onchange="ciRender()"> mm Y <input type="number" id="ci-ny" value="0" step="0.5" onchange="ciRender()"> mm <button class="btn s g" onclick="ciResetNudge()">0</button></div>'
+  +'<label class="ci-tog"><input type="checkbox" id="ci-printframe"> 인쇄에 프레임 포함 (빈 라벨에 통째 인쇄용)</label>'
+  +'<div class="ci-cap">↓ 미리보기 110×90mm · 초록/빨강 = 이미 스티커에 인쇄된 부분(안내용). 실제 인쇄는 값만 나가요.</div>'
+  +'<div class="ci-preview-wrap"><div class="ci-label" id="ci-label">'+_ciFrameHTML()+'<div class="ci-fill" id="ci-fill"></div></div></div>'
+  +'<div class="ci-acts"><button class="btn" onclick="closeGenericModal()">닫기</button><button class="btn p" onclick="ciPrint()">인쇄</button></div>'
+  +'</div>';
+  showGenericModal('경기택배 송장 인쇄',body);
+  ciRender();
+}
+function ciPrint(){
+  var v=_ciVals();if(!v.name){showToast('수신(상호)을 입력하세요');return;}
+  _ciEnsureStyle();
+  var nx=parseFloat(_ciVal('ci-nx'))||0,ny=parseFloat(_ciVal('ci-ny'))||0;
+  var withFrame=!!(document.getElementById('ci-printframe')&&document.getElementById('ci-printframe').checked);
+  var sheet=document.getElementById('ci-sheet');if(!sheet){sheet=document.createElement('div');sheet.id='ci-sheet';document.body.appendChild(sheet);}
+  sheet.innerHTML='<div class="ci-label" style="outline:0">'+(withFrame?_ciFrameHTML():'')+'<div class="ci-fill" style="transform:translate('+nx+'mm,'+ny+'mm)">'+_ciFillHTML(v)+'</div></div>';
+  var pr=document.getElementById('ci-page-rule');if(!pr){pr=document.createElement('style');pr.id='ci-page-rule';}document.head.appendChild(pr);pr.textContent='@page{size:110mm 90mm;margin:0}';
+  var _tpr=document.getElementById('tp-page-rule'),_save=_tpr?_tpr.textContent:null;if(_tpr)_tpr.textContent='@page{size:110mm 90mm;margin:0}';
+  document.body.classList.add('ci-printing');
+  var done=function(){document.body.classList.remove('ci-printing');if(_tpr&&_save!=null)_tpr.textContent=_save;if(pr&&pr.parentNode)pr.parentNode.removeChild(pr);window.removeEventListener('afterprint',done);};
+  window.addEventListener('afterprint',done);
+  setTimeout(function(){window.print();},80);
+}
 function renderCourierLedger(){
   var box=document.getElementById('courier-body')||document.getElementById('pay-content'); if(!box)return;
   var cl=clEnsure(); _tlEnsureStyle(); _clEnsureStyle();
@@ -20669,7 +20785,8 @@ function renderCourierLedger(){
   if(window._clMode==null)window._clMode='nl';
   if(window._clFltBrand==null)window._clFltBrand='ALL';
   var brands=_clBrands(), modeNL=(window._clMode!=='btn');
-  var html='<div class="cl-quick"><div class="cl-qhd">빠른 입력 <span class="cl-sub">매일 택배 보내거나 받을 때</span>'
+  var html='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="tl-btn pri" onclick="openCourierInvoice()">＋ 경기택배 송장 인쇄</button></div>'
+    +'<div class="cl-quick"><div class="cl-qhd">빠른 입력 <span class="cl-sub">매일 택배 보내거나 받을 때</span>'
     +'<span class="cl-modesw"><span class="'+(modeNL?'on':'')+'" onclick="clSetMode(\'nl\')">한 줄</span><span class="'+(modeNL?'':'on')+'" onclick="clSetMode(\'btn\')">버튼</span></span></div>';
   if(modeNL){
     html+='<div class="cl-nl"><input id="cl-nl" placeholder="예: 6/12 아루드 파스텔, 새로운, 포루뚜나 (쉼표로 여러 건)" onkeydown="if(event.key===\'Enter\'&&!event.isComposing)clQuickNL()"><button class="tl-btn pri" onclick="clQuickNL()">＋ 추가</button></div>'
