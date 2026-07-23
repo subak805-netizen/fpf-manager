@@ -11493,15 +11493,24 @@ function genPoText(order,sn){
         // 단가는 발주서에 표기하지 않음
         L.push(bhdr);
         let biasTot=0;
+        // 같은 출력 컬러(colorName)끼리 합치기 — 아이템 컬러만 다르고 자재색 같으면 한 줄로 (수량은 합)
+        var _bcm={},_bco=[];
         bg.colors.forEach(function(bb){
-          const cl=bb.colorName?'#'+bb.colorName:'';
-          const origQ=bb.calc?.qty||0;
-          const actQ=(typeof hasMatOverride==='function'&&hasMatOverride(bb))?+bb.actualOrderedQty:origQ;
-          biasTot+=actQ;
-          const ovrTxt=(typeof hasMatOverride==='function'&&hasMatOverride(bb))?' ※실제(원래 '+origQ+'y)':'';
-          L.push(cl+' - '+actQ+'y'+ovrTxt);
+          var _k=bb.colorName||'';
+          if(!_bcm[_k]){_bcm[_k]={colorName:bb.colorName,act:0,orig:0,ovr:false};_bco.push(_k);}
+          var origQ=bb.calc?.qty||0;
+          var actQ=(typeof hasMatOverride==='function'&&hasMatOverride(bb))?+bb.actualOrderedQty:origQ;
+          _bcm[_k].act+=actQ;_bcm[_k].orig+=origQ;
+          if(typeof hasMatOverride==='function'&&hasMatOverride(bb))_bcm[_k].ovr=true;
         });
-        if(bg.colors.length>1)L.push('합계 '+parseFloat(biasTot.toFixed(2))+'y');
+        _bco.forEach(function(_k){
+          var e=_bcm[_k];
+          var cl=e.colorName?'#'+e.colorName:'';
+          biasTot+=e.act;
+          var ovrTxt=e.ovr?' ※실제(원래 '+parseFloat(e.orig.toFixed(2))+'y)':'';
+          L.push(cl+' - '+parseFloat(e.act.toFixed(2))+'y'+ovrTxt);
+        });
+        if(_bco.length>1)L.push('합계 '+parseFloat(biasTot.toFixed(2))+'y');
         if(bg.memo)L.push(''+bg.memo);
         L.push('');
       }
@@ -11829,14 +11838,42 @@ function genPoText(order,sn){
           }
           return q;
         };
+        // 같은 출력 컬러(colorName)끼리 합쳐 한 줄로 — 아이템 컬러만 다르고 자재색 같을 때(수량 합). 사이즈별(bySize)은 개별 유지.
+        const emitBMerged=function(arr){
+          var byC={},ord=[],sb=[],tot=0,n=0;
+          arr.forEach(function(bb){
+            var itB=S.items[bb.itemId];
+            var origTrimB=itB&&itB.trims?itB.trims.find(function(tr){return tr.name===bb.name;}):null;
+            var bSizeMode=bb.sizeMode||(origTrimB&&origTrimB.sizeMode)||'';
+            var oiB=(order.orderItems||[]).find(function(x){return x.itemId===bb.itemId;});
+            if(bSizeMode==='bySize'&&oiB&&oiB.qtyGrid){sb.push(bb);return;}
+            var k=bb.colorName||'';
+            if(!byC[k]){byC[k]={colorName:bb.colorName,q:0,orig:0,ovr:false,ics:[]};ord.push(k);}
+            var origQ=bb.calc?.qty||0;
+            var aq=r5((typeof hasMatOverride==='function'&&hasMatOverride(bb))?+bb.actualOrderedQty:origQ);
+            byC[k].q+=aq;byC[k].orig+=origQ;
+            if(typeof hasMatOverride==='function'&&hasMatOverride(bb))byC[k].ovr=true;
+            (bb.itemColors||[]).forEach(function(ic){if(byC[k].ics.indexOf(ic)<0)byC[k].ics.push(ic);});
+          });
+          sb.forEach(function(bb){tot+=emitB(bb);n++;});
+          ord.forEach(function(k){
+            var e=byC[k];
+            var _src=(e.ics.length&&(e.ics.length>1||e.ics[0]!==e.colorName))?' ('+e.ics.join(', ')+' 사용)':'';
+            var cl=e.colorName?'#'+e.colorName+_src:'';
+            var ovrTxt=e.ovr?' ※실제(원래'+e.orig+')':'';
+            L.push(cl+' - '+e.q+'개'+ovrTxt);tot+=e.q;n++;
+          });
+          return {tot:tot,n:n};
+        };
         // 비염색 /염색(내용 묶음) /스와치전달 그룹으로 나눠 출력
         const _norm=b.colors.filter(function(x){return !x.dye&&!x.swatch;});
         const _dye=b.colors.filter(function(x){return x.dye;});
         const _sw=b.colors.filter(function(x){return x.swatch&&!x.dye;});
-        _norm.forEach(function(bb){bTotQty+=emitB(bb);});
-        if(_dye.length){ L.push(''); var _dn=((_dye.find(function(x){return x.dyeNote&&String(x.dyeNote).trim();})||{}).dyeNote)||''; L.push('염색'+(_dn?' — '+_dn:'')); _dye.forEach(function(bb){bTotQty+=emitB(bb);}); }
-        if(_sw.length){ L.push(''); L.push('스와치 전달'); _sw.forEach(function(bb){bTotQty+=emitB(bb);}); }
-        if(b.colors.length>1)L.push('합계 '+bTotQty+'개');
+        var _bln=0;
+        var _rn=emitBMerged(_norm);bTotQty+=_rn.tot;_bln+=_rn.n;
+        if(_dye.length){ L.push(''); var _dn=((_dye.find(function(x){return x.dyeNote&&String(x.dyeNote).trim();})||{}).dyeNote)||''; L.push('염색'+(_dn?' — '+_dn:'')); var _rd=emitBMerged(_dye);bTotQty+=_rd.tot;_bln+=_rd.n; }
+        if(_sw.length){ L.push(''); L.push('스와치 전달'); var _rs=emitBMerged(_sw);bTotQty+=_rs.tot;_bln+=_rs.n; }
+        if(_bln>1)L.push('합계 '+bTotQty+'개');
         L.push('');
       }
     }
@@ -11947,15 +11984,33 @@ function genPoText(order,sn){
         if(isRoll){ totRolls+=actQ; L.push(`${cl} - ${actQ}롤${_srcTxt} (필요수량 ${t.calc?.ty||0}y)${ovrTxt}`); }
         else{ const unit=(t.calc?.unit||'개').replace(/yard|야드/,'y'); totQty+=actQ; L.push(`${cl} - ${actQ}${unit}${_srcTxt}${trimLoopNeedTxt(t)}${ovrTxt}`); }
       };
+      // 같은 출력 컬러(colorName)끼리 합쳐 한 줄로 — 롤·절·봉지(loop)·야드는 개별 유지(사양·필요수량 줄이 달라서), 개수·실 등만 컬러별 합산(수량 합)
+      const emitTMerged=function(arr){
+        var byC={},ord=[],indiv=[],n=0;
+        arr.forEach(function(t){
+          var keepIndiv=isRoll||t.isButtonLoop||(t.calc&&(t.calc.isJeol||t.calc.isRoll||t.calc.isYard));
+          if(keepIndiv){indiv.push(t);return;}
+          var k=t.colorName||'';
+          if(!byC[k]){byC[k]={colorName:t.colorName,q:0,orig:0,ovr:false,ics:[],unit:''};ord.push(k);}
+          var origQ=t.calc?.qty||0;var _rawQ=hasMatOverride(t)?+t.actualOrderedQty:origQ;var aq=r5(_rawQ);
+          byC[k].q+=aq;byC[k].orig+=origQ;if(hasMatOverride(t))byC[k].ovr=true;
+          if(!byC[k].unit)byC[k].unit=(t.calc?.unit||'개').replace(/yard|야드/,'y');
+          (t.itemColors||[]).forEach(function(ic){if(byC[k].ics.indexOf(ic)<0)byC[k].ics.push(ic);});
+        });
+        indiv.forEach(function(t){emitT(t);n++;});
+        ord.forEach(function(k){var e=byC[k];var _src=(e.ics.length&&(e.ics.length>1||e.ics[0]!==e.colorName))?` (${e.ics.join(', ')} 사용)`:'';var cl=e.colorName?`#${e.colorName}`:'';var ovrTxt=e.ovr?` ※실제(원래${e.orig})`:'';totQty+=e.q;L.push(`${cl} - ${e.q}${e.unit}${_src}${ovrTxt}`);n++;});
+        return n;
+      };
       // 비염색 /염색(내용 묶음) /스와치전달 그룹
       const _n=g.colors.filter(function(x){return !x.dye&&!x.swatch;});
       const _d=g.colors.filter(function(x){return x.dye;});
       const _s=g.colors.filter(function(x){return x.swatch&&!x.dye;});
-      _n.forEach(emitT);
-      if(_d.length){ L.push(''); var _dn=((_d.find(function(x){return x.dyeNote&&String(x.dyeNote).trim();})||{}).dyeNote)||''; L.push('염색'+(_dn?' — '+_dn:'')); _d.forEach(emitT); }
-      if(_s.length){ L.push(''); L.push('스와치 전달'); _s.forEach(emitT); }
-      // 합계 (컬러 2개 이상일 때)
-      if(g.colors.length>1){
+      var _tln=0;
+      _tln+=emitTMerged(_n);
+      if(_d.length){ L.push(''); var _dn=((_d.find(function(x){return x.dyeNote&&String(x.dyeNote).trim();})||{}).dyeNote)||''; L.push('염색'+(_dn?' — '+_dn:'')); _tln+=emitTMerged(_d); }
+      if(_s.length){ L.push(''); L.push('스와치 전달'); _tln+=emitTMerged(_s); }
+      // 합계 (표시 줄 2개 이상일 때)
+      if(_tln>1){
         if(isRoll)L.push(`합계 ${totRolls}롤`);
         else L.push(`합계 ${totQty}${(g.colors[0]?.calc?.unit||'개').replace(/yard|야드/,'y')}`);
       }
