@@ -247,6 +247,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
   <button class="ntab" id="nt-ledger" onclick="switchTab('ledger')">부자재 결제</button>
   <button class="ntab" id="nt-courier" onclick="switchTab('courier')">택배 시재</button>
+  <button class="ntab" id="nt-cinv" onclick="switchTab('cinv')">택배 송장</button>
   <button class="ntab" id="nt-book" onclick="window._bookScope='fabric';switchTab('book')">원단 단가장</button>
   <button class="ntab" id="nt-booktrim" onclick="window._bookScope='trim';switchTab('book')">부자재 단가장</button>
   <button class="ntab" id="nt-pricecompare" onclick="switchTab('pricecompare')">단가 비교</button>
@@ -315,6 +316,7 @@ tryInitFirebase();
   <div id="pane-jaedan" class="panel" style="display:none"><div id="jaedan-body"></div></div>
   <div id="pane-ledger" class="panel" style="display:none"><div id="ledger-body"></div></div>
   <div id="pane-courier" class="panel" style="display:none"><div id="courier-body"></div></div>
+  <div id="pane-cinv" class="panel" style="display:none"><div id="cinv-body"></div></div>
   <div id="pane-pricecompare" class="panel" style="display:none"><div id="pricecompare-body"></div></div>
   <!-- Tasks (업무 관리 허브) -->
   <div id="pane-tasks" class="panel" style="display:none"><div id="tasks-body"></div></div>
@@ -4128,7 +4130,7 @@ var PD_NAVGROUPS=[
   {label:'아이템',keys:['items','linesheet','idea','dosik','ref']},
   {label:'생산',keys:['dash','orders','yocheok','defect','leftover']},
   {label:'작업',keys:['todoboard','tasks','route','jaedan']},
-  {label:'결제·단가',keys:['pay','ledger','courier','book','booktrim','pricecompare']},
+  {label:'결제·단가',keys:['pay','ledger','courier','cinv','book','booktrim','pricecompare']},
   {label:'기타',keys:['vendors','brand','analytics']}
 ];
 function getBottomTabs(){
@@ -4179,7 +4181,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','yocheok','jaedan','ledger','courier','pricecompare'].forEach(n=>{
+  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','yocheok','jaedan','ledger','courier','cinv','pricecompare'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -4229,6 +4231,7 @@ function switchTab(t){
     else if(t==='jaedan')renderJaedanCalc();
     else if(t==='ledger')renderTrimLedger();
     else if(t==='courier')renderCourierLedger();
+    else if(t==='cinv')renderCiTab();
     else if(t==='pricecompare')pcSyncFromCloud();
   }catch(err){
     console.error('Tab render error:',err);
@@ -20758,7 +20761,8 @@ function _ciEnsureStyle(){
   +'#ci-batch .cib-sp{flex:1 1 auto}'
   +'#ci-batch .cib-print{font-size:14px;font-weight:700;padding:11px 18px;border:0;border-radius:9px;background:#1c7a3e;color:#fff;cursor:pointer;font-family:inherit}'
   +'#ci-batch .cib-print:disabled{background:#c7ccd2;cursor:default}'
-  +'#ci-batch .cib-sel{display:flex;gap:8px;align-items:center;margin-bottom:10px}'
+  +'#ci-batch .cib-sel{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}'
+  +'#ci-batch .cib-search{width:210px;max-width:100%}'
   +'#ci-batch .cib-sel button{font-size:12px;padding:6px 11px;border:1px solid #ccd;border-radius:7px;background:#fff;cursor:pointer;font-family:inherit;color:#111}'
   +'#ci-batch .cib-cnt{margin-left:auto;font-size:12px;font-weight:700;color:#445}'
   +'#ci-batch .cib-main{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}'
@@ -20851,19 +20855,16 @@ function _ciFillHTML(v){var F=_CI_FILL,h='';h+=_ciCell(F.date,v.date);h+=_ciCell
 function _ciRotCss(r){if(r===90)return 'translateX(90mm) rotate(90deg)';if(r===270)return 'translateY(110mm) rotate(-90deg)';if(r===180)return 'translate(110mm,90mm) rotate(180deg)';return '';}
 /* ---- 배치 카드 UI ---- */
 function _ciBget(id){if(!window._ciB.cards[id])window._ciB.cards[id]={chk:false,fare:'seon',bigo:''};return window._ciB.cards[id];}
-function ciOpen(){
+function renderCiTab(){
   _ciEnsureStyle();
-  var pane=document.getElementById('pane-courier');if(!pane)return;
-  var box=document.getElementById('ci-batch');
-  if(box&&box.style.display!=='none'){box.style.display='none';return;}
-  if(!window._ciB)window._ciB={rot:0,frame:false,cards:{}};
-  if(!box){box=document.createElement('div');box.id='ci-batch';pane.insertBefore(box,document.getElementById('courier-body'));}
-  box.style.display='';box.innerHTML=_ciBatchHTML();_ciBPrev();
+  if(!window._ciB)window._ciB={rot:0,frame:false,q:'',cards:{}};
+  var box=document.getElementById('cinv-body');if(!box)return;
+  box.innerHTML='<div id="ci-batch">'+_ciBatchHTML()+'</div>';_ciBPrev();
 }
-function ciBClose(){var b=document.getElementById('ci-batch');if(b)b.style.display='none';}
+function ciBSearch(v){window._ciB.q=v;var c=document.getElementById('cib-cards');if(c)c.innerHTML=_ciCardsHTML();}
 function _ciBatchHTML(){
   var B=window._ciB,today=(typeof fmtKoDate==='function'&&typeof todayISO==='function')?fmtKoDate(todayISO()):'';
-  return '<div class="cib-hd"><b>경기택배 송장 — 여러 곳 한 번에</b><button class="cib-x" onclick="ciBClose()">닫기</button></div>'
+  return '<div class="cib-hd"><b>경기택배 송장 — 여러 곳 한 번에</b></div>'
    +'<div class="cib-tools">'
      +'<div class="cib-fg"><label>날짜 (오늘 자동)</label><input class="cib-date" id="cib-date" value="'+esc(today)+'" oninput="_ciBPrev()"></div>'
      +'<div class="cib-fg"><label>인쇄 방향</label><div class="cib-seg" id="cib-rotseg">'
@@ -20876,15 +20877,17 @@ function _ciBatchHTML(){
      +'<div class="cib-sp"></div>'
      +'<button class="cib-print" id="cib-print" onclick="ciBPrint()">선택 0곳 인쇄</button>'
    +'</div>'
-   +'<div class="cib-sel"><button onclick="ciBAll(true)">전체 선택</button><button onclick="ciBAll(false)">전체 해제</button><span class="cib-cnt" id="cib-cnt">0곳 선택</span></div>'
+   +'<div class="cib-sel"><input class="cib-search" id="cib-search" placeholder="거래처 검색" value="'+esc(B.q||'')+'" oninput="ciBSearch(this.value)"><button onclick="ciBAll(true)">전체 선택</button><button onclick="ciBAll(false)">전체 해제</button><span class="cib-cnt" id="cib-cnt">0곳 선택</span></div>'
    +'<div class="cib-main"><div class="cib-cards" id="cib-cards">'+_ciCardsHTML()+'</div>'
      +'<div class="cib-prev"><div class="cib-cap">미리보기 · <b id="cib-pn">체크한 첫 곳</b><br>초록/빨강 = 스티커에 이미 인쇄된 부분(안내용). 실제 인쇄는 값만 나가요.</div>'
      +'<div class="cib-holder" id="cib-holder" style="position:relative;overflow:hidden;width:110mm;height:90mm;border:1px solid #ddd"><div class="ci-label" id="cib-label" style="position:absolute;left:0;top:0;transform-origin:0 0">'+_ciFrameHTML()+'<div class="ci-fill" id="cib-fill"></div></div></div>'
      +'</div></div>';
 }
 function _ciCardsHTML(){
-  var B=window._ciB,facs=_ciFacs();
+  var B=window._ciB,q=(B.q||'').trim().toLowerCase(),facs=_ciFacs();
   if(!facs.length)return '<div style="font-size:12px;color:#889;padding:14px">공장/처를 먼저 등록하세요 (업체관리 탭).</div>';
+  if(q)facs=facs.filter(function(f){return (f.name+' '+f.cont+' '+f.phone+' '+f.addr).toLowerCase().indexOf(q)>=0;});
+  if(!facs.length)return '<div style="font-size:12px;color:#889;padding:14px">검색 결과 없어요.</div>';
   return facs.map(function(f){
     var st=B.cards[f.id]||{},chk=!!st.chk,fare=st.fare||'seon',bigo=st.bigo||'';
     return '<div class="cib-card'+(chk?' on':'')+'" data-id="'+f.id+'">'
@@ -20951,7 +20954,7 @@ function renderCourierLedger(){
   if(window._clMode==null)window._clMode='nl';
   if(window._clFltBrand==null)window._clFltBrand='ALL';
   var brands=_clBrands(), modeNL=(window._clMode!=='btn');
-  var html='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="tl-btn pri" onclick="ciOpen()">＋ 경기택배 송장 인쇄</button></div>'
+  var html=''
     +'<div class="cl-quick"><div class="cl-qhd">빠른 입력 <span class="cl-sub">매일 택배 보내거나 받을 때</span>'
     +'<span class="cl-modesw"><span class="'+(modeNL?'on':'')+'" onclick="clSetMode(\'nl\')">한 줄</span><span class="'+(modeNL?'':'on')+'" onclick="clSetMode(\'btn\')">버튼</span></span></div>';
   if(modeNL){
