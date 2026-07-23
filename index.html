@@ -3377,6 +3377,8 @@ function loadCoData(id){
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
 function migrateData(){
+  // 완전히 동일한 원단 행 중복 정리 (실수로 두 줄 넣어 발주·원가 2배 뜨던 것 자동 치유, 2026-07-22)
+  try{if(S.items)Object.keys(S.items).forEach(function(k){var it=S.items[k];if(!it)return;var d=_dedupeItemFabrics(it);if(d.removed)it.fabrics=d.fabrics;});}catch(e){}
   // 배열 묘비 90일 청소(무한 누적 방지) — 90일이면 모든 기기가 이미 삭제를 반영했을 시간
   try{ var _cut=new Date(Date.now()-90*864e5).toISOString().slice(0,10); if(S._tomb&&typeof _ID_ARRS!=='undefined')_ID_ARRS.forEach(function(n){ var t=S._tomb[n]; if(t)Object.keys(t).forEach(function(id){ if(String(t[id])<_cut)delete t[id]; }); }); }catch(e){}
   // 결제 수동완료 1회 마이그레이션: 지금 '결제완료'인 오더의 아이템은 완료로 고정(안 그러면 브랜드별보기에 폭주). 이후부터는 수동 완료.
@@ -9971,6 +9973,21 @@ function onTrimType(i,v){
   else formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:3,sizeRates:t.sizeRates||[]};
   renderTrimRows();
 }
+// 완전히 동일한 원단 행 중복 제거 — 이름·원단처·용도·요척·폭·단가·컬러링크가 전부 같을 때만 하나로.
+// 실수로 같은 원단을 두 줄 넣으면 발주량·원가가 2배로 뜨던 버그 방지 (2026-07-22). 조금이라도 다르면(컬러 분할 등) 둘 다 보존.
+function _dedupeItemFabrics(item){
+  var fabs=(item&&item.fabrics)||[];
+  if(!Array.isArray(fabs)||fabs.length<2)return {fabrics:fabs,removed:0};
+  var seen={},out=[],removed=0;
+  fabs.forEach(function(f){
+    if(!f){out.push(f);return;}
+    var links=(f.colorLinks||[]).map(function(l){return (l.itemColor||'')+'>'+(l.fabricColor||'')+':'+(l.price!=null?l.price:'');}).sort().join(',');
+    var sig=[(f.name||'').trim(),(f.supplier||'').trim(),(f.part||'').trim(),f.pricingUnit||'',f.consumption||'',JSON.stringify(f.consumptionBySize||{}),f.width||'',f.unitPrice||'',f.pricePerKg||'',links].join('|');
+    if(seen[sig]){removed++;return;}
+    seen[sig]=1;out.push(f);
+  });
+  return {fabrics:removed?out:fabs,removed:removed};
+}
 function saveItemForm(opts){
   // silent=자동 저장 모드: 경고창을 띄울 상황(이름 없음·혼용률 오류·품번 중복)이면 조용히 건너뜀 — 수동 저장 때 처리
   var _silent=!!(opts&&opts.silent);
@@ -9981,6 +9998,7 @@ function saveItemForm(opts){
   const id=editItemId||uid();
   const _cd=document.getElementById('f-cd').value.trim();
   if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup){if(_silent)return;if(!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}}
+  try{var _dfab=_dedupeItemFabrics({fabrics:formFabs});if(_dfab.removed){formFabs=_dfab.fabrics;if(!_silent&&typeof showToast==='function')showToast('완전히 같은 원단 '+_dfab.removed+'줄이 중복이라 하나로 합쳤어요',4000);}}catch(e){}
   const item={id,name:nm,code:document.getElementById('f-cd').value.trim(),client:document.getElementById('f-cl').value.trim(),season:document.getElementById('f-ss').value.trim(),notes:document.getElementById('f-notes').value.trim(),careInstructions:document.getElementById('f-care').value.trim(),colors:[...formColors],sizes:[...formSizes],fabrics:formFabs.map(f=>({...f,id:f.id||uid()})),trims:formTrims.map(t=>({...t,id:t.id||uid()})),trimCosts:formTrimCosts.map(tc=>({...tc,id:tc.id||uid()}))};
   try{(item.trims||[]).forEach(function(t){var _mp=_tMatrixPrice(t);if(_mp!=null&&_mp>0)t.unitPrice=_mp;});}catch(e){}
   COST_DEFS.forEach(([ck,,fk])=>{item[ck]=+document.getElementById('f-'+ck)?.value||0;item[fk]=document.getElementById('f-'+fk)?.value||'';});
@@ -10902,9 +10920,10 @@ function calcSups(orderItems,opts){
         const fabColorName=_fl?(_fl.fabricColor||''):(f.fabricColor||'');
         const _clPriceF=(_fl&&_fl.price!==undefined&&_fl.price!==''&&+_fl.price>0)?+_fl.price:0; // 컬러별 단가(야드)
         const dispNm=colors.length>1&&colors[0]!==''?`${f.name} (${c})`:f.name;
-        // 중복 가드: 같은 거래처+원단+컬러+용도 조합이 이미 있으면 skip
-        const _dupKey=(f.id||f.name)+'|'+c+'|'+(f.part||'');
-        if((sups[f.supplier].materials||[]).some(function(mm){return mm.type==='fabric'&&((mm.fabId||mm.name)+'|'+(mm.colorName||'')+'|'+(mm.part||''))===_dupKey;}))continue;
+        // 중복 가드: 같은 거래처+원단+컬러+용도 조합이 이미 있으면 skip.
+        // 키를 fabId가 아니라 원단'이름'으로 비교 — 같은 원단을 아이템에 실수로 두 줄 넣으면(id 다름) 발주량이 2배로 뜨던 버그(2026-07-22)
+        const _dupKey=(f.name||'')+'|'+c+'|'+(f.part||'');
+        if((sups[f.supplier].materials||[]).some(function(mm){return mm.type==='fabric'&&((mm.name||'')+'|'+(mm.colorName||'')+'|'+(mm.part||''))===_dupKey;}))continue;
         // 이 컬러에 적용되는 가산 항목 목록 추출 (발주서 표시용)
         const appliedAdditions=(f.priceAdditions||[]).filter(function(a){
           if(!a.price||+a.price<=0)return false;
