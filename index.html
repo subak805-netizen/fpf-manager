@@ -4932,9 +4932,12 @@ function setCompFromString(idx,compStr){
   renderCompBuilder(idx,compStr);
 }
 function autofillTrim(r){
+  var _afTi=((r&&r.id)||'').replace('tr-',''); var _afOldName=(formTrims[_afTi]&&formTrims[_afTi].name)||''; // colTR 전 옛 이름 (헤더 갱신 판단)
   try{colTR();}catch(e){} // 다른 행의 입력값이 재렌더로 날아가지 않게 먼저 저장
+  var _afRerender=function(){setTimeout(function(){try{colTR();}catch(e){}if(typeof renderTrimRows==='function')renderTrimRows();},120);}; // 헤더(이름·단가·요척) 재렌더 — colTR로 현재 입력 보존 후
   const sup=r.querySelector('[data-f=supplier]')?.value?.trim(); _pbWarnNewSupplier(sup);
   const nm=r.querySelector('[data-f=name]')?.value?.trim();
+  var _afNameChanged=(_afOldName!==(nm||'')); // 이름이 실제로 바뀌었나 → 단가·헤더 갱신 트리거 (수기 입력분도 잡음)
   const cl=r.querySelector('[data-f=color]')?.value?.trim()||'';
   // 야드당개수 자재(단추고리 등): 이름으로 저장된 야드당개수·단가 자동 불러오기 (거래처 없어도)
   var loopY=r.querySelector('[data-f=loopPerYard]');
@@ -4950,7 +4953,7 @@ function autofillTrim(r){
   }
   // 부자재처 위치(동/호수) 자동 — 부자재명 없어도 부자재처만 있으면 채움 (조기리턴 앞으로 이동)
   if(sup){var _pbs=S.priceBook[sup];if(_pbs){var _bE=r.querySelector('[data-f=building]');if(_bE&&!_bE.value&&_pbs.building)_bE.value=_pbs.building;var _rE=r.querySelector('[data-f=floorRoom]');if(_rE&&!_rE.value&&_pbs.room)_rE.value=_pbs.room;}}
-  if(!sup||!nm)return;
+  if(!sup||!nm){if(_afNameChanged)_afRerender();return;}
   const mats=S.priceBook[sup]?.materials;
   var e=null;
   // 크기 필드 읽기 (버튼크기 포함)
@@ -4966,10 +4969,10 @@ function autofillTrim(r){
   // (단가는 거래처마다 달라서 '다른 거래처' 자동입력은 안 함 → _crossSup 플래그로 단가 차단)
   var _crossSup=false;
   if(!e){ for(var _sn in (S.priceBook||{})){ if(_sn===sup)continue; var _mm=S.priceBook[_sn]&&S.priceBook[_sn].materials; if(!_mm)continue; var _hit=null; for(var _k2 in _mm){ var _d2=_mm[_k2]; if(_d2&&_d2.type==='trim'&&_d2.name===nm){ _hit=_d2; break; } } if(_hit){e=_hit;_crossSup=true;break;} } }
-  if(!e||e.type!=='trim')return;
+  if(!e||e.type!=='trim'){if(_afNameChanged)_afRerender();return;}
   var _tiC=(r.id||'').replace('tr-','');
   var _ft=formTrims[_tiC];
-  var _nameChanged=!!(_ft&&_ft._afName!=null&&_ft._afName!==nm); // 이름을 '다른 걸로' 바꿨을 때
+  var _nameChanged=_afNameChanged||!!(_ft&&_ft._afName!=null&&_ft._afName!==nm); // 이름을 '다른 걸로' 바꿨을 때 (수기입력분=_afNameChanged 포함)
   // 단가: 빈칸이거나 이름을 바꿨으면 새 단가로 갱신 (다른 이름 고르면 단가 따라오게)
   const p=r.querySelector('[data-f=unitPrice]');
   if(p&&e.unitPrice&&!_crossSup&&(!+p.value||_nameChanged)){
@@ -5007,7 +5010,7 @@ function autofillTrim(r){
     if(e.size&&(_nameChanged||!_ft.size))_ft.size=e.size;
     if(e.buttonSize&&(_nameChanged||!_ft.buttonSize))_ft.buttonSize=e.buttonSize;
     _ft._afName=nm;
-    if(_ch)setTimeout(function(){renderTrimRows();},120);
+    if(_ch||_nameChanged)_afRerender();
   }
   // 지퍼 정보 자동입력
   if(e.orderType==='zipper'){
@@ -11486,12 +11489,25 @@ function genPoText(order,sn){
     const mainLabels=trims.filter(function(t){return t.orderType==='mainLabel';});
     const biasItems=trims.filter(function(t){return t.orderType==='bias';});
     const trimsAfterLabels=trims.filter(function(t){return t.orderType!=='careLabel'&&t.orderType!=='mainLabel'&&t.orderType!=='bias';});
-    
+    // 바이어스재단(수량 0y=스펙만)이 같은 원단이름의 야드/개수 부자재와 겹치면 → 그 부자재 블록에 '바이어스 재단 N' 줄로 접어 넣고 별도 0y 출력은 생략 (같은 거래처라 이름만 맞추면 됨)
+    var _biasFold={},_biasConsumed=[];
+    (function(){
+      var _fmatch=function(a,b){a=String(a||'').toLowerCase().replace(/\s+/g,'');b=String(b||'').toLowerCase().replace(/\s+/g,'');if(!a||!b||b.length<2)return false;return a===b||a.indexOf(b)>=0||b.indexOf(a)>=0;};
+      var _genT=trimsAfterLabels.filter(function(t){return t.orderType!=='zipper'&&t.orderType!=='button'&&t.orderType!=='snap';});
+      biasItems.forEach(function(bi){
+        var _bq=(typeof hasMatOverride==='function'&&hasMatOverride(bi))?+bi.actualOrderedQty:((bi.calc&&bi.calc.qty)||0);
+        if(_bq>0.001)return; // 수량 있는 바이어스는 자기 발주라 안 접음
+        var m=_genT.find(function(t){return _fmatch(bi.fabricSource,t.name);});
+        if(m){var key=m.name||'';if(!_biasFold[key])_biasFold[key]=[];var sp=(bi.biasSpec||'').trim();if(_biasFold[key].indexOf(sp)<0)_biasFold[key].push(sp);_biasConsumed.push(bi);}
+      });
+    })();
+
     // 바이어스재단 출력 (가공처에 발주, 원단출처 표시)
     if(biasItems.length){
       // 같은 사양(원단출처+규격)끼리 그룹핑
       const biasGrp={};const biasOrder=[];
       for(const bi of biasItems){
+        if(_biasConsumed.indexOf(bi)>=0)continue; // 야드 부자재에 접힌 바이어스는 여기서 생략
         const bk=(bi.fabricSource||'')+'|'+(bi.biasSpec||'');
         if(!biasGrp[bk]){biasGrp[bk]={...bi,colors:[]};biasOrder.push(bk);}
         biasGrp[bk].colors.push(bi);
@@ -11970,10 +11986,18 @@ function genPoText(order,sn){
         const actQ=(!isRoll&&!t.calc?.isYard&&!t.calc?.isJeol)?r5(_rawQ):_rawQ;
         const ovrTxt=hasMatOverride(t)?` ※실제(원래 ${origQ})`:'';
         if(g.part)L.push('('+g.part+')');
-      L.push(hdr);
-        if(isRoll)L.push(`${actQ}롤 (필요수량 ${t.calc?.ty||0}y)${ovrTxt}`);
-        else if(t.calc?.isJeol)L.push(`${actQ}절 (필요수량 ${t.calc.originalNeed}y)${ovrTxt}`);
-        else {L.push(`${actQ}${(t.calc?.unit||'개').replace(/yard|야드/,'y')}${trimLoopNeedTxt(t)}${ovrTxt}`);}
+        // 헤더=이름·규격만 (색상·공통은 아래 색상 줄로 — "컬러는 무조건 한 줄 아래 + #")
+        let _hdrS=g.name;
+        if(g.size)_hdrS+=` ${g.size}`;
+        if(isRoll)_hdrS+=` (1롤 ${g.yardsPerRoll}y)`;
+        else if(isJeolOrder&&jeolYards)_hdrS+=` (1절 ${jeolYards}y)`;
+        else if(t.isButtonLoop&&+t.loopPerYard>0){const _lpu=t.packUnit||(t.calc&&t.calc.unit)||'봉';_hdrS+=` (1${_lpu} ${+t.loopPerYard}개)`;}
+        L.push(_hdrS);
+        if(_biasFold[g.name])_biasFold[g.name].forEach(function(sp){L.push('바이어스 재단'+(sp?' '+sp:''));});
+        var _qtyS=isRoll?`${actQ}롤 (필요수량 ${t.calc?.ty||0}y)`:(t.calc?.isJeol?`${actQ}절 (필요수량 ${t.calc.originalNeed}y)`:`${actQ}${(t.calc?.unit||'개').replace(/yard|야드/,'y')}${trimLoopNeedTxt(t)}`);
+        var _clS=g.color?('#'+g.color):'';
+        if(isCommon)_clS+=(_clS?' ':'')+'(공통 사용)';
+        L.push((_clS?_clS+' - ':'')+_qtyS+ovrTxt);
         // 공통 사용이면 어떤 컬러에 적용되는지 추가 안내 (적용: 줄 제거 — 거래처엔 불필요)
         // 원단 부족으로 부자재 수량이 자동 조정된 경우 사유 표기
         if(t.effectivePcsApplied){
@@ -11985,6 +12009,7 @@ function genPoText(order,sn){
       }
       if(g.part)L.push('('+g.part+')');
       L.push(hdr);
+      if(_biasFold[g.name])_biasFold[g.name].forEach(function(sp){L.push('바이어스 재단'+(sp?' '+sp:''));});
       // 컬러별 수량
       let totRolls=0,totQty=0;
       const emitT=function(t){
