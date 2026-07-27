@@ -7311,28 +7311,54 @@ function _refWireDrop(){
     pane.addEventListener('drop',function(e){ if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)e.preventDefault(); });
   }
 }
+/* 이미지 저장 — html2canvas 안 씀(폰 사파리에서 상단 잘림/밀림 반복). 캔버스 2D에 직접 그림 → 기기·스크롤 무관 절대 안 잘림.
+   A4 가로 고정 해상도(2480x1754). 제목·브랜드·앞뒤사진(cover)·설명을 좌표로 직접 렌더. 앞/뒤 글씨 없음. */
+function _refWrapLines(ctx,text,maxW){
+  var out=[], paras=String(text||'').split('\n');
+  paras.forEach(function(p){ if(p===''){out.push('');return;} var line='';
+    for(var i=0;i<p.length;i++){ var ch=p[i]; if(line&&ctx.measureText(line+ch).width>maxW){out.push(line);line=ch;} else line+=ch; }
+    if(line)out.push(line); });
+  return out;
+}
 function refSaveImg(id){
-  var card=document.querySelector('[data-ref-card="'+id+'"]'); if(!card){ if(typeof showToast==='function')showToast('카드를 찾을 수 없어요'); return; }
-  var sheet=card.querySelector('.rf-sheet'); if(!sheet)return;
-  var c=_refFind(id); var nm=(((c&&c.title)||'레퍼런스')+((c&&c.brand)?'_'+c.brand:'')).replace(/[\\/:*?"<>|]/g,'_');
-  var go=function(){
-    // 시트를 0x0 숨김 홀더에 '고정 크기'로 복제해서 캡처 — 스크롤/aspect-ratio 영향 원천 차단(폰에서 상단 잘림 방지)
-    var w=sheet.offsetWidth||1040, h=sheet.offsetHeight||Math.round(w*210/297);
-    var host=document.getElementById('reference-body')||document.body;   // 스코프 CSS 적용 위해 pane 안에 붙임
-    var holder=document.createElement('div');
-    holder.style.cssText='position:fixed;left:0;top:0;width:0;height:0;overflow:hidden;z-index:-1';
-    var clone=sheet.cloneNode(true); clone.classList.add('rf-capturing'); // 앞/뒤 태그 숨김
-    clone.style.width=w+'px'; clone.style.height=h+'px'; clone.style.aspectRatio='auto'; clone.style.margin='0'; clone.style.boxShadow='none';
-    holder.appendChild(clone); host.appendChild(holder);
-    var sc=Math.max(2,Math.min(6,2400/w));                               // 화면크기 무관 ~2400px 고해상도(폰에서도 선명)
-    var done=function(){ if(holder.parentNode)holder.parentNode.removeChild(holder); };
-    html2canvas(clone,{backgroundColor:'#ffffff',scale:sc,useCORS:true,width:w,height:h,windowWidth:w,windowHeight:h,scrollX:0,scrollY:0}).then(function(canvas){
-      done();
-      var a=document.createElement('a'); a.download=nm+'.png'; a.href=canvas.toDataURL('image/png'); a.click();
-      if(typeof showToast==='function')showToast('이미지 저장됨');
-    }).catch(function(e){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); console.error('ref save',e); });
+  var c=_refFind(id); if(!c){ if(typeof showToast==='function')showToast('카드를 찾을 수 없어요'); return; }
+  var nm=(((c.title)||'레퍼런스')+((c.brand)?'_'+c.brand:'')).replace(/[\\/:*?"<>|]/g,'_');
+  var W=2480,H=1754,PAD=92,KR="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif";
+  var cv=document.createElement('canvas'); cv.width=W; cv.height=H; var x=cv.getContext('2d');
+  x.fillStyle='#ffffff'; x.fillRect(0,0,W,H); x.textBaseline='alphabetic';
+  // 제목
+  x.fillStyle='#0B0A05'; x.font='800 92px '+KR; var tY=PAD+92; x.fillText(c.title||'',PAD,tY);
+  // 브랜드
+  var bY=tY+58; if(c.brand){ x.fillStyle='#8a8470'; x.font='600 44px '+KR; x.fillText(c.brand,PAD,bY); }
+  // 구분선
+  var divY=bY+40; x.strokeStyle='#ece7da'; x.lineWidth=3; x.beginPath(); x.moveTo(PAD,divY); x.lineTo(W-PAD,divY); x.stroke();
+  // 사진 영역
+  var photoTop=divY+42, descRes=320, photoBottom=H-PAD-descRes;
+  var gap=46, pw=(W-2*PAD-gap)/2, ph=photoBottom-photoTop;
+  var slots=[{u:c.front,dx:PAD},{u:c.back,dx:PAD+pw+gap}];
+  slots.forEach(function(s){ x.fillStyle='#f4f1e8'; x.fillRect(s.dx,photoTop,pw,ph); x.strokeStyle='#0B0A05'; x.lineWidth=5; x.strokeRect(s.dx+2.5,photoTop+2.5,pw-5,ph-5); });
+  // 설명(사진 밑) — 사진 로드 끝나면 그리고 내보냄
+  var finish=function(){
+    x.fillStyle='#8a8470'; x.font='800 40px '+KR; x.fillText('설명',PAD,photoBottom+60);
+    if(c.desc){ x.fillStyle='#0B0A05'; x.font='400 46px '+KR;
+      var lines=_refWrapLines(x,c.desc,W-2*PAD), yy=photoBottom+124, lh=60, lim=H-64;
+      for(var i=0;i<lines.length;i++){ if(yy>lim){ x.fillText('…',PAD,yy); break; } x.fillText(lines[i],PAD,yy); yy+=lh; } }
+    var url; try{ url=cv.toDataURL('image/png'); }catch(e){ if(typeof showToast==='function')showToast('이미지 저장 실패(사진 보안설정) — 사진 다시 올려보세요'); console.error('ref save taint',e); return; }
+    var a=document.createElement('a'); a.download=nm+'.png'; a.href=url;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    if(typeof showToast==='function')showToast('이미지 저장됨');
   };
-  if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){if(typeof showToast==='function')showToast('라이브러리 로드 실패 — 인터넷 확인');};document.head.appendChild(s);}else go();
+  var drawCover=function(img,dx,dy,dw,dh){ var ir=img.width/img.height, br=dw/dh, sw,sh,sx,sy;
+    if(ir>br){ sh=img.height; sw=sh*br; sx=(img.width-sw)/2; sy=0; } else { sw=img.width; sh=sw/br; sx=0; sy=(img.height-sh)/2; }
+    x.save(); x.beginPath(); x.rect(dx,dy,dw,dh); x.clip(); x.drawImage(img,sx,sy,sw,sh,dx,dy,dw,dh); x.restore(); };
+  var need=slots.filter(function(s){return s.u;}).length, got=0;
+  if(!need){ finish(); return; }
+  slots.forEach(function(s){ if(!s.u)return;
+    var img=new Image(); img.crossOrigin='anonymous';
+    img.onload=function(){ try{ drawCover(img,s.dx+3,photoTop+3,pw-6,ph-6); }catch(e){} if(++got>=need)finish(); };
+    img.onerror=function(){ if(++got>=need)finish(); };
+    var su=s.u; if(/^https?:/.test(su))su+=(su.indexOf('?')>=0?'&':'?')+'cb=1'; // Storage 이미지: CORS 모드로 새로 받아 캔버스 오염 방지(캐시 우회)
+    img.src=su; });
 }
 function refPrintCard(id){
   var c=_refFind(id); if(!c)return;
