@@ -7116,11 +7116,24 @@ function ideaPromote(id){
 function _refFind(id){ return (S.refCards||[]).find(function(c){return c&&c.id===id;})||null; }
 function _refSaveSoon(){ if(window._refSaveT)clearTimeout(window._refSaveT); window._refSaveT=setTimeout(function(){ try{saveData();}catch(e){} },600); }
 function refSetField(id,key,val){ var c=_refFind(id); if(!c)return; c[key]=val; _refSaveSoon(); }
+// 제목 보고 카테고리 자동 추정(옷 종류 키워드). 못 찾으면 '' — 아우터 먼저 검사(후드집업 vs 후드티 구분)
+function _refGuessCat(t){ t=String(t||'').toLowerCase().replace(/\s/g,'');
+  var m=[['원피스',['원피스','드레스','dress','점프수트','롬퍼']],
+    ['셋업',['셋업','세트업','setup']],
+    ['아우터',['바람막이','아노락','자켓','자캣','재킷','jacket','점퍼','잠바','블루종','코트','coat','패딩','아우터','후드집업','집업','야상','트렌치','파카','parka','무스탕','플리스','fleece','가디건','cardigan','베스트','조끼','vest','윈드']],
+    ['하의',['팬츠','pants','바지','슬랙스','slacks','조거','jogger','데님','denim','청바지','스커트','skirt','치마','반바지','숏팬','쇼츠','shorts','레깅스','트라우저']],
+    ['상의',['티셔츠','tshirt','반팔','긴팔','맨투맨','sweat','후드티','후드','hood','니트','knit','스웨터','sweater','셔츠','shirt','블라우스','blouse','나시','슬리브','폴로','polo','카라티']]];
+  for(var i=0;i<m.length;i++)for(var j=0;j<m[i][1].length;j++)if(t.indexOf(m[i][1][j])>=0)return m[i][0];
+  return ''; }
+function refTitleGuess(id){ var c=_refFind(id); if(!c||c.category)return; var g=_refGuessCat(c.title); if(g){ c.category=g; saveData(); renderReference(); } }
+function refSetCardCat(id,v){ var c=_refFind(id); if(!c)return; c.category=v; saveData(); renderReference(); }
+function refSetCardBrand(id,v){ var c=_refFind(id); if(!c)return; c.brandId=v; saveData(); renderReference(); }
+function refAutoClassify(){ var n=0; (S.refCards||[]).forEach(function(c){ if(c&&!c.category){ var g=_refGuessCat(c.title); if(g){ c.category=g; n++; } } }); saveData(); renderReference(); if(typeof showToast==='function')showToast(n?(n+'개 자동 분류됨'):'제목으로 판단할 수 있는 게 없었어요 — 카드에서 직접 골라주세요'); }
 function refAddCard(colId){
   var id=(typeof uid==='function')?uid():('rf'+Date.now());
   if(!Array.isArray(S.refCards))S.refCards=[];
   var cid=(colId!=null?colId:(window._refOpenCol&&window._refOpenCol!=='__orphan'?window._refOpenCol:''));
-  S.refCards.push({id:id,collectionId:cid,title:'',brand:'',front:'',back:'',desc:'',createdAt:(typeof todayISO==='function'?todayISO():'')});
+  S.refCards.push({id:id,collectionId:cid,brandId:'',category:'',title:'',brand:'',front:'',back:'',desc:'',createdAt:(typeof todayISO==='function'?todayISO():'')});
   saveData(); renderReference();
   setTimeout(function(){ var el=document.querySelector('[data-ref-card="'+id+'"] .rf-title'); if(el)el.focus(); },30);
 }
@@ -7209,15 +7222,21 @@ function _refFolderCard(col){
     +'</div></div>';
 }
 function _refCardHtml(c){
-  var moveSel='<select class="rf-move" title="다른 폴더로 옮기기" onchange="refMoveCard(\''+c.id+'\',this.value)">'
-    +'<option value="__none"'+(!c.collectionId?' selected':'')+'>미분류</option>'
-    +(S.refCollections||[]).map(function(col){return '<option value="'+esc(col.id)+'"'+((c.collectionId||'')===col.id?' selected':'')+'>'+esc(col.name||'무제 폴더')+'</option>';}).join('')
-    +'</select>';
+  var _bs=(typeof getBrands==='function')?getBrands():(S.brands||[]);
+  var brandSel='<select class="rf-selc" title="거래처 브랜드" onchange="refSetCardBrand(\''+c.id+'\',this.value)"><option value="">거래처 브랜드</option>'
+    +_bs.map(function(b){var bid=b.id||b;return '<option value="'+esc(bid)+'"'+((c.brandId||'')===bid?' selected':'')+'>'+esc(_refBrandName(bid))+'</option>';}).join('')+'</select>';
+  var catSel='<select class="rf-selc" title="카테고리" onchange="refSetCardCat(\''+c.id+'\',this.value)"><option value="">미분류</option>'
+    +getRefCategories().map(function(k){return '<option value="'+esc(k)+'"'+((c.category||'')===k?' selected':'')+'>'+esc(k)+'</option>';}).join('')+'</select>';
+  var moveSel='<select class="rf-selc rf-move" title="폴더" onchange="refMoveCard(\''+c.id+'\',this.value)"><option value="__none"'+(!c.collectionId?' selected':'')+'>폴더: 없음</option>'
+    +(S.refCollections||[]).map(function(col){return '<option value="'+esc(col.id)+'"'+((c.collectionId||'')===col.id?' selected':'')+'>'+esc(col.name||'무제 폴더')+'</option>';}).join('')+'</select>';
+  var picked=!!(window._refPick&&window._refPick[c.id]);
+  var pick='<label class="rf-pick"><input type="checkbox" onchange="refTogglePick(\''+c.id+'\',this.checked)"'+(picked?' checked':'')+'>인쇄선택</label>';
   return '<div class="rf-card" data-ref-card="'+esc(c.id)+'">'
-    +'<div class="rf-actions">'+moveSel
+    +'<div class="rf-actions"><div class="rf-selgrp">'+brandSel+catSel+moveSel+'</div>'
+      +'<div class="rf-btngrp">'+pick
       +'<button class="rf-save" onclick="refSaveImg(\''+c.id+'\')">이미지 저장</button>'
       +'<button onclick="refPrintCard(\''+c.id+'\')">A4 인쇄</button>'
-      +'<button class="rf-del" onclick="refDelCard(\''+c.id+'\')">삭제</button>'
+      +'<button class="rf-del" onclick="refDelCard(\''+c.id+'\')">삭제</button></div>'
     +'</div>'
     +'<div class="rf-sheet">'
       +'<div class="rf-head">'
@@ -7240,7 +7259,9 @@ function renderReference(){
 function _refRenderFolders(el){
   var cols=Array.isArray(S.refCollections)?S.refCollections.slice():[];
   var cats=getRefCategories(); var catFlt=window._refCatFlt||'';
-  var head='<div class="rf-top"><h2>레퍼런스</h2><span class="rf-cnt">폴더 '+cols.length+'개</span><span class="rf-sp"></span>'
+  var looseCnt=_refColCards('').length;
+  var head='<div class="rf-top"><h2>레퍼런스</h2><span class="rf-cnt">폴더 '+cols.length+'개'+(looseCnt?' · 미분류 '+looseCnt+'개':'')+'</span><span class="rf-sp"></span>'
+    +(looseCnt?'<button class="rf-auto" onclick="refAutoClassify()">제목으로 자동 분류</button>':'')
     +'<button class="rf-new" onclick="refAddCollection()">＋ 새 레퍼런스 폴더</button></div>';
   var chips='<div class="rf-chips"><button class="rf-chip'+(!catFlt?' on':'')+'" onclick="refSetCatFlt(\'\')">전체</button>'
     +cats.map(function(c){return '<button class="rf-chip'+(catFlt===c?' on':'')+'" onclick="refSetCatFlt(\''+esc(c)+'\')">'+esc(c)+'</button>';}).join('')
@@ -7267,31 +7288,40 @@ function _refRenderFolders(el){
 function _refRenderInside(el,colId){
   var orphan=(colId==='__orphan'); var col=orphan?null:_refColFind(colId);
   var cards=_refColCards(orphan?'':colId);
-  var hdr;
+  var pickN=Object.keys(window._refPick||{}).length;
+  var printBtn='<button class="rf-auto" id="rf-printsel" onclick="refPrintSelected()"'+(pickN?'':' style="display:none"')+'>선택 인쇄'+(pickN?' ('+pickN+')':'')+'</button>';
   if(orphan){
-    hdr='<div class="rfc-hd"><button class="rfc-back" onclick="refCloseCol()">← 폴더 목록</button>'
-      +'<div class="rfc-titlewrap"><div class="rfc-name">미분류</div><div class="rfc-sub">폴더에 속하지 않은 레퍼런스 · 아래 카드에서 폴더로 옮길 수 있어요</div></div></div>';
-  } else {
-    var brands=(typeof getBrands==='function')?getBrands():(S.brands||[]);
-    var brandOpts='<option value="">브랜드 없음</option>'+brands.map(function(b){var bid=b.id||b;return '<option value="'+esc(bid)+'"'+((col.brandId||'')===bid?' selected':'')+'>'+esc(_refBrandName(bid))+'</option>';}).join('');
-    var cats=getRefCategories();
-    var catOpts='<option value="">카테고리</option>'+cats.map(function(c){return '<option value="'+esc(c)+'"'+((col.category||'')===c?' selected':'')+'>'+esc(c)+'</option>';}).join('');
-    hdr='<div class="rfc-hd"><button class="rfc-back" onclick="refCloseCol()">← 폴더 목록</button>'
-      +'<div class="rfc-titlewrap">'
-        +'<input class="rfc-name-input" value="'+esc(col.name)+'" placeholder="폴더 이름 (예: 바람막이 레퍼런스)" oninput="refSetColField(\''+col.id+'\',\'name\',this.value)">'
-        +'<div class="rfc-metarow">'
-          +'<select class="rfc-sel" onchange="refSetColField(\''+col.id+'\',\'brandId\',this.value)">'+brandOpts+'</select>'
-          +'<select class="rfc-sel" onchange="refSetColField(\''+col.id+'\',\'category\',this.value)">'+catOpts+'</select>'
-          +'<input type="date" class="rfc-date" value="'+esc(col.date||'')+'" onchange="refSetColField(\''+col.id+'\',\'date\',this.value)">'
-        +'</div>'
-      +'</div>'
-      +'<button class="rfc-del" onclick="refDelCollection(\''+col.id+'\')">폴더 삭제</button>'
-    +'</div>';
+    var hdr='<div class="rfc-hd"><button class="rfc-back" onclick="refCloseCol()">← 폴더 목록</button>'
+      +'<div class="rfc-titlewrap"><div class="rfc-name">미분류 <span class="rfc-cnt">'+cards.length+'개</span></div>'
+      +'<div class="rfc-sub">카드에서 거래처 브랜드·카테고리를 정하면 정리돼요</div></div>'
+      +'<div class="rfc-hdbtns"><button class="rf-auto" onclick="refAutoClassify()">제목으로 자동 분류</button>'+printBtn+'</div></div>';
+    var byB={}; cards.forEach(function(c){var b=c.brandId||'__none';(byB[b]=byB[b]||[]).push(c);});
+    var bids=Object.keys(byB).filter(function(b){return b!=='__none';}).sort(function(a,b){return _refBrandName(a).localeCompare(_refBrandName(b),'ko');});
+    if(byB['__none'])bids.push('__none');
+    var body=cards.length? bids.map(function(bid){
+      return '<div class="rf-bsub">'+esc(bid==='__none'?'거래처 미지정':_refBrandName(bid))+' <span class="rf-bsubn">'+byB[bid].length+'개</span></div>'
+        +'<div class="rf-cardgrid">'+byB[bid].map(_refCardHtml).join('')+'</div>';
+    }).join('') : '<div class="rf-empty">폴더 없는 레퍼런스가 없어요</div>';
+    el.innerHTML=hdr+body+'<div class="rf-cardadd" onclick="refAddCard(\'\')">＋ 새 레퍼런스 추가</div>';
+    return;
   }
-  var cardsHtml=cards.map(_refCardHtml).join('');
+  var brands=(typeof getBrands==='function')?getBrands():(S.brands||[]);
+  var brandOpts='<option value="">브랜드 없음</option>'+brands.map(function(b){var bid=b.id||b;return '<option value="'+esc(bid)+'"'+((col.brandId||'')===bid?' selected':'')+'>'+esc(_refBrandName(bid))+'</option>';}).join('');
+  var catOpts='<option value="">카테고리</option>'+getRefCategories().map(function(k){return '<option value="'+esc(k)+'"'+((col.category||'')===k?' selected':'')+'>'+esc(k)+'</option>';}).join('');
+  var hdr2='<div class="rfc-hd"><button class="rfc-back" onclick="refCloseCol()">← 폴더 목록</button>'
+    +'<div class="rfc-titlewrap">'
+      +'<input class="rfc-name-input" value="'+esc(col.name)+'" placeholder="폴더 이름 (예: 바람막이 레퍼런스)" oninput="refSetColField(\''+col.id+'\',\'name\',this.value)">'
+      +'<div class="rfc-metarow">'
+        +'<select class="rfc-sel" onchange="refSetColField(\''+col.id+'\',\'brandId\',this.value)">'+brandOpts+'</select>'
+        +'<select class="rfc-sel" onchange="refSetColField(\''+col.id+'\',\'category\',this.value)">'+catOpts+'</select>'
+        +'<input type="date" class="rfc-date" value="'+esc(col.date||'')+'" onchange="refSetColField(\''+col.id+'\',\'date\',this.value)">'
+      +'</div>'
+    +'</div>'
+    +'<div class="rfc-hdbtns">'+printBtn+'<button class="rfc-del" onclick="refDelCollection(\''+col.id+'\')">폴더 삭제</button></div>'
+  +'</div>';
   var empty=cards.length?'':'<div class="rf-empty">이 폴더에 아직 레퍼런스가 없어요. 아래 버튼으로 추가하세요</div>';
-  var addBtn='<div class="rf-cardadd" onclick="refAddCard(\''+(orphan?'':colId)+'\')">＋ 새 레퍼런스 추가</div>';
-  el.innerHTML=hdr+empty+cardsHtml+addBtn;
+  var grid=cards.length?'<div class="rf-cardgrid">'+cards.map(_refCardHtml).join('')+'</div>':'';
+  el.innerHTML=hdr2+empty+grid+'<div class="rf-cardadd" onclick="refAddCard(\''+colId+'\')">＋ 새 레퍼런스 추가</div>';
 }
 /* 드롭·클릭 배선 — #reference-body는 innerHTML만 갈리고 요소는 살아있어 위임으로 1회만. 빗맞힌 드롭이 새 탭 열지 않게 pane 가드 */
 function _refWireDrop(){
@@ -7360,35 +7390,37 @@ function refSaveImg(id){
     var su=s.u; if(/^https?:/.test(su))su+=(su.indexOf('?')>=0?'&':'?')+'cb=1'; // Storage 이미지: CORS 모드로 새로 받아 캔버스 오염 방지(캐시 우회)
     img.src=su; });
 }
-function refPrintCard(id){
-  var c=_refFind(id); if(!c)return;
-  var slot=function(u){ return u
-    ? '<div class="p-slot"><img src="'+esc(u)+'"></div>'
-    : '<div class="p-slot p-empty"></div>'; };
+/* 인쇄 — 여러 장을 A4 가로 페이지로 나눠서 한 번에. ⚠️사진이 다 로드된 뒤 인쇄(예전엔 500ms 고정이라 사진 안 뜨고 인쇄됐음) */
+function _refPrintCards(cards){
+  cards=(cards||[]).filter(Boolean);
+  if(!cards.length){ if(typeof showToast==='function')showToast('인쇄할 레퍼런스가 없어요'); return; }
+  var slot=function(u){ return u?'<div class="p-slot"><img src="'+esc(u)+'"></div>':'<div class="p-slot p-empty"></div>'; };
+  var page=function(c){ return '<div class="sheet"><div class="head"><div class="title">'+esc(c.title||'')+'</div>'+(c.brand?'<div class="brand">'+esc(c.brand)+'</div>':'')+'</div>'
+    +'<div class="photos">'+slot(c.front)+slot(c.back)+'</div>'
+    +(c.desc?'<div class="desc"><div class="l">설명</div>'+esc(c.desc)+'</div>':'')+'</div>'; };
   var w=window.open('','_blank','width=1120,height=820'); if(!w){ if(typeof showToast==='function')showToast('팝업 차단을 풀어주세요'); return; }
-  var html='<!doctype html><html><head><meta charset="utf-8"><title>'+esc(c.title||'레퍼런스')+'</title><style>'
-    +'@page{size:A4 landscape;margin:0}'
+  var css='@page{size:A4 landscape;margin:0}'
     +'*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
     +'body{margin:0;font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#0B0A05}'
-    +'.sheet{width:297mm;height:210mm;padding:12mm 14mm;display:flex;flex-direction:column;overflow:hidden}'
+    +'.sheet{width:297mm;height:210mm;padding:12mm 14mm;display:flex;flex-direction:column;overflow:hidden;page-break-after:always}'
+    +'.sheet:last-child{page-break-after:auto}'
     +'.head{border-bottom:1.5px solid #ddd;padding-bottom:5mm;margin-bottom:6mm}'
     +'.title{font-size:30px;font-weight:800;line-height:1.15}'
     +'.brand{font-size:15px;color:#8a8470;font-weight:600;margin-top:3mm}'
     +'.photos{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8mm;min-height:0}'
-    +'.p-slot{position:relative;border:1.5px solid #333;overflow:hidden;background:#f4f1e8;display:flex;align-items:center;justify-content:center}'
+    +'.p-slot{border:1.5px solid #333;overflow:hidden;background:#f4f1e8;display:flex;align-items:center;justify-content:center}'
     +'.p-slot img{width:100%;height:100%;object-fit:cover;display:block}'
     +'.p-empty{border-style:dashed;border-color:#ccc}'
-    +'.p-tag{position:absolute;top:0;left:0;background:#0B0A05;color:#fff;font-size:12px;font-weight:800;padding:2px 9px}'
     +'.desc{margin-top:6mm;font-size:14px;line-height:1.6;white-space:pre-wrap}'
-    +'.desc .l{font-size:11px;font-weight:800;color:#8a8470;margin-bottom:2mm}'
-    +'</style></head><body><div class="sheet">'
-    +'<div class="head"><div class="title">'+esc(c.title||'')+'</div>'+(c.brand?'<div class="brand">'+esc(c.brand)+'</div>':'')+'</div>'
-    +'<div class="photos">'+slot(c.front)+slot(c.back)+'</div>'
-    +(c.desc?'<div class="desc"><div class="l">설명</div>'+esc(c.desc)+'</div>':'')
-    +'</div></body></html>';
-  w.document.write(html); w.document.close();
-  setTimeout(function(){ try{w.focus();w.print();}catch(e){} },500);
+    +'.desc .l{font-size:11px;font-weight:800;color:#8a8470;margin-bottom:2mm}';
+  var wait='(function(){var g=function(){try{window.focus();window.print();}catch(e){}};var im=document.images,n=im.length,d=0,done=false;var fin=function(){if(done)return;done=true;setTimeout(g,250);};if(!n){fin();return;}var chk=function(){if(++d>=n)fin();};for(var i=0;i<n;i++){var x=im[i];if(x.complete)chk();else{x.onload=chk;x.onerror=chk;}}setTimeout(fin,9000);})();';
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>레퍼런스 인쇄</title><style>'+css+'</style></head><body>'+cards.map(page).join('')+'<scr'+'ipt>'+wait+'</scr'+'ipt></body></html>');
+  w.document.close();
 }
+function refPrintCard(id){ _refPrintCards([_refFind(id)]); }
+function refTogglePick(id,on){ if(!window._refPick)window._refPick={}; if(on)window._refPick[id]=1; else delete window._refPick[id];
+  var n=Object.keys(window._refPick).length, b=document.getElementById('rf-printsel'); if(b){ b.textContent='선택 인쇄'+(n?' ('+n+')':''); b.style.display=n?'':'none'; } }
+function refPrintSelected(){ var p=window._refPick||{}; var cards=(S.refCards||[]).filter(function(c){return c&&p[c.id];}); if(!cards.length){ if(typeof showToast==='function')showToast('인쇄할 카드를 체크해주세요'); return; } _refPrintCards(cards); }
 function _refStyle(){
   if(document.getElementById('reference-style'))return;
   var st=document.createElement('style'); st.id='reference-style'; st.textContent=
@@ -7400,7 +7432,19 @@ function _refStyle(){
     +'#reference-body .rf-new{border:2.5px solid var(--ink,#0B0A05);background:var(--neon-green,#A5E6BA);color:var(--ink,#0B0A05);font-weight:800;font-size:13px;padding:8px 14px;cursor:pointer;border-radius:0;box-shadow:3px 3px 0 rgba(11,10,5,.18);font-family:inherit}'
     +'#reference-body .rf-new:active{transform:translate(2px,2px);box-shadow:1px 1px 0 rgba(11,10,5,.18)}'
     +'#reference-body .rf-card{margin:0 auto 26px;max-width:1040px}'
-    +'#reference-body .rf-actions{display:flex;gap:7px;justify-content:flex-end;margin-bottom:8px}'
+    +'#reference-body .rf-actions{display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:8px}'
+    +'#reference-body .rf-selgrp,#reference-body .rf-btngrp{display:flex;gap:6px;flex-wrap:wrap;align-items:center}'
+    +'#reference-body .rf-selc{border:2px solid var(--ink,#0B0A05);background:#fffbe8;font-family:inherit;font-weight:700;font-size:12px;padding:6px 8px;border-radius:0;color:var(--ink,#0B0A05);max-width:150px}'
+    +'#reference-body .rf-pick{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--ink,#0B0A05);border:2px solid #cfc8b6;background:#fff;padding:5px 9px;cursor:pointer;border-radius:0}'
+    +'#reference-body .rf-pick input{margin:0;cursor:pointer}'
+    +'#reference-body .rf-cardgrid{display:grid;grid-template-columns:1fr;gap:22px;align-items:start;margin-bottom:8px}'
+    +'@media(min-width:900px){#reference-body .rf-cardgrid{grid-template-columns:1fr 1fr}}'
+    +'#reference-body .rf-cardgrid .rf-card{max-width:none;margin:0}'
+    +'#reference-body .rf-bsub{font-size:13px;font-weight:800;color:var(--ink,#0B0A05);background:#f0ebde;border:2px solid var(--ink,#0B0A05);padding:5px 10px;display:inline-block;margin:6px 0 12px}'
+    +'#reference-body .rf-bsubn{font-weight:600;color:#6b6a63}'
+    +'#reference-body .rf-auto{border:2px solid var(--ink,#0B0A05);background:#FFF6B8;color:var(--ink,#0B0A05);font-weight:800;font-size:12px;padding:8px 12px;cursor:pointer;border-radius:0;box-shadow:2px 2px 0 rgba(11,10,5,.15);font-family:inherit;white-space:nowrap}'
+    +'#reference-body .rfc-hdbtns{display:flex;gap:7px;flex-wrap:wrap;align-items:center}'
+    +'#reference-body .rfc-cnt{font-size:13px;font-weight:600;color:#8a8470}'
     +'#reference-body .rf-actions button{border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--ink,#0B0A05);font-weight:800;font-size:12px;padding:6px 12px;cursor:pointer;border-radius:0;box-shadow:2px 2px 0 rgba(11,10,5,.15);font-family:inherit}'
     +'#reference-body .rf-actions button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(11,10,5,.15)}'
     +'#reference-body .rf-actions .rf-del{color:#c0392b;border-color:#c0392b}'
@@ -7464,7 +7508,7 @@ function _refStyle(){
     +'#reference-body .rfc-metarow{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}'
     +'#reference-body .rfc-sel,#reference-body .rfc-date{border:2px solid var(--ink,#0B0A05);background:#fff;font-family:inherit;font-weight:700;font-size:12.5px;padding:5px 8px;border-radius:0;color:var(--ink,#0B0A05)}'
     +'#reference-body .rfc-del{border:2px solid #c0392b;background:#fff;color:#c0392b;font-weight:800;font-size:12px;padding:8px 12px;cursor:pointer;border-radius:0;font-family:inherit;white-space:nowrap;flex-shrink:0}'
-    +'#reference-body .rf-move{border:2px solid var(--ink,#0B0A05);background:#fffbe8;font-family:inherit;font-weight:700;font-size:12px;padding:6px 8px;border-radius:0;color:var(--ink,#0B0A05);margin-right:auto;max-width:180px}'
+    +'#reference-body .rf-move{max-width:160px}'
     +'#reference-body .rf-cardadd{max-width:1040px;margin:6px auto 0;border:2.5px dashed var(--ink,#0B0A05);border-radius:0;padding:16px;text-align:center;font-weight:800;font-size:14px;cursor:pointer;background:rgba(255,255,255,.5);color:var(--ink,#0B0A05)}'
     +'#reference-body .rf-cardadd:hover{background:#faf8f2}';
   document.head.appendChild(st);
