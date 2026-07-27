@@ -233,6 +233,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-idea" onclick="setItemView('idea');switchTab('items')">아이디어</button>
   <button class="ntab" id="nt-dosik" onclick="dosikOpen()">도식화</button>
   <button class="ntab" id="nt-ref" onclick="switchTab('ref')">샘플 참고</button>
+  <button class="ntab" id="nt-reference" onclick="switchTab('reference')">레퍼런스</button>
   <div class="nav-sep"></div>
   <button class="ntab" id="nt-dash" onclick="switchTab('dash')">생산 대시보드</button>
   <button class="ntab" id="nt-orders" onclick="showOrderList('active')">오더 관리</button>
@@ -379,6 +380,10 @@ tryInitFirebase();
   <!-- Reference / 노하우 -->
   <div id="pane-ref" class="panel" style="display:none">
     <div id="ref-c"></div>
+  </div>
+  <!-- 레퍼런스 (앞뒤 사진 + 설명, A4 가로 카드) -->
+  <div id="pane-reference" class="panel" style="display:none">
+    <div id="reference-body"></div>
   </div>
   <!-- Orders - split -->
   <div id="pane-orders" class="split" style="display:none">
@@ -1642,7 +1647,7 @@ function _mergeById(a,b,tomb){
 }
 var _mergeTasksById=_mergeById;   // 구명 호환
 // ── 배열 묘비(tombstone): 지운 id를 S._tomb.<배열명>에 기록 → 병합 때 부활 차단 (items/orders의 _entMerge 무덤과 동일 사상)
-var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs'];
+var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards'];
 function _tombArr(name,id){ try{ if(!id)return; if(!S._tomb)S._tomb={}; if(!S._tomb[name])S._tomb[name]={}; S._tomb[name][id]=(typeof todayISO==='function'?todayISO():new Date().toISOString().slice(0,10)); }catch(e){} }
 // 배열에서 조건에 맞는 항목 삭제 + 묘비 기록 (모든 삭제는 가급적 이걸 통해서)
 function _arrDelWhere(name,pred){ var a=S[name]||[],keep=[],n=0; a.forEach(function(x){ if(x&&pred(x)){ if(x.id)_tombArr(name,x.id); n++; } else keep.push(x); }); S[name]=keep; return n; }
@@ -1669,12 +1674,12 @@ function applyRemoteCoData(data,ts,opts){
   _mergeArrTombs(_ctombR);
   S.tasks=_mergeById(S.tasks,data.tasks,S._tomb.tasks);S.pickups=_mergeById(S.pickups,data.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(S.sampleOrders,data.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(S.deductions,data.deductions,S._tomb.deductions);
   // 이전엔 실시간 수신에서 아예 빠져 있던 필드들(다른 기기 변경이 새로고침 전 미반영) — 병합으로 반영
-  S.packages=_mergeById(S.packages,data.packages,S._tomb.packages);S.goals=_mergeById(S.goals,data.goals,S._tomb.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs,S._tomb.defectRecs);
+  S.packages=_mergeById(S.packages,data.packages,S._tomb.packages);S.goals=_mergeById(S.goals,data.goals,S._tomb.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(S.refCards,data.refCards,S._tomb.refCards);
   if(typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
   // 객체맵도 키 단위 병합(통째 교체 금지) — 원격 키 승, 로컬 전용 키 보존
   S.brandConfig=_mergeMap(S.brandConfig,data.brandConfig);
   S.trimLedger=_mergeMap(S.trimLedger,data.trimLedger);S.trimLedgerPaid=_mergeMap(S.trimLedgerPaid,data.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(S.trimLedgerOvr,data.trimLedgerOvr);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeMap(S.refData,data.refData);
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
   if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -1684,7 +1689,7 @@ function applyRemoteOrders(orders,tomb){
   _entEnsureTomb();
   var _mo=_entMerge(S.orders||{},orders,S._tomb.orders,tomb,'cloud');
   S.orders=_mo.map; S._tomb.orders=_mo.tomb;
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){}
   try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -2092,7 +2097,7 @@ async function cloudSyncSave(){
         _mergeArrTombs(_ctombS);
         S.tasks=_mergeById(cloudCurrent.tasks,S.tasks,S._tomb.tasks);
         S.pickups=_mergeById(cloudCurrent.pickups,S.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(cloudCurrent.sampleOrders,S.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(cloudCurrent.deductions,S.deductions,S._tomb.deductions);
-        S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);
+        S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(cloudCurrent.refCards,S.refCards,S._tomb.refCards);
         // 객체맵 키 단위 병합(b=로컬 승) — 다른 기기가 추가한 키를 내 저장이 안 지움
         S.trimLedger=_mergeMap(cloudCurrent.trimLedger,S.trimLedger);S.trimLedgerPaid=_mergeMap(cloudCurrent.trimLedgerPaid,S.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(cloudCurrent.trimLedgerOvr,S.trimLedgerOvr);
         S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeMap(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMap(cloudCurrent.brandConfig,S.brandConfig);
@@ -2114,7 +2119,7 @@ async function cloudSyncSave(){
       pickups:S.pickups||[],
       packages:S.packages||[],
       goals:S.goals||[],
-      trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},
+      trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},
       todoBoard:S.todoBoard||{},
       tasks:S.tasks||[],
       brandConfig:S.brandConfig||{},
@@ -2629,7 +2634,7 @@ function recoverFromAutoBackup(idx){
     S.pickups=d.pickups||[];
     S.packages=d.packages||[];
     S.goals=d.goals||[];
-    S.trimLedger=d.trimLedger||{};S.trimLedgerPaid=d.trimLedgerPaid||{};S.trimLedgerOvr=d.trimLedgerOvr||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refData=d.refData||{};
+    S.trimLedger=d.trimLedger||{};S.trimLedgerPaid=d.trimLedgerPaid||{};S.trimLedgerOvr=d.trimLedgerOvr||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refData=d.refData||{};
     S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{};
     S.deductions=d.deductions||[];
@@ -2648,7 +2653,7 @@ function recoverFromAutoBackup(idx){
 // 현재 메모리 상태를 백업 파일로 즉시 다운로드 (저장 실패 시 안전망)
 function _downloadBackupNow(){
   try{
-    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions,todoBoard:S.todoBoard||{}};
+    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions,todoBoard:S.todoBoard||{}};
     var out={version:'pro2',ts:new Date().toISOString(),companies:companies,allCoData:allCo,shared:{factories:S.factories,priceBook:S.priceBook}};
     var blob=new Blob([JSON.stringify(out)],{type:'application/json'});var url=URL.createObjectURL(blob);
     var a=document.createElement('a');a.href=url;a.download='fpm복구본-'+Date.now()+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
@@ -2665,7 +2670,7 @@ function recoverFromHourlyBackup(idx){
     if(typeof tpMergeLocalImages==='function'){ try{newItems=tpMergeLocalImages(newItems,S.items||{});}catch(e){} }
     S.items=newItems;
     S.orders=d.orders||{}; S.brands=d.brands||[]; S.sampleOrders=d.sampleOrders||[];
-    S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.trimLedger=d.trimLedger||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refData=d.refData||{}; S.tasks=d.tasks||[];
+    S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.trimLedger=d.trimLedger||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refData=d.refData||{}; S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{}; S.deductions=d.deductions||[];
     S.todoBoard=d.todoBoard||{}; // ★할일판 복원
     var _saveOk2=true; try{saveData();}catch(se){_saveOk2=false;console.error('[매시간백업 복구] saveData 실패:',se);}
@@ -3113,7 +3118,7 @@ async function cloudSyncLoad(id,opts){
         pickups:_mergeById(S.pickups,d.pickups,_tombNew.pickups),
         packages:_mergeById(S.packages,d.packages,_tombNew.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
         goals:_mergeById(S.goals,d.goals,_tombNew.goals),
-        trimLedger:_mergeMap(S.trimLedger,d.trimLedger),trimLedgerPaid:_mergeMap(S.trimLedgerPaid,d.trimLedgerPaid),trimLedgerOvr:_mergeMap(S.trimLedgerOvr,d.trimLedgerOvr),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refData:_mergeMap(S.refData,d.refData),
+        trimLedger:_mergeMap(S.trimLedger,d.trimLedger),trimLedgerPaid:_mergeMap(S.trimLedgerPaid,d.trimLedgerPaid),trimLedgerOvr:_mergeMap(S.trimLedgerOvr,d.trimLedgerOvr),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refData:_mergeMap(S.refData,d.refData),
         tasks:_mergeById(S.tasks,d.tasks,_tombNew.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
         brandConfig:_mergeMap(S.brandConfig,d.brandConfig),
         deductions:_mergeById(S.deductions,d.deductions,_tombNew.deductions),
@@ -3126,7 +3131,7 @@ async function cloudSyncLoad(id,opts){
       lsSet('fpm_'+id,{
         items:S.items,orders:S.orders,_tomb:S._tomb||{},
         brands:S.brands,sampleOrders:S.sampleOrders,
-        pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,
+        pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,
         brandConfig:S.brandConfig,deductions:S.deductions
       });
       lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
@@ -3293,7 +3298,7 @@ function autoLocalBackup(){
       data:{
         items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,
         orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],
-        packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],
+        packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],
         brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]
       }
     };
@@ -3316,7 +3321,7 @@ function autoHourlyBackup(){
     var list=window._hbkCache;
     if(list.length&&list[list.length-1].stamp===stamp)return; // 이번 시간 이미 저장됨
     var snap={stamp:stamp,ts:Date.now(),hr:hr,date:(now.getMonth()+1)+'/'+now.getDate(),n:Object.keys(items).length,
-      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
+      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
     list.push(snap); while(list.length>HBK_MAX)list.shift();
     idbBkSet('fpm_hbk_'+curCoId,list).catch(function(){}); // IndexedDB에 비동기 저장
   }catch(e){}
@@ -3332,7 +3337,7 @@ function saveData(){
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   window._lsQuotaErr=false;
-  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
@@ -3366,7 +3371,7 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
+  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{_entShadowInit();}catch(e){} // 항목별 병합 기준선 — 마이그레이션 "이후"에 찍어야 기계적 변경이 _mt 오염 안 함
@@ -3394,6 +3399,7 @@ function migrateData(){
   if(!S.packages)S.packages=[];
   if(!S.goals)S.goals=[];
   if(!S.defectRecs)S.defectRecs=[];
+  if(!Array.isArray(S.refCards))S.refCards=[];
   if(!S.trimLedger)S.trimLedger={};if(!S.trimLedgerOvr)S.trimLedgerOvr={};
   if(!S.trimLedgerPaid)S.trimLedgerPaid={};
   if(!S.courierLedger||typeof S.courierLedger!=='object'||Array.isArray(S.courierLedger)){var _oce=Array.isArray(S.courierLedger)?S.courierLedger:[];S.courierLedger={bank:(S.courierLedger&&S.courierLedger.bank)||'',entries:_oce};}
@@ -3695,13 +3701,13 @@ function _collectBackupData(){
     if(cid===curCoId){
       allCoData[cid]={
         items:S.items||{},orders:S.orders||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],
-        pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refData:S.refData||{},tasks:S.tasks||[],
+        pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refData:S.refData||{},tasks:S.tasks||[],
         brandConfig:S.brandConfig||{},deductions:S.deductions||[]
       };
     }else{
       allCoData[cid]={
         items:d.items||{},orders:d.orders||{},brands:d.brands||[],sampleOrders:d.sampleOrders||[],
-        pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},refData:d.refData||{},tasks:d.tasks||[],
+        pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refData:d.refData||{},tasks:d.tasks||[],
         brandConfig:d.brandConfig||{},deductions:d.deductions||[]
       };
     }
@@ -4105,6 +4111,7 @@ var PD_NAVTABS=[
   {k:'idea',label:'아이디어',icon:'',fn:function(){setItemView('idea');switchTab('items');}},
   {k:'dosik',label:'도식화',icon:'',fn:function(){if(typeof dosikOpen==='function')dosikOpen();}},
   {k:'ref',label:'샘플 참고',icon:'',fn:function(){switchTab('ref');}},
+  {k:'reference',label:'레퍼런스',icon:'',fn:function(){switchTab('reference');}},
   {k:'dash',label:'대시보드',icon:'',fn:function(){switchTab('dash');}},
   {k:'orders',label:'오더',icon:'',fn:function(){showOrderList('active');}},
   {k:'yocheok',label:'요척',icon:'',fn:function(){switchTab('yocheok');}},
@@ -4181,7 +4188,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','yocheok','jaedan','ledger','courier','cinv','pricecompare'].forEach(n=>{
+  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','reference','yocheok','jaedan','ledger','courier','cinv','pricecompare'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -4227,6 +4234,7 @@ function switchTab(t){
     else if(t==='analytics')renderAnalyticsPane();
     else if(t==='leftover')renderLeftoverTab();
     else if(t==='ref')renderRefTab();
+    else if(t==='reference')renderReference();
     else if(t==='yocheok')renderYocheokTab();
     else if(t==='jaedan')renderJaedanCalc();
     else if(t==='ledger')renderTrimLedger();
@@ -6856,7 +6864,7 @@ function _ideaStyle(){
     +'#i-list .ic-x{flex-shrink:0;border:1.5px solid #e0dbcd;background:#fff;color:#b9b3a4;font-size:12px;font-weight:800;width:24px;height:24px;cursor:pointer;border-radius:3px;line-height:1;padding:0}'
     +'#i-list .ic-x:hover{border-color:#c0392b;color:#c0392b}'
     +'#i-list .ic-ph{display:flex;gap:8px;align-items:stretch;margin-bottom:6px}'
-    +'#i-list .ic-img{width:74px;height:74px;flex-shrink:0;border:2px solid var(--ink,#0B0A05);border-radius:3px;overflow:hidden;background:#efeadd;position:relative}'
+    +'#i-list .ic-img{width:150px;height:200px;flex-shrink:0;border:2px solid var(--ink,#0B0A05);border-radius:3px;overflow:hidden;background:#efeadd;position:relative}'
     +'#i-list .ic-img img{width:100%;height:100%;object-fit:cover;display:block}'
     +'#i-list .ic-phx{position:absolute;top:-6px;right:-6px;width:19px;height:19px;border-radius:50%;border:1.5px solid var(--ink,#0B0A05);background:#fff;color:#c0392b;font-size:11px;font-weight:800;cursor:pointer;line-height:1;padding:0}'
     +'#i-list .ic-note{flex:1;min-width:0;border:1.5px solid #cfc8b6;border-radius:3px;background:#fffdf8;font-size:12px;padding:6px 8px;font-family:inherit;resize:none;line-height:1.5;color:var(--ink,#0B0A05)}'
@@ -7097,6 +7105,196 @@ function ideaPromote(id){
   saveData();
   window._itemView='list'; try{renderItemsList();}catch(e){}
   if(typeof showToast==='function')showToast('샘플로 시작! 아이템 목록에서 이어가세요',4000);
+}
+
+/* ===== 레퍼런스 탭 (2026-07-27) — 제목+브랜드명 + 앞·뒤 사진 2장 + 설명, A4 가로 카드 =====
+   · 저장·동기화: S.refCards(top-level 배열) — defectRecs와 동일하게 _mergeById+묘비(_ID_ARRS)로 추가·수정·삭제·다기기 안전
+   · 사진: 드래그앤드롭 + 눌러서 고르기. 업로드=아이디어보드와 동일(tpCompress→Storage, 없으면 dataURL 폴백)
+   · 텍스트는 oninput 디바운스 저장(재렌더 안 함 → 커서 안 튕김). 카드 추가/삭제/사진만 즉시 렌더
+   · 이미지 저장=html2canvas(라인시트와 동일), A4 인쇄=독립 팝업(전역 @page 안 건드림) */
+function _refFind(id){ return (S.refCards||[]).find(function(c){return c&&c.id===id;})||null; }
+function _refSaveSoon(){ if(window._refSaveT)clearTimeout(window._refSaveT); window._refSaveT=setTimeout(function(){ try{saveData();}catch(e){} },600); }
+function refSetField(id,key,val){ var c=_refFind(id); if(!c)return; c[key]=val; _refSaveSoon(); }
+function refAddCard(){
+  var id=(typeof uid==='function')?uid():('rf'+Date.now());
+  if(!Array.isArray(S.refCards))S.refCards=[];
+  S.refCards.push({id:id,title:'',brand:'',front:'',back:'',desc:'',createdAt:(typeof todayISO==='function'?todayISO():'')});
+  saveData(); renderReference();
+  setTimeout(function(){ var el=document.querySelector('[data-ref-card="'+id+'"] .rf-title'); if(el)el.focus(); },30);
+}
+function refDelCard(id){ if(!confirm('이 레퍼런스를 삭제할까요?'))return; _arrDelWhere('refCards',function(x){return x&&x.id===id;}); saveData(); renderReference(); }
+function refDelImage(id,side){ var c=_refFind(id); if(!c)return; c[side]=''; saveData(); renderReference(); }
+function refPickImage(id,side){
+  window._refUp={id:id,side:side};
+  var inp=document.getElementById('ref-file-input');
+  if(!inp){ inp=document.createElement('input'); inp.type='file'; inp.id='ref-file-input'; inp.accept='image/*'; inp.style.display='none';
+    inp.onchange=function(){ if(window._refUp&&inp.files&&inp.files.length)refAddImage(window._refUp.id,window._refUp.side,inp.files); };
+    document.body.appendChild(inp); }
+  inp.value=''; inp.click();
+}
+// 사진 1칸=1장. 드롭·고르기 공용. 업로드 흐름은 아이디어보드와 동일(압축→Storage, 없으면 dataURL)
+function refAddImage(id,side,files){
+  if(!_refFind(id))return;
+  var arr=Array.prototype.slice.call(files||[]).filter(function(f){return f&&/^image\//.test(f.type);});
+  if(!arr.length)return;
+  var ov=(typeof tpShowUp==='function')?tpShowUp('이미지 올리는 중...'):null;
+  tpCompress(arr[0],1600,0.85,false).then(function(r){
+    if(window.fbStorage)return tpUpload(r.blob,id,'ref_'+side,false);
+    return r.dataUrl; // Storage 없으면 인라인 폴백
+  }).then(function(url){
+    var c=_refFind(id); if(c)c[side]=url;
+    if(typeof tpHideUp==='function')tpHideUp(ov);
+    saveData(); renderReference();
+  }).catch(function(e){
+    if(typeof tpHideUp==='function')tpHideUp(ov);
+    if(typeof showToast==='function')showToast('이미지 업로드 실패 — 다시 시도해주세요');
+    console.error('ref img',e);
+  });
+}
+function _refSlot(c,side,label){
+  var url=c[side];
+  if(url){
+    return '<div class="rf-slot" data-side="'+side+'">'
+      +'<span class="rf-tag">'+label+'</span>'
+      +'<img src="'+esc(url)+'" alt="">'
+      +'<button class="rf-rm" onclick="event.stopPropagation();refDelImage(\''+c.id+'\',\''+side+'\')" title="사진 삭제">&times;</button>'
+      +'<div class="rf-swap">눌러서 다른 사진으로 바꾸기</div>'
+    +'</div>';
+  }
+  return '<div class="rf-slot empty" data-side="'+side+'">'
+    +'<span class="rf-tag">'+label+'</span>'
+    +'<div class="rf-ph"><span class="rf-plus">＋</span><span>'+label+' 사진 끌어다 놓기</span><span class="rf-sub">또는 눌러서 고르기</span></div>'
+  +'</div>';
+}
+function renderReference(){
+  var el=document.getElementById('reference-body'); if(!el)return;
+  _refStyle();
+  var cards=Array.isArray(S.refCards)?S.refCards:[];
+  var head='<div class="rf-top"><h2>레퍼런스</h2><span class="rf-cnt">'+cards.length+'개</span><span class="rf-sp"></span>'
+    +'<button class="rf-new" onclick="refAddCard()">＋ 새 레퍼런스</button></div>';
+  if(!cards.length){ el.innerHTML=head+'<div class="rf-empty">아직 레퍼런스가 없어요. 위 <b>＋ 새 레퍼런스</b>로 첫 장을 만들어보세요</div>'; _refWireDrop(); return; }
+  var html=cards.map(function(c){
+    return '<div class="rf-card" data-ref-card="'+esc(c.id)+'">'
+      +'<div class="rf-actions">'
+        +'<button class="rf-save" onclick="refSaveImg(\''+c.id+'\')">이미지 저장</button>'
+        +'<button onclick="refPrintCard(\''+c.id+'\')">A4 인쇄</button>'
+        +'<button class="rf-del" onclick="refDelCard(\''+c.id+'\')">삭제</button>'
+      +'</div>'
+      +'<div class="rf-sheet">'
+        +'<div class="rf-head">'
+          +'<input class="rf-title" value="'+esc(c.title)+'" placeholder="제목 (예: 카라 바람막이)" oninput="refSetField(\''+c.id+'\',\'title\',this.value)">'
+          +'<input class="rf-brand" value="'+esc(c.brand)+'" placeholder="브랜드명" oninput="refSetField(\''+c.id+'\',\'brand\',this.value)">'
+        +'</div>'
+        +'<div class="rf-photos">'+_refSlot(c,'front','앞')+_refSlot(c,'back','뒤')+'</div>'
+        +'<div class="rf-desc"><label>설명</label><textarea placeholder="디자인 포인트, 소재, 디테일 등 자유롭게 적어요..." oninput="refSetField(\''+c.id+'\',\'desc\',this.value)">'+esc(c.desc)+'</textarea></div>'
+      +'</div>'
+    +'</div>';
+  }).join('');
+  el.innerHTML=head+html;
+  _refWireDrop();
+}
+/* 드롭·클릭 배선 — #reference-body는 innerHTML만 갈리고 요소는 살아있어 위임으로 1회만. 빗맞힌 드롭이 새 탭 열지 않게 pane 가드 */
+function _refWireDrop(){
+  var el=document.getElementById('reference-body');
+  if(el&&!el._refDrop){ el._refDrop=1;
+    var slotOf=function(e){ return (e.target&&e.target.closest)?e.target.closest('.rf-slot'):null; };
+    var cardId=function(s){ var c=s&&s.closest?s.closest('[data-ref-card]'):null; return c?c.getAttribute('data-ref-card'):''; };
+    el.addEventListener('click',function(e){ var s=slotOf(e); if(!s)return; if(e.target.closest('.rf-rm'))return; refPickImage(cardId(s),s.getAttribute('data-side')); });
+    el.addEventListener('dragover',function(e){ var s=slotOf(e); if(!s)return; e.preventDefault(); e.stopPropagation(); s.classList.add('over'); });
+    el.addEventListener('dragleave',function(e){ var s=slotOf(e); if(!s)return; if(!s.contains(e.relatedTarget))s.classList.remove('over'); });
+    el.addEventListener('drop',function(e){ var s=slotOf(e); if(!s)return; e.preventDefault(); e.stopPropagation(); s.classList.remove('over');
+      var dt=e.dataTransfer; if(dt&&dt.files&&dt.files.length)refAddImage(cardId(s),s.getAttribute('data-side'),dt.files); });
+  }
+  var pane=document.getElementById('pane-reference');
+  if(pane&&!pane._refGuard){ pane._refGuard=1;
+    pane.addEventListener('dragover',function(e){ if(e.dataTransfer&&Array.prototype.indexOf.call(e.dataTransfer.types||[],'Files')>=0)e.preventDefault(); });
+    pane.addEventListener('drop',function(e){ if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)e.preventDefault(); });
+  }
+}
+function refSaveImg(id){
+  var card=document.querySelector('[data-ref-card="'+id+'"]'); if(!card){ if(typeof showToast==='function')showToast('카드를 찾을 수 없어요'); return; }
+  var sheet=card.querySelector('.rf-sheet'); if(!sheet)return;
+  var c=_refFind(id); var nm=(((c&&c.title)||'레퍼런스')+((c&&c.brand)?'_'+c.brand:'')).replace(/[\\/:*?"<>|]/g,'_');
+  var go=function(){
+    html2canvas(sheet,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(canvas){
+      var a=document.createElement('a'); a.download=nm+'.png'; a.href=canvas.toDataURL('image/png'); a.click();
+      if(typeof showToast==='function')showToast('이미지 저장됨');
+    }).catch(function(e){ if(typeof showToast==='function')showToast('이미지 저장 실패'); console.error('ref save',e); });
+  };
+  if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){if(typeof showToast==='function')showToast('라이브러리 로드 실패 — 인터넷 확인');};document.head.appendChild(s);}else go();
+}
+function refPrintCard(id){
+  var c=_refFind(id); if(!c)return;
+  var slot=function(u,label){ return u
+    ? '<div class="p-slot"><span class="p-tag">'+esc(label)+'</span><img src="'+esc(u)+'"></div>'
+    : '<div class="p-slot p-empty"></div>'; };
+  var w=window.open('','_blank','width=1120,height=820'); if(!w){ if(typeof showToast==='function')showToast('팝업 차단을 풀어주세요'); return; }
+  var html='<!doctype html><html><head><meta charset="utf-8"><title>'+esc(c.title||'레퍼런스')+'</title><style>'
+    +'@page{size:A4 landscape;margin:0}'
+    +'*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    +'body{margin:0;font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#0B0A05}'
+    +'.sheet{width:297mm;height:210mm;padding:12mm 14mm;display:flex;flex-direction:column;overflow:hidden}'
+    +'.head{border-bottom:1.5px solid #ddd;padding-bottom:5mm;margin-bottom:6mm}'
+    +'.title{font-size:30px;font-weight:800;line-height:1.15}'
+    +'.brand{font-size:15px;color:#8a8470;font-weight:600;margin-top:3mm}'
+    +'.photos{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8mm;min-height:0}'
+    +'.p-slot{position:relative;border:1.5px solid #333;overflow:hidden;background:#f4f1e8;display:flex;align-items:center;justify-content:center}'
+    +'.p-slot img{width:100%;height:100%;object-fit:cover;display:block}'
+    +'.p-empty{border-style:dashed;border-color:#ccc}'
+    +'.p-tag{position:absolute;top:0;left:0;background:#0B0A05;color:#fff;font-size:12px;font-weight:800;padding:2px 9px}'
+    +'.desc{margin-top:6mm;font-size:14px;line-height:1.6;white-space:pre-wrap}'
+    +'.desc .l{font-size:11px;font-weight:800;color:#8a8470;margin-bottom:2mm}'
+    +'</style></head><body><div class="sheet">'
+    +'<div class="head"><div class="title">'+esc(c.title||'')+'</div>'+(c.brand?'<div class="brand">'+esc(c.brand)+'</div>':'')+'</div>'
+    +'<div class="photos">'+slot(c.front,'앞')+slot(c.back,'뒤')+'</div>'
+    +(c.desc?'<div class="desc"><div class="l">설명</div>'+esc(c.desc)+'</div>':'')
+    +'</div></body></html>';
+  w.document.write(html); w.document.close();
+  setTimeout(function(){ try{w.focus();w.print();}catch(e){} },500);
+}
+function _refStyle(){
+  if(document.getElementById('reference-style'))return;
+  var st=document.createElement('style'); st.id='reference-style'; st.textContent=
+     '#reference-body{padding:4px 2px 60px}'
+    +'#reference-body .rf-top{display:flex;align-items:center;gap:10px;margin:2px 4px 16px}'
+    +'#reference-body .rf-top h2{font-size:17px;font-weight:800;margin:0;color:var(--ink,#0B0A05)}'
+    +'#reference-body .rf-cnt{font-size:12.5px;color:var(--t2,#8a8470);font-weight:600}'
+    +'#reference-body .rf-sp{flex:1}'
+    +'#reference-body .rf-new{border:2.5px solid var(--ink,#0B0A05);background:var(--neon-green,#A5E6BA);color:var(--ink,#0B0A05);font-weight:800;font-size:13px;padding:8px 14px;cursor:pointer;border-radius:0;box-shadow:3px 3px 0 rgba(11,10,5,.18);font-family:inherit}'
+    +'#reference-body .rf-new:active{transform:translate(2px,2px);box-shadow:1px 1px 0 rgba(11,10,5,.18)}'
+    +'#reference-body .rf-card{margin:0 auto 26px;max-width:1040px}'
+    +'#reference-body .rf-actions{display:flex;gap:7px;justify-content:flex-end;margin-bottom:8px}'
+    +'#reference-body .rf-actions button{border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--ink,#0B0A05);font-weight:800;font-size:12px;padding:6px 12px;cursor:pointer;border-radius:0;box-shadow:2px 2px 0 rgba(11,10,5,.15);font-family:inherit}'
+    +'#reference-body .rf-actions button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(11,10,5,.15)}'
+    +'#reference-body .rf-actions .rf-del{color:#c0392b;border-color:#c0392b}'
+    +'#reference-body .rf-actions .rf-save{background:var(--neon-green,#A5E6BA)}'
+    +'#reference-body .rf-sheet{background:#fff;border:2.5px solid var(--ink,#0B0A05);box-shadow:4px 4px 0 rgba(11,10,5,.16);width:100%;aspect-ratio:297/210;padding:22px 26px;display:flex;flex-direction:column;overflow:hidden}'
+    +'#reference-body .rf-head{flex:0 0 auto;border-bottom:2px solid #ece7da;padding-bottom:10px;margin-bottom:12px}'
+    +'#reference-body .rf-title{width:100%;border:none;background:transparent;font-family:inherit;font-weight:800;font-size:26px;color:var(--ink,#0B0A05);padding:2px 0;line-height:1.15}'
+    +'#reference-body .rf-title:focus{outline:none}'
+    +'#reference-body .rf-title::placeholder{color:#cfc8b6}'
+    +'#reference-body .rf-brand{width:100%;border:none;background:transparent;font-family:inherit;font-weight:600;font-size:14px;color:var(--t2,#8a8470);padding:3px 0 0}'
+    +'#reference-body .rf-brand:focus{outline:none}'
+    +'#reference-body .rf-brand::placeholder{color:#d8d2c2}'
+    +'#reference-body .rf-photos{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;gap:16px;min-height:0}'
+    +'#reference-body .rf-slot{position:relative;border:2px solid var(--ink,#0B0A05);background:#f4f1e8;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:pointer}'
+    +'#reference-body .rf-slot.empty{border-style:dashed;border-color:#c9c2b0;background:repeating-linear-gradient(45deg,#faf8f2,#faf8f2 10px,#f4f1e8 10px,#f4f1e8 20px)}'
+    +'#reference-body .rf-slot.over{border-color:var(--green,#1a7a4a);background:#e6f5ec;border-style:solid}'
+    +'#reference-body .rf-slot img{width:100%;height:100%;object-fit:cover;display:block}'
+    +'#reference-body .rf-ph{display:flex;flex-direction:column;align-items:center;gap:6px;color:#9a988f;font-weight:700;font-size:13px;text-align:center;padding:14px;pointer-events:none}'
+    +'#reference-body .rf-plus{font-size:26px;line-height:1}'
+    +'#reference-body .rf-sub{font-size:11px;color:#b3ab98;font-weight:600}'
+    +'#reference-body .rf-tag{position:absolute;top:0;left:0;background:var(--ink,#0B0A05);color:#fff;font-size:11px;font-weight:800;padding:3px 10px;z-index:2}'
+    +'#reference-body .rf-rm{position:absolute;top:7px;right:7px;width:24px;height:24px;border-radius:50%;border:2px solid var(--ink,#0B0A05);background:#fff;color:#c0392b;font-size:13px;font-weight:800;cursor:pointer;line-height:1;padding:0;z-index:3;display:none}'
+    +'#reference-body .rf-slot:not(.empty):hover .rf-rm{display:block}'
+    +'#reference-body .rf-swap{position:absolute;bottom:0;left:0;right:0;background:rgba(11,10,5,.72);color:#fff;font-size:11px;font-weight:700;text-align:center;padding:5px;opacity:0;transition:opacity .12s;pointer-events:none}'
+    +'#reference-body .rf-slot:not(.empty):hover .rf-swap{opacity:1}'
+    +'#reference-body .rf-desc{flex:0 0 auto;margin-top:12px}'
+    +'#reference-body .rf-desc label{display:block;font-size:11px;font-weight:800;color:var(--t2,#8a8470);margin-bottom:4px}'
+    +'#reference-body .rf-desc textarea{width:100%;height:92px;border:2px solid #e0dbcd;background:#fffdf8;font-family:inherit;font-size:13.5px;line-height:1.6;padding:9px 11px;resize:none;color:var(--ink,#0B0A05);border-radius:0}'
+    +'#reference-body .rf-desc textarea:focus{outline:none;border-color:var(--ink,#0B0A05);background:#fff}'
+    +'#reference-body .rf-empty{text-align:center;color:#9a958a;font-size:13px;padding:40px 0}';
+  document.head.appendChild(st);
 }
 
 function renderItemsList(){
@@ -19520,6 +19718,7 @@ function dfQuickAdd(){ // 순수 기록(2026-07-10) — 오더에 안 붙고 S.d
   if(!qty){showToast('수량을 입력하세요');return;}
   var q=window._dfq||{};var st=q.st||'검품';
   if(!S.defectRecs)S.defectRecs=[];
+  if(!Array.isArray(S.refCards))S.refCards=[];
   S.defectRecs.push({id:uid(),date:(typeof todayISO==='function'?todayISO():today()),brandId:(it&&it.brandId)||'',
     itemId:it?it.id:'',itemName:it?it.name:raw,code:it?(it.code||''):'',color:color,
     type:q.ty||'기타',qty:qty,stage:st,phase:(st==='출고 후(반품)')?'after':'before',memo:'',
@@ -19587,6 +19786,7 @@ function dfQuickNL(){ // 순수 기록(2026-07-10) — 오더에 안 붙고 S.de
   var inp=document.getElementById('dfq-nl');if(!inp)return;
   var o=dfParseNL(inp.value);if(!o||!o.segs.length){showToast('내용을 입력하세요');return;}
   if(!S.defectRecs)S.defectRecs=[];
+  if(!Array.isArray(S.refCards))S.refCards=[];
   var base=(typeof todayISO==='function'?todayISO():today());
   var added=0;
   o.segs.forEach(function(s){
