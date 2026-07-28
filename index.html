@@ -10197,9 +10197,9 @@ function trimCostRowHTML(tc,i){
   const _basisBtns=`<div style="display:flex;gap:5px;margin-bottom:5px;align-items:center"><span style="font-weight:700">적용:</span><span onclick="setTcBasis(${i},'dye')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='dye'?'background:#a21caf;color:#fff':'background:#fff;color:#a21caf;border:1px solid #f0abfc'}">염색 켠 색만</span><span onclick="setTcBasis(${i},'all')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='all'?'background:#7c3aed;color:#fff':'background:#fff;color:#7c3aed;border:1px solid #ddd6fe'}">전체 컬러</span></div>`;
   const colorSec=(mode==='perLot')?`<div style="margin-top:7px;padding:8px 10px;background:#fae8ff;border:1px solid #f0abfc;border-radius:6px;font-size:11px;color:#86198f;line-height:1.5">${_basisBtns}<b>${_basis==='dye'?'염색 켠':'전체'} ${_effC.length}색</b>${_effC.length?` <span style="color:#a21caf">(${_effC.map(esc).join(' · ')})</span>`:''} 에 적용<br><span style="color:#a21caf;opacity:.78">로고 등 염색과 무관하면 「전체 컬러」로 (컬러·염색여부는 「적용 컬러」 탭에서)</span></div>`:'';
   const amtSec=(mode==='tier')
-    ?`<input class="tcl-amt" data-f="tierQty" type="number" value="${tc.tierQty!=null?tc.tierQty:300}" min="1" title="기준 수량(개)" oninput="colTrimCosts()" style="width:54px"><span class="tcl-u">개↓</span>
-    <input class="tcl-amt" data-f="tierUnder" type="number" value="${tc.tierUnder||0}" min="0" title="기준 이하: 컬러당 정액(원)" oninput="colTrimCosts()" style="width:64px"><span class="tcl-u">원/컬러</span>
-    <input class="tcl-amt" data-f="tierOver" type="number" value="${tc.tierOver||0}" min="0" title="기준 초과: 개당(원)" oninput="colTrimCosts();tclRecost(this)" style="width:54px"><span class="tcl-u">원/개</span>`
+    ?`<span class="tcl-u" style="font-weight:700">기준</span><input class="tcl-amt" data-f="tierQty" type="number" value="${tc.tierQty!=null?tc.tierQty:300}" min="1" title="기준 수량(개)" oninput="colTrimCosts();tclTierSum(this)" style="width:54px"><span class="tcl-u">개</span>
+    <span class="tcl-u" style="font-weight:700;color:#166534">이하</span><input class="tcl-amt" data-f="tierUnder" type="number" value="${tc.tierUnder||0}" min="0" title="기준 수량 이하일 때: 컬러당 정액(원)" oninput="colTrimCosts();tclTierSum(this)" style="width:66px"><span class="tcl-u">원(정액)</span>
+    <span class="tcl-u" style="font-weight:700;color:#9a3412">초과</span><input class="tcl-amt" data-f="tierOver" type="number" value="${tc.tierOver||0}" min="0" title="기준 수량 초과일 때: 개당 단가(원)" oninput="colTrimCosts();tclRecost(this);tclTierSum(this)" style="width:56px"><span class="tcl-u">원/개</span>`
     :`<input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">원</span>`;
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
@@ -10209,8 +10209,28 @@ function trimCostRowHTML(tc,i){
     <input class="tcl-fac" data-f="factory" list="dl-sup" value="${esc(tc.factory||'')}" placeholder="담당 업체" onchange="tcAutoFillRate(this)">
     <span class="tcl-cost">원가 +${num(c.per)}원/장${c.sub?` <span class="tcl-sub">${c.sub}</span>`:''}</span>
     <button class="tcl-x" type="button" onclick="rmTrimCostRow(${i})">×</button>
+    ${mode==='tier'?`<div class="tcl-tiersum" style="flex-basis:100%;font-size:11.5px;color:#3f3f46;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;padding:5px 9px;margin-top:4px;line-height:1.6">${_tcTierSumText(tc)}</div>`:''}
     ${colorSec?`<div class="tcl-colors">${colorSec}</div>`:''}
   </div>`;}
+/* 조건부 가공비를 사람 말로 요약 — "300개 이하면 13,000원(컬러당) · 300개 넘으면 개당 40원" (2026-07-28)
+   칸 이름만으론 어디에 뭘 넣는지 헷갈린다는 피드백. 계산은 안 바뀌고 안내만 추가. */
+function _tcTierSumText(tc){
+  var q=+(tc&&tc.tierQty!=null?tc.tierQty:300)||300, u=+(tc&&tc.tierUnder)||0, o=+(tc&&tc.tierOver)||0;
+  var _n=(typeof num==='function')?num:function(x){return x;};
+  if(!u&&!o)return '<b>조건부</b> — 기준 '+_n(q)+'개 · 이하/초과 금액을 넣어주세요';
+  return '<b>'+_n(q)+'개 이하</b>면 <b style="color:#166534">'+_n(u)+'원</b>(컬러당 정액)'
+    +' · <b>'+_n(q)+'개 넘으면</b> <b style="color:#9a3412">개당 '+_n(o)+'원</b>'
+    +' <span style="color:#94a3b8">※ 원가계산서는 개당 단가 기준</span>';
+}
+// 조건부 요약 문장 즉시 갱신 (입력 중 재렌더 없이)
+function tclTierSum(el){
+  try{
+    var row=el.closest('.tcl-row'); if(!row)return;
+    var g=function(f){var n=row.querySelector('[data-f='+f+']');return n?n.value:'';};
+    var box=row.querySelector('.tcl-tiersum');
+    if(box)box.innerHTML=_tcTierSumText({tierQty:+g('tierQty'),tierUnder:+g('tierUnder'),tierOver:+g('tierOver')});
+  }catch(e){}
+}
 // 청구방식 순환: 개당 → 한번에 → 컬러별 → 조건부(수량따라)
 function cycleTcMode(i){
   colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;
