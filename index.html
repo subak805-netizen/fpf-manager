@@ -679,8 +679,10 @@ tryInitFirebase();
 #tp-modal .tp-doc.land .tp-wrap .tp-pack-imgs .iz{min-height:110px;}
 #tp-modal .tp-wrap .tp-pack-photo .iz{min-height:300px;height:auto;margin:0;}
 /* 샘플 사진 시트 (앞/뒤/안감/디테일 2×2 · 드래그앤드롭) — 하단 여백 없이 꽉 차게 */
-#tp-modal .tp-smp-grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:12px;padding:10px 12px;}
-#tp-modal .tp-smp-box{position:relative;border:1.5px dashed #cbd2da;border-radius:8px;min-height:460px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#fafbfc;}
+/* ⚠️ .tp-wrap은 고정 높이(287mm)+overflow:hidden — 칸 높이를 px로 고정하면 2번째 줄이 통째로 잘려 "4개 넣었는데 2개만 보임".
+   → 그리드가 남은 높이를 채우고 2줄을 1fr씩 나눠 갖게(칸은 min-height:0으로 줄어들 수 있어야 함) */
+#tp-modal .tp-smp-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;padding:10px 12px;flex:1;min-height:0;}
+#tp-modal .tp-smp-box{position:relative;border:1.5px dashed #cbd2da;border-radius:8px;min-height:0;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#fafbfc;}
 #tp-modal .tp-smp-box.drag{border-color:#185FA5;border-style:solid;background:#eef5fc;}
 #tp-modal .tp-smp-box img{max-width:100%;max-height:100%;object-fit:contain;display:block;}
 #tp-modal .tp-smp-lbl{position:absolute;top:7px;left:9px;font-size:11px;font-weight:800;background:#1f2937;color:#fff;padding:2px 10px;border-radius:5px;z-index:2;}
@@ -30865,11 +30867,18 @@ function tpProcessImageFile(f,slot){ if(!f||!slot)return; if(!/^image\//.test(f.
   window._tpUping=window._tpUping||{}; window._tpUping[slot]=1;
   // ① 즉시 미리보기(작게=빠름) — 넣자마자 바로 보임
   tpCompress(f,900,0.7,false).then(function(prev){
-    tpSetQuiet('images.'+slot,prev.dataUrl); tpRender();
+    // ⚠️ 미리보기를 반드시 '저장'(tpSet)해야 함 — 예전에 tpSetQuiet(저장 안 함)로 뒀더니 업로드가 느리거나 멈춘 사진은
+    //    아예 저장이 안 돼 새로고침하면 사라졌음("4장 넣었는데 2장만 보임"). 업로드 끝나면 URL로 교체되므로 임시로만 남음.
+    tpSet('images.'+slot,prev.dataUrl); tpRender();
     // ② 백그라운드로 고화질 압축 → 업로드
     return tpCompress(f,2000,0.85,false).then(function(c){
       function fallback(){ _pending=true; if(typeof showToast==='function')showToast('사진은 저장됐고, 인터넷/로그인되면 자동으로 클라우드에 올라가요'); return c.dataUrl; }
-      if(window.fbStorage&&window.fbUser){ return tpUpload(c.blob,_tpItemId,slot,c.png).catch(function(e){ console.warn('storage fail',e); return fallback(); }); }
+      if(window.fbStorage&&window.fbUser){
+        // 업로드가 멈춰도 20초 뒤엔 로컬 사진으로 확정(무한 대기 방지)
+        var _to; var _timeout=new Promise(function(res){ _to=setTimeout(function(){ console.warn('upload timeout',slot); res(null); },20000); });
+        return Promise.race([tpUpload(c.blob,_tpItemId,slot,c.png).catch(function(e){ console.warn('storage fail',e); return null; }),_timeout])
+          .then(function(u){ clearTimeout(_to); return u||fallback(); });
+      }
       return fallback();
     });
   }).then(function(url){ // ③ 완료 — 조용히 교체(화면 위치·입력 유지)
