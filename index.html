@@ -31343,16 +31343,25 @@ function tpRender(){
     var _hasCare=cares.length>0||!!tpGet('images.labelCare','');
     var _hasMain=mains.length>0||!!tpGet('images.labelMain','');
     // 이름을 사진 위 흰 알약(iz-name)으로 표시 → 헤더 행 생략(사진이 그 공간까지 차지, 스와치 몸판과 동일). 라벨의 실제 이름 사용
+    // 라벨 칸 = 부자재 줄 × 그 줄에서 고른 라벨명 — 한 줄에서 2개 고르면 2칸 (2026-07-28)
+    // 예전엔 mains.length<=1이면 무조건 1칸이라, labelNames가 ['흰/검라벨','로고스냅']이어도 한 칸에 이름만 합쳐 나왔음
+    var _mainNames=function(t){
+      var arr=(t&&Array.isArray(t.labelNames)&&t.labelNames.length)?t.labelNames.slice():[(t&&(t.labelName||t.midSize))||''];
+      arr=arr.map(function(x){return String(x||'').trim();}).filter(function(x,i,a){return x&&a.indexOf(x)===i;});
+      return arr.length?arr:[''];
+    };
     if(_hasMain){
-      if(mains.length<=1){
-        cells.push('<td>'+_izLabel('labelMain',tpSelectedLabelImg(it,'main'),_lblNm(mains[0],'메인라벨'))+'</td>');
-      }else{
-        mains.forEach(function(t,i){
-          var slot=i===0?'labelMain':('labelMain'+(i+1));
-          var nm=t.labelName||t.midSize||''; var bimg=nm?tpBrandLabelImgByName(it,nm):'';
-          cells.push('<td>'+_izLabel(slot,bimg,_lblNm(t,'메인라벨')+(t.part?' '+t.part:''))+'</td>');
-        });
-      }
+      var _ents=[];
+      mains.forEach(function(t){ _mainNames(t).forEach(function(nm){ _ents.push({t:t,nm:nm}); }); });
+      if(!_ents.length)_ents=[{t:mains[0],nm:''}];
+      _ents.forEach(function(e,i){
+        var slot=i===0?'labelMain':('labelMain'+(i+1));
+        var bimg=e.nm?tpBrandLabelImgByName(it,e.nm):'';
+        if(!bimg&&i===0)bimg=tpSelectedLabelImg(it,'main');   // 첫 칸은 기존 자동표시 폴백 유지
+        var lab=e.nm||_lblNm(e.t,'메인라벨');
+        if(_ents.length>1&&e.t&&e.t.part)lab+=' '+e.t.part;   // 여러 칸일 때만 용도 덧붙임(기존과 동일)
+        cells.push('<td>'+_izLabel(slot,bimg,lab)+'</td>');
+      });
     }
     if(_hasCare){ cells.push('<td>'+_izLabel('labelCare',tpSelectedLabelImg(it,'care'),_lblNm(cares[0],'케어라벨'))+'</td>'); }
     if(!cells.length)return ''; // 라벨 설정 하나도 없으면 표 자체 생략
