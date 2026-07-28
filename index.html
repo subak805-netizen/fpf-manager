@@ -30864,6 +30864,26 @@ function tpPickImage(slotKey){ _tpUpKey=slotKey; tpEnsureFileInput(); var inp=do
 // 업로드 중인 칸에 붙는 작은 배지 (사진은 이미 보임 — 뒤에서 올라가는 중)
 function tpUpBadge(slot){ return (window._tpUping&&window._tpUping[slot])?'<span class="tp-upbadge">올리는 중…</span>':''; }
 function tpDelImage(slotKey){ tpSet('images.'+slotKey,''); tpRender(); }
+/* 백그라운드 재렌더 안전판(2026-07-28) — 사진 업로드가 뒤에서 끝나며 tpRender()를 부르면,
+   그 순간 타이핑 중이던 칸(메모·지시사항 등)이 저장 전 값으로 되돌아가 "글 쓰다가 전으로 돌아감"이 생겼음.
+   (입력은 onchange=칸을 벗어날 때 저장이라 타이핑 중 값은 아직 저장 전)
+   → 재렌더 직전에 지금 쓰던 값을 먼저 반영하고, 재렌더 후 그 칸으로 커서까지 복원. */
+function _tpRenderSafe(){
+  var el=document.activeElement, path='', val='', s=null, e=null, isMemo=false;
+  try{
+    if(el&&el.dataset&&el.dataset.tp&&(el.tagName==='TEXTAREA'||el.tagName==='INPUT')){
+      path=el.dataset.tp; val=el.value; isMemo=true;
+      try{s=el.selectionStart;e=el.selectionEnd;}catch(_){}
+      tpSetQuiet(path,val);                       // 쓰던 값 먼저 반영(유실 방지)
+      if(typeof tpSaveSoon==='function')tpSaveSoon();
+    }
+  }catch(_){}
+  tpRender();
+  if(isMemo)try{
+    var n=document.querySelector('[data-tp="'+path+'"]');
+    if(n){ n.focus(); if(s!=null&&n.setSelectionRange)n.setSelectionRange(s,e); }
+  }catch(_){}
+}
 function tpCompress(file,maxDim,q,png){ return new Promise(function(res,rej){ var rd=new FileReader(); rd.onload=function(){ var img=new Image(); img.onload=function(){ var w=img.width,h=img.height,sc=Math.min(1,maxDim/Math.max(w,h)); var cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc)); var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch; var cx=cv.getContext('2d'); cx.imageSmoothingEnabled=true; cx.imageSmoothingQuality='high'; if(png){cx.fillStyle='#ffffff';cx.fillRect(0,0,cw,ch);} cx.drawImage(img,0,0,cw,ch); if(png){ cv.toBlob(function(b){ res({blob:b,dataUrl:cv.toDataURL('image/png'),png:true}); },'image/png'); } else { cv.toBlob(function(b){ res({blob:b,dataUrl:cv.toDataURL('image/jpeg',q)}); },'image/jpeg',q); } }; img.onerror=rej; img.src=rd.result; }; rd.onerror=rej; rd.readAsDataURL(file); }); }
 function tpUpload(blob,itemId,slotKey,png){ var co=(typeof curCoId!=='undefined'&&curCoId)?curCoId:'default'; var path='techpack/'+co+'/'+itemId+'/'+slotKey+'_'+Date.now()+(png?'.png':'.jpg'); var ref=window.fbStorage.ref().child(path); return ref.put(blob).then(function(){ return ref.getDownloadURL(); }); }
 function tpShowUp(msg){ var o=document.createElement('div'); o.className='tp-up-ovl'; o.textContent=msg; document.body.appendChild(o); return o; }
@@ -30888,7 +30908,7 @@ function tpProcessImageFile(f,slot){ if(!f||!slot)return; if(!/^image\//.test(f.
   tpCompress(f,900,0.7,false).then(function(prev){
     // ⚠️ 미리보기를 반드시 '저장'(tpSet)해야 함 — 예전에 tpSetQuiet(저장 안 함)로 뒀더니 업로드가 느리거나 멈춘 사진은
     //    아예 저장이 안 돼 새로고침하면 사라졌음("4장 넣었는데 2장만 보임"). 업로드 끝나면 URL로 교체되므로 임시로만 남음.
-    tpSet('images.'+slot,prev.dataUrl); tpRender();
+    tpSet('images.'+slot,prev.dataUrl); _tpRenderSafe();
     // ② 백그라운드로 고화질 압축 → 업로드
     return tpCompress(f,2000,0.85,false).then(function(c){
       function fallback(){ _pending=true; if(typeof showToast==='function')showToast('사진은 저장됐고, 인터넷/로그인되면 자동으로 클라우드에 올라가요'); return c.dataUrl; }
@@ -30902,9 +30922,9 @@ function tpProcessImageFile(f,slot){ if(!f||!slot)return; if(!/^image\//.test(f.
     });
   }).then(function(url){ // ③ 완료 — 조용히 교체(화면 위치·입력 유지)
     delete window._tpUping[slot];
-    tpSet('images.'+slot,url); tpRender();
+    tpSet('images.'+slot,url); _tpRenderSafe();
     if(_pending&&typeof _scheduleImgRetry==='function')_scheduleImgRetry(); else if(typeof _updateImgPendingBadge==='function')_updateImgPendingBadge();
-  }).catch(function(e){ delete window._tpUping[slot]; console.warn(e); if(typeof showToast==='function')showToast('사진 처리 실패'); try{tpRender();}catch(e2){} }); }
+  }).catch(function(e){ delete window._tpUping[slot]; console.warn(e); if(typeof showToast==='function')showToast('사진 처리 실패'); try{_tpRenderSafe();}catch(e2){} }); }
 function tpInitDrop(){ var doc=document.getElementById('tp-doc'); if(!doc||doc._dropInit)return; doc._dropInit=true;
   doc.addEventListener('dragover',function(e){ e.preventDefault(); var z=e.target.closest&&e.target.closest('[onclick*="tpPickImage"]'); if(z)z.classList.add('tp-dragover'); });
   doc.addEventListener('dragleave',function(e){ var z=e.target.closest&&e.target.closest('[onclick*="tpPickImage"]'); if(z)z.classList.remove('tp-dragover'); });
