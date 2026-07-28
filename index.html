@@ -10186,7 +10186,10 @@ function tcEffColors(tc,trims,allColors){
 function _tcPer(tc,mode){var amt=(mode==='perPcs')?(+tc.costPerPcs||0):(+tc.costPerLot||0);
   if(mode==='once')return {per:Math.round(amt/TC_MIN),sub:amt?'('+num(amt)+'÷'+TC_MIN+')':''};
   if(mode==='perLot'){var _ac=(typeof formColors!=='undefined'&&formColors.length)?formColors:[''];var actC=tcEffColors(tc,(typeof formTrims!=='undefined'?formTrims:[]),_ac).length||1;return {per:Math.round(amt*actC/TC_MIN),sub:amt?'('+num(amt)+'×'+actC+'색÷'+TC_MIN+')':''};}
-  return {per:Math.round(amt),sub:''};}
+  // 개당(perPcs·조건부 초과) = 부자재 1개당 단가 → 옷 1장 원가 = 단가 × 벌당 개수 (단추 4개면 ×4).
+  // 2026-07-28: 원가계산서 본체(_tcQtyPerPiece 사용)는 이미 곱하는데 이 칩만 안 곱해서 "40원인데 +40원/장"으로 보였음.
+  var _qpp=(typeof _tcQtyPerPiece==='function')?_tcQtyPerPiece(tc,(typeof formTrims!=='undefined'?formTrims:[])):1;
+  return {per:Math.round(amt*_qpp),sub:(amt&&_qpp>1)?'('+num(amt)+'×'+_qpp+'개)':''};}
 function trimCostRowHTML(tc,i){
   const mode=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':(tc.costType==='tier'?'tier':'perPcs'));
   const amtVal=(mode==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0);
@@ -10197,9 +10200,9 @@ function trimCostRowHTML(tc,i){
   const _basisBtns=`<div style="display:flex;gap:5px;margin-bottom:5px;align-items:center"><span style="font-weight:700">적용:</span><span onclick="setTcBasis(${i},'dye')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='dye'?'background:#a21caf;color:#fff':'background:#fff;color:#a21caf;border:1px solid #f0abfc'}">염색 켠 색만</span><span onclick="setTcBasis(${i},'all')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='all'?'background:#7c3aed;color:#fff':'background:#fff;color:#7c3aed;border:1px solid #ddd6fe'}">전체 컬러</span></div>`;
   const colorSec=(mode==='perLot')?`<div style="margin-top:7px;padding:8px 10px;background:#fae8ff;border:1px solid #f0abfc;border-radius:6px;font-size:11px;color:#86198f;line-height:1.5">${_basisBtns}<b>${_basis==='dye'?'염색 켠':'전체'} ${_effC.length}색</b>${_effC.length?` <span style="color:#a21caf">(${_effC.map(esc).join(' · ')})</span>`:''} 에 적용<br><span style="color:#a21caf;opacity:.78">로고 등 염색과 무관하면 「전체 컬러」로 (컬러·염색여부는 「적용 컬러」 탭에서)</span></div>`:'';
   const amtSec=(mode==='tier')
-    ?`<span class="tcl-u" style="font-weight:700">기준</span><input class="tcl-amt" data-f="tierQty" type="number" value="${tc.tierQty!=null?tc.tierQty:300}" min="1" title="기준 수량(개)" oninput="colTrimCosts();tclTierSum(this)" style="width:54px"><span class="tcl-u">개</span>
-    <span class="tcl-u" style="font-weight:700;color:#166534">이하</span><input class="tcl-amt" data-f="tierUnder" type="number" value="${tc.tierUnder||0}" min="0" title="기준 수량 이하일 때: 컬러당 정액(원)" oninput="colTrimCosts();tclTierSum(this)" style="width:66px"><span class="tcl-u">원(정액)</span>
-    <span class="tcl-u" style="font-weight:700;color:#9a3412">초과</span><input class="tcl-amt" data-f="tierOver" type="number" value="${tc.tierOver||0}" min="0" title="기준 수량 초과일 때: 개당 단가(원)" oninput="colTrimCosts();tclRecost(this);tclTierSum(this)" style="width:56px"><span class="tcl-u">원/개</span>`
+    ?`<input class="tcl-amt" data-f="tierQty" type="number" value="${tc.tierQty!=null?tc.tierQty:300}" min="1" title="기준 수량 — 이 수량까지는 정액, 넘으면 개당" oninput="colTrimCosts();tclTierSum(this)" style="width:56px"><span class="tcl-u" style="font-weight:700">개 이하는</span>
+    <input class="tcl-amt" data-f="tierUnder" type="number" value="${tc.tierUnder||0}" min="0" title="기준 수량 이하일 때 — 개수와 상관없이 컬러별로 이 금액 한 번" oninput="colTrimCosts();tclTierSum(this)" style="width:68px"><span class="tcl-u" style="font-weight:700">원</span><span class="tcl-basis" style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:800;margin:0 2px">컬러별</span>
+    <span class="tcl-u" style="font-weight:700">,&nbsp;넘으면</span><input class="tcl-amt" data-f="tierOver" type="number" value="${tc.tierOver||0}" min="0" title="기준 수량을 넘으면 — 개수 × 이 단가" oninput="colTrimCosts();tclRecost(this);tclTierSum(this)" style="width:58px"><span class="tcl-u" style="font-weight:700">원</span><span class="tcl-basis" style="background:#ffedd5;color:#9a3412;border:1px solid #fdba74;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:800;margin:0 2px">개당</span>`
     :`<input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">원</span>`;
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
@@ -19049,7 +19052,8 @@ function initTrackBlocks(oid){
     };
   });
 }
-function calcTrimPerQty(it,qty){if(!qty)return 0;return(it.trims||[]).reduce((s,t)=>s+calcTrimNeed(t,qty).cost,0)+(it.trimCosts||[]).reduce((s,tc)=>s+(tc.costPerPcs||0)*qty,0);}
+// 개당 가공비는 '부자재 1개당' → 옷 1장당 = 단가 × 벌당 개수(_tcQtyPerPiece). 2026-07-28 원가계산서 본체와 일치시킴
+function calcTrimPerQty(it,qty){if(!qty)return 0;return(it.trims||[]).reduce((s,t)=>s+calcTrimNeed(t,qty).cost,0)+(it.trimCosts||[]).reduce((s,tc)=>s+(tc.costPerPcs||0)*_tcQtyPerPiece(tc,it.trims)*qty,0);}
 function getSizes(b){return b.colors[0]?.orderQty?Object.keys(b.colors[0].orderQty):['free'];}
 function renderTrackFilter(){
   const sel=document.getElementById('tk-filter');
