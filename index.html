@@ -6589,7 +6589,29 @@ function colorDragEnd(){
   if(d&&d.active)window._colDragEnd=Date.now(); // 드래그 직후 rename(click) 억제용
 }
 function renderColorChips(){const el=document.getElementById('color-chips');if(!el)return;el.innerHTML=formColors.map((c,i)=>`<span class="chip" data-ci="${i}" onpointerdown="colorDragStart(event,${i})" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none" title="드래그해서 순서 변경">${colorDot(c)}<span onclick="renameColor(${i})" style="cursor:pointer" title="클릭해서 컬러명 수정 (연결된 원단·부자재 컬러도 따라감)">${esc(c)}</span><button onpointerdown="event.stopPropagation()" onclick="removeColor(${i})" title="삭제">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">단색 (추가하면 컬러별 발주)</span>';}
-function renderSizeChips(){const el=document.getElementById('size-chips');if(!el)return;el.innerHTML=formSizes.map((s,i)=>`<span class="chip"><span onclick="renameSize(${i})" style="cursor:pointer" title="클릭해서 사이즈명 수정">${esc(s)}</span><button onclick="removeSize(${i})">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">프리사이즈</span>';}
+function renderSizeChips(){const el=document.getElementById('size-chips');if(!el)return;el.innerHTML=formSizes.map((s,i)=>`<span class="chip" data-si="${i}" onpointerdown="sizeDragStart(event,${i})" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none" title="드래그해서 순서 변경"><span onclick="renameSize(${i})" style="cursor:pointer" title="클릭해서 사이즈명 수정">${esc(s)}</span><button onpointerdown="event.stopPropagation()" onclick="removeSize(${i})">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">프리사이즈</span>';}
+/* 사이즈 칩 드래그 순서 변경 (2026-07-28) — 컬러 칩과 동일 방식. 사이즈 순서는 수량표·발주서 열 순서에 그대로 쓰임 */
+function sizeDragStart(e,i){
+  if(e.target.closest('button'))return;
+  window._szDrag={i:i,sx:e.clientX,sy:e.clientY,active:false};
+  document.addEventListener('pointermove',sizeDragMove,{passive:false});
+  document.addEventListener('pointerup',sizeDragEnd,{once:true});
+  document.addEventListener('pointercancel',sizeDragEnd,{once:true});
+}
+function sizeDragMove(e){
+  var d=window._szDrag;if(!d)return;
+  if(!d.active){ if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<7)return; d.active=true; var el0=document.getElementById('size-chips'); if(el0)el0.classList.add('dragging'); }
+  e.preventDefault();
+  var tgt=document.elementFromPoint(e.clientX,e.clientY); var chip=tgt&&tgt.closest&&tgt.closest('[data-si]');
+  if(!chip)return; var ti=+chip.getAttribute('data-si'); if(isNaN(ti)||ti===d.i)return;
+  var moved=formSizes.splice(d.i,1)[0]; formSizes.splice(ti,0,moved); d.i=ti; renderSizeChips();
+}
+function sizeDragEnd(){
+  document.removeEventListener('pointermove',sizeDragMove);
+  var d=window._szDrag; window._szDrag=null;
+  var el=document.getElementById('size-chips'); if(el)el.classList.remove('dragging');
+  if(d&&d.active)window._szDragEnd=Date.now();
+}
 function addColor(){const inp=document.getElementById('color-input');const v=inp.value.trim();if(!v||formColors.includes(v)){inp.value='';return;}formColors.push(v);inp.value='';renderColorChips();}
 function removeColor(i){formColors.splice(i,1);renderColorChips();}
 function renameColor(i){
@@ -6615,6 +6637,7 @@ function renameColor(i){
 function addSize(){const inp=document.getElementById('size-input');const v=inp.value.trim();if(!v||formSizes.includes(v)){inp.value='';return;}formSizes.push(v);inp.value='';renderSizeChips();}
 function removeSize(i){formSizes.splice(i,1);renderSizeChips();}
 function renameSize(i){
+  if(window._szDragEnd&&Date.now()-window._szDragEnd<300){window._szDragEnd=0;return;} // 드래그 직후 클릭 무시
   var old=formSizes[i]; if(old==null)return;
   var v=prompt('사이즈명 수정',old); if(v==null)return; v=v.trim();
   if(!v||v===old)return;
