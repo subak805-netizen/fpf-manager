@@ -10082,8 +10082,8 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r)=>{const i=+r
   }
 });}
 function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{const _id=r.getAttribute('data-tcid');const tc=formTrimCosts.find(x=>x.id===_id);if(!tc)return;const g=f=>r.querySelector('[data-f='+f+']')?.value;tc.name=g('name')||'';tc.factory=g('factory')||'';const ct=g('costType')||'perPcs';tc.costType=ct;
-  if(ct==='bias'){tc.biasSpec=g('biasSpec')||'';tc.biasYo=+g('biasYo')||0;tc.costPerPcs=(+g('costAmt')||0)*(+tc.biasYo||0);tc.costPerLot=0;tc.biasPrice=+g('costAmt')||0;} // 장당원가=요척×단가
-  else if(ct==='tier'){tc.tierQty=+g('tierQty')||300;tc.tierUnder=+g('tierUnder')||0;tc.tierOver=+g('tierOver')||0;tc.costPerPcs=tc.tierOver;tc.costPerLot=0;}  /* tierUnderBasis는 여기서 건드리지 않음 — 없으면=기존(컬러별) 유지 */ // 원가는 기존처럼 개당(초과단가) 기준 — 결제 원장만 조건부 분기
+  if(g('biasSpec')!=null)tc.biasSpec=g('biasSpec')||''; // 가공 종류의 규격(청구방식 무관)
+  if(ct==='tier'){tc.tierQty=+g('tierQty')||300;tc.tierUnder=+g('tierUnder')||0;tc.tierOver=+g('tierOver')||0;tc.costPerPcs=tc.tierOver;tc.costPerLot=0;}  /* tierUnderBasis는 여기서 건드리지 않음 — 없으면=기존(컬러별) 유지 */ // 원가는 기존처럼 개당(초과단가) 기준 — 결제 원장만 조건부 분기
   else{const amt=+g('costAmt')||0;if(ct==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}else{tc.costPerLot=amt;tc.costPerPcs=0;}}
   r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(tc.colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
 function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r.id.replace('tr-','');if(!formTrims[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const tp=g('orderType')||'count';formTrims[i].orderType=tp;formTrims[i].supplier=g('supplier')||'';formTrims[i].name=g('name')||'';formTrims[i].size=g('size')||'';formTrims[i].color=g('color')||'';formTrims[i].part=g('part')||'';if(g('building')!=null)formTrims[i].building=g('building')||'';if(g('floorRoom')!=null)formTrims[i].floorRoom=g('floorRoom')||'';if(g('market')!=null)formTrims[i].market=g('market')||'';if(g('floor')!=null)formTrims[i].floor=g('floor')||'';
@@ -10290,7 +10290,6 @@ function _tcPer(tc,mode){var amt=(mode==='perPcs')?(+tc.costPerPcs||0):(+tc.cost
   if(mode==='perLot'){var _ac=(typeof formColors!=='undefined'&&formColors.length)?formColors:[''];var actC=tcEffColors(tc,(typeof formTrims!=='undefined'?formTrims:[]),_ac).length||1;return {per:Math.round(amt*actC/TC_MIN),sub:amt?'('+num(amt)+'×'+actC+'색÷'+TC_MIN+')':''};}
   // 개당(perPcs·조건부 초과) = 부자재 1개당 단가 → 옷 1장 원가 = 단가 × 벌당 개수 (단추 4개면 ×4).
   // 2026-07-28: 원가계산서 본체(_tcQtyPerPiece 사용)는 이미 곱하는데 이 칩만 안 곱해서 "40원인데 +40원/장"으로 보였음.
-  if(mode==='bias'){ var _by=+tc.biasYo||0,_bp=+tc.biasPrice||0; return {per:Math.round(_by*_bp),sub:(_by&&_bp)?'('+_by+'y×'+num(_bp)+'원)':''}; }
   var _tr=(typeof formTrims!=='undefined'?formTrims:[]);
   var _qpp=(typeof _tcQtyPerPiece==='function')?_tcQtyPerPiece(tc,_tr):1;
   // 조건부: 미니멈(TC_MIN장) 만들 때 부자재 총개수로 판정 — 기준 이하면 정액÷미니멈, 넘으면 개당×벌당개수
@@ -10300,36 +10299,39 @@ function _tcPer(tc,mode){var amt=(mode==='perPcs')?(+tc.costPerPcs||0):(+tc.cost
   }
   return {per:Math.round(amt*_qpp),sub:(amt&&_qpp>1)?'('+num(amt)+'×'+_qpp+'개)':''};}
 function trimCostRowHTML(tc,i){
-  const mode=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':(tc.costType==='tier'?'tier':(tc.costType==='bias'?'bias':'perPcs')));
-  const amtVal=(mode==='bias')?(tc.biasPrice||0):((mode==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0));
-  const modeLab=mode==='once'?'한번에':(mode==='perLot'?'컬러별':(mode==='tier'?'조건부':(mode==='bias'?'바이어스재단':'개당')));
+  if(tc.costType==='bias'){ // 옛 '가공(요척)' 행 → 정액(한번에)으로 전환. 단가는 넣어둔 값 그대로
+    tc.costType='once'; tc.costPerLot=+tc.biasPrice||+tc.costPerLot||0; tc.costPerPcs=0;
+    if(!tc.procKind)tc.procKind='바이어스 재단';
+  }
+  const mode=tc.costType==='once'?'once':(tc.costType==='perLot'?'perLot':(tc.costType==='tier'?'tier':'perPcs'));
+  const amtVal=(mode==='perPcs')?(tc.costPerPcs||0):(tc.costPerLot||0);
+  const modeLab=mode==='once'?'한번에':(mode==='perLot'?'컬러별':(mode==='tier'?'조건부':'개당'));
   const c=_tcPer(tc,mode==='tier'?'perPcs':mode);
   const _basis=_tcColorBasis(tc);
   const _effC=(mode==='perLot')?tcEffColors(tc,(typeof formTrims!=='undefined'?formTrims:[]),(typeof formColors!=='undefined'&&formColors.length?formColors:[''])):[];
   const _basisBtns=`<div style="display:flex;gap:5px;margin-bottom:5px;align-items:center"><span style="font-weight:700">적용:</span><span onclick="setTcBasis(${i},'dye')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='dye'?'background:#a21caf;color:#fff':'background:#fff;color:#a21caf;border:1px solid #f0abfc'}">염색 켠 색만</span><span onclick="setTcBasis(${i},'all')" style="cursor:pointer;padding:2px 9px;border-radius:11px;font-weight:700;${_basis==='all'?'background:#7c3aed;color:#fff':'background:#fff;color:#7c3aed;border:1px solid #ddd6fe'}">전체 컬러</span></div>`;
   const colorSec=(mode==='perLot')?`<div style="margin-top:7px;padding:8px 10px;background:#fae8ff;border:1px solid #f0abfc;border-radius:6px;font-size:11px;color:#86198f;line-height:1.5">${_basisBtns}<b>${_basis==='dye'?'염색 켠':'전체'} ${_effC.length}색</b>${_effC.length?` <span style="color:#a21caf">(${_effC.map(esc).join(' · ')})</span>`:''} 에 적용<br><span style="color:#a21caf;opacity:.78">로고 등 염색과 무관하면 「전체 컬러」로 (컬러·염색여부는 「적용 컬러」 탭에서)</span></div>`:'';
+  const _pk=(tc.procKind||'');
+  const kindSel=`<select class="tcl-kind" onchange="setProcKind(${i},this.value)" title="가공 종류 — 발주서에 이 이름이 붙어요" style="width:auto;flex:0 0 auto;border:2px solid var(--ink,#0B0A05);background:${_pk?'#FFF7E6':'#fff'};font-family:inherit;font-weight:800;font-size:12px;padding:4px 6px">`
+    +`<option value=""${!_pk?' selected':''}>종류 없음</option>`
+    +getProcKinds().map(k=>`<option${_pk===k?' selected':''}>${esc(k)}</option>`).join('')
+    +`<option value="__add__">＋ 종류 추가…</option></select>`
+    +(_pk?`<input class="tcl-amt" data-f="biasSpec" value="${esc(tc.biasSpec||'')}" placeholder="규격" title="예: 32mm" oninput="colTrimCosts()" style="width:76px;text-align:left">`:'');
   const modeSel=`<select class="tcl-mode tcl-mode-${mode}" onchange="setTcMode(${i},this.value)" title="청구방식" style="width:auto;min-width:0;flex:0 0 auto;font-family:inherit;font-weight:800;font-size:12px;padding:4px 6px">`
     +`<option value="perPcs"${mode==='perPcs'?' selected':''}>개당</option>`
     +`<option value="once"${mode==='once'?' selected':''}>한번에</option>`
     +`<option value="perLot"${mode==='perLot'?' selected':''}>컬러별</option>`
     +`<option value="tier"${mode==='tier'?' selected':''}>조건부</option>`
-    +`<option value="bias"${mode==='bias'?' selected':''}>가공(요척)</option>`
     +`</select>`;
   const amtSec=(mode==='tier')
     ?`<input class="tcl-amt" data-f="tierQty" type="number" value="${tc.tierQty!=null?tc.tierQty:300}" min="1" title="기준 수량 — 이 수량까지는 정액, 넘으면 개당" oninput="colTrimCosts();tclTierSum(this)" style="width:56px"><span class="tcl-u" style="font-weight:700">개 이하는</span>
     <input class="tcl-amt" data-f="tierUnder" type="number" value="${tc.tierUnder||0}" min="0" title="기준 수량 이하일 때 — 개수와 상관없이 컬러별로 이 금액 한 번" oninput="colTrimCosts();tclTierSum(this)" style="width:68px"><span class="tcl-u" style="font-weight:700">원</span><select class="tcl-basis" onchange="setTcTierBasis(${i},this.value)" title="한번에: 모든 컬러 합쳐 1회 / 컬러별: 색마다 따로" style="width:auto;min-width:0;flex:0 0 auto;background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:9px;padding:1px 6px;font-size:10.5px;font-weight:800;margin:0 2px;cursor:pointer;font-family:inherit"><option value="once"${(tc.tierUnderBasis||'perLot')!=='perLot'?' selected':''}>한번에</option><option value="perLot"${(tc.tierUnderBasis||'perLot')==='perLot'?' selected':''}>컬러별</option></select>
     <span class="tcl-u" style="font-weight:700">,&nbsp;넘으면</span><input class="tcl-amt" data-f="tierOver" type="number" value="${tc.tierOver||0}" min="0" title="기준 수량을 넘으면 — 개수 × 이 단가" oninput="colTrimCosts();tclRecost(this);tclTierSum(this)" style="width:58px"><span class="tcl-u" style="font-weight:700">원</span><span class="tcl-basis" style="background:#ffedd5;color:#9a3412;border:1px solid #fdba74;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:800;margin:0 2px">개당</span>`
-    :mode==='bias'
-    ?`<select class="tcl-kind" onchange="setProcKind(${i},this.value)" title="가공 종류" style="width:auto;flex:0 0 auto;border:2px solid var(--ink,#0B0A05);background:#FFF7E6;font-family:inherit;font-weight:800;font-size:12px;padding:4px 6px">`
-      +getProcKinds().map(k=>`<option${(tc.procKind||'바이어스 재단')===k?' selected':''}>${esc(k)}</option>`).join('')
-      +`<option value="__add__">＋ 종류 추가…</option></select>`
-    +`<input class="tcl-amt" data-f="biasSpec" value="${esc(tc.biasSpec||'')}" placeholder="규격" title="바이어스 규격 (예: 1 3/8\")" oninput="colTrimCosts()" style="width:74px;text-align:left">
-    <span class="tcl-u" style="font-weight:700">요척</span><input class="tcl-amt" data-f="biasYo" type="number" step="0.01" min="0" value="${tc.biasYo||0}" title="옷 1장당 바이어스 요척(y)" oninput="colTrimCosts();tclRecost(this)" style="width:62px"><span class="tcl-u">y/장</span>
-    <input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" title="바이어스 1y당 단가(원)" oninput="colTrimCosts();tclRecost(this)" style="width:74px"><span class="tcl-u">원/y</span>`
     :`<input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">원</span>`;
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
     <input class="tcl-nm" data-f="name" list="dl-proc" value="${esc(tc.name||'')}" placeholder="예: 코팅, 염색, 로고" onchange="tcAutoFillRate(this)">
+    ${kindSel}
     ${modeSel}
     ${amtSec}
 
@@ -12010,7 +12012,7 @@ function _poTrimProcNotes(g){
     it.trimCosts.forEach(function(tc){
       if(!tc||tc.trimId!==tid)return;
       var nm=(tc.name||'').trim();
-      if(tc.costType==='bias'){ // 「가공: 이름 종류 규격」 한 줄 (2026-07-28 사용자 확정)
+      if(tc.procKind){ // 「가공: 이름 종류 규격」 한 줄 — 청구방식과 무관(2026-07-28 사용자 확정)
         // 요척·수량 줄은 안 씀 — 그 자재(예: 186TC) 요척과 같고, 컬러·수량은 아래 줄에 이미 나옴
         var _kind=(tc.procKind||'바이어스 재단').trim();
         var _sp=(tc.biasSpec||'').trim();
