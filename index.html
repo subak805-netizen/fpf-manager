@@ -595,7 +595,8 @@ tryInitFirebase();
   </div>
 </div>
 </div>
-<datalist id="dl-sup"></datalist><datalist id="dl-fnm"></datalist><datalist id="dl-tnm"></datalist><datalist id="dl-carelabel"></datalist><datalist id="dl-loop"></datalist><datalist id="dl-fabpart"><option value="몸판"><option value="스트링감"><option value="에리감"><option value="배색"><option value="안감"><option value="시보리"></datalist><datalist id="dl-labelpart"><option value="상의"><option value="하의"><option value="셋업"></datalist><datalist id="dl-trimpart"><option value="몸판"><option value="허리"><option value="소매"><option value="밑단"><option value="에리"><option value="접착"><option value="스트링"><option value="장식"><option value="안감"></datalist><datalist id="dl-clr"><option value="흰색"><option value="검정"><option value="아이보리"><option value="블랙"><option value="네이비"><option value="베이지"><option value="회색"><option value="갈색"><option value="와인"><option value="카키"></datalist><datalist id="dl-mkt"><option value="동대문시장"><option value="동화시장"><option value="기타"></datalist><datalist id="dl-bldg"><option value="A동"><option value="B동"><option value="C동"><option value="D동"><option value="N동"><option value="기타"></datalist><datalist id="dl-flr"><option value="B1"><option value="1F"><option value="2F"><option value="3F"><option value="4F"><option value="5F"><option value="6F"></datalist>
+<datalist id="dl-sup"></datalist><datalist id="dl-fnm"></datalist><datalist id="dl-tnm"></datalist><datalist id="dl-carelabel"></datalist><datalist id="dl-loop"></datalist><datalist id="dl-fabpart"><option value="몸판"><option value="스트링감"><option value="에리감"><option value="배색"><option value="안감"><option value="시보리"></datalist><datalist id="dl-labelpart"><option value="상의"><option value="하의"><option value="셋업"></datalist><datalist id="dl-trimpart"><option value="몸판"><option value="허리"><option value="소매"><option value="밑단"><option value="에리"><option value="접착"><option value="스트링"><option value="장식"><option value="안감"></datalist><datalist id="dl-clr"><option value="흰색"><option value="검정"><option value="아이보리"><option value="블랙"><option value="네이비"><option value="베이지"><option value="회색"><option value="갈색"><option value="와인"><option value="카키"></datalist><datalist id="dl-fiber"><option>cotton</option><option>polyester</option><option>nylon</option><option>rayon</option><option>wool</option><option>tencel</option><option>span</option><option>linen</option><option>acrylic</option><option>viscose</option><option>modal</option><option>silk</option><option>cashmere</option><option>acetate</option><option>lyocell</option><option>hemp</option><option>ramie</option><option>cupra</option></datalist>
+<datalist id="dl-mkt"><option value="동대문시장"><option value="동화시장"><option value="기타"></datalist><datalist id="dl-bldg"><option value="A동"><option value="B동"><option value="C동"><option value="D동"><option value="N동"><option value="기타"></datalist><datalist id="dl-flr"><option value="B1"><option value="1F"><option value="2F"><option value="3F"><option value="4F"><option value="5F"><option value="6F"></datalist>
 
     <!-- 원단 사진 AI 분석 기능 제거됨 -->
   </div>
@@ -4900,13 +4901,59 @@ function renderCompBuilder(idx,initial){
   var html='';
   rows.forEach(function(r,i){
     html+='<div class="comp-row">'
-      +'<input type="text" class="comp-name" placeholder="성분명 (예: rayon, polyester)" value="'+esc(r.name||'')+'" oninput="updateCompString('+idx+')">'
-      +'<div class="comp-pct-wrap"><input type="text" inputmode="decimal" class="comp-pct" placeholder="0" value="'+(r.pct!==''&&r.pct!=null?r.pct:'')+'" oninput="this.value=this.value.replace(/[^0-9.]/g,\'\');updateCompString('+idx+')"></div>'
+      +'<input type="text" class="comp-name" list="dl-fiber" placeholder="성분명 (예: rayon, polyester)" value="'+esc(r.name||'')+'" oninput="updateCompString('+idx+')" onchange="compCheckSpell('+idx+')">'
+      +'<div class="comp-pct-wrap"><input type="text" inputmode="decimal" class="comp-pct" placeholder="0" value="'+(r.pct!==''&&r.pct!=null?r.pct:'')+'" oninput="this.value=this.value.replace(/[^0-9.]/g,\'\');updateCompString('+idx+')" onchange="compSortByPct('+idx+')"></div>'
       +'<button type="button" class="comp-del" onclick="removeCompRow('+idx+','+i+')" title="삭제">×</button>'
       +'</div>';
   });
   el.innerHTML=html;
   updateCompString(idx);
+}
+/* 혼용률 — 비율 높은 순 자동정렬 + 성분명 맞춤법 확인 (2026-07-28 사용자 요청) */
+var _COMP_FIBERS=['cotton','polyester','nylon','rayon','wool','tencel','span','spandex','linen','acrylic','viscose','modal','silk','cashmere','acetate','lyocell','hemp','ramie','cupra','polyurethane','pu','alpaca','angora','mohair','elastane','폴리에스터','면','나일론','레이온','울','텐셀','스판','린넨','아크릴','비스코스','모달','실크','캐시미어','아세테이트','리오셀','마','헴프','대마','큐프라','알파카','앙고라','모헤어'];
+function _compLev(a,b){ // 편집거리 (오타 판정용)
+  a=String(a||'').toLowerCase();b=String(b||'').toLowerCase();
+  var m=a.length,n=b.length,d=[],i,j; if(!m)return n; if(!n)return m;
+  for(i=0;i<=m;i++)d[i]=[i]; for(j=0;j<=n;j++)d[0][j]=j;
+  for(i=1;i<=m;i++)for(j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return d[m][n];
+}
+function _compSuggest(name){ // 사전에 없고 비슷한 게 있으면 그 이름 반환
+  var v=String(name||'').trim().toLowerCase(); if(!v)return '';
+  if(_COMP_FIBERS.indexOf(v)>=0)return '';
+  var best='',bd=99;
+  _COMP_FIBERS.forEach(function(f){ var d=_compLev(v,f); if(d<bd){bd=d;best=f;} });
+  var lim=v.length<=4?1:2;              // 짧은 단어는 1글자 차이까지만
+  return (bd<=lim&&bd>0)?best:'';
+}
+function compCheckSpell(idx){ // 성분명 칸을 벗어날 때 오타 안내(자동 교체는 안 함)
+  var el=document.getElementById('comp-builder-'+idx); if(!el)return;
+  Array.from(el.querySelectorAll('.comp-row')).forEach(function(r,ri){
+    var inp=r.querySelector('.comp-name'); if(!inp)return;
+    var old=r.querySelector('.comp-tip'); if(old)old.remove();
+    var sug=_compSuggest(inp.value);
+    if(!sug)return;
+    var tip=document.createElement('div');
+    tip.className='comp-tip';
+    tip.style.cssText='flex-basis:100%;font-size:11px;color:#9a3412;margin:2px 0 4px 2px';
+    tip.innerHTML='혹시 <b style="cursor:pointer;text-decoration:underline" onclick="compFixName('+idx+','+ri+',\''+sug.replace(/'/g,"\\'")+'\')">'+sug+'</b> 인가요?';
+    r.appendChild(tip);
+  });
+}
+function compFixName(idx,rowIdx,val){
+  var el=document.getElementById('comp-builder-'+idx); if(!el)return;
+  var rows=el.querySelectorAll('.comp-row'); var r=rows[rowIdx]; if(!r)return;
+  var inp=r.querySelector('.comp-name'); if(inp)inp.value=val;
+  var tip=r.querySelector('.comp-tip'); if(tip)tip.remove();
+  updateCompString(idx);
+}
+function compSortByPct(idx){ // 비율 큰 순으로 정렬 (칸을 벗어날 때만 = 타이핑 중엔 안 흔들림)
+  var rows=readCompRows(idx); if(rows.length<2)return;
+  var has=rows.some(function(r){return String(r.pct||'').trim()!=='';}); if(!has){updateCompString(idx);return;}
+  var sorted=rows.slice().sort(function(a,b){ return (parseFloat(b.pct)||0)-(parseFloat(a.pct)||0); });
+  var same=sorted.every(function(r,i){return r===rows[i];});
+  if(same){updateCompString(idx);return;}
+  renderCompBuilder(idx,buildComp(sorted));
 }
 function readCompRows(idx){
   var el=document.getElementById('comp-builder-'+idx);
