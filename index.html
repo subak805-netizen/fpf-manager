@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260728">
+<link rel="stylesheet" href="css/main.css?v=20260728b">
 </head>
 <body>
 
@@ -353,12 +353,9 @@ tryInitFirebase();
   </div>
   <!-- 업체관리 (공장 + 브랜드 통합) -->
   <div id="pane-vendors" class="panel" style="display:none">
-    <div class="dtabs" style="margin-bottom:14px">
-      <button class="dtab on" id="vnd-t-fc" onclick="vndSwitch('fc')" style="flex:1">공장 / 처</button>
-      <button class="dtab" id="vnd-t-br" onclick="vndSwitch('br')" style="flex:1">브랜드</button>
-    </div>
+    <!-- 공장/브랜드 토글 제거(2026-07-28) — 나브에 「업체관리」·「브랜드관리」가 따로 있어 중복 -->
     <div id="vnd-v-fc">
-      <div class="fb" style="margin-bottom:10px"><b>공장 / 처 관리</b><button class="btn p s" onclick="showFcForm(null)">＋ 추가</button></div>
+      <div class="fb vnd-hd" style="margin-bottom:10px"><b>공장 / 처 관리</b><span style="flex:1"></span><button class="btn s vnd-copy" onclick="fcCopyAll()" title="전체 목록을 카톡에 붙여넣기 좋게 복사">전체 복사</button><button class="btn p s" onclick="showFcForm(null)">＋ 추가</button></div>
       <div class="info-box">봉제공임공장 / 워싱공장 / 자수공장 / 완성공장 / 검품공장 / 나염공장 / 프로모션공장 — 아이템 등록 시 미리 연결하면 오더 생성 시 자동 배정됩니다.</div>
       <div id="fc-list"></div>
     </div>
@@ -4352,13 +4349,44 @@ function renderFactories(){
   if(!fcs.length){el.innerHTML='<div class="empty">공장/처를 등록하세요</div>';return;}
   el.innerHTML=_alBar+'<div id="fc-list-body">'+_fcListBody()+'</div>';
 }
+/* 업체 복사 (2026-07-28) — 카톡에 그대로 붙여넣기용. 사용자 확정 형식 = 이름 전화 / 주소 (타입 머리말 없음) */
+function _fcCopyText(f){
+  if(!f)return '';
+  var L=[]; var head=(f.name||'').trim(); var ph=(f.phone||'').trim();
+  L.push(head+(ph?' '+ph:''));
+  String(f.address||'').split(/\n+/).forEach(function(x){ if(x.trim())L.push(x.trim()); });
+  return L.join('\n');
+}
+function _fcDoCopy(txt,msg){
+  if(!txt){ if(typeof showToast==='function')showToast('복사할 내용이 없어요'); return; }
+  var done=function(){ if(typeof showToast==='function')showToast(msg||'복사됐어요 — 카톡에 붙여넣기'); };
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){_fcCopyFallback(txt,done);}); return; } }catch(e){}
+  _fcCopyFallback(txt,done);
+}
+function _fcCopyFallback(txt,done){ // 클립보드 API 막힌 환경(구형 사파리 등)
+  try{ var ta=document.createElement('textarea'); ta.value=txt; ta.style.cssText='position:fixed;left:-9999px;top:0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done&&done(); }
+  catch(e){ if(typeof showToast==='function')showToast('복사 실패 — 길게 눌러 직접 복사해주세요'); }
+}
+function fcCopyOne(id){ var f=(S.factories||{})[id]; _fcDoCopy(_fcCopyText(f),(f&&f.name?f.name+' ':'')+'복사됨'); }
+function fcCopyAll(){ // 화면에 보이는(검색 필터 적용) 업체 전부 — 업체 사이 빈 줄
+  var fcs=Object.values(S.factories||{}),q=(window._fcQ||'').trim().toLowerCase();
+  if(q)fcs=fcs.filter(function(f){return ((f.name||'')+' '+(f.contact||'')+' '+(f.phone||'')+' '+(f.address||'')+' '+(f.type||'')).toLowerCase().indexOf(q)>=0;});
+  _fcDoCopy(fcs.map(_fcCopyText).filter(Boolean).join('\n\n'), fcs.length+'곳 복사됨');
+}
+function brandCopy(bid){
+  var b=(S.brands||[]).find(function(x){return x&&(x.id||x)===bid;}); if(!b){ if(typeof showToast==='function')showToast('브랜드를 찾을 수 없어요'); return; }
+  var L=[(b.name||'').trim()];
+  if(b.phone)L.push(b.phone); if(b.bizNo)L.push('사업자 '+b.bizNo);
+  String(b.address||'').split(/\n+/).forEach(function(x){ if(x.trim())L.push(x.trim()); });
+  _fcDoCopy(L.filter(Boolean).join('\n'),(b.name||'')+' 복사됨');
+}
 function fcSearch(v){window._fcQ=v;var b=document.getElementById('fc-list-body');if(b)b.innerHTML=_fcListBody();}
 function _fcListBody(){
   var fcs=Object.values(S.factories||{}),q=(window._fcQ||'').trim().toLowerCase();
   if(q)fcs=fcs.filter(function(f){return ((f.name||'')+' '+(f.contact||'')+' '+(f.phone||'')+' '+(f.address||'')+' '+(f.type||'')).toLowerCase().indexOf(q)>=0;});
   if(!fcs.length)return '<div class="empty">검색 결과 없어요</div>';
   const byType={};fcs.forEach(f=>{const t=f.type||'기타';if(!byType[t])byType[t]=[];byType[t].push(f);});
-  return Object.entries(byType).map(([type,flist])=>`<div class="sec">${esc(type)}</div>`+flist.map(f=>`<div class="card" style="margin-bottom:6px"><div class="fb"><div><div style="font-weight:600">${esc(f.name)}</div><div class="muted">${[f.contact,f.phone].filter(Boolean).map(esc).join(' · ')}</div><div class="muted">${esc(f.address||'')}</div></div><div class="fr"><button class="btn s" onclick="showFcForm('${f.id}')">수정</button><button class="btn s d" onclick="deleteFc('${f.id}')">🗑</button></div></div></div>`).join('')).join('');
+  return Object.entries(byType).map(([type,flist])=>`<div class="sec">${esc(type)}</div>`+flist.map(f=>`<div class="card" style="margin-bottom:6px"><div class="fb"><div><div style="font-weight:600">${esc(f.name)}</div><div class="muted">${[f.contact,f.phone].filter(Boolean).map(esc).join(' · ')}</div><div class="muted">${esc(f.address||'')}</div></div><div class="fr"><button class="btn s vnd-copy" onclick="fcCopyOne('${f.id}')" title="이 업체만 복사 (이름·전화·주소)">복사</button><button class="btn s" onclick="showFcForm('${f.id}')">수정</button><button class="btn s d" onclick="deleteFc('${f.id}')">🗑</button></div></div></div>`).join('')).join('');
 }
 // === 주소 라벨 시트 (2026-07-09) — 공장·직접입력 주소를 라벨지(A4 가로·5칸)로 인쇄. 한 업체 = 한 줄(같은 라벨 5장) ===
 // 여백은 사용자가 쓰던 라벨 문서 실측(위·아래 0.635 / 왼 0.965 / 오른 0.744cm), 6줄/장.
@@ -24575,6 +24603,7 @@ function renderBrandManageList(){
         <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg2)">
           <div style="width:14px;height:14px;border-radius:50%;background:${b.color||'#888'};flex-shrink:0"></div>
           <input type="text" value="${esc(b.name)}" onchange="updateBrandField('${b.id}','name',this.value)" style="flex:1;font-size:13px;font-weight:600;border:none;background:transparent;outline:none;padding:2px 0">
+          <button class="btn s vnd-copy" onclick="brandCopy('${b.id}')" title="이 브랜드 정보 복사 (이름·연락처·주소)" style="padding:3px 8px;font-size:11px">복사</button>
           <button class="btn s d" onclick="deleteBrand('${b.id}')" style="padding:3px 8px;font-size:11px">🗑</button>
         </div>
         <div style="display:flex;gap:6px;padding:7px 10px">
