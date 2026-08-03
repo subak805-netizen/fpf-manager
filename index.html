@@ -30922,6 +30922,9 @@ function tpCaptureExpand(){
   var wrap=doc.querySelector('.tp-wrap'), fit=doc.querySelector('.tp-fit'); if(!wrap)return null;
   var sv={ft:fit?fit.style.transform:'',fw:fit?fit.style.width:'',wt:wrap.style.transform,wmb:wrap.style.marginBottom,wh:wrap.style.height,wmh:wrap.style.minHeight,wov:wrap.style.overflow};
   document.body.classList.add('tp-capturing');
+  // ⚠️ html2canvas는 textarea/input에 '입력된 값'을 못 그림 → 지시사항 등이 빈칸으로 저장되던 문제.
+  //    캡처 동안만 같은 자리에 글자를 그린 div를 덮어씌우고, 끝나면 원복한다.
+  try{ tpCaptureTextOverlay(doc); }catch(e){ console.warn('tp text overlay',e); }
   // 화면 확대축소 제거 + wrap을 CSS A4 고정크기로 복원(overflow hidden). 내용은 tpFit이 A4에 맞춰 축소 → 꽉 참
   wrap.style.transform=''; wrap.style.marginBottom='';
   wrap.style.height=''; wrap.style.minHeight=''; wrap.style.overflow='hidden';
@@ -30929,7 +30932,30 @@ function tpCaptureExpand(){
   var a4w=Math.max(1,wrap.offsetWidth), a4h=Math.max(1,wrap.offsetHeight);
   return {wrap:wrap,fit:fit,sv:sv,w:a4w,h:a4h};
 }
-function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); if(!ctx)return; var w=ctx.wrap,f=ctx.fit,sv=ctx.sv; if(f){f.style.transform=sv.ft;f.style.width=sv.fw;} w.style.transform=sv.wt;w.style.marginBottom=sv.wmb;w.style.height=sv.wh;w.style.minHeight=sv.wmh;w.style.overflow=sv.wov; if(typeof tpFit==='function')tpFit(); }
+/* 캡처용 텍스트 오버레이 — textarea/input 값을 화면과 같은 글꼴·크기로 덮어 그림 */
+function tpCaptureTextOverlay(root){
+  tpCaptureTextRemove();
+  var list=[].slice.call((root||document).querySelectorAll('#tp-doc textarea, #tp-doc input[type="text"], #tp-doc input:not([type])'));
+  list.forEach(function(el){
+    var v=(el.value||'').trim(); if(!v)return;
+    var cs=getComputedStyle(el);
+    var d=document.createElement('div');
+    d.className='tp-capture-text';
+    d.textContent=el.value;
+    d.style.cssText='position:absolute;left:'+el.offsetLeft+'px;top:'+el.offsetTop+'px;width:'+el.offsetWidth+'px;height:'+el.offsetHeight+'px;'
+      +'font:'+cs.font+';line-height:'+cs.lineHeight+';color:'+cs.color+';padding:'+cs.padding+';box-sizing:border-box;'
+      +'white-space:pre-wrap;word-break:break-word;overflow:hidden;background:transparent;z-index:5;text-align:'+cs.textAlign+';';
+    var par=el.offsetParent||el.parentNode;
+    if(par&&getComputedStyle(par).position==='static')par.style.position='relative';
+    (par||el.parentNode).appendChild(d);
+    el.style.visibility='hidden'; el.setAttribute('data-tp-hid','1');
+  });
+}
+function tpCaptureTextRemove(){
+  [].slice.call(document.querySelectorAll('.tp-capture-text')).forEach(function(n){ n.remove(); });
+  [].slice.call(document.querySelectorAll('[data-tp-hid]')).forEach(function(n){ n.style.visibility=''; n.removeAttribute('data-tp-hid'); });
+}
+function tpCaptureRestore(ctx){ document.body.classList.remove('tp-capturing'); try{tpCaptureTextRemove();}catch(e){} if(!ctx)return; var w=ctx.wrap,f=ctx.fit,sv=ctx.sv; if(f){f.style.transform=sv.ft;f.style.width=sv.fw;} w.style.transform=sv.wt;w.style.marginBottom=sv.wmb;w.style.height=sv.wh;w.style.minHeight=sv.wmh;w.style.overflow=sv.wov; if(typeof tpFit==='function')tpFit(); }
 // 캡처 전 모든 이미지 로드 완료 대기 (도식화·스와치 누락 방지)
 // 캡처/인쇄 전 모든 <img>가 100% 로드+디코드(픽셀 준비)될 때까지 대기 — URL 이미지 안전 캡처
 function tpWaitImages(el){
