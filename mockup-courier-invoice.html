@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>경기택배 송장 인쇄 · 미리보기</title>
+<style>
+  :root{ font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',sans-serif; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#eef0f2;color:#111;padding:18px}
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{font-size:12px;color:#667;margin:0 0 14px}
+  .wrap{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+
+  /* ---------- 컨트롤 ---------- */
+  .controls{width:320px;background:#fff;border:1px solid #dde;border-radius:12px;padding:14px 14px 16px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .controls h2{font-size:12px;color:#556;margin:0 0 8px;letter-spacing:.02em}
+  .fg{margin-bottom:10px}
+  .fg label{display:block;font-size:11px;color:#667;font-weight:700;margin-bottom:3px}
+  .fg input,.fg select{width:100%;font-size:13px;padding:7px 8px;border:1px solid #ccd;border-radius:7px;font-family:inherit}
+  .row2{display:flex;gap:8px}
+  .row2>*{flex:1}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:12px;padding:5px 11px;border:1px solid #ccd;border-radius:999px;background:#fff;cursor:pointer;user-select:none}
+  .chip.on{background:#111;color:#fff;border-color:#111}
+  .seg{display:flex;gap:0;border:1px solid #ccd;border-radius:8px;overflow:hidden}
+  .seg button{flex:1;font-size:13px;padding:8px 0;border:0;background:#fff;cursor:pointer;font-family:inherit}
+  .seg button.on{background:#111;color:#fff}
+  .nudge{display:flex;align-items:center;gap:6px;font-size:12px;color:#556}
+  .nudge input{width:56px}
+  .btnbar{display:flex;gap:8px;margin-top:6px}
+  .btn{flex:1;font-size:14px;font-weight:700;padding:10px;border:0;border-radius:8px;cursor:pointer;font-family:inherit}
+  .btn.print{background:#1c7a3e;color:#fff}
+  .btn.ghost{background:#eef0f2;color:#333;border:1px solid #dde;flex:0 0 auto;padding:10px 12px}
+  .togs{display:flex;flex-direction:column;gap:6px;margin:10px 0 4px;font-size:12px;color:#445}
+  .togs label{display:flex;align-items:center;gap:7px;cursor:pointer}
+  .hint{font-size:11px;color:#889;line-height:1.5;margin-top:10px;border-top:1px dashed #dde;padding-top:9px}
+
+  /* ---------- 라벨 (110mm x 90mm) ---------- */
+  .stage{background:#fff;padding:16px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.05);border:1px solid #dde}
+  .stage .cap{font-size:11px;color:#889;margin:0 0 10px}
+  .label{position:relative;width:110mm;height:90mm;background:#fff;overflow:hidden;outline:1px dashed #c9ccd2}
+  .label>div{position:absolute;left:0;top:0;width:110mm;height:90mm}
+
+  /* 미리 인쇄된 스티커 프레임 (화면 안내용) — 모든 요소 절대좌표 강제(어떤 렌더러에서도 안 밀리게) */
+  .guide>div,.gband,.gsend,.glogo,.gbox,.lbl,.grecv,.gfare,.fcol,.fhead,.hr{position:absolute}
+  .guide>div{color:#111}
+  .gband{background:#dff0e2;height:13.5mm;width:110mm;left:0;top:0}
+  .gsend{background:#dff0e2;height:17mm;width:110mm;left:0;top:20mm;border-top:.35mm solid #6a8f76}
+  .glogo{left:34mm;top:2.2mm;width:74mm;font-weight:800;font-size:15pt;color:#123b22;line-height:1.05}
+  .glogo small{display:block;font-size:8pt;font-weight:700;letter-spacing:.06em;color:#2b5a38}
+  .lbl{font-weight:800;font-size:9pt}
+  .grecv{border:.7mm solid #e11;left:1.5mm;top:37mm;width:107mm;height:29mm}
+  .gfare{border:.35mm solid #333;left:1.5mm;top:66mm;width:107mm;height:16mm}
+  .fcol{border-left:.35mm solid #333;top:66mm;height:16mm;width:0}
+  .fhead{top:67mm;font-size:8.5pt;font-weight:800;text-align:center}
+  .hr{height:0;border-top:.3mm solid #eaa}
+
+  /* 채워지는 값 (인쇄됨) */
+  #fillLayer{position:absolute;left:0;top:0;width:110mm;height:90mm}
+
+  /* ---------- 인쇄 이력 (택배 시재 자동기록 데모) ---------- */
+  .histwrap{margin-top:20px;background:#fff;border:1px solid #dde;border-radius:12px;padding:14px 16px;box-shadow:0 2px 8px rgba(0,0,0,.05);max-width:760px}
+  .histwrap h2{font-size:13px;margin:0 0 3px}
+  .histwrap .note{font-size:11px;color:#889;margin:0 0 10px;line-height:1.5}
+  table.hist{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.hist th,table.hist td{padding:7px 8px;border-bottom:1px solid #eef;text-align:left;white-space:nowrap}
+  table.hist th{font-size:11px;color:#778;font-weight:700}
+  table.hist td.c,table.hist th.c{text-align:center}
+  .sentbox{width:18px;height:18px;cursor:pointer}
+  .tag{font-size:11px;padding:2px 7px;border-radius:5px;background:#eef;color:#446;font-weight:700}
+  .tag.chak{background:#fde8e8;color:#a33}
+  .mini{font-size:11px;padding:4px 9px;border:1px solid #ccd;border-radius:6px;background:#fff;cursor:pointer;font-family:inherit}
+  .mini.d{color:#c33;border-color:#e7b4b4}
+  .rowsent{opacity:.5}
+  .emptyh{font-size:12px;color:#99a;padding:10px 2px}
+
+  /* ---------- 인쇄 ---------- */
+  @media print{
+    @page{ size:110mm 90mm; margin:0; }
+    html,body{background:#fff;margin:0;padding:0}
+    .controls,.stage .cap,.histwrap,h1,.sub{display:none !important}
+    .stage{box-shadow:none;border:0;padding:0;margin:0;border-radius:0}
+    .wrap{display:block}
+    .label{outline:0}
+    .guide{display:none}                     /* 전용 스티커엔 프레임이 이미 있음 → 값만 인쇄 */
+    body.printframe .guide{display:block}     /* '프레임 포함' 켜면 빈 라벨용으로 전체 인쇄 */
+  }
+</style>
+</head>
+<body>
+  <h1>경기택배 송장 인쇄 — 미리보기</h1>
+  <p class="sub">전용 스티커(110×90mm) 빈칸에 값만 얹어 인쇄. 왼쪽에서 채우고, 정합은 상하좌우 넉지로 맞춰요. 실제 앱엔 <b>택배 시재 탭</b>에 붙습니다.</p>
+
+  <div class="wrap">
+    <!-- 컨트롤 -->
+    <div class="controls">
+      <h2>거래처 (검색 → 수신 자동채움)</h2>
+      <div class="fg">
+        <input id="vendorSearch" list="vendorList" placeholder="거래처 이름 검색/선택" oninput="onVendorInput()" autocomplete="off">
+        <datalist id="vendorList"></datalist>
+      </div>
+      <div class="fg"><label>수신 (상호)</label><input id="suName" oninput="render()"></div>
+      <div class="row2">
+        <div class="fg"><label>담당</label><input id="suCont" oninput="render()"></div>
+        <div class="fg"><label>전화</label><input id="suPhone" oninput="render()"></div>
+      </div>
+      <div class="fg"><label>주소</label><input id="suAddr" oninput="render()"></div>
+
+      <h2 style="margin-top:6px">운임 · 비고 · 날짜</h2>
+      <div class="fg">
+        <label>운임 구분</label>
+        <div class="seg">
+          <button id="segSeon" class="on" onclick="setFare('seon')">선불 체크</button>
+          <button id="segChak" onclick="setFare('chak')">착불 체크</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label>비고</label>
+        <div class="chips" id="bigoChips">
+          <span class="chip" onclick="setBigo('샘플')">샘플</span>
+          <span class="chip" onclick="setBigo('메인')">메인</span>
+          <span class="chip" onclick="setBigo('수선')">수선</span>
+        </div>
+        <input id="bigo" style="margin-top:6px" placeholder="직접 입력도 가능" oninput="render()">
+      </div>
+      <div class="fg"><label>날짜 (오늘 자동)</label><input id="dt" oninput="render()"></div>
+
+      <div class="togs">
+        <div class="nudge">위치 미세조정 &nbsp; X <input type="number" id="nx" value="0" step="0.5" onchange="render()"> mm
+          &nbsp; Y <input type="number" id="ny" value="0" step="0.5" onchange="render()"> mm</div>
+        <label><input type="checkbox" id="showFrame" checked onchange="toggleFrame()"> 화면에 스티커 프레임 보기</label>
+        <label><input type="checkbox" id="printFrame" onchange="togglePrintFrame()"> 인쇄에 프레임 포함 (빈 라벨에 통째 인쇄용)</label>
+      </div>
+
+      <div class="btnbar">
+        <button class="btn print" onclick="doPrint()">인쇄 + 이력 기록</button>
+        <button class="btn ghost" onclick="resetNudge()">넉지 0</button>
+      </div>
+      <p class="hint">프린터 인쇄창에서 <b>용지=Beeprt / 크기=110×90mm(또는 사용자지정) / 배율=100%(맞춤 아님) / 여백=없음</b>으로 맞춰주세요. 스티커 1장으로 시험출력 → 어긋나면 X·Y 넉지로 보정.</p>
+    </div>
+
+    <!-- 라벨 -->
+    <div class="stage">
+      <p class="cap">↓ 110 × 90 mm 실제 크기 · 초록/빨강 프레임 = 이미 스티커에 인쇄돼 있는 부분(안내용)</p>
+      <div class="label" id="label">
+        <!-- 프레임 (안내용) — 모두 .guide 직속 절대좌표 -->
+        <div class="guide">
+          <div class="gband"></div>
+          <div class="gbox" style="left:2mm;top:1.5mm;width:29mm;height:11.5mm;border:.35mm solid #2b5a38;background:#fff"></div>
+          <div class="glogo">서울경기특송(경기택배)<small>Seoul Kyunggi Express</small></div>
+          <div class="gbox" style="left:5mm;top:15mm;width:104mm;font-size:7.8pt;font-weight:700;white-space:nowrap">[서울] 1588-8170 &nbsp;[경기] 031-865-0546 &nbsp;[대구] 053-588-0546 <b style="color:#c00">[부산배송]</b></div>
+          <div class="gsend"></div>
+          <div class="lbl" style="left:2mm;top:22.4mm">발신</div>
+          <div class="lbl" style="left:2mm;top:30mm">주소</div>
+          <div class="gbox" style="left:11mm;top:21.2mm;font-size:12pt;font-weight:800">포애<span style="font-size:9pt;font-weight:700">&nbsp;&nbsp;담당 : 박수빈</span></div>
+          <div class="gbox" style="left:11mm;top:29mm;width:97mm;font-size:8.4pt;line-height:1.25">010-7642-0805
+강서구 공항대로213, 보타닉파크 2차 910호 (마곡동774-2)</div>
+          <div class="grecv"></div>
+          <div class="lbl" style="left:3mm;top:40.5mm">수신</div>
+          <div class="lbl" style="left:3mm;top:49.5mm">전화</div>
+          <div class="lbl" style="left:3mm;top:58.5mm">주소</div>
+          <div class="gbox" style="left:62mm;top:39.4mm;font-size:9pt;font-weight:700">담당 :</div>
+          <div class="hr" style="left:1.5mm;top:47mm;width:107mm"></div>
+          <div class="hr" style="left:1.5mm;top:56mm;width:107mm"></div>
+          <div class="gfare"></div>
+          <div class="lbl" style="left:2.5mm;top:72mm">운임</div>
+          <div class="fcol" style="left:11mm"></div>
+          <div class="fcol" style="left:30mm"></div>
+          <div class="fcol" style="left:49mm"></div>
+          <div class="fcol" style="left:80mm"></div>
+          <div class="fhead" style="left:11mm;width:19mm">선 불</div>
+          <div class="fhead" style="left:30mm;width:19mm">착 불</div>
+          <div class="fhead" style="left:49mm;width:31mm">물품수량</div>
+          <div class="fhead" style="left:80mm;width:28mm">비 고</div>
+          <div class="gbox" style="left:2mm;top:82.8mm;font-size:8pt;font-weight:700;color:#333">3자 청구</div>
+        </div>
+        <!-- 채워지는 값 -->
+        <div class="fill"><div id="fillLayer"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 인쇄 이력 = 택배 시재 자동기록 (데모) -->
+  <div class="histwrap">
+    <h2>인쇄 이력 → 택배 시재 자동기록</h2>
+    <p class="note">송장을 뽑으면 여기에 한 줄 자동 기록돼요. <b>뽑기만 하고 안 보낸 건</b> 발송 체크를 비워두고, 필요하면 <b>수정·삭제</b>. (실제 앱에선 이 표가 <b>택배 시재</b> 항목으로 들어갑니다.)</p>
+    <table class="hist">
+      <thead><tr>
+        <th class="c">발송</th><th>날짜</th><th>수신처</th><th>담당</th><th class="c">구분</th><th>비고</th><th class="c">수정</th><th class="c">삭제</th>
+      </tr></thead>
+      <tbody id="histBody"></tbody>
+    </table>
+  </div>
+
+<script>
+// 샘플 거래처 (실제 앱에선 S.factories에서 불러옴)
+var VENDORS=[
+  {name:'대성실업',   contact:'김대성', phone:'053-654-3210', addr:'대구 서구 서대구로 45, 3층'},
+  {name:'부산패킹',   contact:'이부산', phone:'051-987-6543', addr:'부산 사상구 학감대로 22'},
+  {name:'경남봉제',   contact:'박경남', phone:'055-222-3333', addr:'경남 김해시 삼안로 100, 2동 1층'},
+  {name:'대구자수',   contact:'최자수', phone:'053-421-8080', addr:'대구 중구 달구벌대로 200'},
+  {name:'광주완성',   contact:'정완성', phone:'062-511-7788', addr:'광주 북구 무등로 55'},
+  {name:'울산워싱',   contact:'한워싱', phone:'052-333-1212', addr:'울산 남구 삼산로 90'}
+];
+// 값이 인쇄될 위치 (mm) — 프레임과 같은 좌표계 (라벨 좌상단 0,0)
+var FILL={
+  date:  {x:4,   y:4.4,  size:9.5, bold:0, w:25},
+  suName:{x:12,  y:39.5, size:13,  bold:1, w:46},
+  suCont:{x:75,  y:40,   size:9.5, bold:0, w:32},
+  suPhone:{x:12, y:49,   size:11,  bold:0, w:94},
+  suAddr:{x:12,  y:58,   size:9,   bold:0, w:95, lh:1.2},
+  fare:  {x:0,   y:74,   size:15,  bold:1, w:19, center:1},
+  bigo:  {x:81,  y:73.5, size:10,  bold:0, w:26, lh:1.15, center:1}
+};
+var FARE_X={seon:11, chak:30};
+var state={fare:'seon'};
+var HIST=[];
+
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function todayKo(){var d=new Date();var p=function(n){return(n<10?'0':'')+n};return d.getFullYear()+'. '+p(d.getMonth()+1)+'. '+p(d.getDate())+'.';}
+
+function initVendors(){
+  var dl=$('vendorList'); dl.innerHTML='';
+  VENDORS.forEach(function(v){var o=document.createElement('option');o.value=v.name;dl.appendChild(o);});
+}
+function onVendorInput(){
+  var q=$('vendorSearch').value.trim();
+  var v=VENDORS.find(function(x){return x.name===q;});
+  if(v){ $('suName').value=v.name; $('suCont').value=v.contact; $('suPhone').value=v.phone; $('suAddr').value=v.addr; }
+  else if(q){ $('suName').value=q; }   // 목록에 없으면 입력값을 상호로
+  render();
+}
+function setFare(f){state.fare=f;$('segSeon').classList.toggle('on',f==='seon');$('segChak').classList.toggle('on',f==='chak');render();}
+function setBigo(t){$('bigo').value=t;[].forEach.call(document.querySelectorAll('#bigoChips .chip'),function(c){c.classList.toggle('on',c.textContent===t)});render();}
+function toggleFrame(){document.querySelector('.guide').style.display=$('showFrame').checked?'':'none';}
+function togglePrintFrame(){document.body.classList.toggle('printframe',$('printFrame').checked);}
+function resetNudge(){$('nx').value=0;$('ny').value=0;render();}
+
+function cell(f,txt){
+  if(txt==null||txt==='')return '';
+  var s='position:absolute;left:'+f.x+'mm;top:'+f.y+'mm;width:'+(f.w||40)+'mm;font-size:'+f.size+'pt;'
+   +'font-weight:'+(f.bold?800:500)+';line-height:'+(f.lh||1.1)+';'+(f.center?'text-align:center;':'');
+  return '<div style="'+s+'">'+esc(txt)+'</div>';
+}
+function render(){
+  var nx=parseFloat($('nx').value)||0, ny=parseFloat($('ny').value)||0;
+  $('fillLayer').style.transform='translate('+nx+'mm,'+ny+'mm)';
+  if(!$('dt').value) $('dt').value=todayKo();
+  var h='';
+  h+=cell(FILL.date, $('dt').value);
+  h+=cell(FILL.suName, $('suName').value);
+  h+=cell(FILL.suCont, $('suCont').value);
+  h+=cell(FILL.suPhone, $('suPhone').value);
+  h+=cell(FILL.suAddr, $('suAddr').value);
+  h+=cell(Object.assign({},FILL.fare,{x:FARE_X[state.fare]}), 'O');
+  h+=cell(FILL.bigo, $('bigo').value);
+  $('fillLayer').innerHTML=h;
+}
+
+/* ----- 인쇄 이력 (택배 시재 데모) ----- */
+function doPrint(){ addHist(); setTimeout(function(){window.print();}, 60); }
+function addHist(){
+  if(!$('suName').value.trim()){ alert('수신(상호)이 비어 있어요.'); return; }
+  HIST.unshift({ id:'h'+Date.now()+Math.floor(Math.random()*1000),
+    date:$('dt').value, name:$('suName').value, cont:$('suCont').value,
+    phone:$('suPhone').value, addr:$('suAddr').value, fare:state.fare, bigo:$('bigo').value, sent:false });
+  renderHist();
+}
+function renderHist(){
+  var b=$('histBody');
+  if(!HIST.length){ b.innerHTML='<tr><td colspan="8" class="emptyh">아직 뽑은 송장이 없어요. 「인쇄 + 이력 기록」을 눌러보세요.</td></tr>'; return; }
+  b.innerHTML=HIST.map(function(e){
+    var far=e.fare==='chak'?'<span class="tag chak">착불</span>':'<span class="tag">선불</span>';
+    return '<tr class="'+(e.sent?'rowsent':'')+'">'
+      +'<td class="c"><input type="checkbox" class="sentbox" '+(e.sent?'checked':'')+' onchange="histToggle(\''+e.id+'\')" title="실제 발송함"></td>'
+      +'<td>'+esc(e.date)+'</td><td><b>'+esc(e.name)+'</b></td><td>'+esc(e.cont)+'</td>'
+      +'<td class="c">'+far+'</td><td>'+esc(e.bigo)+'</td>'
+      +'<td class="c"><button class="mini" onclick="histEdit(\''+e.id+'\')">수정</button></td>'
+      +'<td class="c"><button class="mini d" onclick="histDel(\''+e.id+'\')">삭제</button></td></tr>';
+  }).join('');
+}
+function histToggle(id){ var e=HIST.find(function(x){return x.id===id;}); if(e){e.sent=!e.sent;renderHist();} }
+function histDel(id){ if(!confirm('이 기록을 삭제할까요?'))return; HIST=HIST.filter(function(x){return x.id!==id;}); renderHist(); }
+function histEdit(id){
+  var e=HIST.find(function(x){return x.id===id;}); if(!e)return;
+  $('suName').value=e.name; $('suCont').value=e.cont; $('suPhone').value=e.phone; $('suAddr').value=e.addr;
+  $('bigo').value=e.bigo||''; $('dt').value=e.date; setFare(e.fare||'seon');
+  HIST=HIST.filter(function(x){return x.id!==id;});  // 폼으로 되돌리고 목록에서 빼기(다시 뽑으면 새 기록)
+  renderHist(); render(); window.scrollTo(0,0);
+}
+
+initVendors();
+$('dt').value=todayKo();
+render(); renderHist();
+</script>
+</body>
+</html>

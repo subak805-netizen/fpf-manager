@@ -31598,7 +31598,36 @@ function tpDesignSheets(){ var d=tpData(); if(!d)return []; if(!Array.isArray(d.
 function tpNextKey(type){ var sheets=(tpData()&&tpData().designSheets)||[]; var used=sheets.filter(function(s){return s.type===type;}).map(function(s){return s.k;}); for(var n=1;n<=3;n++){ var k=(n===1?type:type+n); if(used.indexOf(k)<0)return k; } return null; }
 function tpAddSheet(type){ tpCloseSheetMenu(); var sheets=tpDesignSheets(); var cfg=TP_DESIGN_CFG[type]; if(!cfg)return; var cnt=sheets.filter(function(s){return s.type===type;}).length; if(cnt>=3){alert(cfg.label+' 지시서는 최대 3개예요');return;} var k=tpNextKey(type); if(!k)return; sheets.push({k:k,type:type}); try{saveData();}catch(e){} _tpTab=k; tpRender(); }
 function tpDelSheet(k){ var d=tpData(); if(!d||!Array.isArray(d.designSheets))return; var s=d.designSheets.find(function(x){return x.k===k;}); if(!s)return; var cfg=TP_DESIGN_CFG[s.type]||{label:s.type}; if(!confirm(cfg.label+' 지시서를 삭제할까요? (이 시트 내용도 지워져요)'))return; d.designSheets=d.designSheets.filter(function(x){return x.k!==k;}); try{ if(d[k])delete d[k]; if(d.images){['Design','Place','Ref'].forEach(function(sf){delete d.images[k+sf];}); } }catch(e){} try{saveData();}catch(e){} _tpTab='sew'; tpRender(); }
-function tpToggleSheetMenu(e){ if(e&&e.stopPropagation)e.stopPropagation(); var m=document.getElementById('tp-sheet-menu'); if(!m)return; if(m.style.display==='block'){m.style.display='none';return;} var btn=document.querySelector('#tp-modal .tp-addtab'); if(btn){var r=btn.getBoundingClientRect(); m.style.top=(r.bottom+3)+'px'; m.style.left=Math.max(6,Math.min(r.left,(window.innerWidth||800)-150))+'px';} m.style.display='block'; }
+/* ＋ 지시서 추가 메뉴 — 반드시 document.body 직속으로 띄운다.
+   ⚠️ 예전엔 메뉴를 ＋탭(.tp-addtab) 안에 넣었는데, 탭바(.tabs)가 폰용으로
+      overflow-x:auto + -webkit-overflow-scrolling:touch 가 되면서(2026-07-15)
+      아이폰에선 그 안의 position:fixed 가 "탭바 기준"으로 갇혀 버림
+      → 탭바 높이(약 30px)에 잘려 메뉴가 아예 안 보였음(2026-08-06 신고).
+      브라우저 실측: 폰 재현 시 rect x-26/y156, elementFromPoint=시트(메뉴 안 잡힘).
+   다시 탭 안으로 넣지 말 것. */
+function tpSheetMenuEl(){
+  var m=document.getElementById('tp-sheet-menu');
+  if(m&&m.parentNode!==document.body){ try{m.parentNode.removeChild(m);}catch(e){} m=null; }
+  if(!m){ m=document.createElement('div'); m.id='tp-sheet-menu'; document.body.appendChild(m); }
+  m.style.cssText='display:none;position:fixed;z-index:100200;background:#fff;border:1.5px solid #374151;border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,.24);min-width:150px;overflow:hidden;font-family:inherit';
+  m.innerHTML=['emb','prt','wash'].map(function(t){return '<div onclick="tpAddSheet(\''+t+'\')" style="padding:12px 16px;font-size:14px;font-weight:700;cursor:pointer;border-bottom:1px solid #eef0f3;color:#1f2937">＋ '+TP_DESIGN_CFG[t].label+' 지시서</div>';}).join('');
+  return m;
+}
+function tpToggleSheetMenu(e){
+  if(e&&e.stopPropagation)e.stopPropagation();
+  var cur=document.getElementById('tp-sheet-menu');
+  if(cur&&cur.parentNode===document.body&&cur.style.display==='block'){ cur.style.display='none'; return; }
+  var m=tpSheetMenuEl();
+  var btn=document.querySelector('#tp-modal .tp-addtab'); if(!btn)return;
+  var r=btn.getBoundingClientRect();
+  m.style.visibility='hidden'; m.style.display='block';           // 크기 재려고 먼저 띄움(안 보이게)
+  var mw=m.offsetWidth||150, mh=m.offsetHeight||130;
+  var vw=window.innerWidth||360, vh=window.innerHeight||640;
+  var left=Math.max(6,Math.min(r.left,vw-mw-6));
+  var top=r.bottom+3; if(top+mh>vh-6) top=Math.max(6,r.top-mh-3); // 아래 공간 없으면 위로
+  m.style.left=left+'px'; m.style.top=top+'px'; m.style.visibility='';
+  setTimeout(function(){ document.addEventListener('click',tpCloseSheetMenu,{once:true}); },0);
+}
 function tpCloseSheetMenu(){ var m=document.getElementById('tp-sheet-menu'); if(m)m.style.display='none'; }
 function tpRender(){
   var it=tpItem(); if(!it)return; var qb=tpQtyBreakdown(it);
@@ -31642,8 +31671,8 @@ function tpRender(){
   var _tCnt={}; _dsheets.forEach(function(s){_tCnt[s.type]=(_tCnt[s.type]||0)+1;});
   var _tIdx={}; var _CIRC=['','①','②','③'];
   var designTabs=_dsheets.map(function(s){var cfg=TP_DESIGN_CFG[s.type]||{label:s.type}; _tIdx[s.type]=(_tIdx[s.type]||0)+1; var num=_tCnt[s.type]>1?_CIRC[_tIdx[s.type]]:''; return T(s.k,cfg.label+num);}).join('');
-  var addMenu='<div id="tp-sheet-menu" style="display:none;position:fixed;z-index:100200;background:#fff;border:1.5px solid #374151;border-radius:6px;box-shadow:0 5px 16px rgba(0,0,0,.2);margin-top:3px;min-width:130px;overflow:hidden">'+['emb','prt','wash'].map(function(t){return '<div onclick="tpAddSheet(\''+t+'\')" style="padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;border-bottom:1px solid #eef0f3;color:#1f2937">＋ '+TP_DESIGN_CFG[t].label+' 지시서</div>';}).join('')+'</div>';
-  var addBtn=isPromo?'':'<div class="tab tp-addtab" onclick="tpToggleSheetMenu(event)" style="position:relative;font-weight:800">＋'+addMenu+'</div>';
+  // 메뉴는 여기서 안 그림 — tpSheetMenuEl()이 body 직속으로 만든다(폰에서 탭바에 잘리던 문제)
+  var addBtn=isPromo?'':'<div class="tab tp-addtab" onclick="tpToggleSheetMenu(event)" style="position:relative;font-weight:800;padding-left:20px;padding-right:20px">＋</div>';
   var tabs='<div class="tabs">'+(isPromo?(T('cs','지시서')+T('pack','완성')+T('pack2','포장')+T('insp','검품')):(T('sew','지시서')+T('spat','샘플·패턴')+T('grd','그레이딩')+T('pack','완성')+T('pack2','포장')+T('insp','검품')))+designTabs+T('smp','샘플 사진')+addBtn+'</div>';
   var _sk=function(ph){var u=tpGet('images.sewSketch','');return '<div class="sketch" onclick="tpPickImage(\'sewSketch\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\'sewSketch\')">×</button>'):('＋ '+tpEsc(ph)))+'<button class="tp-loadbtn" onclick="event.stopPropagation();dosikPick(\'sewSketch\')" title="도식화 탭에서 불러오기" style="position:absolute;left:6px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">불러오기</button></div>';};
   var _iz=function(slot,ph){var u=tpGet('images.'+slot,'');return '<div class="iz" onclick="tpPickImage(\''+slot+'\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'+tpUpBadge(slot)):('＋ '+tpEsc(ph)))+'</div>';};
@@ -31938,7 +31967,7 @@ function tpOpen(id){ var it=S.items&&S.items[id]; if(!it){ if(typeof showToast==
   if(/아루드|arude/i.test(_bn))_tpOrient='portrait';
   else if(/프루토|fruto|리틀|그로브|grove/i.test(_bn))_tpOrient='landscape';
   tpInitDefaults(); tpEnsureFileInput(); tpRender(); tpOrient(_tpOrient||'portrait'); var m=document.getElementById('tp-modal'); m.style.display='block'; m.scrollTop=0; document.body.style.overflow='hidden'; requestAnimationFrame(function(){ try{tpFit();}catch(e){} }); }
-function tpClose(){ try{tpSaveFlush();}catch(e){} document.getElementById('tp-modal').style.display='none'; document.body.style.overflow=''; }
+function tpClose(){ try{tpSaveFlush();}catch(e){} try{tpCloseSheetMenu();}catch(e){} document.getElementById('tp-modal').style.display='none'; document.body.style.overflow=''; }
 function tpSaveNow(){ try{saveData();}catch(e){} if(typeof showToast==='function')showToast('작업지시서 저장됨'); }
 </script>
 </body>
