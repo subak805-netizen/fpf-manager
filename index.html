@@ -21561,6 +21561,7 @@ function clQuickBtn(){
   showToast(''+names.length+'건 추가'+(date?' ('+date.slice(5).replace('-','/')+')':''));
 }
 function clDel(id){var cl=clEnsure();var i=cl.entries.findIndex(function(e){return e.id===id;});if(i<0)return;var e=cl.entries[i];if(!confirm('"'+(e.name||'')+'" 항목을 삭제할까요?'))return;cl.entries.splice(i,1);saveData();renderCourierLedger();}
+function clSetAmt(id){var cl=clEnsure();var e=cl.entries.find(function(x){return x.id===id;});if(!e)return;var v=prompt('금액 (원)',e.amount||0);if(v==null)return;var n=+String(v).replace(/[^\d]/g,'');e.amount=n||0;saveData();renderCourierLedger();}
 function clSettle(brandId,val){var cl=clEnsure();var t=(typeof todayISO==='function'?todayISO():'');cl.entries.forEach(function(e){if((e.brandId||'')===(brandId||'')&&_clPeriodOk(e.date)){e.settled=!!val;if(val)e.settledAt=t;}});saveData();renderCourierLedger();showToast(val?'정산 완료로 표시했어요':'정산 취소했어요');}
 
 function _clBrandDone(id){ var rows=_clRows(id); return rows.length>0&&rows.every(function(e){return e.settled;}); }
@@ -21799,6 +21800,26 @@ function ciBPrint(){
       +'<div class="ci-fill">'+_ciFillHTML({date:date,name:f.name,cont:f.cont,phone:f.phone,addr:f.addr,bigo:st.bigo||'',fare:st.fare||'seon'})+'</div></div></div>';
   }).join('');
   _ciRunPrint(sheet);
+  _ciLogLedger(picks);
+}
+/* 인쇄 시 택배 시재 자동 기록 (2026-07-29): 곳마다 1건(보냄·선불/착불·비고·4,000원). 같은 날 같은 이름의 송장 기록이 있으면 중복 생성 안 함 */
+function _ciLogLedger(picks){
+  try{
+    var cl=clEnsure(),t=(typeof todayISO==='function'?todayISO():''),added=0,skipped=0;
+    picks.forEach(function(f){
+      var st=window._ciB.cards[f.id]||{};
+      var dup=cl.entries.some(function(e){return e.date===t&&e.name===f.name&&(e.memo||'').indexOf('송장')>=0;});
+      if(dup){skipped++;return;}
+      var brandId=(f.id&&f.id.slice(0,3)==='br_')?f.id.slice(3):'';
+      cl.entries.push({id:(typeof uid==='function'?uid():'cl'+Date.now()+Math.floor(Math.random()*100000)),
+        date:t,brandId:brandId,name:f.name,dir:'send',
+        pay:(st.fare==='chak'?'col':'pre'),amount:4000,
+        memo:'송장'+(st.bigo?' · '+st.bigo:''),settled:false});
+      added++;
+    });
+    if(added)saveData();
+    if(added||skipped)showToast('택배 시재에 '+added+'건 기록'+(skipped?' · 중복 '+skipped+'건 생략':'')+' (잘못 뽑았으면 시재에서 ✕)');
+  }catch(e){}
 }
 function _ciRunPrint(sheet){
   /* 용지 고정(2026-07-28): 예전엔 @page를 110×110으로 선언해 크롬이 맞는 용지를 못 찾고 매번 기본값(100×150)으로 되돌아갔음.
@@ -21895,7 +21916,7 @@ function _clCard(brandId){
     body+='<tr'+(e.settled?' class="cl-done"':'')+'><td class="l tl-d" data-l="날짜">'+dlabel+'</td>'
       +'<td class="l tl-nm" data-l="내용">'+esc(e.name)+'</td>'
       +'<td class="l" data-l="분류">'+dirc+payc+'</td>'
-      +'<td class="tl-n tl-amt" data-l="금액"><span class="tl-prw">'+num(amt)+'<span>원</span></span></td>'
+      +'<td class="tl-n tl-amt" data-l="금액" onclick="clSetAmt(\''+e.id+'\')" title="클릭해서 금액 수정" style="cursor:pointer"><span class="tl-prw">'+num(amt)+'<span>원</span></span></td>'
       +'<td class="tl-x"><button class="tl-del" onclick="clDel(\''+e.id+'\')">✕</button></td></tr>';
   });
   var nm=brandId?_clBrandName(brandId):'미지정';
