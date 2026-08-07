@@ -8397,6 +8397,7 @@ function showItemForm(id){
   _itemListScrollY=window.scrollY||0;
   document.getElementById('ipl').style.display='none';document.getElementById('ipf').style.display='';
   try{_itemAutoSaveArm();}catch(e){} // 자동 저장 리스너 연결 (1회)
+  window._itemDirty=false;
   window.scrollTo(0,0);
   window._autoWorkRoute='';window._wrManual=!!(it&&it.workRouteManual); // 자동경로 추적 초기화 + 수동입력 플래그
   updateSupDL();const p=it||{};
@@ -8541,16 +8542,25 @@ function refreshWorkRoute(){
   if(r){el.value=r;window._autoWorkRoute=r;}
 }
 // 아이템 폼 자동 저장 (2026-07-09, 기존 아이템 수정만) — 입력 멈추고 2.5초 후 조용히 저장. 신규 작성은 임시저장(draft)이 담당하다 첫 수동 저장 후부터 자동 저장.
+/* 아이템 폼 자동저장 — 「저장」 안 눌러도 2.5초 뒤 저장.
+   ⚠️ 새 아이템(editItemId 없음)도 저장한다(2026-08-07 사용자 요청).
+      아이템명이 비어 있으면 saveItemForm이 조용히 건너뛰므로 빈 아이템은 안 생김.
+      한 번 등록되면 saveItemForm이 editItemId를 채워서 그 뒤론 같은 아이템을 갱신한다. */
 function _itemAutoSaveArm(){
   var ipf=document.getElementById('ipf'); if(!ipf||ipf._autoArmed)return; ipf._autoArmed=1;
-  var fire=function(){ window._itemAutoT=null; if(!editItemId)return; if(!ipf||ipf.style.display==='none')return; try{saveItemForm({silent:true});}catch(e){console.warn('[아이템 자동저장]',e);} };
-  var sched=function(){ if(!editItemId)return; if(window._itemAutoT)clearTimeout(window._itemAutoT); window._itemAutoT=setTimeout(fire,2500); };
+  var fire=function(){ window._itemAutoT=null; if(!ipf||ipf.style.display==='none')return; try{saveItemForm({silent:true});}catch(e){console.warn('[아이템 자동저장]',e);} };
+  var sched=function(){ window._itemDirty=true; if(window._itemAutoT)clearTimeout(window._itemAutoT); window._itemAutoT=setTimeout(fire,2500); };
   ipf.addEventListener('input',sched,true);
   ipf.addEventListener('change',sched,true);
 }
+// 자동저장 표시 — 폼 위 작은 회색 글씨(임시저장 표시 자리 재사용)
+function _itemSavedInd(msg){ var el=document.getElementById('draft-ind'); if(el)el.textContent=msg||''; }
 function hideItemForm(){
   // 닫기 전 마지막 변경 저장 (자동 저장 대기 중이던 것 즉시 반영)
-  try{ if(window._itemAutoT){clearTimeout(window._itemAutoT);window._itemAutoT=null; if(editItemId)saveItemForm({silent:true});} }catch(e){}
+  try{ if(window._itemAutoT){clearTimeout(window._itemAutoT);window._itemAutoT=null; saveItemForm({silent:true});} }catch(e){}
+  /* 자동저장만 하고 닫는 경우에도 '이 아이템 쓰는 진행중 발주에 반영할까요?'를 딱 한 번 묻는다.
+     (자동저장 중엔 confirm을 못 띄우니 닫을 때로 미뤄둔 것. 쓰는 발주가 없으면 안 뜸.) */
+  try{ if(window._itemDirty&&editItemId&&S.items[editItemId]){ window._itemDirty=false; notifyOrdersAffectedByItemChange(editItemId,S.items[editItemId].name); } }catch(e){}
   document.getElementById('ipl').style.display='';document.getElementById('ipf').style.display='none';
   try{renderItemsList();}catch(e){} // 자동 저장 동안 생략한 리스트 갱신
   requestAnimationFrame(function(){window.scrollTo(0,_itemListScrollY);});
@@ -10726,7 +10736,10 @@ function saveItemForm(opts){
   var _compChk=validateFabComps();if(!_compChk.ok&&!_silent){showCompWarnModal(_compChk);return;}
   const id=editItemId||uid();
   const _cd=document.getElementById('f-cd').value.trim();
-  if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup){if(_silent)return;if(!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}}
+  /* 품번 중복 — 예전엔 자동저장이 여기서 조용히 return 해서, 품번이 겹치는 동안 적은 내용이 통째로 저장 안 됐음(2026-08-07).
+   이제 자동저장은 그대로 저장하고, 확인창은 수동 저장 때만 띄운다. 표시에만 '품번 중복'을 알려준다. */
+var _dupWarn='';
+if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().toLowerCase()===_cd.toLowerCase());if(_dup){if(_silent)_dupWarn=' · 품번 중복('+_dup.name+')';else if(!confirm('품번 "'+_cd+'"는 이미 "'+_dup.name+'"에 쓰이고 있어요.\n그래도 저장할까요?'))return;}}
   try{var _dfab=_dedupeItemFabrics({fabrics:formFabs});if(_dfab.removed){formFabs=_dfab.fabrics;if(!_silent&&typeof showToast==='function')showToast('완전히 같은 원단 '+_dfab.removed+'줄이 중복이라 하나로 합쳤어요',4000);}}catch(e){}
   const item={id,name:nm,code:document.getElementById('f-cd').value.trim(),client:document.getElementById('f-cl').value.trim(),season:document.getElementById('f-ss').value.trim(),notes:document.getElementById('f-notes').value.trim(),careInstructions:document.getElementById('f-care').value.trim(),colors:[...formColors],sizes:[...formSizes],fabrics:formFabs.map(f=>({...f,id:f.id||uid()})),trims:formTrims.map(t=>({...t,id:t.id||uid()})),trimCosts:formTrimCosts.map(tc=>({...tc,id:tc.id||uid()}))};
   try{(item.trims||[]).forEach(function(t){var _mp=_tMatrixPrice(t);if(_mp!=null&&_mp>0)t.unitPrice=_mp;});}catch(e){}
@@ -10861,12 +10874,18 @@ function saveItemForm(opts){
   // 다만 신규 → 편집 모드로 전환되어야 다음 저장 시 동일 아이템 업데이트됨
   if(isNewItem){
     editItemId=item.id;
+    // 자동 등록됐으면 제목도 '수정'으로 — 이미 저장된 상태라는 걸 알 수 있게
+    try{var _ift=document.getElementById('if-t'); if(_ift)_ift.textContent='아이템 수정';}catch(e){}
     // "저장" 버튼이었던 것을 "수정 저장"으로 시각적 갱신은 다음 showItemForm 호출 때
   }
   // 자재 동기화 알림: 편집 모드(기존 아이템 수정)일 때만 (자동 저장 땐 조용히)
   if(!isNewItem&&!_silent){
+    window._itemDirty=false;   // 수동 저장에서 이미 물어봄 → 닫을 때 또 묻지 않게
     notifyOrdersAffectedByItemChange(item.id,item.name);
   }
+  if(isNewItem){ try{clearDraft();}catch(e){} }   // 진짜 아이템이 됐으니 임시저장본은 정리
+  try{ var _hm=new Date(),_p=function(n){return (n<10?'0':'')+n;};
+       _itemSavedInd((_silent?'자동 저장됨 ':'저장됨 ')+_p(_hm.getHours())+':'+_p(_hm.getMinutes())+_dupWarn); }catch(e){}
   if(!_silent)showToast(isNewItem?'아이템 등록 완료':'저장됨 — 계속 편집하거나 ✕로 닫으세요',2500);
 }
 
