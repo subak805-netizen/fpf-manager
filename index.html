@@ -4719,6 +4719,8 @@ function saveToPB(item){
       pricePerKg:finalKG,
       yardsPerKg:f.yardsPerKg||existing.yardsPerKg||1,
       width:f.width||existing.width||null,
+      weightGsm:f.weightGsm||existing.weightGsm||null,
+      weightOz:f.weightOz||existing.weightOz||null,
       composition:f.composition||existing.composition||'',
       building:f.building||existing.building||'',
       floorRoom:f.floorRoom||existing.floorRoom||'',
@@ -4742,6 +4744,8 @@ function saveToPB(item){
       minOrderQty:(t.minOrderQty!=null&&t.minOrderQty!==''?+t.minOrderQty:(existing.minOrderQty!=null?existing.minOrderQty:null)),
       rollUnit:t.rollUnit||existing.rollUnit||'',
       width:t.width||existing.width||'',
+      weightGsm:t.weightGsm||existing.weightGsm||'',
+      weightOz:t.weightOz||existing.weightOz||'',
       composition:t.composition||existing.composition||'',
       part:t.part||existing.part||'',
       threadQty:(t.threadQty!=null&&t.threadQty!==''?+t.threadQty:(existing.threadQty!=null?existing.threadQty:null)),
@@ -4800,6 +4804,8 @@ function buildFabDB(){
   var db={};
   function add(nm,src,sup){nm=(nm||'').trim();if(!nm)return;if(!db[nm])db[nm]={};var d=db[nm];
     if(src.width&&!d.width)d.width=src.width;
+    if(src.weightGsm&&!d.weightGsm)d.weightGsm=src.weightGsm;
+    if(src.weightOz&&!d.weightOz)d.weightOz=src.weightOz;
     if(src.composition&&!d.composition)d.composition=src.composition;
     if(src.unitPrice&&!d.unitPrice)d.unitPrice=src.unitPrice;
     if(src.pricePerKg&&!d.pricePerKg)d.pricePerKg=src.pricePerKg;
@@ -4811,6 +4817,13 @@ function buildFabDB(){
 }
 // 단가장에 없는 새 거래처 입력 시 1회 경고(오타로 거래처가 쪼개지는 것 방지)
 function _pbWarnNewSupplier(sup){ if(!sup)return; if(S.priceBook&&S.priceBook[sup])return; if(window._pbWarnedSup===sup)return; window._pbWarnedSup=sup; if(typeof showToast==='function')showToast('"'+sup+'" — 단가장에 없는 새 거래처예요. 오타면 목록에서 골라주세요',4500); }
+// 무게 자동채움 — 빈 칸에만. 직접 적어둔 값은 절대 안 덮음
+function _wgFill(r,src,flash){ if(!r||!src)return;
+  [['weightGsm',src.weightGsm],['weightOz',src.weightOz]].forEach(function(p){
+    var el=r.querySelector('[data-f='+p[0]+']');
+    if(el&&!String(el.value).trim()&&p[1]){ el.value=p[1]; if(flash)flash(el); }
+  });
+}
 function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.trim(); _pbWarnNewSupplier(sup);
   var flash=function(el){if(el){el.classList.add('autofill');setTimeout(function(){el.classList.remove('autofill');},1200);}};
   // 원단처 위치(동/호수) 자동 — 거래처/단가장에 저장된 위치에서
@@ -4825,14 +4838,14 @@ function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.t
   // 1) 거래처+이름 (단가장)
   if(sup&&nm){const e=S.priceBook[sup]?.materials[nm];if(e&&e.type==='fabric'){
     if(e.pricingUnit==='kg'){const p=r.querySelector('[data-f=pricePerKg]');if(p&&!+p.value){p.value=e.pricePerKg;flash(p);filled=true;}const y=r.querySelector('[data-f=yardsPerKg]');if(y&&e.yardsPerKg&&!+y.value)y.value=e.yardsPerKg;}else{const p=r.querySelector('[data-f=unitPrice]');if(p&&!+p.value&&e.unitPrice){p.value=e.unitPrice;flash(p);filled=true;}}
-    const wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e.width){wEl.value=e.width;filled=true;}const cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e.composition){cEl.value=e.composition;var _idx=(r.id||'').replace('fr-','');if(_idx!==''&&typeof setCompFromString==='function')setCompFromString(_idx,e.composition);filled=true;}
+    const wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e.width){wEl.value=e.width;filled=true;}_wgFill(r,e);const cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e.composition){cEl.value=e.composition;var _idx=(r.id||'').replace('fr-','');if(_idx!==''&&typeof setCompFromString==='function')setCompFromString(_idx,e.composition);filled=true;}
     const bEl=r.querySelector('[data-f=building]');if(bEl&&!bEl.value&&e.building)bEl.value=e.building;
     const frEl=r.querySelector('[data-f=floorRoom]');if(frEl&&!frEl.value&&e.floorRoom)frEl.value=e.floorRoom;
   }}
   // 1.5) 같은 원단처 + 같은 원단명이 다른 아이템에 있으면 → 폭·단가·혼용률까지 그대로 (단가장 미등록이어도 동작).
   //      거래처가 같으니 단가도 신뢰 가능 — 이름만 매칭(2)과 달리 단가를 가져온다. (2026-07-21)
   if(sup&&nm){var e15=_fabFromItems(sup,nm);if(e15){
-    var wE=r.querySelector('[data-f=width]');if(wE&&!wE.value&&e15.width){wE.value=e15.width;flash(wE);filled=true;}
+    var wE=r.querySelector('[data-f=width]');if(wE&&!wE.value&&e15.width){wE.value=e15.width;flash(wE);filled=true;}_wgFill(r,e15,flash);
     if((e15.pricingUnit||'yard')==='kg'){
       var pk=r.querySelector('[data-f=pricePerKg]');if(pk&&!+pk.value&&+e15.pricePerKg){pk.value=e15.pricePerKg;flash(pk);filled=true;}
       var yk=r.querySelector('[data-f=yardsPerKg]');if(yk&&!+yk.value&&+e15.yardsPerKg)yk.value=e15.yardsPerKg;
@@ -4844,11 +4857,11 @@ function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.t
   }}
   // 2) 이름만으로 — 다른 아이템/단가장에서 같은 원단명의 폭·혼용률(물리값만). 단가는 거래처마다 달라 안 끌어옴.
   if(nm){var fdb=buildFabDB();var e2=fdb[nm];if(e2){
-    var wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e2.width){wEl.value=e2.width;flash(wEl);filled=true;}
+    var wEl=r.querySelector('[data-f=width]');if(wEl&&!wEl.value&&e2.width){wEl.value=e2.width;flash(wEl);filled=true;}_wgFill(r,e2,flash);
     var cEl=r.querySelector('[data-f=composition]');if(cEl&&!cEl.value&&e2.composition){cEl.value=e2.composition;flash(cEl);var _idx2=(r.id||'').replace('fr-','');if(_idx2!==''&&typeof setCompFromString==='function')setCompFromString(_idx2,e2.composition);filled=true;}
     var sEl=r.querySelector('[data-f=supplier]');if(sEl&&!sEl.value&&e2.supplier){sEl.value=e2.supplier;flash(sEl);filled=true;}
   }}
-  if(filled)showToast('같은 원단 정보 자동입력 (폭·단가·혼용률)');
+  if(filled)showToast('같은 원단 정보 자동입력 (폭·무게·단가·혼용률)');
 }
 // 같은 원단처 + 같은 원단명을 다른 아이템에서 찾아 가장 정보가 많은 것 반환 (단가장 등록 안 했어도 재사용 가능하게)
 function _fabFromItems(sup,nm){
@@ -5094,7 +5107,7 @@ function autofillTrim(r){
   // 안 바뀌는 고정값 함께 불러오기 (폭·요척·벌당개수·요척개수·혼용률 등) — 빈 칸만 채움
   var _flash=function(el){if(el){el.classList.add('autofill');setTimeout(function(){el.classList.remove('autofill');},1200);}};
   // 고정값(폭·혼용률·절당yard 등)은 이름 바꾸면 따라오게(fixed=1), 요척(수량)은 직접 입력이라 빈 칸만(fixed=0)
-  [['width',e.width,1],['composition',e.composition,1],['yardsPerRoll',e.yardsPerRoll,1],['yardsPerJeol',e.yardsPerJeol,1],['threadQty',e.threadQty,1],['threadMin',e.threadMin,1],['loopPerYard',e.loopPerYard,1],['biasSpec',e.biasSpec,1],['fabricSource',e.fabricSource,1],['labelName',e.labelName,1],['manufactureYM',e.manufactureYM,1],['madeIn',e.madeIn,1],['part',e.part,0],['labelPart',e.labelPart,0],['consumptionPerPiece',e.consumptionPerPiece,0],['qtyPerPiece',e.qtyPerPiece,0]].forEach(function(pair){
+  [['width',e.width,1],['weightGsm',e.weightGsm,1],['weightOz',e.weightOz,1],['composition',e.composition,1],['yardsPerRoll',e.yardsPerRoll,1],['yardsPerJeol',e.yardsPerJeol,1],['threadQty',e.threadQty,1],['threadMin',e.threadMin,1],['loopPerYard',e.loopPerYard,1],['biasSpec',e.biasSpec,1],['fabricSource',e.fabricSource,1],['labelName',e.labelName,1],['manufactureYM',e.manufactureYM,1],['madeIn',e.madeIn,1],['part',e.part,0],['labelPart',e.labelPart,0],['consumptionPerPiece',e.consumptionPerPiece,0],['qtyPerPiece',e.qtyPerPiece,0]].forEach(function(pair){
     var inp=r.querySelector('[data-f='+pair[0]+']');
     var allow=pair[2]?(!inp||!inp.value||_nameChanged):(!inp||!inp.value);
     if(inp&&allow&&pair[1]!=null&&pair[1]!==''){inp.value=pair[1];_flash(inp);}
@@ -5525,6 +5538,9 @@ function _pbDetailBody(sup,key,m){
   }else if(ot==='bias'){
     html+=_pbdSec('바이어스 디테일')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+_pbdF('규격','biasSpec',m.biasSpec,'예:32mm')+_pbdF('원단출처','fabricSource',m.fabricSource,'예:성원/에렌')+_pbdUnitSel(m)+'</div>';
   }
+  // 무게 — 원단·부자재 공통 (아이템 폼에서 저장되고 여기서도 고칠 수 있음)
+  html+=_pbdSec('무게 <span style="font-weight:400;color:#94a3b8;font-size:10px">그람수 / 온즈 — 적어두는 스펙(계산엔 안 씀)</span>')
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+_pbdF('무게 (g/㎡)','weightGsm',m.weightGsm,'예:280','number')+_pbdF('온즈 (oz)','weightOz',m.weightOz,'예:8.3','number')+'</div>';
   html+=_pbdSec('사이즈·규격별 단가 <span style="font-weight:400;color:#94a3b8;font-size:10px">기준을 켜서 표로 (호수·길이·컬러…)</span>');
   html+=_pbdPriceSection(sup,key,m);
   html+=_pbdSec('가공비 · 염색비 · 로고비 · 코팅비 <span style="font-weight:400;color:#94a3b8;font-size:10px">가공처에 기억 → 다른 부자재에도 자동</span>');
@@ -8657,6 +8673,22 @@ function calcFabShrinkForColor(f,colorName){
   return sh;
 }
 
+/* ===== 원부자재 무게 (그람수 g/㎡ · 온즈 oz) — 2026-08-07 =====
+   적어두는 정보(스펙)일 뿐 발주·원가 계산엔 안 쓰임. 단가장에 저장되고 다음에 자동완성됨.
+   환산 기준: 1 oz/yd² = 33.906 g/㎡ */
+var WG_OZ=33.906;
+function wgFabFlds(f){f=f||{};return '<div style="flex:.7;min-width:70px"><label>무게 (g/㎡)</label><input data-f="weightGsm" type="number" value="'+(f.weightGsm||'')+'" min="0" step="1" placeholder="280" oninput="onWeightIn(this,\'gsm\')"></div>'
+  +'<div style="flex:.6;min-width:62px"><label>온즈 (oz)</label><input data-f="weightOz" type="number" value="'+(f.weightOz||'')+'" min="0" step="0.1" placeholder="8.3" oninput="onWeightIn(this,\'oz\')"></div>';}
+function wgTrimFlds(t){t=t||{};return '<div class="tcd-fld" style="flex:0 0 82px"><label>무게 (g/㎡)</label><input data-f="weightGsm" type="number" value="'+(t.weightGsm||'')+'" min="0" step="1" placeholder="280" oninput="onWeightIn(this,\'gsm\')"></div>'
+  +'<div class="tcd-fld" style="flex:0 0 70px"><label>온즈 (oz)</label><input data-f="weightOz" type="number" value="'+(t.weightOz||'')+'" min="0" step="0.1" placeholder="8.3" oninput="onWeightIn(this,\'oz\')"></div>';}
+// 한쪽을 적으면 다른 쪽 자동 계산 — 빈칸일 때만. 직접 적어둔 값은 절대 안 덮음
+function onWeightIn(el,kind){
+  var row=el&&el.closest?el.closest('.fab-row'):null; if(!row)return;
+  var g=row.querySelector('[data-f=weightGsm]'),o=row.querySelector('[data-f=weightOz]'); if(!g||!o)return;
+  var v=parseFloat(el.value); if(!isFinite(v)||v<=0)return;
+  if(kind==='gsm'){ if(!String(o.value).trim())o.value=Math.round(v/WG_OZ*10)/10; }
+  else { if(!String(g.value).trim())g.value=Math.round(v*WG_OZ); }
+}
 function fabRowHTML(f,i){
   const isKg=f.pricingUnit==='kg';
   const hasLinks=f.colorLinks&&f.colorLinks.length>0;
@@ -8714,6 +8746,7 @@ function fabRowHTML(f,i){
       <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
         <div style="flex:1.6;min-width:128px"><label>원단명 <span class="muted" style="font-size:9px">↔ 넓어짐</span></label><input list="dl-fnm" data-f="name" value="${esc(f.name||'')}" onfocus="updFnmDLRow(this)" onchange="autofillFab(document.getElementById('fr-${i}'))" placeholder="20수 옥스포드 (이름 길어도 넉넉히)"></div>
         <div style="flex:.8;min-width:78px"><label>폭 (인치)</label><input data-f="width" type="number" value="${f.width||''}" min="0" step="0.5" placeholder="58"></div>
+        ${wgFabFlds(f)}
         ${isKg?`<div style="flex:.8;min-width:68px"><label>KG단가(원)</label><input data-f="pricePerKg" type="number" value="${f.pricePerKg||0}" min="0"></div><div style="flex:.7;min-width:58px"><label>야드/KG</label><input data-f="yardsPerKg" type="number" value="${f.yardsPerKg||1}" min="0.01" step="0.01"></div>`
         :`<div style="flex:.8;min-width:68px"><label>야드단가(원)</label><input data-f="unitPrice" type="number" value="${f.unitPrice||0}" min="0"></div>`}
       </div>
@@ -9072,7 +9105,7 @@ function zipperCardNew(t,i,colorSec){
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 몸판 / 허리"></div></div>'
     +'<div class="tcd-split"><div class="tcd-idc">'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-dong"><label>시장</label><input data-f="market" list="dl-mkt" value="'+e(t.market||'동대문시장')+'" placeholder="동대문시장"></div><div class="tcd-fld w-dong"><label>동</label><input data-f="building" list="dl-bldg" value="'+e(t.building||'')+'" placeholder="B동"></div><div class="tcd-fld w-dong"><label>층</label><input data-f="floor" list="dl-flr" value="'+e(t.floor||'')+'" placeholder="2F"></div><div class="tcd-fld w-room"><label>호수</label><input data-f="floorRoom" value="'+e(t.floorRoom||'')+'" placeholder="215호"></div></div>'
-    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>지퍼 이름</label><input data-f="name" value="'+e(t.name||'')+'" placeholder="예: 바지지퍼"></div><div class="tcd-fld w-sz"><label>호수(크기)</label><input data-f="zipperSize" value="'+e(t.zipperSize||'')+'" placeholder="3호"></div><div class="tcd-fld w-cl"><label>색상(이빨)</label><input data-f="toothColor" value="'+e(t.toothColor||'')+'" placeholder="니켈"></div></div>'
+    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>지퍼 이름</label><input data-f="name" value="'+e(t.name||'')+'" placeholder="예: 바지지퍼"></div><div class="tcd-fld w-sz"><label>호수(크기)</label><input data-f="zipperSize" value="'+e(t.zipperSize||'')+'" placeholder="3호"></div>'+wgTrimFlds(t)+'<div class="tcd-fld w-cl"><label>색상(이빨)</label><input data-f="toothColor" value="'+e(t.toothColor||'')+'" placeholder="니켈"></div></div>'
     +'</div></div>'
     +'<div class="tcd-calcbar"><span class="ch">계산</span>'
     +'<div class="cf"><label>벌당개수<span class="tcd-flow"><span class="fl-po">발</span><span class="fl-cost">원</span></span></label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece>0?t.qtyPerPiece:'')+'" step="0.01" placeholder="0"></div>'
@@ -9146,7 +9179,7 @@ function trimCardNewGen(t,i,colorSec){
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 몸판 / 허리"></div>'+unitCtl+'</div>'
     +'<div class="tcd-split"><div class="tcd-idc">'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-dong"><label>시장</label><input data-f="market" list="dl-mkt" value="'+e(t.market||'동대문시장')+'" placeholder="동대문시장"></div><div class="tcd-fld w-dong"><label>동</label><input data-f="building" list="dl-bldg" value="'+e(t.building||'')+'" placeholder="B동"></div><div class="tcd-fld w-dong"><label>층</label><input data-f="floor" list="dl-flr" value="'+e(t.floor||'')+'" placeholder="2F"></div><div class="tcd-fld w-room"><label>호수</label><input data-f="floorRoom" value="'+e(t.floorRoom||'')+'" placeholder="215호"></div></div>'
-    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>부자재명</label><input list="'+(isLoop?'dl-loop':'dl-tnm')+'" data-f="name" value="'+e(t.name||'')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'+sizeField+'<div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="흰색/검정" list="dl-clr"></div></div>'
+    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>부자재명</label><input list="'+(isLoop?'dl-loop':'dl-tnm')+'" data-f="name" value="'+e(t.name||'')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'+sizeField+wgTrimFlds(t)+'<div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="흰색/검정" list="dl-clr"></div></div>'
     +'</div></div><div class="tcd-calcbar">'+calc+'</div>'
     +'</div>';
   h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+trimApplyPane(i,t,applyPane,isTh?'':mkTrimSizeSec(i,t,true))+'</div>';
@@ -9178,7 +9211,7 @@ function snapCardNew(t,i,colorSec){
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 앞뒤판"></div></div>'
     +'<div class="tcd-split"><div class="tcd-idc">'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-dong"><label>시장</label><input data-f="market" list="dl-mkt" value="'+e(t.market||'동대문시장')+'" placeholder="동대문시장"></div><div class="tcd-fld w-dong"><label>동</label><input data-f="building" list="dl-bldg" value="'+e(t.building||'')+'" placeholder="B동"></div><div class="tcd-fld w-dong"><label>층</label><input data-f="floor" list="dl-flr" value="'+e(t.floor||'')+'" placeholder="2F"></div><div class="tcd-fld w-room"><label>호수</label><input data-f="floorRoom" value="'+e(t.floorRoom||'')+'" placeholder="215호"></div></div>'
-    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>스냅 이름</label><input list="dl-tnm" data-f="name" value="'+e(t.name||'스냅')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-sz"><label>호수/규격</label><input data-f="snapSize" value="'+e(t.snapSize||'')+'" placeholder="9호/12mm"></div></div>'
+    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>스냅 이름</label><input list="dl-tnm" data-f="name" value="'+e(t.name||'스냅')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-sz"><label>호수/규격</label><input data-f="snapSize" value="'+e(t.snapSize||'')+'" placeholder="9호/12mm"></div>'+wgTrimFlds(t)+'</div>'
     +'</div></div>'
     +'<div class="tcd-calcbar"><span class="ch">계산</span>'
     +'<div class="cf"><label>기본 벌당<span class="tcd-flow"><span class="fl-po">발</span></span></label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece>0?t.qtyPerPiece:'')+'" step="0.01" placeholder="0"></div>'
@@ -9260,7 +9293,7 @@ function careLabelCardNew(t,i){
   var spec=(t.labelName?e(t.labelName)+' · ':'')+(priceWarn?'<span class="warn">단가 없음</span>':('단가 '+num(trimDispPrice(t))+'원'));
   var inner='<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="몸판/소매"></div></div>'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld tcd-grow"><label>라벨 이름</label><input list="dl-carelabel" data-f="labelName" value="'+e(t.labelName||'')+'" placeholder="예: 가로30 무광공단" onchange="onCareLabelNameChange('+i+',this.value)"></div></div>'
-    +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>부위</label><input list="dl-labelpart" data-f="labelPart" value="'+e(t.labelPart||'')+'" placeholder="상의/하의"></div><div class="tcd-fld" style="flex:0 0 90px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div><div class="tcd-fld" style="flex:0 0 80px"><label>요척(벌당)</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece!=null?t.qtyPerPiece:1)+'" min="1" step="1" title="옷 1벌당 케어라벨 개수 (보통 1). 여분은 발주서 로스에서"></div><input type="hidden" data-f="qtyBuffer" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"><div class="tcd-fld" style="flex:0 0 150px"><label>제조 연월 (발주월 자동)</label><select data-f="manufactureYM"><option value=""'+(!t.manufactureYM?' selected':'')+'>자동 (발주일 기준)</option><option value="none"'+(t.manufactureYM==='none'?' selected':'')+'>표시 안 함</option>'+ymOpts+'</select></div><div class="tcd-fld" style="flex:0 0 135px"><label>제조국 / 시장</label><select data-f="madeIn"><option value=""'+(!t.madeIn?' selected':'')+'>표시 안 함</option><option value="KR"'+(t.madeIn==='KR'?' selected':'')+'>메이드인 코리아</option><option value="CN"'+(t.madeIn==='CN'?' selected':'')+'>메이드인 차이나</option><option value="US"'+(t.madeIn==='US'?' selected':'')+'>미국용</option></select></div></div>'
+    +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>부위</label><input list="dl-labelpart" data-f="labelPart" value="'+e(t.labelPart||'')+'" placeholder="상의/하의"></div>'+wgTrimFlds(t)+'<div class="tcd-fld" style="flex:0 0 90px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div><div class="tcd-fld" style="flex:0 0 80px"><label>요척(벌당)</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece!=null?t.qtyPerPiece:1)+'" min="1" step="1" title="옷 1벌당 케어라벨 개수 (보통 1). 여분은 발주서 로스에서"></div><input type="hidden" data-f="qtyBuffer" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"><div class="tcd-fld" style="flex:0 0 150px"><label>제조 연월 (발주월 자동)</label><select data-f="manufactureYM"><option value=""'+(!t.manufactureYM?' selected':'')+'>자동 (발주일 기준)</option><option value="none"'+(t.manufactureYM==='none'?' selected':'')+'>표시 안 함</option>'+ymOpts+'</select></div><div class="tcd-fld" style="flex:0 0 135px"><label>제조국 / 시장</label><select data-f="madeIn"><option value=""'+(!t.madeIn?' selected':'')+'>표시 안 함</option><option value="KR"'+(t.madeIn==='KR'?' selected':'')+'>메이드인 코리아</option><option value="CN"'+(t.madeIn==='CN'?' selected':'')+'>메이드인 차이나</option><option value="US"'+(t.madeIn==='US'?' selected':'')+'>미국용</option></select></div></div>'
     +washMethodRow(t,i)
     +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>비고</label><input data-trim-memo value="'+e(t.memo||'')+'" placeholder="발주 메모"></div></div>';
   return labelShell(t,i,{chip:'케어라벨',bg:'#dcfce7',fg:'#166534',border:'#16a34a',nm:t.labelName||'케어라벨',spec:spec},inner);
@@ -9290,7 +9323,7 @@ function mainLabelCardNew(t,i){
   var inner='<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="몸판/소매"></div></div>'
     +'<div class="tcd-frow"><input type="hidden" data-f="supplier" value="'+e(t.supplier||'')+'">'+brandSel+'</div>'
     +'<div class="tcd-frow">'+labelChips+'</div>'
-    +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>부위</label><input list="dl-labelpart" data-f="labelPart" value="'+e(t.labelPart||'')+'" placeholder="상의/하의"></div><div class="tcd-fld" style="flex:0 0 90px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div><div class="tcd-fld" style="flex:0 0 90px"><label>요척(벌당)</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece!=null?t.qtyPerPiece:1)+'" min="1" step="1" title="옷 1벌당 메인라벨 개수. 여분은 발주서 로스에서"></div><input type="hidden" data-f="qtyBuffer" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"></div>'
+    +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>부위</label><input list="dl-labelpart" data-f="labelPart" value="'+e(t.labelPart||'')+'" placeholder="상의/하의"></div>'+wgTrimFlds(t)+'<div class="tcd-fld" style="flex:0 0 90px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div><div class="tcd-fld" style="flex:0 0 90px"><label>요척(벌당)</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece!=null?t.qtyPerPiece:1)+'" min="1" step="1" title="옷 1벌당 메인라벨 개수. 여분은 발주서 로스에서"></div><input type="hidden" data-f="qtyBuffer" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"></div>'
     +'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px"><div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">포함 항목 <span class="muted" style="font-size:9px;font-weight:400">(체크한 항목만 발주서에 표시)</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">'+finishSel+'</div></div>'
     +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>비고</label><input data-trim-memo value="'+e(t.memo||'')+'" placeholder="발주 메모"></div></div>';
   return labelShell(t,i,{chip:'메인라벨',bg:'#fef9c3',fg:'#854d0e',border:'#ca8a04',nm:t.labelName||'메인라벨',spec:spec},inner);
@@ -9309,7 +9342,7 @@ function buttonCardNew(t,i,colorSec){
   h+='<div class="tcd-pane'+T('basic')+'" data-pane="basic">'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-dong"><label>시장</label><input data-f="market" list="dl-mkt" value="'+e(t.market||'동대문시장')+'" placeholder="동대문시장"></div><div class="tcd-fld w-dong"><label>동</label><input data-f="building" list="dl-bldg" value="'+e(t.building||'')+'" placeholder="B동"></div><div class="tcd-fld w-dong"><label>층</label><input data-f="floor" list="dl-flr" value="'+e(t.floor||'')+'" placeholder="2F"></div><div class="tcd-fld w-room"><label>호수</label><input data-f="floorRoom" value="'+e(t.floorRoom||'')+'" placeholder="215호"></div></div>'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재명</label><input list="dl-tnm" data-f="name" value="'+e(t.name||'단추')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld tcd-grow"><label>스타일</label><input data-f="buttonStyle" value="'+e(t.buttonStyle||'')+'" placeholder="예: 4구 흰색"></div></div>'
-    +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>크기</label><input data-f="buttonSize" list="dl-tsz-'+i+'" value="'+e(t.buttonSize||'')+'" placeholder="15mm" onchange="onButtonSizeChange('+i+',this.value)"><datalist id="dl-tsz-'+i+'">'+(t.sizeRates||[]).map(function(sr){return '<option value="'+e(sr.size||'')+'">';}).join('')+'</datalist></div><div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="색상" list="dl-clr"></div><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 몸판 / 허리"></div></div>'
+    +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>크기</label><input data-f="buttonSize" list="dl-tsz-'+i+'" value="'+e(t.buttonSize||'')+'" placeholder="15mm" onchange="onButtonSizeChange('+i+',this.value)"><datalist id="dl-tsz-'+i+'">'+(t.sizeRates||[]).map(function(sr){return '<option value="'+e(sr.size||'')+'">';}).join('')+'</datalist></div>'+wgTrimFlds(t)+'<div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="색상" list="dl-clr"></div><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 몸판 / 허리"></div></div>'
     +'<div class="tcd-calcbar"><span class="ch">계산</span>'
     +'<div class="cf"><label>벌당개수<span class="tcd-flow"><span class="fl-po">발</span><span class="fl-cost">원</span></span></label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece>0?t.qtyPerPiece:'')+'" step="0.01" placeholder="0"></div>'
     +'<div class="cf"><label>단가<span class="tcd-flow"><span class="fl-cost">원</span><span class="fl-pb">장</span></span></label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
@@ -9333,7 +9366,7 @@ function biasCardNew(t,i,colorSec){
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 몸판 / 허리"></div></div>'
     +'<div class="tcd-split"><div class="tcd-idc">'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>가공처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-dong"><label>시장</label><input data-f="market" list="dl-mkt" value="'+e(t.market||'동대문시장')+'" placeholder="동대문시장"></div><div class="tcd-fld w-dong"><label>동</label><input data-f="building" list="dl-bldg" value="'+e(t.building||'')+'" placeholder="B동"></div><div class="tcd-fld w-dong"><label>층</label><input data-f="floor" list="dl-flr" value="'+e(t.floor||'')+'" placeholder="2F"></div><div class="tcd-fld w-room"><label>호수</label><input data-f="floorRoom" value="'+e(t.floorRoom||'')+'" placeholder="215호"></div></div>'
-    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>원단출처 <span style="color:#9aa0a6;font-size:9px">(안감은 비움)</span></label><input data-f="fabricSource" value="'+e(t.fabricSource||'')+'" placeholder="성원/에렌"></div><div class="tcd-fld w-sz"><label>규격</label><input data-f="biasSpec" value="'+e(t.biasSpec||'')+'" placeholder="32mm"></div></div>'
+    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>원단출처 <span style="color:#9aa0a6;font-size:9px">(안감은 비움)</span></label><input data-f="fabricSource" value="'+e(t.fabricSource||'')+'" placeholder="성원/에렌"></div><div class="tcd-fld w-sz"><label>규격</label><input data-f="biasSpec" value="'+e(t.biasSpec||'')+'" placeholder="32mm"></div>'+wgTrimFlds(t)+'</div>'
     +'</div></div>'
     +'<div class="tcd-calcbar"><span class="ch">계산</span>'
     +'<div class="cf"><label>요척<span class="tcd-flow"><span class="fl-po">발</span><span class="fl-cost">원</span></span></label><input data-f="consumptionPerPiece" type="number" value="'+(t.consumptionPerPiece||0)+'" step="0.01" placeholder="0.05"></div>'
@@ -10057,6 +10090,7 @@ function pbRegisterFormMat(type,idx){
     pb.materials[f.name]={...existing,type:'fabric',name:f.name,pricingUnit:f.pricingUnit||'yard',
       unitPrice:+f.unitPrice||existing.unitPrice||0,pricePerKg:+f.pricePerKg||existing.pricePerKg||0,
       yardsPerKg:+f.yardsPerKg||existing.yardsPerKg||1,width:f.width||existing.width||'',
+      weightGsm:f.weightGsm||existing.weightGsm||'',weightOz:f.weightOz||existing.weightOz||'',
       composition:f.composition||existing.composition||'',lastUpdated:today()};
     savePB();showToast('단가장 등록: '+f.name);
   } else {
@@ -10065,6 +10099,7 @@ function pbRegisterFormMat(type,idx){
     var pb=getPB(t.supplier),existing=pb.materials[key]||pb.materials[pbKey(t.name,t.color||'')]||{};
     pb.materials[key]={...existing,type:'trim',name:t.name,color:t.color||'',orderType:t.orderType||'count',
       unitPrice:+t.unitPrice||existing.unitPrice||0,size:t.size||existing.size||'',
+      weightGsm:t.weightGsm||existing.weightGsm||'',weightOz:t.weightOz||existing.weightOz||'',
       yardsPerRoll:t.yardsPerRoll!=null?t.yardsPerRoll:existing.yardsPerRoll||null,lastUpdated:today()};
     savePB();showToast('단가장 등록: '+t.name+(t.color?' ('+t.color+')':''));
   }
@@ -10087,7 +10122,7 @@ function _renderTrimRows_OLD_unused(){const el=document.getElementById('trim-row
   }
   el.innerHTML=html;
 }
-function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r)=>{const i=+r.id.replace('fr-','');if(!formFabs[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const pu=g('pricingUnit')||'yard';formFabs[i].pricingUnit=pu;formFabs[i].supplier=g('supplier')||'';formFabs[i].name=g('name')||'';formFabs[i].consumption=+g('consumption')||0;formFabs[i].buffer=+(g('buffer'))||0;formFabs[i].width=g('width')?+g('width'):null;formFabs[i].composition=g('composition')||'';formFabs[i].building=g('building')||'';formFabs[i].floorRoom=g('floorRoom')||'';if(g('market')!=null)formFabs[i].market=g('market')||'';if(g('floor')!=null)formFabs[i].floor=g('floor')||'';formFabs[i].part=g('part')||'';formFabs[i].memo=r.querySelector('[data-f-memo]')?.value||'';if(pu==='kg'){formFabs[i].pricePerKg=+g('pricePerKg')||0;formFabs[i].yardsPerKg=+g('yardsPerKg')||1;}else formFabs[i].unitPrice=+g('unitPrice')||0;
+function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r)=>{const i=+r.id.replace('fr-','');if(!formFabs[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const pu=g('pricingUnit')||'yard';formFabs[i].pricingUnit=pu;formFabs[i].supplier=g('supplier')||'';formFabs[i].name=g('name')||'';formFabs[i].consumption=+g('consumption')||0;formFabs[i].buffer=+(g('buffer'))||0;formFabs[i].width=g('width')?+g('width'):null;formFabs[i].weightGsm=g('weightGsm')?+g('weightGsm'):null;formFabs[i].weightOz=g('weightOz')?+g('weightOz'):null;formFabs[i].composition=g('composition')||'';formFabs[i].building=g('building')||'';formFabs[i].floorRoom=g('floorRoom')||'';if(g('market')!=null)formFabs[i].market=g('market')||'';if(g('floor')!=null)formFabs[i].floor=g('floor')||'';formFabs[i].part=g('part')||'';formFabs[i].memo=r.querySelector('[data-f-memo]')?.value||'';if(pu==='kg'){formFabs[i].pricePerKg=+g('pricePerKg')||0;formFabs[i].yardsPerKg=+g('yardsPerKg')||1;}else formFabs[i].unitPrice=+g('unitPrice')||0;
   // 컬러 링크 수집
   const fabColAll=r.querySelector('[data-fab-col-all]');
   if(fabColAll){formFabs[i].fabricColor=fabColAll.value;formFabs[i].colorLinks=[];}
@@ -10126,7 +10161,7 @@ function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{con
   if(ct==='tier'){tc.tierQty=+g('tierQty')||300;tc.tierUnder=+g('tierUnder')||0;tc.tierOver=+g('tierOver')||0;tc.costPerPcs=tc.tierOver;tc.costPerLot=0;}  /* tierUnderBasis는 여기서 건드리지 않음 — 없으면=기존(컬러별) 유지 */ // 원가는 기존처럼 개당(초과단가) 기준 — 결제 원장만 조건부 분기
   else{const amt=+g('costAmt')||0;if(ct==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}else{tc.costPerLot=amt;tc.costPerPcs=0;}}
   r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(tc.colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
-function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r.id.replace('tr-','');if(!formTrims[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const tp=g('orderType')||'count';formTrims[i].orderType=tp;formTrims[i].supplier=g('supplier')||'';formTrims[i].name=g('name')||'';formTrims[i].size=g('size')||'';formTrims[i].color=g('color')||'';formTrims[i].part=g('part')||'';if(g('building')!=null)formTrims[i].building=g('building')||'';if(g('floorRoom')!=null)formTrims[i].floorRoom=g('floorRoom')||'';if(g('market')!=null)formTrims[i].market=g('market')||'';if(g('floor')!=null)formTrims[i].floor=g('floor')||'';
+function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r.id.replace('tr-','');if(!formTrims[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const tp=g('orderType')||'count';formTrims[i].orderType=tp;formTrims[i].supplier=g('supplier')||'';formTrims[i].name=g('name')||'';formTrims[i].size=g('size')||'';formTrims[i].weightGsm=g('weightGsm')?+g('weightGsm'):null;formTrims[i].weightOz=g('weightOz')?+g('weightOz'):null;formTrims[i].color=g('color')||'';formTrims[i].part=g('part')||'';if(g('building')!=null)formTrims[i].building=g('building')||'';if(g('floorRoom')!=null)formTrims[i].floorRoom=g('floorRoom')||'';if(g('market')!=null)formTrims[i].market=g('market')||'';if(g('floor')!=null)formTrims[i].floor=g('floor')||'';
     // 추가 옵션: 공통 사용/로고/팁/비고
     const commonChk=r.querySelector('[data-trim-common]');
     formTrims[i].isCommonUse=!!(commonChk&&commonChk.checked);
