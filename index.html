@@ -21593,6 +21593,18 @@ function clQuickBtn(){
 }
 function clDel(id){var cl=clEnsure();var i=cl.entries.findIndex(function(e){return e.id===id;});if(i<0)return;var e=cl.entries[i];if(!confirm('"'+(e.name||'')+'" 항목을 삭제할까요?'))return;cl.entries.splice(i,1);saveData();renderCourierLedger();}
 function clSetAmt(id){var cl=clEnsure();var e=cl.entries.find(function(x){return x.id===id;});if(!e)return;var v=prompt('금액 (원)',e.amount||0);if(v==null)return;var n=+String(v).replace(/[^\d]/g,'');e.amount=n||0;saveData();renderCourierLedger();}
+/* 내역 브랜드 이동 (2026-08-10): 맥=행 드래그→위 브랜드 버튼에 드롭 / 폰·맥 공통=내용 클릭→브랜드 선택 모달 */
+function clMoveEntry(id,brandId){var cl=clEnsure();var e=cl.entries.find(function(x){return x.id===id;});if(!e)return;if((e.brandId||'')===(brandId||'')){showToast('이미 그 내역서에 있어요');return;}e.brandId=brandId||'';saveData();renderCourierLedger();showToast('"'+(e.name||'')+'" → '+(brandId?_clBrandName(brandId):'미지정')+' 내역서로 이동');}
+function clPickBrand(id){
+  var cl=clEnsure();var e=cl.entries.find(function(x){return x.id===id;});if(!e)return;
+  var h='<div style="font-size:13px;margin-bottom:12px"><b>'+esc(e.name||'')+'</b> ('+esc((e.date||'').slice(5).replace('-','/'))+' · '+num(+e.amount||0)+'원) 를 어느 내역서로 옮길까요?</div><div style="display:flex;flex-wrap:wrap;gap:8px">';
+  _clBrands().forEach(function(b){h+='<button class="tl-btn'+((e.brandId||'')===b.id?' pri':'')+'" onclick="clMoveEntry(\''+id+'\',\''+b.id+'\');closeGenericModal()">'+esc(b.name)+'</button>';});
+  h+='<button class="tl-btn'+(!(e.brandId||'')?' pri':'')+'" onclick="clMoveEntry(\''+id+'\',\'\');closeGenericModal()">미지정</button></div>';
+  showGenericModal('브랜드 이동',h);
+}
+function clDragStart(ev,id){window._clDragId=id;try{ev.dataTransfer.setData('text/plain',id);ev.dataTransfer.effectAllowed='move';}catch(e){}}
+function clDragOver(ev,el){ev.preventDefault();el.classList.add('cl-dropover');}
+function clDrop(ev,brandId,el){ev.preventDefault();el.classList.remove('cl-dropover');var id=window._clDragId||(ev.dataTransfer?ev.dataTransfer.getData('text/plain'):'');if(id)clMoveEntry(id,brandId);window._clDragId=null;}
 function clSettle(brandId,val){var cl=clEnsure();var t=(typeof todayISO==='function'?todayISO():'');cl.entries.forEach(function(e){if((e.brandId||'')===(brandId||'')&&_clPeriodOk(e.date)){e.settled=!!val;if(val)e.settledAt=t;}});saveData();renderCourierLedger();showToast(val?'정산 완료로 표시했어요':'정산 취소했어요');}
 
 function _clBrandDone(id){ var rows=_clRows(id); return rows.length>0&&rows.every(function(e){return e.settled;}); }
@@ -21928,10 +21940,11 @@ function renderCourierLedger(){
   var months={}; cl.entries.forEach(function(e){if(e.date)months[e.date.slice(0,7)]=1;});
   var mList=Object.keys(months).sort().reverse();
   var bIds=_clBrandIdsWithEntries();
+  _clBrands().forEach(function(b){if(bIds.indexOf(b.id)<0)bIds.push(b.id);});
   html+='<div class="cl-flt"><div class="cl-bflt"><span class="tl-btn'+(window._clFltBrand==='ALL'?' pri':'')+'" onclick="clSetFlt(\'ALL\')">전체</span>';
   var _doneCnt=0;bIds.forEach(function(id){_doneCnt+=_clRows(id).filter(function(e){return e.settled;}).length;});
   html+='<span class="tl-btn'+(window._clFltBrand==='DONE'?' pri':'')+'" onclick="clSetFlt(\'DONE\')">완료'+(_doneCnt?' '+_doneCnt:'')+'</span>';
-  bIds.forEach(function(id){var key=id||'__none';var cnt=_clRows(id).filter(function(e){return !e.settled;}).length;html+='<span class="tl-btn'+(window._clFltBrand===key?' pri':'')+'" onclick="clSetFlt(\''+key+'\')">'+esc(id?_clBrandName(id):'미지정')+(cnt?' '+cnt:'')+'</span>';});
+  bIds.forEach(function(id){var key=id||'__none';var cnt=_clRows(id).filter(function(e){return !e.settled;}).length;html+='<span class="tl-btn'+(window._clFltBrand===key?' pri':'')+'" onclick="clSetFlt(\''+key+'\')" ondragover="clDragOver(event,this)" ondragleave="this.classList.remove(\'cl-dropover\')" ondrop="clDrop(event,\''+(id||'')+'\',this)">'+esc(id?_clBrandName(id):'미지정')+(cnt?' '+cnt:'')+'</span>';});
   html+='</div><select class="cl-period" onchange="window._clPeriod=this.value;renderCourierLedger()"><option value="">전체 기간</option>'
     +mList.map(function(m){return '<option value="'+m+'"'+(window._clPeriod===m?' selected':'')+'>'+m.replace('-','.')+'</option>';}).join('')+'</select></div>';
 
@@ -21952,8 +21965,8 @@ function _clCard(brandId){
     var dirc=e.dir==='recv'?'<span class="cl-cat recv">받음</span>':'<span class="cl-cat send">보냄</span>';
     var payc=e.pay==='col'?' <span class="cl-cat col">착불</span>':(e.pay==='pre'?' <span class="cl-cat pre">선불</span>':'');
     var dlabel=e.date?esc(e.date.slice(5).replace('-','/')):'-';
-    body+='<tr'+(e.settled?' class="cl-done"':'')+'><td class="l tl-d" data-l="날짜">'+dlabel+'</td>'
-      +'<td class="l tl-nm" data-l="내용">'+esc(e.name)+'</td>'
+    body+='<tr'+(e.settled?' class="cl-done"':'')+' draggable="true" ondragstart="clDragStart(event,\''+e.id+'\')"><td class="l tl-d" data-l="날짜">'+dlabel+'</td>'
+      +'<td class="l tl-nm" data-l="내용" onclick="clPickBrand(\''+e.id+'\')" title="클릭=브랜드 이동 · 끌어서 위 브랜드 버튼에 놓기" style="cursor:pointer">'+esc(e.name)+'</td>'
       +'<td class="l" data-l="분류">'+dirc+payc+'</td>'
       +'<td class="tl-n tl-amt" data-l="금액" onclick="clSetAmt(\''+e.id+'\')" title="클릭해서 금액 수정" style="cursor:pointer"><span class="tl-prw">'+num(amt)+'<span>원</span></span></td>'
       +'<td class="tl-x"><button class="tl-del" onclick="clDel(\''+e.id+'\')">✕</button></td></tr>';
@@ -22006,6 +22019,8 @@ function _clEnsureStyle(){
   if(document.getElementById('cl-css'))return;
   var c=''
   +'.cl-root{max-width:760px}'
+  +'.cl-bflt .tl-btn.cl-dropover{background:#A5E6BA;outline:2.5px dashed #0B0A05;outline-offset:1px}'
+  +'.tl-tbl tr[draggable=true]{cursor:grab}.tl-tbl tr[draggable=true]:active{cursor:grabbing}'
   +'.cl-quick{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px;margin-bottom:12px}'
   +'.cl-qhd{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;margin-bottom:10px}.cl-qhd .cl-sub{font-weight:500;color:var(--t3);font-size:11px}'
   +'.cl-modesw{margin-left:auto;display:flex;border:1px solid var(--bd);border-radius:var(--r);overflow:hidden}.cl-modesw span{font-size:11px;font-weight:700;padding:4px 10px;background:var(--bg);cursor:pointer;color:var(--t2)}.cl-modesw span.on{background:var(--accent,#185FA5);color:#fff}'
