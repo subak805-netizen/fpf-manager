@@ -1293,6 +1293,7 @@ body.tp-printing #tp-modal .tp-upbadge,body.tp-capturing #tp-modal .tp-upbadge{d
     <div class="fg"><label>주소</label><input id="fc-addr"></div>
     <div class="g2"><div class="fg"><label>전화</label><input id="fc-phone"></div><div class="fg"><label>이메일</label><input id="fc-email" type="email"></div></div>
     <div class="fg"><label>입금 계좌 <span class="muted" style="font-weight:400;font-size:10px">결제서에 자동 표시</span></label><input id="fc-bank" placeholder="은행명 계좌번호 예금주 (예: 국민은행 123-456-789 홍길동)"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#7c2d12;cursor:pointer;padding:9px 12px;border:1.5px solid #f0b28a;background:#fff5ee;border-radius:7px;margin:0 0 10px"><input id="fc-novat" type="checkbox" style="margin:0">현금결제 (부가세 없음)<span style="font-weight:500;font-size:11px;color:#9a3412">결제·명세서에 VAT를 안 붙여요</span></label>
     <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:10px"><button class="btn" onclick="closeModal('fc-modal')">취소</button><button class="btn p" onclick="saveFc()">저장</button></div>
   </div>
 </div>
@@ -3462,7 +3463,7 @@ function migrateData(){
   try{
     Object.values(S.orders||{}).forEach(function(o){
       var fss=o.factorySchedules; if(!fss)return;
-      var ensure=function(id){if(id&&!fss[id])fss[id]=(typeof mkFcSch==='function'?mkFcSch():{});};
+      var ensure=function(id){if(id&&!fss[id])fss[id]=(typeof mkFcSch==='function'?mkFcSch(id):{});};
       var pull=function(id,field){ if(!id||!fss[id]||fss[id][field])return;
         for(var k in fss){ if(k!==id&&fss[k]&&fss[k][field]){fss[id][field]=fss[k][field];return;} } };
       (o.orderItems||[]).forEach(function(oi){
@@ -4657,13 +4658,31 @@ function showFcForm(id){
   const g=k=>fc?fc[k]||'':'';
   ['nm','type','contact','addr','phone','email'].forEach(k=>document.getElementById('fc-'+k).value=g(k==='nm'?'name':k==='addr'?'address':k));
   const bankEl=document.getElementById('fc-bank');if(bankEl)bankEl.value=g('bank');
+  const nvEl=document.getElementById('fc-novat');if(nvEl)nvEl.checked=!!(fc&&fc.noVat);
   document.getElementById('fc-type-sel').value='';showModal('fc-modal');
 }
 function saveFc(){
   const nm=document.getElementById('fc-nm').value.trim();if(!nm){alert('이름 입력');return;}
   const type=document.getElementById('fc-type-sel').value||document.getElementById('fc-type').value.trim();
   const id=editFcId||uid();
+  const _fcWasNoVat=!!(editFcId&&S.factories[editFcId]&&S.factories[editFcId].noVat);
   S.factories[id]={id,name:nm,type,contact:document.getElementById('fc-contact').value.trim(),address:document.getElementById('fc-addr').value.trim(),phone:document.getElementById('fc-phone').value.trim(),email:document.getElementById('fc-email').value.trim(),bank:document.getElementById('fc-bank')?.value.trim()||''};
+  /* 현금결제(부가세 없음) — 켜면 '결제 안 끝난' 스케줄의 부가세율만 0으로 바꾼다.
+     결제가 끝난 과거 건은 손대지 않는다(장부·입금액 불변). 사용자 결정 2026-08-10. */
+  (function(){
+    var nvEl=document.getElementById('fc-novat'); if(!nvEl)return;
+    var now=!!nvEl.checked; S.factories[id].noVat=now;
+    if(now===_fcWasNoVat)return;
+    var n=0,skip=0;
+    Object.keys(S.orders||{}).forEach(function(oid){
+      var o=S.orders[oid]; var sch=o&&o.factorySchedules&&o.factorySchedules[id]; if(!sch)return;
+      if(sch.paymentSent){skip++;return;}
+      sch.vatRate=now?0:10; n++;
+    });
+    if(typeof showToast==='function')showToast(now
+      ? ('현금결제로 바꿨어요 — 미결제 '+n+'건 부가세 0%'+(skip?(' · 결제 끝난 '+skip+'건은 그대로'):''))
+      : ('부가세 10%로 되돌렸어요 — 미결제 '+n+'건'+(skip?(' · 결제 끝난 '+skip+'건은 그대로'):'')),5000);
+  })();
   saveData();closeModal('fc-modal');renderFactories();showToast('저장 완료');
 }
 function deleteFc(id){
@@ -12025,7 +12044,22 @@ function togglePoAddrOpt(oid,sn,key,checked){
 }
 
 function savePoOptsDefault(sn,key,val){if(!S.priceBook[sn])S.priceBook[sn]={email:'',phone:'',memo:'',materials:{}};if(!S.priceBook[sn].defaultPoOpts)S.priceBook[sn].defaultPoOpts={};S.priceBook[sn].defaultPoOpts[key]=val;lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
-function mkFcSch(){return{expectedArrivalDate:'',cuttingDate:'',cuttingQty:0,cuttingGrid:{},sewingCompleteDate:'',inspectionDate:'',shipExpectedDate:'',shipDone:false,shipDoneDate:'',shippingDate:'',shippingQty:0,shippingGrid:{},vatRate:10,paymentSent:false,paymentSentAt:'',notified:false,extraShipments:[],shipments:[],processDone:false,processDate:''};}
+/* 현금결제(부가세 없음) 공장은 새 스케줄부터 vatRate 0.
+   ⚠️ 계산·명세서는 전부 sch.vatRate 하나만 읽는다 — 새 계산 경로를 만들지 않는 게 안전.
+      공장 설정을 켜면 saveFc가 '결제 안 끝난' 스케줄의 vatRate만 0으로 바꾼다(과거 결제건 불변). */
+/* 결제 카드 건별 VAT 토글 — 이 오더·이 공장의 vatRate만 0↔10.
+   계산·명세서가 전부 sch.vatRate를 읽으므로 이 한 줄이면 전부 반영된다. */
+function payToggleVat(oid,fcId){
+  var o=S.orders[oid]; if(!o||!o.factorySchedules)return;
+  var sch=o.factorySchedules[fcId]; if(!sch)return;
+  if(sch.paymentSent&&!confirm('이 건은 이미 결제 완료로 표시돼 있어요.\n그래도 부가세를 바꿀까요? (입금한 금액과 달라질 수 있어요)'))return;
+  var on=(+sch.vatRate||0)>0;
+  sch.vatRate=on?0:10;
+  saveData();
+  if(typeof showToast==='function')showToast(on?'부가세 뺐어요 (현금결제)':'부가세 10% 다시 붙였어요');
+  try{ if(typeof renderItemPay==='function')renderItemPay(); }catch(e){}
+}
+function mkFcSch(fcId){var _nv=!!(fcId&&(S.factories||{})[fcId]&&S.factories[fcId].noVat);return{expectedArrivalDate:'',cuttingDate:'',cuttingQty:0,cuttingGrid:{},sewingCompleteDate:'',inspectionDate:'',shipExpectedDate:'',shipDone:false,shipDoneDate:'',shippingDate:'',shippingQty:0,shippingGrid:{},vatRate:(_nv?0:10),paymentSent:false,paymentSentAt:'',notified:false,extraShipments:[],shipments:[],processDone:false,processDate:''};}
 
 /* ===== PO TEXT (새 형식 — 간단명료) ===== */
 // ===== 브랜드 예상 일정 안내 (날짜별 묶음 + 선택) =====
@@ -12946,7 +12980,7 @@ function autoAssignFactories(oid){
   // 봉제공장 ID 찾기
   const sewingFcId=o.orderItems?.map(oi=>S.items[oi.itemId]?.sewingFcId).find(Boolean)||'';
   for(const oi of o.orderItems||[]){const it=S.items[oi.itemId];if(!it)continue;
-    COST_DEFS.forEach(([,, fk])=>{const fcId=orderFc(o,it,fk);if(fcId&&S.factories[fcId]&&!o.factorySchedules[fcId]){const sch=mkFcSch();if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[fcId]=sch;}});
+    COST_DEFS.forEach(([,, fk])=>{const fcId=orderFc(o,it,fk);if(fcId&&S.factories[fcId]&&!o.factorySchedules[fcId]){const sch=mkFcSch(fcId);if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[fcId]=sch;}});
   }
   // 모든 공급처의 납품공장 기본값 = 봉제공장
   if(sewingFcId){
@@ -16754,7 +16788,7 @@ function applyBulkShip(oid,fcId,itemId){
   if(!added){showToast('입력된 수량이 없어요');return;}
   backfillShipItemIds(o,fcId);recomputeShipping(sch);syncFcToTrack(oid,fcId);saveData();renderOTab();showToast(''+added+'건 출고 추가됨');
 }
-function addFcToOrder(){const sel=document.getElementById('add-fc-sel');const id=sel?.value;if(!id){alert('공장/처 선택');return;}const o=S.orders[curOid];if(!o.factorySchedules)o.factorySchedules={};if(o.factorySchedules[id]){showToast('이미 추가됨');return;}const sch=mkFcSch();if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[id]=sch;saveData();renderOTab();}
+function addFcToOrder(){const sel=document.getElementById('add-fc-sel');const id=sel?.value;if(!id){alert('공장/처 선택');return;}const o=S.orders[curOid];if(!o.factorySchedules)o.factorySchedules={};if(o.factorySchedules[id]){showToast('이미 추가됨');return;}const sch=mkFcSch(id);if(o.shippingDate)sch.shippingDate=o.shippingDate;o.factorySchedules[id]=sch;saveData();renderOTab();}
 function removeFcFromOrder(id){if(!confirm('제거?'))return;delete S.orders[curOid].factorySchedules[id];saveData();renderOTab();}
 
 function fmtKoDate(iso){if(!iso)return today();var p=(''+iso).split('-');if(p.length!==3)return iso;return p[0]+'. '+p[1]+'. '+p[2]+'.';}
@@ -16972,12 +17006,14 @@ function renderPayShtTab(o){
               <td style="text-align:right;padding:6px 4px">${num(tBf)}원</td>
             </tr>
             <tr>
-              <td style="padding:4px 4px;color:var(--t2)">부가세 (${vatRate}%)</td>
+              <td style="padding:4px 4px;color:var(--t2)">부가세 (${vatRate}%)
+                <button type="button" onclick="payToggleVat('${o.id}','${fcId}')" title="이 오더·이 공장만 부가세를 빼거나 다시 붙여요 (현금결제용)" style="margin-left:6px;font-size:10px;font-weight:800;padding:2px 8px;border:1.5px solid ${vatRate>0?'#f0b28a':'#86efac'};background:${vatRate>0?'#fff5ee':'#dcfce7'};color:${vatRate>0?'#7c2d12':'#166534'};border-radius:5px;cursor:pointer;font-family:inherit">${vatRate>0?'VAT 빼기':'현금 · VAT 없음'}</button>
+              </td>
               <td style="text-align:right;padding:4px 4px">${num(tV)}원</td>
             </tr>
             ${noVatAmt>0?`<tr><td style="padding:4px 4px;color:#166534">VAT 미포함 합계 <span class="badge" style="background:#dcfce7;color:#166534;font-size:9px">세액제외</span></td><td style="text-align:right;padding:4px 4px;color:#166534">${num(noVatAmt)}원</td></tr>`:''}
             <tr style="border-top:2px solid var(--text);background:var(--bg2)">
-              <td style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 <span class="badge b3" style="font-size:10px">VAT 포함</span></td>
+              <td style="padding:8px 4px;font-weight:700;font-size:14px">최종 합계 <span class="badge b3" style="font-size:10px">${vatRate>0?'VAT 포함':'현금 · VAT 없음'}</span></td>
               <td style="text-align:right;padding:8px 4px;font-weight:700;font-size:15px;color:var(--blue)">${num(tBf+tV+noVatAmt)}원</td>
             </tr>
             </tbody>
@@ -18315,7 +18351,7 @@ function pdSaveField(el){
   if(!oid||!fcid)return;
   const o=S.orders[oid];if(!o)return;
   if(!o.factorySchedules)o.factorySchedules={};
-  if(!o.factorySchedules[fcid])o.factorySchedules[fcid]=(typeof mkFcSch==='function'?mkFcSch():{});
+  if(!o.factorySchedules[fcid])o.factorySchedules[fcid]=(typeof mkFcSch==='function'?mkFcSch(fcid):{});
   o.factorySchedules[fcid][field]=el.value;
   saveData();
 }
@@ -18324,7 +18360,7 @@ function pdToggleDone(el){
   if(!oid||!fcid)return;
   const o=S.orders[oid];if(!o)return;
   if(!o.factorySchedules)o.factorySchedules={};
-  if(!o.factorySchedules[fcid])o.factorySchedules[fcid]=(typeof mkFcSch==='function'?mkFcSch():{});
+  if(!o.factorySchedules[fcid])o.factorySchedules[fcid]=(typeof mkFcSch==='function'?mkFcSch(fcid):{});
   o.factorySchedules[fcid][field]=el.checked;
   if(el.checked&&field==='shipDone')o.factorySchedules[fcid].shipDoneDate=todayISO();
   saveData();
@@ -18337,7 +18373,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
   if(!o||!it){showToast('데이터 없음');return;}
   if(!fcId){showToast('공장이 지정되지 않았어요');return;}
   if(!o.factorySchedules)o.factorySchedules={};
-  if(!o.factorySchedules[fcId])o.factorySchedules[fcId]=(typeof mkFcSch==='function'?mkFcSch():{});
+  if(!o.factorySchedules[fcId])o.factorySchedules[fcId]=(typeof mkFcSch==='function'?mkFcSch(fcId):{});
   const sch=o.factorySchedules[fcId];
   const fc=S.factories[fcId]||{};
   // 회차 기록 위치
@@ -18649,7 +18685,7 @@ function pdGridSave(){
     newRecs.push(rec);
   });
   const o=S.orders[ctx.oid];if(!o)return;
-  if(!o.factorySchedules[ctx.fcId])o.factorySchedules[ctx.fcId]=(typeof mkFcSch==='function'?mkFcSch():{});
+  if(!o.factorySchedules[ctx.fcId])o.factorySchedules[ctx.fcId]=(typeof mkFcSch==='function'?mkFcSch(ctx.fcId):{});
   const sch=o.factorySchedules[ctx.fcId];
   const recsKey=ctx.recsKey||'cuttingShipments';
   if(!Array.isArray(sch[recsKey]))sch[recsKey]=[];
@@ -18743,7 +18779,7 @@ function pdQtySave(){
     if(qty>0)newRecs.push({date,color,size,qty,memo,itemId:ctx.itemId});
   });
   const o=S.orders[ctx.oid];if(!o)return;
-  if(!o.factorySchedules[ctx.fcId])o.factorySchedules[ctx.fcId]=(typeof mkFcSch==='function'?mkFcSch():{});
+  if(!o.factorySchedules[ctx.fcId])o.factorySchedules[ctx.fcId]=(typeof mkFcSch==='function'?mkFcSch(ctx.fcId):{});
   const sch=o.factorySchedules[ctx.fcId];
   if(!Array.isArray(sch[ctx.recsKey]))sch[ctx.recsKey]=[];
   // 이 아이템의 기존 회차 제거 + 새 회차 추가
@@ -20374,7 +20410,7 @@ function dfAddDefectCore(it,color,qty,st,ty,ac,dateISO){
   if(ac==='비품 전환'){
     if(fcId){
       if(!o.factorySchedules)o.factorySchedules={};
-      if(!o.factorySchedules[fcId])o.factorySchedules[fcId]=(typeof mkFcSch==='function'?mkFcSch():{});
+      if(!o.factorySchedules[fcId])o.factorySchedules[fcId]=(typeof mkFcSch==='function'?mkFcSch(fcId):{});
       var sch=o.factorySchedules[fcId];if(!Array.isArray(sch.shipments))sch.shipments=[];
       var rec={id:uid(),date:(dateISO||(typeof todayISO==='function'?todayISO():today())),color:color,size:'',qty:qty,memo:'[비품 전환] 불량관리 자동',itemId:it.id,bg:1,bgDc:50};
       sch.shipments.push(rec);defObj.bgShipRecId=rec.id;
