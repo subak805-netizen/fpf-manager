@@ -253,7 +253,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-booktrim" onclick="window._bookScope='trim';switchTab('book')">부자재 단가장</button>
   <button class="ntab" id="nt-pricecompare" onclick="switchTab('pricecompare')">단가 비교</button>
   <div class="nav-sep"></div>
-  <button class="ntab" id="nt-vendors" onclick="switchTab('vendors')">업체관리</button>
+  <button class="ntab" id="nt-vendors" onclick="switchTab('vendors');if(typeof vndSwitch==='function')vndSwitch('fc')">업체관리</button>
   <button class="ntab" id="nt-brand" onclick="switchTab('vendors');if(typeof vndSwitch==='function')vndSwitch('br')">브랜드관리</button>
   <button class="ntab" id="nt-analytics" onclick="switchTab('analytics')">분석</button>
   <!-- 공장관리·브랜드관리는 '업체관리' 탭으로 통합됨 -->
@@ -4144,7 +4144,7 @@ var PD_NAVTABS=[
   {k:'book',label:'원단 단가장',icon:'',fn:function(){window._bookScope='fabric';switchTab('book');}},
   {k:'booktrim',label:'부자재 단가장',icon:'',fn:function(){window._bookScope='trim';switchTab('book');}},
   {k:'pricecompare',label:'단가 비교',icon:'',fn:function(){switchTab('pricecompare');}},
-  {k:'vendors',label:'업체',icon:'',fn:function(){switchTab('vendors');}},
+  {k:'vendors',label:'업체',icon:'',fn:function(){switchTab('vendors');if(typeof vndSwitch==='function')vndSwitch('fc');}},
   {k:'brand',label:'브랜드관리',icon:'',fn:function(){switchTab('vendors');if(typeof vndSwitch==='function')vndSwitch('br');}},
   {k:'analytics',label:'분석',icon:'',fn:function(){switchTab('analytics');}}
 ];
@@ -10056,11 +10056,26 @@ function _injectPbBadge(html,badge,i){
   if(html.indexOf(oldDel)>=0)return html.replace(oldDel,badge+oldDel);
   return html;
 }
+/* 이 부자재가 단가장에 있나 — 키(이름+색+크기)가 정확히 안 맞아도 '같은 이름'이면 등록된 걸로 본다.
+   ⚠️ 예전엔 pbKey 정확일치만 봐서, 단가장에서 불러온 뒤 크기/색이 채워지면 키가 달라져
+      이미 등록된 자재인데도 「단가장 등록」 버튼이 다시 떴음(2026-08-07 신고). */
+function _pbHasTrim(sup,t){
+  var pb=S.priceBook[sup]; if(!pb||!pb.materials||!t||!t.name)return false;
+  var mats=pb.materials;
+  var isTrim=function(m){ return !!m && m.type!=='fabric'; };   // 옛 항목은 type이 없을 수 있어 '원단만 제외'
+  if(isTrim(mats[pbKey(t.name,t.color||'',t.size||'')]))return true;
+  if(isTrim(mats[pbKey(t.name,t.color||'')]))return true;
+  if(isTrim(mats[t.name]))return true;
+  var want=String(t.name).trim().toLowerCase();
+  return Object.keys(mats).some(function(k){
+    var m=mats[k]; if(!isTrim(m))return false;
+    var nm=m.name||pbDecodeKey(k)[0]||'';
+    return String(nm).trim().toLowerCase()===want;
+  });
+}
 function _pbTrimBadge(t,i){
   if(!t||!t.supplier||!t.name)return'';
-  var key=pbKey(t.name,t.color||'',t.size||'');
-  var pb=S.priceBook[t.supplier];
-  var inPB=!!(pb&&pb.materials&&(pb.materials[key]||pb.materials[pbKey(t.name,t.color||'')]));
+  var inPB=_pbHasTrim(t.supplier,t);
   if(inPB)return'<span style="order:98;align-self:center;font-size:10px;color:#16a34a;background:#dcfce7;border:1px solid #86efac;padding:1px 7px;border-radius:20px;white-space:nowrap">✓ 단가장</span>';
   return'<button type="button" class="btn s" onclick="pbRegisterFormMat(\'trim\','+i+')" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">단가장 등록</button>';
 }
@@ -10074,9 +10089,7 @@ function renderUnregisteredMats(){
   });
   (formTrims||[]).forEach(function(t,i){
     if(!t.supplier||!t.name)return;
-    var key=pbKey(t.name,t.color||'',t.size||'');
-    var pb=S.priceBook[t.supplier];
-    if(!(pb&&pb.materials&&(pb.materials[key]||pb.materials[pbKey(t.name,t.color||'')])))
+    if(!_pbHasTrim(t.supplier,t))
       items.push({type:'trim',idx:i,label:'[부자재] '+t.supplier+' · '+t.name+(t.color?' ('+t.color+')':'')+(t.size?' · '+t.size:'')});
   });
   if(!items.length){el.innerHTML='';return;}
