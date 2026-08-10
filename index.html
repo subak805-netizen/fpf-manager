@@ -21539,6 +21539,8 @@ function clAddEntry(o){
 }
 function _clPeriodOk(d){var per=window._clPeriod||'';if(!per)return true;return (d||'').slice(0,7)===per;}
 function _clRows(brandId){return clEnsure().entries.filter(function(e){return (e.brandId||'')===(brandId||'')&&_clPeriodOk(e.date);}).sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});}
+/* 보기 규칙(2026-08-10): 완료 필터에선 정산 완료된 줄만, 그 외(전체·브랜드)에선 미정산 줄만 — 완료 건은 화면에서 완전히 분리 */
+function _clViewRows(brandId){var done=(window._clFltBrand==='DONE');return _clRows(brandId).filter(function(e){return done?!!e.settled:!e.settled;});}
 function _clBrandIdsWithEntries(){var ids=[],seen={};clEnsure().entries.forEach(function(e){var k=e.brandId||'';if(!seen[k]){seen[k]=1;ids.push(k);}});return ids;}
 
 function clSetMode(m){window._clMode=m;renderCourierLedger();}
@@ -21905,20 +21907,23 @@ function renderCourierLedger(){
   var mList=Object.keys(months).sort().reverse();
   var bIds=_clBrandIdsWithEntries();
   html+='<div class="cl-flt"><div class="cl-bflt"><span class="tl-btn'+(window._clFltBrand==='ALL'?' pri':'')+'" onclick="clSetFlt(\'ALL\')">전체</span>';
-  var _doneCnt=bIds.filter(function(id){return _clBrandDone(id);}).length;
+  var _doneCnt=0;bIds.forEach(function(id){_doneCnt+=_clRows(id).filter(function(e){return e.settled;}).length;});
   html+='<span class="tl-btn'+(window._clFltBrand==='DONE'?' pri':'')+'" onclick="clSetFlt(\'DONE\')">완료'+(_doneCnt?' '+_doneCnt:'')+'</span>';
-  bIds.forEach(function(id){var key=id||'__none';var cnt=_clRows(id).length;html+='<span class="tl-btn'+(window._clFltBrand===key?' pri':'')+'" onclick="clSetFlt(\''+key+'\')">'+esc(id?_clBrandName(id):'미지정')+(cnt?' '+cnt:'')+'</span>';});
+  bIds.forEach(function(id){var key=id||'__none';var cnt=_clRows(id).filter(function(e){return !e.settled;}).length;html+='<span class="tl-btn'+(window._clFltBrand===key?' pri':'')+'" onclick="clSetFlt(\''+key+'\')">'+esc(id?_clBrandName(id):'미지정')+(cnt?' '+cnt:'')+'</span>';});
   html+='</div><select class="cl-period" onchange="window._clPeriod=this.value;renderCourierLedger()"><option value="">전체 기간</option>'
     +mList.map(function(m){return '<option value="'+m+'"'+(window._clPeriod===m?' selected':'')+'>'+m.replace('-','.')+'</option>';}).join('')+'</select></div>';
 
-  var showIds=bIds.filter(function(id){var key=id||'__none';if(window._clFltBrand==='ALL')return !_clBrandDone(id);if(window._clFltBrand==='DONE')return _clBrandDone(id);return window._clFltBrand===key;});
+  var showIds=bIds.filter(function(id){var key=id||'__none';
+    if(window._clFltBrand==='DONE')return _clRows(id).some(function(e){return e.settled;});
+    if(window._clFltBrand==='ALL')return _clRows(id).some(function(e){return !e.settled;});
+    return window._clFltBrand===key;});
   var cards=showIds.map(function(id){return _clCard(id);}).filter(Boolean).join('');
   if(!cards){var _msg;if(window._clFltBrand==='DONE')_msg='완료(정산)된 내역이 없어요.';else if(window._clFltBrand==='ALL'&&cl.entries.length)_msg='정산 안 된 내역이 없어요.<br><span>완료된 건 「완료」에서 볼 수 있어요.</span>';else _msg='아직 택배 시재 내역이 없어요.<br><span>위 빠른 입력으로 추가하면 브랜드별로 자동 정리돼요.</span>';html+='<div class="tl-empty">'+_msg+'</div>';}
   else html+=cards;
   box.innerHTML='<div class="cl-root">'+html+'</div>';
 }
 function _clCard(brandId){
-  var rows=_clRows(brandId); if(!rows.length)return '';
+  var rows=_clViewRows(brandId); if(!rows.length)return '';
   var total=0,unsettled=0,unAmt=0,body='';
   rows.forEach(function(e){
     var amt=+e.amount||0; total+=amt; if(!e.settled){unsettled++;unAmt+=amt;}
@@ -21942,7 +21947,7 @@ function _clCard(brandId){
   return h;
 }
 function clImage(brandId){
-  var cl=clEnsure(),rows=_clRows(brandId); if(!rows.length){showToast('내역이 없어요');return;}
+  var cl=clEnsure(),rows=_clViewRows(brandId); if(!rows.length){showToast('내역이 없어요');return;}
   var nm=brandId?_clBrandName(brandId):'미지정',total=0,trs=[],td='border:1px solid #ddd;padding:7px';
   rows.forEach(function(e){total+=(+e.amount||0);
     var dir=e.dir==='recv'?'받음':'보냄',pay=e.pay==='col'?' (착불)':(e.pay==='pre'?' (선불)':'');
