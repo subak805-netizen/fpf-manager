@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260810b">
+<link rel="stylesheet" href="css/main.css?v=20260810c">
 </head>
 <body>
 
@@ -3405,6 +3405,20 @@ function loadCoData(id){
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
 function migrateData(){
+  /* 이미 적어둔 「수선중」 출고 회차 → 불량 관리에 1회 소급 반영 (2026-08-10).
+     pdSyncRepairDefects는 고정 id로 덮어쓰기라 여러 번 돌아도 줄이 안 늘어남. */
+  try{ if(!S._migRepairDf&&S.orders&&typeof pdSyncRepairDefects==='function'){
+    Object.keys(S.orders).forEach(function(oid){ var o=S.orders[oid]; if(!o||!o.factorySchedules)return;
+      Object.keys(o.factorySchedules).forEach(function(fcId){
+        var sch=o.factorySchedules[fcId]; if(!sch||!Array.isArray(sch.shipments))return;
+        if(!sch.shipments.some(function(r){return r&&r.repair&&+r.qty;}))return;
+        var ids={}; (o.orderItems||[]).forEach(function(oi){ if(oi&&oi.itemId)ids[oi.itemId]=1; });
+        sch.shipments.forEach(function(r){ if(r&&r.itemId)ids[r.itemId]=1; });
+        Object.keys(ids).forEach(function(itemId){ try{pdSyncRepairDefects(oid,fcId,itemId);}catch(e){} });
+      });
+    });
+    S._migRepairDf=1;
+  } }catch(e){ console.warn('수선→불량 소급',e); }
   // 완전히 동일한 원단 행 중복 정리 (실수로 두 줄 넣어 발주·원가 2배 뜨던 것 자동 치유, 2026-07-22)
   try{if(S.items)Object.keys(S.items).forEach(function(k){var it=S.items[k];if(!it)return;var d=_dedupeItemFabrics(it);if(d.removed)it.fabrics=d.fabrics;});}catch(e){}
   // 배열 묘비 90일 청소(무한 누적 방지) — 90일이면 모든 기기가 이미 삭제를 반영했을 시간
@@ -18368,7 +18382,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
     // 회차별(날짜 기준) 그룹 — 출고/봉제/완성/검품 모드에서 목록·수정·삭제용
     const byDate={};const dOrder=[];
     if(!isCut){
-      itRecs.forEach(function(r){ if(!r||!(+r.qty))return; var d=r.date||''; if(!byDate[d]){byDate[d]={total:0,grid:{}};dOrder.push(d);} var c=r.color||'',sz=r.size||''; byDate[d].total+=(+r.qty||0); if(!byDate[d].grid[c])byDate[d].grid[c]={}; byDate[d].grid[c][sz]=(byDate[d].grid[c][sz]||0)+(+r.qty||0); if(r.bg){byDate[d].bg=true;byDate[d].bgDc=(r.bgDc!=null&&r.bgDc!=='')?(+r.bgDc||0):50;} if(r.lv){byDate[d].lv=true;if(r.lvMemo&&!byDate[d].lvMemo)byDate[d].lvMemo=r.lvMemo;if(r.lvShipped)byDate[d].lvShipped=r.lvShipped;} if(r.repair){byDate[d].repair=true;if(r.repairMemo&&!byDate[d].repairMemo)byDate[d].repairMemo=r.repairMemo;} });
+      itRecs.forEach(function(r){ if(!r||!(+r.qty))return; var d=r.date||''; if(!byDate[d]){byDate[d]={total:0,grid:{}};dOrder.push(d);} var c=r.color||'',sz=r.size||''; byDate[d].total+=(+r.qty||0); if(!byDate[d].grid[c])byDate[d].grid[c]={}; byDate[d].grid[c][sz]=(byDate[d].grid[c][sz]||0)+(+r.qty||0); if(r.bg){byDate[d].bg=true;byDate[d].bgDc=(r.bgDc!=null&&r.bgDc!=='')?(+r.bgDc||0):50;} if(r.lv){byDate[d].lv=true;if(r.lvMemo&&!byDate[d].lvMemo)byDate[d].lvMemo=r.lvMemo;if(r.lvShipped)byDate[d].lvShipped=r.lvShipped;} if(r.repair){byDate[d].repair=true;if(r.repairMemo&&!byDate[d].repairMemo)byDate[d].repairMemo=r.repairMemo;if(r.repairType&&!byDate[d].repairType)byDate[d].repairType=r.repairType;} });
       dOrder.sort(_cmpDateFn);
     }
     // 수정 모드: 그 회차(editDate) 값을 그리드에 미리 채움 + 날짜 그 회차로
@@ -18435,7 +18449,10 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
     const lvBar=(role==='출고')?`<div style="flex:0 0 auto"><div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">잔량</div><div style="display:flex;align-items:center;gap:8px"><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#14532d;cursor:pointer;padding:9px 12px;border:1px solid #9ed7b4;background:#eefaf1;border-radius:7px;margin:0"><input id="pd-grid-lv" type="checkbox" ${lvOn?'checked':''} onchange="var w=document.getElementById('pd-grid-lv-wrap');if(w)w.style.display=this.checked?'flex':'none'">잔량 (미출고)</label><span id="pd-grid-lv-wrap" style="display:${lvOn?'flex':'none'};align-items:center;gap:4px"><input id="pd-grid-lvmemo" value="${esc(lvMemoVal)}" placeholder="왜 남았나요? (예: 단추 부족)" style="width:210px;padding:8px 9px;border:1px solid #9ed7b4;border-radius:6px;font-family:inherit;font-size:13px"></span></div></div>`:'';
     let repairOn=false,repairMemoVal='';
     if(editDate&&byDate[editDate]&&byDate[editDate].repair){repairOn=true;repairMemoVal=byDate[editDate].repairMemo||'';}
-    const repairBar=(role==='출고')?`<div style="flex:0 0 auto"><div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">수선</div><div style="display:flex;align-items:center;gap:8px"><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#7c2d12;cursor:pointer;padding:9px 12px;border:1px solid #f0b28a;background:#fff5ee;border-radius:7px;margin:0"><input id="pd-grid-repair" type="checkbox" ${repairOn?'checked':''} onchange="var w=document.getElementById('pd-grid-repair-wrap');if(w)w.style.display=this.checked?'flex':'none'">수선중</label><span id="pd-grid-repair-wrap" style="display:${repairOn?'flex':'none'};align-items:center;gap:4px"><input id="pd-grid-repairmemo" value="${esc(repairMemoVal)}" placeholder="어디 수선? (예: 봉제 터짐)" style="width:210px;padding:8px 9px;border:1px solid #f0b28a;border-radius:6px;font-family:inherit;font-size:13px"></span></div></div>`:'';
+    // 수선중이면 불량 관리에 자동으로 쌓이므로 유형(오염/봉제/…)도 여기서 같이 고른다
+    let repairTypeVal=(editDate&&byDate[editDate]&&byDate[editDate].repairType)||'기타';
+    const _rpTyChips=PD_REPAIR_TYPES.map(function(t){return '<button type="button" class="pd-rpty'+(t===repairTypeVal?' on':'')+'" data-rpty="'+esc(t)+'" onclick="pdSetRepairType(this)">'+esc(t)+'</button>';}).join('');
+    const repairBar=(role==='출고')?`<div style="flex:0 0 auto"><div style="font-size:11px;color:#6b7280;font-weight:600;margin-bottom:4px">수선</div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#7c2d12;cursor:pointer;padding:9px 12px;border:1px solid #f0b28a;background:#fff5ee;border-radius:7px;margin:0"><input id="pd-grid-repair" type="checkbox" ${repairOn?'checked':''} onchange="var w=document.getElementById('pd-grid-repair-wrap');if(w)w.style.display=this.checked?'flex':'none'">수선중</label><span id="pd-grid-repair-wrap" style="display:${repairOn?'flex':'none'};align-items:center;gap:6px;flex-wrap:wrap"><input id="pd-grid-repairmemo" value="${esc(repairMemoVal)}" placeholder="어디 수선? (예: 봉제 터짐)" style="width:210px;padding:8px 9px;border:1px solid #f0b28a;border-radius:6px;font-family:inherit;font-size:13px"><input type="hidden" id="pd-grid-repairtype" value="${esc(repairTypeVal)}"><span style="display:inline-flex;gap:3px;flex-wrap:wrap">${_rpTyChips}</span><span style="font-size:11px;color:#9a3412;font-weight:700">→ 불량 관리에 자동 기록</span></span></div></div>`:'';
     const html=`<div style="font-family:'Pretendard',-apple-system,sans-serif">
       <div style="font-size:12px;color:#6b7280;margin:0 0 14px">${esc(fc.name||'공장')} · 오더 ${orderTotal}장 · ${esc(role)} 입력</div>
       ${prevSummary}
@@ -18541,6 +18558,61 @@ function pdGridRecalc(){
   const gt=document.getElementById('pd-grid-grandtot');if(gt)gt.textContent=grand?grand+'장':'';
 }
 // 재단 그리드 모달: 저장
+/* ===== 수선중 출고회차 → 불량 관리 자동 연동 (2026-08-10) =====
+   결정(사용자): ①출고 회차가 주인 — 고치거나 지우면 불량 기록도 따라간다
+                ②「수선중」 체크만 하면 자동 ③유형은 출고 모달에서 같이 고름
+   ⚠️ 동기화 함정: S.defectRecs는 id 병합+묘비 구조라, 지울 땐 반드시 _arrDelWhere로
+      묘비를 남겨야 다른 기기에서 되살아나지 않는다. 만들 땐 아래 고정 id로 덮어써서
+      저장할 때마다 같은 줄이 늘어나지 않게 한다. */
+var PD_REPAIR_TYPES=['오염','봉제','원단','부자재','기타'];
+function pdSetRepairType(btn){
+  if(!btn)return; var v=btn.getAttribute('data-rpty')||'기타';
+  var h=document.getElementById('pd-grid-repairtype'); if(h)h.value=v;
+  var box=btn.parentNode; if(box)[].slice.call(box.querySelectorAll('.pd-rpty')).forEach(function(b){ b.classList.toggle('on',b===btn); });
+}
+// 출고회차 하나 → 불량기록 한 줄의 고정 id (오더·공장·아이템·날짜·컬러가 같으면 같은 줄)
+function _pdDfId(oid,fcId,itemId,date,color){
+  return 'dfs_'+[oid,fcId,itemId,date,color].map(function(x){return encodeURIComponent(x==null?'':String(x));}).join('~');
+}
+function pdSyncRepairDefects(oid,fcId,itemId){
+  if(!Array.isArray(S.defectRecs))S.defectRecs=[];
+  var o=S.orders&&S.orders[oid]; if(!o)return;
+  var sch=(o.factorySchedules||{})[fcId]; var recs=(sch&&sch.shipments)||[];
+  var it=(S.items||{})[itemId]||null;
+  var single=(o.orderItems&&o.orderItems.length===1);
+  var fcName=(typeof tpFcName==='function'?tpFcName(fcId):'')||((S.factories||{})[fcId]||{}).name||'';
+  // 이 오더·공장·아이템의 '수선중' 회차를 날짜+컬러로 묶기
+  var want={};
+  recs.forEach(function(r){
+    if(!r||!r.repair||!(+r.qty))return;
+    var mine=(!r.itemId?single:(r.itemId===itemId)); if(!mine)return;
+    var d=r.date||'', c=r.color||'';
+    var k=d+'\u001f'+c;
+    if(!want[k])want[k]={date:d,color:c,qty:0,memo:r.repairMemo||'',type:r.repairType||'기타'};
+    want[k].qty+=(+r.qty||0);
+    if(!want[k].memo&&r.repairMemo)want[k].memo=r.repairMemo;
+    if(r.repairType)want[k].type=r.repairType;
+  });
+  var prefix=_pdDfId(oid,fcId,itemId,'','').split('~').slice(0,3).join('~')+'~';
+  // ① 없어진 회차의 불량줄 제거(묘비 남김)
+  var wantIds={}; Object.keys(want).forEach(function(k){ wantIds[_pdDfId(oid,fcId,itemId,want[k].date,want[k].color)]=1; });
+  _arrDelWhere('defectRecs',function(x){ return x&&typeof x.id==='string'&&x.id.indexOf(prefix)===0&&!wantIds[x.id]; });
+  // ② 있는 회차는 덮어쓰기(없으면 추가) — 사용자가 불량 탭에서 고친 칸(메모·회수 등)은 보존
+  Object.keys(want).forEach(function(k){
+    var w=want[k], id=_pdDfId(oid,fcId,itemId,w.date,w.color);
+    var cur=S.defectRecs.find(function(x){return x&&x.id===id;});
+    var base={id:id,date:w.date,brandId:(it&&it.brandId)||'',itemId:itemId,
+      itemName:(it&&it.name)||'',code:(it&&it.code)||'',color:w.color,qty:w.qty,
+      stage:'출고',phase:'before',from:fcName,repair:w.memo,srcShip:{oid:oid,fcId:fcId}};
+    if(cur){ // 출고가 주인인 칸만 갱신, 나머지는 손대지 않음
+      ['date','qty','color','from','repair','itemName','code','brandId','srcShip'].forEach(function(f){cur[f]=base[f];});
+      if(!cur.type||cur.type==='기타')cur.type=w.type;
+    }else{
+      base.type=w.type; base.memo=''; base.to=''; base.returned=false; base.returnDate='';
+      S.defectRecs.push(base);
+    }
+  });
+}
 function pdGridSave(){
   const ctx=window._pdQtyCtx;if(!ctx||ctx.mode!=='grid')return;
   const dateEl=document.getElementById('pd-grid-date');
@@ -18564,6 +18636,8 @@ function pdGridSave(){
   const _rpOn=!!(_rpEl&&_rpEl.checked);
   const _rpMemoEl=document.getElementById('pd-grid-repairmemo');
   const _rpMemo=(_rpMemoEl&&_rpMemoEl.value.trim())||'';
+  const _rpTyEl=document.getElementById('pd-grid-repairtype');
+  const _rpTy=(_rpTyEl&&_rpTyEl.value)||'기타';
   const newRecs=[];
   inputs.forEach(inp=>{
     const c=inp.dataset.color,sz=inp.dataset.size,q=+inp.value||0;
@@ -18571,7 +18645,7 @@ function pdGridSave(){
     const rec={id:(typeof uid==='function'?uid():'cs'+Date.now()+Math.random()),date:date||todayISO(),color:c,size:sz,qty:q,memo:memo,itemId:ctx.itemId};
     if(_bgOn){rec.bg=1;rec.bgDc=_bgDc;}
     if(_lvOn){rec.lv=1;if(_lvMemo)rec.lvMemo=_lvMemo;}
-    if(_rpOn){rec.repair=1;if(_rpMemo)rec.repairMemo=_rpMemo;}
+    if(_rpOn){rec.repair=1;if(_rpMemo)rec.repairMemo=_rpMemo;rec.repairType=_rpTy;}
     newRecs.push(rec);
   });
   const o=S.orders[ctx.oid];if(!o)return;
@@ -18600,6 +18674,8 @@ function pdGridSave(){
     if(recsKey==='shipments'&&typeof recomputeShipping==='function')recomputeShipping(sch);
     if(typeof syncFcToTrack==='function'){try{syncFcToTrack(ctx.oid,ctx.fcId);}catch(e){}}
   }
+  // 수선중 회차 → 불량 관리 자동 반영 (출고 회차가 주인: 수정·삭제하면 불량도 따라감)
+  try{ pdSyncRepairDefects(ctx.oid,ctx.fcId,ctx.itemId); }catch(e){ console.warn('수선→불량 연동',e); }
   saveData();
   closeGenericModal();
   showToast(ctx.saveMode==='replace'?'✓ 재단 수량 저장됨':(ctx.editDate?(newRecs.length?'✓ 회차 수정됨':'✓ 회차 삭제됨'):'✓ '+(newRecs.length||0)+'건 '+(ctx.role||'')+' 회차 추가됨'));
@@ -20512,7 +20588,11 @@ function _renderDefectPane_full_disabled(){ // 옛 카드+수선추적 UI (2026-
 // ===== 불량 = 순수 기록 (2026-07-10) — 오더 자동연결·발송·공제·수선추적 전부 없음. 브랜드별 표 =====
 function dfRecSet(id,f,v){var r=(S.defectRecs||[]).find(function(x){return x&&x.id===id;});if(!r)return;r[f]=v;saveData();}
 function dfRecRet(id,chk){var r=(S.defectRecs||[]).find(function(x){return x&&x.id===id;});if(!r)return;r.returned=!!chk;if(chk&&!r.returnDate)r.returnDate=(typeof todayISO==='function'?todayISO():today());saveData();renderDefectPane();}
-function dfRecDel(id){if(!confirm('이 불량 기록을 삭제할까요?'))return;_arrDelWhere('defectRecs',function(x){return x&&x.id===id;});saveData();renderDefectPane();}
+function dfRecDel(id){
+  if(String(id).indexOf('dfs_')===0){
+    if(!confirm('이 줄은 생산 대시보드의 「수선중」 출고 회차에서 자동으로 들어온 기록이에요.\n\n여기서 지워도 그 회차를 다시 저장하면 또 생깁니다.\n완전히 없애려면 생산 대시보드에서 수선중 체크를 풀거나 그 회차를 지우세요.\n\n그래도 지금 목록에서 지울까요?'))return;
+  }else if(!confirm('이 불량 기록을 삭제할까요?'))return;
+  _arrDelWhere('defectRecs',function(x){return x&&x.id===id;});saveData();renderDefectPane();}
 function dfLegacyMemo(oid,bid,idx,v){var d=defectFind(oid,bid,idx);if(!d)return;d.note=v;saveData();}
 function dfLegacyDel(oid,bid,idx){
   if(!confirm('이 불량 기록을 삭제할까요?'))return;
@@ -20601,8 +20681,10 @@ function renderDefectPane(){
         }else{
           retTd=r.returned?('<span class="bg" style="background:#e6f6ec;color:var(--green,#1a7a4a)">회수'+(r.returnDate?' '+esc(String(r.returnDate).slice(5).replace('-','/')):'')+'</span>'):'<span style="color:var(--t3)">-</span>';
         }
-        h+='<tr><td class="d">'+esc(String(r.date).slice(5).replace('-','/'))+'</td>'
-          +'<td class="nm">'+(r.code?'<span class="td-code">'+esc(r.code)+'</span> ':'')+'<b>'+esc(r.itemName)+'</b></td>'
+        var _fromShip=!!(r.id&&String(r.id).indexOf('dfs_')===0);
+        h+='<tr>'+'<td class="d">'+esc(String(r.date).slice(5).replace('-','/'))+'</td>'
+          +'<td class="nm">'+(r.code?'<span class="td-code">'+esc(r.code)+'</span> ':'')+'<b>'+esc(r.itemName)+'</b>'
+          +(_fromShip?' <span class="df-shipbg" title="생산 대시보드 출고 회차의 「수선중」에서 자동으로 들어온 줄이에요. 날짜·수량·컬러는 그쪽에서 고쳐야 바뀝니다.">출고연동</span>':'')+'</td>'
           +'<td><span class="bg t">'+esc(r.type||'')+(r.color?' · '+esc(r.color):'')+'</span></td>'
           +'<td class="qty">'+r.qty+'</td>'
           +'<td>'+whereBadge+'</td>'
