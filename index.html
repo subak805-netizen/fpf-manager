@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260810c">
+<link rel="stylesheet" href="css/main.css?v=20260810d">
 </head>
 <body>
 
@@ -12049,6 +12049,9 @@ function savePoOptsDefault(sn,key,val){if(!S.priceBook[sn])S.priceBook[sn]={emai
       공장 설정을 켜면 saveFc가 '결제 안 끝난' 스케줄의 vatRate만 0으로 바꾼다(과거 결제건 불변). */
 /* 결제 카드 건별 VAT 토글 — 이 오더·이 공장의 vatRate만 0↔10.
    계산·명세서가 전부 sch.vatRate를 읽으므로 이 한 줄이면 전부 반영된다. */
+/* 부가세율 읽기 — ⚠️ 예전처럼 `sch.vatRate 또는 10` 식으로 읽으면 0%가 거짓값이라 10%로 되돌아간다.
+   현금결제(0%) 기능이 안 먹던 원인(2026-08-10). 값이 없을 때만 10을 쓴다. */
+function vatOf(sch){ var v=sch&&sch.vatRate; return (v==null||v==='')?10:(+v||0); }
 function payToggleVat(oid,fcId){
   var o=S.orders[oid]; if(!o||!o.factorySchedules)return;
   var sch=o.factorySchedules[fcId]; if(!sch)return;
@@ -15709,7 +15712,7 @@ function renderProdTab(o){
             +'<button class="btn s" style="font-size:11px;padding:4px 9px;background:#B0DBF0;border:1px solid #0b0a05;font-weight:700" onclick="switchTab(\'dash\')">대시보드에서 수정</button>'
             +'</div>'
             +'<div class="g3">'+rows
-            +'<div class="fg"><label>부가세율 (%)</label><input type="number" value="'+(sch.vatRate||10)+'" min="0" max="100" onchange="S.orders[\''+o.id+'\'].factorySchedules[\''+fcId+'\'].vatRate=+this.value;saveData()"></div>'
+            +'<div class="fg"><label>부가세율 (%)</label><input type="number" value="'+vatOf(sch)+'" min="0" max="100" onchange="S.orders[\''+o.id+'\'].factorySchedules[\''+fcId+'\'].vatRate=+this.value;saveData()"></div>'
             +'</div></div>';
         })()}
         <details class="info-box" style="margin-bottom:8px">
@@ -15776,7 +15779,7 @@ function renderProdTab(o){
           <input type="date" value="${sch.processDate||''}" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].processDate=this.value;saveData()">
         </div>
         <div class="fg" style="margin:0"><label style="font-size:11px">부가세율 (%)</label>
-          <input type="number" value="${sch.vatRate||10}" min="0" max="100" style="max-width:70px" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].vatRate=+this.value;saveData()">
+          <input type="number" value="${vatOf(sch)}" min="0" max="100" style="max-width:70px" onchange="S.orders['${o.id}'].factorySchedules['${fcId}'].vatRate=+this.value;saveData()">
         </div>
       </div>
       <div class="muted" style="font-size:11px;margin-top:4px">결제는 결제 관리 탭에서 확인하세요</div>
@@ -16921,7 +16924,7 @@ function renderPayShtTab(o){
         if(rate>0){base+=rate*qty;qtySum+=qty;}
       }
       if(!base)return null;
-      const vat=Math.round(base*((sch.vatRate||10)/100));
+      const vat=Math.round(base*(vatOf(sch)/100));
       return{ck,lbl,base,vat,total:base+vat,qty:qtySum,up:qtySum>0?Math.round(base/qtySum):0};
     }).filter(Boolean);
     const _feeF=payFeeBlock(o.id,'fc:'+fcId,1);
@@ -16932,7 +16935,7 @@ function renderPayShtTab(o){
     const tB=cItems.reduce((s,c)=>s+c.base,0);
     const tBf=tB+_feeF.feeTot;
     const noVatAmt=_feeF.noVatTot||0;
-    const vatRate=sch.vatRate||10;
+    const vatRate=vatOf(sch);
     const tV=Math.round(tBf*vatRate/100);
     const bankAcc=fc.bank||'';  // 공장 입금계좌
     // 출고 수량 + 회차별 내역 (날짜·수량)
@@ -17043,7 +17046,7 @@ function renderPayShtTab(o){
     if(!mats.length&&!extraOrderRowsForSupplier(o,sn).length)continue;
     const isFabricSup=mats.some(function(m){return m.type==='fabric';});
     const pb=S.priceBook[sn]||{};
-    const vatRate=sup.vatRate||10;
+    const vatRate=vatOf(sup);
     // 행 구성 (종류별 컬럼)
     const rows=mats.map(function(m){
       const qty=getMatActualQty(m);
@@ -19116,7 +19119,7 @@ function renderDash(){
   const orders=dashFilteredOrders();const el=document.getElementById('dash-body');if(!el)return;
   const urgent=orders.filter(o=>{const s=orderOpenShipETA(o);if(!s.open)return false;const d=s.eta?calcDday(s.eta):null;return d!==null&&d>=0&&d<=3;});
   const late=orders.filter(o=>{const s=orderOpenShipETA(o);if(!s.open)return false;const d=s.eta?calcDday(s.eta):null;return d!==null&&d<0;});
-  let tot=0,paid=0;for(const o of orders){for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){for(const[ck,]of COST_DEFS){let b=0;for(const oi of(o.orderItems||[])){const it=S.items[oi.itemId];if(it)b+=(it[ck]||0)*(oi.grandTotal||0);}if(!b)continue;const v=Math.round(b*((sch.vatRate||10)/100));tot+=b+v;if(o.payments?.['fc_'+fcId+'_'+ck]?.paid)paid+=b+v;}}}
+  let tot=0,paid=0;for(const o of orders){for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){for(const[ck,]of COST_DEFS){let b=0;for(const oi of(o.orderItems||[])){const it=S.items[oi.itemId];if(it)b+=(it[ck]||0)*(oi.grandTotal||0);}if(!b)continue;const v=Math.round(b*(vatOf(sch)/100));tot+=b+v;if(o.payments?.['fc_'+fcId+'_'+ck]?.paid)paid+=b+v;}}}
   el.innerHTML=`
     ${dashBrandBar()}
     <div class="stats">
@@ -20799,7 +20802,7 @@ function setPaySt(oid,k,paid,paidAt){if(!S.orders[oid])return;if(!S.orders[oid].
 function renderPayStats(){
   const el=document.getElementById('pay-stats');if(!el)return;
   let tot=0,paid=0;
-  for(const o of Object.values(S.orders)){for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){for(const[ck,]of COST_DEFS){let b=0;for(const oi of(o.orderItems||[])){const it=S.items[oi.itemId];if(it)b+=(it[ck]||0)*(oi.grandTotal||0);}if(!b)continue;const v=Math.round(b*((sch.vatRate||10)/100));tot+=b+v;if(getPaySt(o.id,'fc_'+fcId+'_'+ck).paid)paid+=b+v;}}
+  for(const o of Object.values(S.orders)){for(const[fcId,sch]of Object.entries(o.factorySchedules||{})){for(const[ck,]of COST_DEFS){let b=0;for(const oi of(o.orderItems||[])){const it=S.items[oi.itemId];if(it)b+=(it[ck]||0)*(oi.grandTotal||0);}if(!b)continue;const v=Math.round(b*(vatOf(sch)/100));tot+=b+v;if(getPaySt(o.id,'fc_'+fcId+'_'+ck).paid)paid+=b+v;}}
     for(const[sn,sup]of Object.entries(o.suppliers||{})){if(!sup.invoiceReceived)continue;let b=0;for(const m of sup.materials||[]){b+=getMatActualCost(m);}const v=Math.round(b*.1);tot+=b+v;if(getPaySt(o.id,'sp_'+encodeURIComponent(sn)).paid)paid+=b+v;}
   }
   const sel=document.getElementById('pay-fc-flt');if(sel){const fcs=Object.values(S.factories||{});const cur=sel.value;sel.innerHTML='<option value="">전체 공장</option>'+fcs.map(f=>`<option value="${f.id}">${esc(f.name)}${f.type?' ('+esc(f.type)+')':''}</option>`).join('');sel.value=cur;}
@@ -22208,10 +22211,10 @@ function renderBatchPay(){
           base+=r*qtyBasis;dets.push(`${esc(it.name)} ${qtyBasis}pcs×${num(r)}원`);
         }
         if(!base)continue;
-        const vat=Math.round(base*((sch.vatRate||10)/100));
+        const vat=Math.round(base*(vatOf(sch)/100));
         const k='fc_'+entityId+'_'+ck;const st=getPaySt(o.id,k);
         const did=('bfc'+entityId+ck+o.id).replace(/\W/g,'').slice(0,12);
-        rows.push({oid:o.id,key:k,did,orderName:o.name,lbl,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,shipDate,isFcRow:true,vatRate:sch.vatRate||10});
+        rows.push({oid:o.id,key:k,did,orderName:o.name,lbl,dets,base,vat,total:base+vat,paid:st.paid,paidAt:st.paidAt,shipDate,isFcRow:true,vatRate:vatOf(sch)});
       }
     }
   }else{
@@ -22377,7 +22380,7 @@ function renderItemPay(opts){
         base+=taxFeeTot;
         const isInspFc=(it.inspectionFcId===fcId);
         if(!base&&!noVatFeeTot&&!isInspFc)continue;
-        const vatRate=sch.vatRate||10;
+        const vatRate=vatOf(sch);
         const vat=Math.round(base*vatRate/100);
         const total=base+vat+noVatFeeTot;
         const payKey='fc:'+fcId;
@@ -22487,7 +22490,7 @@ function renderItemPay(opts){
       const _pdTot=_pd.reduce((s,d)=>s+(+d.amount||0),0);
       if(_pdTot>0&&!f.paid){
         const _netBase=Math.max(0,f.base-_pdTot);
-        const _netTotal=_netBase+Math.round(_netBase*(f.vatRate||10)/100)+(f.noVatFeeTot||0);
+        const _netTotal=_netBase+Math.round(_netBase*vatOf(f)/100)+(f.noVatFeeTot||0);
         costLines+=`<div class="ln" style="color:var(--red,#dc2626);font-weight:700"><span>불량공제 대기 ${_pd.length}건</span><span class="v">-${num(_pdTot)}원</span></div>`;
         costLines+=`<div class="ln" style="color:var(--red,#dc2626)"><span>공제 반영 실결제 (VAT포함)</span><span class="v" style="font-weight:800">${num(_netTotal)}원</span></div>`;
       }
@@ -22497,7 +22500,8 @@ function renderItemPay(opts){
         <div class="role">${esc(f.role||'기타')}</div>
         <div class="nm">${esc(f.name)}</div>
         ${costLines}
-        <div class="am"><span class="l">청구</span><div class="right"><span class="amt">${num(f.base)}원</span><span class="vat">VAT포함 ${num(f.total)}원</span></div></div>
+        <div class="am"><span class="l">청구</span><div class="right"><span class="amt">${num(f.base)}원</span><span class="vat">${vatOf(f)>0?('VAT포함 '+num(f.total)+'원'):('현금 · VAT 없음 '+num(f.total)+'원')}</span></div></div>
+        <button type="button" class="ip-vatbtn${vatOf(f)>0?'':' off'}" onclick="payToggleVat('${esc(r.oid)}','${esc(f.fcId)}')" title="이 오더·이 공장만 부가세를 빼거나 다시 붙여요 (현금결제용)">${vatOf(f)>0?'VAT 빼기 (현금결제)':'VAT 다시 붙이기 (10%)'}</button>
         <div class="acts">
           <button data-oid="${esc(r.oid)}" data-fcid="${esc(f.fcId)}" data-itemid="${esc(r.itemId)}" onclick="ipOpenReceipt(this)">명세서</button>
           <button class="${btnCls}" data-oid="${esc(r.oid)}" data-key="${esc(f.payKey)}" onclick="ipTogglePay(this)">${btnLbl}</button>
@@ -22733,7 +22737,12 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
   }else{
     allRows.sort((a,b)=>cmpDate(a.date).localeCompare(cmpDate(b.date)));
   }
-  const vatRate=10;
+  // 부가세율 — 현금결제 공장이면 0, 아니면 이 명세서에 들어간 스케줄의 값(없으면 10)
+  var vatRate=10;
+  if(fc.noVat)vatRate=0;
+  else{ for(var _vi=0;_vi<items.length;_vi++){ var _vo=S.orders[items[_vi].oid];
+          var _vs=_vo&&_vo.factorySchedules&&_vo.factorySchedules[fcId];
+          if(_vs){ vatRate=vatOf(_vs); break; } } }
   const taxableBase=costSum-noVatSum;          // 면세(VAT 미포함) 제외한 과세 공급가액
   const vat=Math.round(taxableBase*vatRate/100); // 세액은 과세분에만
   const total=costSum+vat;                       // 합계 = 전체 공급가액 + 세액(면세분은 세금 0)
@@ -22881,7 +22890,7 @@ function buildItemReceiptHTML(oid,fcId,itemId){
   // 소계 계산 (출고일 + 아이템별 그룹 합계)
   const baseTotal=rows.reduce((s,r)=>s+r.amount,0);
   const noVatSum=rows.reduce((s,r)=>s+(r.exempt?r.amount:0),0); // 면세(VAT 미포함) 합
-  const vatRate=sewSch?.vatRate||10;
+  const vatRate=vatOf(sewSch);
   const taxableBase=baseTotal-noVatSum;            // 과세 공급가액
   const vat=Math.round(taxableBase*vatRate/100);   // 세액은 과세분에만
   const total=baseTotal+vat;                       // 합계 = 전체 + 세액(면세분 세금 0)
