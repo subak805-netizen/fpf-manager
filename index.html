@@ -7341,11 +7341,23 @@ function refAddImage(id,side,files){
   if(!_refFind(id))return;
   var arr=Array.prototype.slice.call(files||[]).filter(function(f){return f&&/^image\//.test(f.type);});
   if(!arr.length)return;
-  var ov=(typeof tpShowUp==='function')?tpShowUp('이미지 올리는 중...'):null;
-  tpCompress(arr[0],2400,0.92,false).then(function(r){
-    if(window.fbStorage)return tpUpload(r.blob,id,'ref_'+side,false);
+  var ov=(typeof tpShowUp==='function')?tpShowUp('사진 줄이는 중...'):null;
+  /* 사진을 고르는 즉시 화면에 먼저 보여준다(업로드 기다릴 필요 없이). 이건 화면 표시용이라 저장 안 함. */
+  var _prev=''; try{ _prev=URL.createObjectURL(arr[0]);
+    var _el=document.querySelector('[data-rid="'+id+'"] .rf-slot[data-side="'+side+'"]')||document.querySelector('.rf-slot[data-side="'+side+'"]');
+    if(_el){ _el.innerHTML='<span class="rf-tag">'+(side==='front'?'앞':'뒤')+'</span><img src="'+_prev+'" alt="">'; }
+  }catch(e){}
+  var _hasFb=!!window.fbStorage;
+  /* 2400px·품질0.92 → 1600px·0.86. 인쇄(A4 가로 반쪽)엔 충분하고 파일이 3~4배 작아져 업로드가 그만큼 빨라짐.
+     Storage로 올릴 땐 base64(dataUrl)를 안 만든다(안 쓰는데 통째 재인코딩하느라 느렸음). */
+  tpCompress(arr[0],1600,0.86,false,_hasFb).then(function(r){
+    if(_hasFb){
+      if(ov)ov.textContent='올리는 중 0%';
+      return tpUpload(r.blob,id,'ref_'+side,false,function(pct){ if(ov)ov.textContent='올리는 중 '+pct+'%'; });
+    }
     return r.dataUrl; // Storage 없으면 인라인 폴백
   }).then(function(url){
+    try{ if(_prev)URL.revokeObjectURL(_prev); }catch(e){}
     var c=_refFind(id); if(c)c[side]=url;
     if(typeof tpHideUp==='function')tpHideUp(ov);
     saveData(); renderReference();
@@ -31453,8 +31465,45 @@ function _tpRenderSafe(){
     if(n){ n.focus(); if(s!=null&&n.setSelectionRange)n.setSelectionRange(s,e); }
   }catch(_){}
 }
-function tpCompress(file,maxDim,q,png){ return new Promise(function(res,rej){ var rd=new FileReader(); rd.onload=function(){ var img=new Image(); img.onload=function(){ var w=img.width,h=img.height,sc=Math.min(1,maxDim/Math.max(w,h)); var cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc)); var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch; var cx=cv.getContext('2d'); cx.imageSmoothingEnabled=true; cx.imageSmoothingQuality='high'; if(png){cx.fillStyle='#ffffff';cx.fillRect(0,0,cw,ch);} cx.drawImage(img,0,0,cw,ch); if(png){ cv.toBlob(function(b){ res({blob:b,dataUrl:cv.toDataURL('image/png'),png:true}); },'image/png'); } else { cv.toBlob(function(b){ res({blob:b,dataUrl:cv.toDataURL('image/jpeg',q)}); },'image/jpeg',q); } }; img.onerror=rej; img.src=rd.result; }; rd.onerror=rej; rd.readAsDataURL(file); }); }
-function tpUpload(blob,itemId,slotKey,png){ var co=(typeof curCoId!=='undefined'&&curCoId)?curCoId:'default'; var path='techpack/'+co+'/'+itemId+'/'+slotKey+'_'+Date.now()+(png?'.png':'.jpg'); var ref=window.fbStorage.ref().child(path); return ref.put(blob).then(function(){ return ref.getDownloadURL(); }); }
+/* 사진 줄이기 — 느렸던 이유 2가지를 고침 (2026-08-10)
+   ① FileReader로 base64(dataURL)를 만들어 그걸 <img>에 넣어 디코딩 → 폰 사진(3~5MB)에서 특히 느림.
+      createImageBitmap(file)로 파일에서 바로 디코딩(브라우저 네이티브·비동기).
+   ② 항상 toDataURL을 한 번 더 돌려 base64 문자열을 만들었음(안 쓰는 경우에도 통째 재인코딩 + 33% 길이).
+      skipDataUrl=true면 건너뜀. 기존 호출부는 인자를 안 넘기므로 동작 그대로. */
+function tpCompress(file,maxDim,q,png,skipDataUrl){
+  return new Promise(function(res,rej){
+    var draw=function(src,w,h){
+      var sc=Math.min(1,maxDim/Math.max(w,h));
+      var cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc));
+      var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+      var cx=cv.getContext('2d'); cx.imageSmoothingEnabled=true; cx.imageSmoothingQuality='high';
+      if(png){cx.fillStyle='#ffffff';cx.fillRect(0,0,cw,ch);}
+      cx.drawImage(src,0,0,cw,ch);
+      if(src.close)try{src.close();}catch(e){}
+      var type=png?'image/png':'image/jpeg';
+      cv.toBlob(function(b){
+        res({blob:b,dataUrl:skipDataUrl?null:(png?cv.toDataURL('image/png'):cv.toDataURL('image/jpeg',q)),png:!!png});
+      },type,q);
+    };
+    if(window.createImageBitmap){
+      /* 디코딩하면서 바로 줄이기(resizeWidth) — 4000px 원본을 통째로 디코딩한 뒤 캔버스에서 줄이는 것보다
+         훨씬 빠르다. 미지원 브라우저면 옵션 없이 한 번 더, 그것도 안 되면 옛 방식. */
+      var _plain=function(){ createImageBitmap(file).then(function(bm){ draw(bm,bm.width,bm.height); }).catch(_legacy); };
+      createImageBitmap(file,{resizeWidth:maxDim,resizeQuality:'high'})
+        .then(function(bm){ if(!bm||!bm.width)return _plain(); draw(bm,bm.width,bm.height); })
+        .catch(_plain);
+    }else _legacy();
+    function _legacy(){
+      var rd=new FileReader();
+      rd.onload=function(){ var img=new Image(); img.onload=function(){ draw(img,img.width,img.height); }; img.onerror=rej; img.src=rd.result; };
+      rd.onerror=rej; rd.readAsDataURL(file);
+    }
+  });
+}
+function tpUpload(blob,itemId,slotKey,png,onProg){ var co=(typeof curCoId!=='undefined'&&curCoId)?curCoId:'default'; var path='techpack/'+co+'/'+itemId+'/'+slotKey+'_'+Date.now()+(png?'.png':'.jpg'); var ref=window.fbStorage.ref().child(path);
+  var task=ref.put(blob);
+  if(onProg&&task.on){ try{ task.on('state_changed',function(sn){ var t=sn.totalBytes||0; if(t)onProg(Math.round(sn.bytesTransferred*100/t)); }); }catch(e){} }
+  return task.then(function(){ return ref.getDownloadURL(); }); }
 function tpShowUp(msg){ var o=document.createElement('div'); o.className='tp-up-ovl'; o.textContent=msg; document.body.appendChild(o); return o; }
 function tpHideUp(o){ if(o&&o.parentNode)o.parentNode.removeChild(o); }
 function tpOnFile(input){ var f=input.files&&input.files[0]; var slot=_tpUpKey; _tpUpKey=null; tpProcessImageFile(f,slot); }
