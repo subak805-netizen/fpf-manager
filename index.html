@@ -7452,6 +7452,8 @@ function _refCardHtml(c){
 function renderReference(){
   var el=document.getElementById('reference-body'); if(!el)return;
   _refStyle();
+  if(window._ref2col===undefined){ try{window._ref2col=!!lsGet('fpm_ref2col');}catch(e){window._ref2col=false;} }
+  el.classList.toggle('rf-2col',!!window._ref2col);
   var oc=window._refOpenCol;
   if(oc==='__orphan'||(oc&&_refColFind(oc))) _refRenderInside(el,oc);
   else { window._refOpenCol=null; _refRenderFolders(el); }
@@ -7491,11 +7493,14 @@ function _refRenderInside(el,colId){
   var cards=_refColCards(orphan?'':colId);
   var pickN=Object.keys(window._refPick||{}).length;
   var printBtn='<button class="rf-auto" id="rf-printsel" onclick="refPrintSelected()"'+(pickN?'':' style="display:none"')+'>선택 인쇄'+(pickN?' ('+pickN+')':'')+'</button>';
+  var _2c=(window._ref2col===undefined?(window._ref2col=(lsGet('fpm_ref2col')?true:false)):window._ref2col);
+  var colBtn='<span class="rf-collbl"><button type="button" onclick="refSetCols(1)"'+(_2c?'':' class="on"')+'>1열</button>'
+    +'<button type="button" onclick="refSetCols(2)"'+(_2c?' class="on"':'')+'>2열</button></span>';
   if(orphan){
     var hdr='<div class="rfc-hd"><button class="rfc-back" onclick="refCloseCol()">← 폴더 목록</button>'
       +'<div class="rfc-titlewrap"><div class="rfc-name">미분류 <span class="rfc-cnt">'+cards.length+'개</span></div>'
       +'<div class="rfc-sub">카드에서 거래처 브랜드·카테고리를 정하면 정리돼요</div></div>'
-      +'<div class="rfc-hdbtns"><button class="rf-auto" onclick="refAutoClassify()">제목으로 자동 분류</button>'+printBtn+'</div></div>';
+      +'<div class="rfc-hdbtns">'+colBtn+'<button class="rf-auto" onclick="refAutoClassify()">제목으로 자동 분류</button>'+printBtn+'</div></div>';
     var byB={}; cards.forEach(function(c){var b=c.brandId||'__none';(byB[b]=byB[b]||[]).push(c);});
     var bids=Object.keys(byB).filter(function(b){return b!=='__none';}).sort(function(a,b){return _refBrandName(a).localeCompare(_refBrandName(b),'ko');});
     if(byB['__none'])bids.push('__none');
@@ -7518,7 +7523,7 @@ function _refRenderInside(el,colId){
         +'<input type="date" class="rfc-date" value="'+esc(col.date||'')+'" onchange="refSetColField(\''+col.id+'\',\'date\',this.value)">'
       +'</div>'
     +'</div>'
-    +'<div class="rfc-hdbtns">'+printBtn+'<button class="rfc-del" onclick="refDelCollection(\''+col.id+'\')">폴더 삭제</button></div>'
+    +'<div class="rfc-hdbtns">'+colBtn+printBtn+'<button class="rfc-del" onclick="refDelCollection(\''+col.id+'\')">폴더 삭제</button></div>'
   +'</div>';
   var empty=cards.length?'':'<div class="rf-empty">이 폴더에 아직 레퍼런스가 없어요. 아래 버튼으로 추가하세요</div>';
   var grid=cards.length?'<div class="rf-cardgrid">'+cards.map(_refCardHtml).join('')+'</div>':'';
@@ -7645,6 +7650,9 @@ function _refPrintCards(cards){
 function refPrintCard(id){ _refPrintCards([_refFind(id)]); }
 function refTogglePick(id,on){ if(!window._refPick)window._refPick={}; if(on)window._refPick[id]=1; else delete window._refPick[id];
   var n=Object.keys(window._refPick).length, b=document.getElementById('rf-printsel'); if(b){ b.textContent='선택 인쇄'+(n?' ('+n+')':''); b.style.display=n?'':'none'; } }
+/* 레퍼런스 카드 1열/2열 — 기본 1열(사진 크게), 고른 값은 기억한다 */
+function refSetCols(n){ window._ref2col=(n===2); try{lsSet('fpm_ref2col',n===2?1:0);}catch(e){} renderReference(); }
+function refApplyCols(){ var b=document.getElementById('reference-body'); if(b)b.classList.toggle('rf-2col',!!window._ref2col); }
 function refPrintSelected(){ var p=window._refPick||{}; var cards=(S.refCards||[]).filter(function(c){return c&&p[c.id];}); if(!cards.length){ if(typeof showToast==='function')showToast('인쇄할 카드를 체크해주세요'); return; } _refPrintCards(cards); }
 function _refStyle(){
   if(document.getElementById('reference-style'))return;
@@ -7664,9 +7672,18 @@ function _refStyle(){
     +'#reference-body .rf-selc:focus{outline:none;border-color:var(--ink,#0B0A05)}'
     +'#reference-body .rf-pick{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--ink,#0B0A05);border:2px solid #cfc8b6;background:#fff;padding:5px 9px;cursor:pointer;border-radius:0}'
     +'#reference-body .rf-pick input{margin:0;cursor:pointer}'
-    +'#reference-body .rf-cardgrid{display:grid;grid-template-columns:1fr;gap:22px;align-items:start;margin-bottom:8px}'
-    +'@media(min-width:900px){#reference-body .rf-cardgrid{grid-template-columns:1fr 1fr}}'
+    /* 한 줄에 하나씩(기본) — 카드가 넓어져 사진이 크게 보임. 좌우 여백도 최소로.
+       「2열」 버튼을 누르면 body에 rf-2col이 붙어 예전처럼 두 개씩 (2026-08-11) */
+    +'#reference-body .rf-cardgrid{display:grid;grid-template-columns:1fr;gap:18px;align-items:start;margin-bottom:8px}'
+    +'@media(min-width:900px){#reference-body.rf-2col .rf-cardgrid{grid-template-columns:1fr 1fr;gap:22px}}'
     +'#reference-body .rf-cardgrid .rf-card{max-width:none;margin:0}'
+    /* ⚠️ 그리드 칸에서 margin:0 auto만 주면 칸을 안 채우고 내용 크기로 쪼그라든다(실측 138px).
+          width:100%를 같이 줘야 한다. */
+    +'#reference-body:not(.rf-2col) .rf-cardgrid .rf-card{width:100%;max-width:1400px;margin:0 auto}'
+    +'#reference-body .rf-colwrap{padding:0 4px}'
+    +'#reference-body .rf-collbl{display:inline-flex;border:2px solid var(--ink,#0B0A05);overflow:hidden;font-size:11.5px;font-weight:800}'
+    +'#reference-body .rf-collbl>button{border:none;background:#fff;color:var(--ink,#0B0A05);font:inherit;padding:6px 12px;cursor:pointer}'
+    +'#reference-body .rf-collbl>button.on{background:var(--ink,#0B0A05);color:#fff}'
     +'#reference-body .rf-bsub{font-size:13px;font-weight:800;color:var(--ink,#0B0A05);background:#f0ebde;border:2px solid var(--ink,#0B0A05);padding:5px 10px;display:inline-block;margin:6px 0 12px}'
     +'#reference-body .rf-bsubn{font-weight:600;color:#6b6a63}'
     +'#reference-body .rf-auto{border:2px solid var(--ink,#0B0A05);background:#FFF6B8;color:var(--ink,#0B0A05);font-weight:800;font-size:12px;padding:8px 12px;cursor:pointer;border-radius:0;box-shadow:2px 2px 0 rgba(11,10,5,.15);font-family:inherit;white-space:nowrap}'
