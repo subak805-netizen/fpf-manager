@@ -1678,6 +1678,35 @@ var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','
 function _tombArr(name,id){ try{ if(!id)return; if(!S._tomb)S._tomb={}; if(!S._tomb[name])S._tomb[name]={}; S._tomb[name][id]=(typeof todayISO==='function'?todayISO():new Date().toISOString().slice(0,10)); }catch(e){} }
 // 배열에서 조건에 맞는 항목 삭제 + 묘비 기록 (모든 삭제는 가급적 이걸 통해서)
 function _arrDelWhere(name,pred){ var a=S[name]||[],keep=[],n=0; a.forEach(function(x){ if(x&&pred(x)){ if(x.id)_tombArr(name,x.id); n++; } else keep.push(x); }); S[name]=keep; return n; }
+/* ===== 공장(factories)·단가장(priceBook) 병합 — 2026-08-11 =====
+   ⚠️ 예전엔 `factories: sh.factories||S.factories` 처럼 **클라우드 공유문서가 통째로 이김**이라,
+      폰이 옛 공유문서를 올려두면 방금 등록한 업체·단가가 그대로 사라졌다(실제 유실: '퍼니베베').
+   이제 **키 합집합**으로 합치고, 진짜 삭제만 묘비(_tomb)로 걸러 부활을 막는다. */
+function _tombHas(name,key){ try{ return !!(S._tomb&&S._tomb[name]&&S._tomb[name][key]); }catch(e){ return false; } }
+function _mergeFactories(local,remote){
+  local=(local&&typeof local==='object')?local:{}; remote=(remote&&typeof remote==='object')?remote:{};
+  var out={},k;
+  for(k in local){ if(!_tombHas('factories',k))out[k]=local[k]; }
+  for(k in remote){ if(_tombHas('factories',k))continue; if(!out[k])out[k]=remote[k]; }  // 양쪽에 있으면 로컬 우선(방금 고친 값)
+  return out;
+}
+function _mergePB(local,remote){
+  local=(local&&typeof local==='object')?local:{}; remote=(remote&&typeof remote==='object')?remote:{};
+  var out={},sup;
+  var one=function(sn,a,b){
+    a=a||{}; b=b||{};
+    var o={},k; for(k in b)o[k]=b[k]; for(k in a)o[k]=a[k];        // 거래처 정보는 로컬 우선
+    var ma=(a.materials&&typeof a.materials==='object')?a.materials:{};
+    var mb=(b.materials&&typeof b.materials==='object')?b.materials:{};
+    var m={},mk;
+    for(mk in mb){ if(!_tombHas('pbMat',sn+'\u001f'+mk))m[mk]=mb[mk]; }
+    for(mk in ma){ if(!_tombHas('pbMat',sn+'\u001f'+mk))m[mk]=ma[mk]; }   // 같은 품목은 로컬 우선
+    o.materials=m; return o;
+  };
+  for(sup in local){ if(!_tombHas('pbSup',sup))out[sup]=one(sup,local[sup],remote[sup]); }
+  for(sup in remote){ if(_tombHas('pbSup',sup))continue; if(!out[sup])out[sup]=one(sup,null,remote[sup]); }
+  return out;
+}
 function _mergeTomb(a,b){ a=(a&&typeof a==='object')?a:{}; b=(b&&typeof b==='object')?b:{}; var out={},k; for(k in a)out[k]=a[k]; for(k in b){ if(!out[k]||String(b[k])>String(out[k]))out[k]=b[k]; } return out; }
 function _mergeArrTombs(remoteTomb){ if(!S._tomb)S._tomb={}; remoteTomb=remoteTomb||{}; _ID_ARRS.forEach(function(n){ var m=_mergeTomb(S._tomb[n],remoteTomb[n]); if(Object.keys(m).length)S._tomb[n]=m; }); }
 // 객체맵 병합(키 단위 union, 같은 키는 b 승) — trimLedger·시재·참고·브랜드설정 등 "통째 교체" 유실 방지
@@ -3166,8 +3195,8 @@ async function cloudSyncLoad(id,opts){
         tasks:_mergeById(S.tasks,d.tasks,_tombNew.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
         brandConfig:_mergeMap(S.brandConfig,d.brandConfig),
         deductions:_mergeById(S.deductions,d.deductions,_tombNew.deductions),
-        factories:sh.factories||S.factories||{},
-        priceBook:_restoreLocalDataUrls(sh.priceBook||S.priceBook||{},S.priceBook||{}),
+        factories:_mergeFactories(S.factories,sh.factories),
+        priceBook:_restoreLocalDataUrls(_mergePB(S.priceBook,sh.priceBook),S.priceBook||{}),
         _compMigrated:d._compMigrated||S._compMigrated||false,
         _careSupMig1:d._careSupMig1||S._careSupMig1||false
       };
@@ -4715,7 +4744,7 @@ function deleteFc(id){
   var msg='"'+(fc.name||'이 공장/처')+'"을(를) 삭제할까요?';
   if(usedItems.length||usedOrders.length)msg+='\n\n사용 중: 아이템 '+usedItems.length+'개, 오더 '+usedOrders.length+'개\n삭제하면 그 연결이 끊겨요.';
   if(!confirm(msg))return;
-  delete S.factories[id];saveData();renderFactories();
+  _tombArr('factories',id); delete S.factories[id];saveData();renderFactories();
 }
 function fcOpts(sel,typeFilter){
   let opts=Object.values(S.factories||{});
@@ -6211,7 +6240,7 @@ function addPriceBookEntry(){
 }
 function deletePriceBookEntry(encName){
   const name=decodeURIComponent(encName);if(!confirm(`"${name}" 삭제?`))return;
-  delete S.priceBook[name];savePB();renderBook();showToast(`${name} 삭제됨`);
+  _tombArr('pbSup',name); delete S.priceBook[name];savePB();renderBook();showToast(`${name} 삭제됨`);
 }
 function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
   var s=decodeURIComponent(supEnc);
@@ -6308,6 +6337,7 @@ function deletePbMaterial(encSup,encKey){
   const cl=m.color||'';
   const display=nm+(cl?' ('+cl+')':'');
   if(!confirm('단가장에서 "'+display+'" 품목을 삭제하시겠습니까?\n\n※ 옛 발주서·결제서의 단가는 그대로 유지됩니다 (스냅샷)\n※ 이미 등록된 아이템에서는 자동완성만 안 됩니다'))return;
+  try{_tombArr('pbMat',s+'\u001f'+key);}catch(e){}   // 삭제 묘비 — 다른 기기에서 부활 방지
   delete pb.materials[key];
   savePB();
   renderBook();
