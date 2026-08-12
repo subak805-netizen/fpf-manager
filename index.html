@@ -2716,11 +2716,28 @@ function _tbContentCount(tb){
 // 할일판 병합 선택 (2026-07-10 데이터손실 수정): 빈 할일판이 내용 있는 걸 덮지 못하게 + 둘 다 내용 있으면 최근 편집(_mt) 우선
 function _tbPick(existing,incoming){
   var ce=_tbContentCount(existing), ci=_tbContentCount(incoming);
-  if(ce>0&&ci===0)return existing;   // 빈 게 내용을 못 덮음(폰 할일이 웹 빈판에 덮여 사라지던 버그)
-  if(ci>0&&ce===0)return incoming;
-  var me=(existing&&+existing._mt)||0, mi=(incoming&&+incoming._mt)||0;
-  if(me>mi)return existing; if(mi>me)return incoming;
-  return incoming||existing||{};
+  var win;
+  if(ce>0&&ci===0)win=existing;        // 빈 게 내용을 못 덮음(폰 할일이 웹 빈판에 덮여 사라지던 버그)
+  else if(ci>0&&ce===0)win=incoming;
+  else{
+    var me=(existing&&+existing._mt)||0, mi=(incoming&&+incoming._mt)||0;
+    win=(me>mi)?existing:((mi>me)?incoming:(incoming||existing||{}));
+  }
+  /* ⚠️ 이긴 쪽 통째로 쓰면 진 쪽의 '지난 할일판(archive)'까지 같이 사라진다.
+     보관본은 날짜별 기록이라 합치는 게 항상 맞다 — 날짜 기준 합집합(같은 날짜는 최근 저장분). 2026-08-11 */
+  try{
+    var A=(existing&&Array.isArray(existing.archive))?existing.archive:[];
+    var B=(incoming&&Array.isArray(incoming.archive))?incoming.archive:[];
+    if(A.length||B.length){
+      var m={};
+      A.concat(B).forEach(function(x){ if(!x||!x.date)return; var o=m[x.date];
+        if(!o||((+x.ts||0)>(+o.ts||0)))m[x.date]=x; });
+      var merged=Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return (+b.ts||0)-(+a.ts||0);});
+      while(merged.length>370)merged.pop();
+      win=win||{}; win.archive=merged;
+    }
+  }catch(e){}
+  return win||{};
 }
 // 백업에서 '할일판만' 되살리기 — 아이템·오더 등 나머지는 그대로 유지
 function recoverTodoBoardOnly(source,idx){
@@ -31174,6 +31191,7 @@ function tbOpenArchive(){
       body+='<div style="display:flex;align-items:center;gap:7px;padding:6px 4px;border-bottom:1px dotted #ddd">'
         +'<span style="flex:1;font-size:13px"><b>'+(+dd[1])+'/'+(+dd[2])+'</b> <span style="color:#8a8576">('+_tbWeekday(a.date)+') · '+cnt+'개 항목</span></span>'
         +'<button onclick="tbArchiveView(\''+a.date+'\')" style="border:1.5px solid #161616;background:#B0DBF0;font-weight:700;padding:3px 11px;cursor:pointer;font-size:12px;border-radius:0">보기</button>'
+        +'<button onclick="tbArchiveRestore(\''+a.date+'\')" title="이 날짜 할일판을 지금 화면으로 되돌립니다" style="border:1.5px solid #161616;background:#A5E6BA;font-weight:700;padding:3px 11px;cursor:pointer;font-size:12px;border-radius:0">되돌리기</button>'
         +'<button onclick="tbArchiveDelete(\''+a.date+'\')" style="border:1.5px solid #161616;background:#fff;font-weight:700;padding:3px 9px;cursor:pointer;font-size:12px;border-radius:0">삭제</button></div>';
     });
     body+='</div>';
@@ -31184,6 +31202,27 @@ function tbOpenArchive(){
   ov.innerHTML='<div style="background:#fff;border:2px solid #161616;box-shadow:4px 4px 0 #161616;max-width:460px;width:100%;max-height:85vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;padding:12px 14px;border-bottom:2px solid #161616"><b style="flex:1;font-size:15px">지난 할일판 (월별 보관)</b><span onclick="this.closest(\'#tb-archive-ov\').remove()" style="cursor:pointer;font-size:18px;padding:0 4px">✕</span></div><div style="padding:12px 14px;overflow-y:auto">'+body+'</div></div>';
   ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
   document.body.appendChild(ov);
+}
+/* 저장해 둔 날짜의 할일판을 지금 화면으로 되돌리기 (2026-08-11)
+   되돌리기 전에 지금 판을 자동으로 한 번 보관해서, 잘못 눌러도 다시 되돌아올 수 있게 한다.
+   saveData가 내용 바뀜을 감지해 todoBoard._mt를 올려주므로 다른 기기 동기화에서도 이게 최신이 된다. */
+function tbArchiveRestore(ds){
+  var tb=tbEnsure();
+  var a=(tb.archive||[]).find(function(x){return x.date===ds;});
+  if(!a||!a.board){ showToast('그 날짜 저장본을 못 찾았어요'); return; }
+  var curN=_tbContentCount(tb), newN=_tbContentCount({brands:a.board});
+  var msg=ds+' 할일판으로 되돌릴까요?\n\n· 지금 화면: '+curN+'개 항목\n· 되돌릴 날짜: '+newN+'개 항목';
+  var today=_tbTodayStr();
+  var willBackup=(curN>0&&!(tb.archive||[]).some(function(x){return x.date===today;}));
+  msg+= willBackup ? '\n\n지금 화면은 오늘('+today+') 저장본으로 자동 보관돼요.'
+                   : (curN>0?'\n\n⚠️ 오늘 저장본이 이미 있어서 지금 화면은 따로 안 남습니다.\n남기려면 취소하고 「오늘 저장」을 먼저 눌러주세요.':'');
+  if(!confirm(msg))return;
+  if(willBackup){ try{tbArchiveSave(today,true);}catch(e){} }
+  tb.brands=JSON.parse(JSON.stringify(a.board));
+  try{saveData();}catch(e){}
+  var ov=document.getElementById('tb-archive-ov'); if(ov)ov.remove();
+  renderTodoBoard();
+  showToast(ds+' 할일판으로 되돌렸어요'+(willBackup?' (직전 화면은 오늘 저장본에 보관)':''),4500);
 }
 function tbArchiveView(ds){
   var tb=tbEnsure(); var a=(tb.archive||[]).find(function(x){return x.date===ds;}); if(!a)return;
