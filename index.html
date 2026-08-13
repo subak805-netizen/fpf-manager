@@ -511,7 +511,8 @@ tryInitFirebase();
         <button class="dtab" id="t-pay-done" onclick="switchPayTab('done')">결제 완료</button>
       </div>
       <div id="pay-brand-pills" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;flex:1"></div>
-      <select id="pay-period-flt" style="font-size:12px;max-width:130px" onchange="renderPayContent()">
+      <button onclick="payWhyMissing()" style="font-size:11px;padding:5px 11px;border:2px solid #0B0A05;background:#fff;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">안 뜨는 이유</button>
+    <select id="pay-period-flt" style="font-size:12px;max-width:130px" onchange="renderPayContent()">
         <option value="">전체 기간</option>
         <option value="thisMonth">이번 달</option>
         <option value="lastMonth">지난 달</option>
@@ -10890,7 +10891,14 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
   try{var _dfab=_dedupeItemFabrics({fabrics:formFabs});if(_dfab.removed){formFabs=_dfab.fabrics;if(!_silent&&typeof showToast==='function')showToast('완전히 같은 원단 '+_dfab.removed+'줄이 중복이라 하나로 합쳤어요',4000);}}catch(e){}
   const item={id,name:nm,code:document.getElementById('f-cd').value.trim(),client:document.getElementById('f-cl').value.trim(),season:document.getElementById('f-ss').value.trim(),notes:document.getElementById('f-notes').value.trim(),careInstructions:document.getElementById('f-care').value.trim(),colors:[...formColors],sizes:[...formSizes],fabrics:formFabs.map(f=>({...f,id:f.id||uid()})),trims:formTrims.map(t=>({...t,id:t.id||uid()})),trimCosts:formTrimCosts.map(tc=>({...tc,id:tc.id||uid()}))};
   try{(item.trims||[]).forEach(function(t){var _mp=_tMatrixPrice(t);if(_mp!=null&&_mp>0)t.unitPrice=_mp;});}catch(e){}
-  COST_DEFS.forEach(([ck,,fk])=>{item[ck]=+document.getElementById('f-'+ck)?.value||0;item[fk]=document.getElementById('f-'+fk)?.value||'';});
+  /* 입력칸을 못 찾으면(폼이 안 떠 있거나 렌더 중) 예전엔 0/''으로 덮어써서 공임이 사라졌다.
+     못 찾으면 저장된 옛 값을 그대로 지킨다. */
+  (function(){var _prev=(editItemId&&S.items[editItemId])||null;
+    COST_DEFS.forEach(function(cd){var ck=cd[0],fk=cd[2];
+      var _ce=document.getElementById('f-'+ck),_fe=document.getElementById('f-'+fk);
+      item[ck]=_ce?(+_ce.value||0):(_prev?(+_prev[ck]||0):0);
+      item[fk]=_fe?(_fe.value||''):(_prev?(_prev[fk]||''):'');
+    });})();
   item.workRoute=document.getElementById('f-workRoute')?.value?.trim()||'';item.workRouteManual=!!window._wrManual;
   item.defaultTrimSup=document.getElementById('f-defaultsup')?.value?.trim()||'';
   item.patternCost=+document.getElementById('f-patternCost')?.value||0;
@@ -10933,6 +10941,17 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
     var newColors=item.colors||[];
     var sizesChanged=JSON.stringify(oldSizes)!==JSON.stringify(newSizes);
     var colorsChanged=JSON.stringify(oldColors)!==JSON.stringify(newColors);
+    /* ★2026-08-13 데이터 유실 수정 — 자동저장은 절대 묻지 않는다.
+       아래 confirm()은 원래 수동 저장용인데 _silent(2.5초 자동저장)에서도 떴고,
+       거기서 [취소]를 누르면 return → 그 순간 폼에 적어둔 공임·요척·단가가 "통째로" 저장 안 됐다.
+       (신고: 공임을 적어도 다시 열면 0원 / 요척을 사이즈별로 달리 적어도 다시 열면 전부 같은 값)
+       → 자동저장은 컬러·사이즈 "구성 변경"만 옛 값으로 미뤄두고 나머지는 전부 저장한다.
+         구성 변경(오더 수량 재배치)은 사용자가 「저장」을 누를 때 확인받고 반영. */
+    if((sizesChanged||colorsChanged)&&_silent){
+      item.colors=oldColors.slice();item.sizes=oldSizes.slice();
+      try{_itemSavedInd('자동저장됨 — 컬러·사이즈 변경은 「저장」을 눌러야 반영돼요');}catch(e){}
+      sizesChanged=false;colorsChanged=false;
+    }
     if(sizesChanged||colorsChanged){
       // 발주서/오더가 이미 있는 아이템의 컬러·사이즈 "구성"(추가/삭제/이름변경)이 바뀌면 경고.
       // 순서만 바꾼 건(같은 구성) 안전하므로 경고하지 않음.
@@ -22390,6 +22409,121 @@ function isInPayPeriod(shipDate,range){
 }
 
 // ===== 결제 체크 대시보드 (아이템 중심 view, v10) =====
+/* ── 결제 탭 진단: "왜 이 아이템이 결제 탭에 안 뜨지?" ─────────────────
+   renderItemPay의 게이트를 똑같이 따라가면서, 걸러진 지점과 고치는 법을 알려준다.
+   읽기 전용(데이터 변경 0). 2026-08-11 '데님팬츠' 신고로 신설. */
+function payWhyMissing(){
+  if(typeof S==='undefined'||!S.orders){alert('데이터를 아직 못 읽었어요');return;}
+  var fltBrandW=window._payBrandFlt||'';
+  var fcSel=document.getElementById('pay-fc-flt');
+  var fltFcId=fcSel?fcSel.value:'';
+  var fcMulti=window._payFcMulti||[];
+  var periodRange=(typeof getPayPeriodRange==='function')?getPayPeriodRange():null;
+  var _fk=function(o,it,k){return ((typeof orderFc==='function')?orderFc(o,it,k):'')||it[k]||'';};
+  var out=[],okCount=0;
+  Object.values(S.orders).forEach(function(o){
+    (o.orderItems||[]).forEach(function(oi){
+      var it=S.items[oi.itemId];
+      var on=o.name||o.id;
+      if(!it){out.push({nm:'(삭제된 아이템)',on:on,why:'아이템이 삭제됐어요',fix:''});return;}
+      var nm=it.name||'(이름없음)';
+      var push=function(w,fix){out.push({nm:nm,on:on,why:w,fix:fix||''});};
+      if(fltBrandW&&it.brandId!==fltBrandW){push('브랜드 필터에서 빠졌어요','위쪽 브랜드 버튼을 「전체」로 바꾸기');return;}
+      var sewFcId=_fk(o,it,'sewingFcId');
+      if(!sewFcId){push('봉제공장이 지정 안 돼 있어요','아이템 수정 → 공임 옆 봉제공장 선택');return;}
+      var sewFc=S.factories[sewFcId];
+      if(!sewFc){push('봉제공장이 업체목록에 없어요(삭제됨)','업체관리에서 그 공장을 다시 등록');return;}
+      var fcNm=sewFc.name||'';
+      var sewSch=(o.factorySchedules||{})[sewFcId];
+      if(!sewSch){push(fcNm+' 출고 기록이 이 오더에 없어요','생산 대시보드에서 출고 수량 입력');return;}
+      var all=(sewSch.shipments||[]).filter(function(s){return s&&+s.qty;});
+      var mine=all.filter(function(s){
+        if(s.itemId&&s.itemId!==oi.itemId)return false;
+        if(!s.itemId&&(o.orderItems||[]).length>1)return false;
+        return true;
+      });
+      var excl=mine.filter(function(s){return _shipExcl(s);});
+      var live=mine.filter(function(s){return !_shipExcl(s);});
+      var qty=live.reduce(function(a,s){return a+(+s.qty||0);},0);
+      if(!live.length){
+        var fb=(+sewSch.shippingQty||0)+((sewSch.extraShipments||[]).reduce(function(a,e){return a+(+e.qty||0);},0));
+        if(fb>0)qty=fb;
+      }
+      if(!qty){
+        if(excl.length)push(fcNm+' 출고 '+excl.length+'회차가 전부 「잔량 미출고 / 수선중」이라 제외됐어요','생산 대시보드 출고 회차에서 잔량·수선중 표시 해제');
+        else if(all.length&&!mine.length)push(fcNm+' 출고 회차가 이 아이템 것으로 기록돼 있지 않아요','출고 회차를 열어 아이템을 이 아이템으로 지정');
+        else push(fcNm+' 출고수량이 0이에요','생산 대시보드에서 출고 수량 입력');
+        return;
+      }
+      var fcSet=[];
+      COST_DEFS.forEach(function(cd){var f=_fk(o,it,cd[2]);if(f&&fcSet.indexOf(f)<0)fcSet.push(f);});
+      Object.keys(o.payFees||{}).forEach(function(pk){
+        if(pk.indexOf('fc:')!==0)return;
+        var f=pk.substring(3);if(f&&fcSet.indexOf(f)<0)fcSet.push(f);
+      });
+      if(!fcSet.length){push('공정 공장이 하나도 연결 안 돼 있어요','아이템 수정에서 공임·워싱·완성 등 공장 선택');return;}
+      var kept=0,reasons=[];
+      fcSet.forEach(function(fcId){
+        if(fltFcId&&fcId!==fltFcId){reasons.push('공장 필터에서 제외');return;}
+        if(fcMulti.length&&fcMulti.indexOf(fcId)<0){reasons.push('공장 필터에서 제외');return;}
+        var fc=S.factories[fcId];
+        if(!fc){reasons.push('연결된 공장이 삭제됨');return;}
+        var rate=0;
+        for(var i2=0;i2<COST_DEFS.length;i2++){
+          var cd=COST_DEFS[i2];
+          if(_fk(o,it,cd[2])===fcId){rate=+it[cd[0]]||0;break;}
+        }
+        var fees=(o.payFees||{})['fc:'+fcId]||[];
+        var base=rate*qty+fees.reduce(function(s,f){return f.noVat?s:s+payFeeAmt(f);},0);
+        var nvt=fees.reduce(function(s,f){return f.noVat?s+payFeeAmt(f):s;},0);
+        var isInsp=(_fk(o,it,'inspectionFcId')===fcId);
+        if(!base&&!nvt&&!isInsp){reasons.push((fc.name||'')+' 단가 0원');return;}
+        kept++;
+      });
+      if(!kept){push('청구할 공장이 없어요 ('+reasons.join(' / ')+')','해당 공정 단가를 넣거나 공장 필터를 해제');return;}
+      if(periodRange){
+        var inR=live.some(function(s){return isInPayPeriod(s.date,periodRange);});
+        if(!inR){
+          var ds=live.map(function(s){return s.date||'날짜없음';}).join(', ');
+          push('기간 필터에서 빠졌어요 (출고일 '+ds+')','오른쪽 위 기간을 「전체 기간」으로');
+          return;
+        }
+      }
+      if(o.payArchivedItems&&o.payArchivedItems[it.id]){push('「완료로 보내기」로 완료 탭에 가 있어요','결제 완료 탭에서 되돌리기');return;}
+      okCount++;
+    });
+  });
+  var old=document.getElementById('pay-why-modal');if(old)old.remove();
+  var box=document.createElement('div');
+  box.id='pay-why-modal';
+  box.style.cssText='position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto';
+  var h='<div style="background:#fff;border:2px solid #0B0A05;box-shadow:4px 4px 0 rgba(11,10,5,.2);max-width:760px;width:100%;padding:18px">'
+   +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+   +'<b style="font-size:15px">결제 탭에 안 뜨는 아이템</b>'
+   +'<button onclick="var m=document.getElementById(\'pay-why-modal\');if(m)m.remove()" style="margin-left:auto;border:2px solid #0B0A05;background:#fff;padding:5px 14px;font-weight:700;cursor:pointer;font-family:inherit">닫기</button></div>'
+   +'<div style="font-size:11px;color:#6b7280;margin-bottom:12px">지금 화면에 뜨는 건 '+okCount+'개예요. 아래는 걸러진 것들과 그 이유입니다.</div>';
+  if(!out.length){
+    h+='<div style="padding:20px;text-align:center;color:#6b7280;font-size:13px">걸러진 아이템이 없어요. 오더에 들어간 아이템이 전부 결제 탭에 떠 있어요.</div>';
+  }else{
+    out.sort(function(a,b){return String(a.nm).localeCompare(String(b.nm));});
+    h+='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#f3f4f6">'
+     +'<th style="border:1px solid #d1d5db;padding:6px;text-align:left;width:22%">아이템</th>'
+     +'<th style="border:1px solid #d1d5db;padding:6px;text-align:left;width:18%">오더</th>'
+     +'<th style="border:1px solid #d1d5db;padding:6px;text-align:left">안 뜨는 이유</th>'
+     +'<th style="border:1px solid #d1d5db;padding:6px;text-align:left;width:26%">고치는 법</th></tr></thead><tbody>';
+    out.forEach(function(r){
+      h+='<tr><td style="border:1px solid #e5e7eb;padding:6px;font-weight:700">'+esc(r.nm)+'</td>'
+       +'<td style="border:1px solid #e5e7eb;padding:6px;color:#6b7280">'+esc(r.on)+'</td>'
+       +'<td style="border:1px solid #e5e7eb;padding:6px">'+esc(r.why)+'</td>'
+       +'<td style="border:1px solid #e5e7eb;padding:6px;color:#2563eb">'+esc(r.fix)+'</td></tr>';
+    });
+    h+='</tbody></table>';
+  }
+  h+='</div>';
+  box.innerHTML=h;
+  document.body.appendChild(box);
+}
+
 function renderItemPay(opts){
   opts=opts||{};const onlyDone=!!opts.onlyDone;
   const el=document.getElementById('pay-content');
