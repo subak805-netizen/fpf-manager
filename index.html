@@ -22407,7 +22407,11 @@ function renderItemPay(opts){
     for(const oi of(o.orderItems||[])){
       const it=S.items[oi.itemId];if(!it)continue;
       if(fltBrand&&it.brandId!==fltBrand)continue;
-      const sewingFcId=it.sewingFcId||'';
+      /* ⚠️ 결제 탭만 it.sewingFcId(아이템의 '현재' 공장)를 직접 읽고 있었다.
+            대시보드·명세서는 orderFc(오더 생성시점 스냅샷 o.fcMap)를 쓰기 때문에,
+            아이템 공장을 나중에 바꾸거나 비우면 **대시보드엔 출고완료로 뜨는데 결제 탭엔 안 뜨는** 일이 생겼다
+            (2026-08-11 '데님팬츠' 신고). 스냅샷 우선 + 현재값 폴백으로 기준을 맞춘다. */
+      const sewingFcId=((typeof orderFc==='function')?orderFc(o,it,'sewingFcId'):'')||it.sewingFcId||'';
       let sewShipQty=0;
       const sewShipRecs=[];
       if(sewingFcId){
@@ -22432,7 +22436,7 @@ function renderItemPay(opts){
       }
       if(!sewShipQty)continue;
       const fcSet=new Set();
-      for(const cd of COST_DEFS){if(it[cd[2]])fcSet.add(it[cd[2]]);}
+      for(const cd of COST_DEFS){ var _fid=((typeof orderFc==='function')?orderFc(o,it,cd[2]):'')||it[cd[2]]; if(_fid)fcSet.add(_fid); }
       Object.keys(o.payFees||{}).forEach(function(pk){
         if(!pk.startsWith('fc:'))return;
         const fid=pk.substring(3);if(fid)fcSet.add(fid);
@@ -22448,7 +22452,7 @@ function renderItemPay(opts){
         // 공정 라벨 매핑: 공임→봉제, 나염비→나염, 완성비→완성, 검품비→검품
         const _roleMap={'공임':'봉제','워싱':'워싱','자수':'자수','나염비':'나염','완성비':'완성','검품비':'검품'};
         let ck='',lbl='',rate=0,role=fc.type||'';
-        for(const cd of COST_DEFS){if(it[cd[2]]===fcId){ck=cd[0];lbl=cd[1];rate=+it[cd[0]]||0;role=_roleMap[cd[1]]||cd[1];break;}}
+        for(const cd of COST_DEFS){ var _cf=((typeof orderFc==='function')?orderFc(o,it,cd[2]):'')||it[cd[2]]; if(_cf===fcId){ck=cd[0];lbl=cd[1];rate=+it[cd[0]]||0;role=_roleMap[cd[1]]||cd[1];break;} }
         const qty=sewShipQty;
         let base=rate*qty,bgQty=0,bgAmt=0;
         // 비품 출고 공임 할인: 봉제 공임에만 — 비품 회차는 bgDc%(기본 50) 할인 단가로 계산
@@ -22459,7 +22463,7 @@ function renderItemPay(opts){
         const noVatFeeTot=fees.reduce((s,f)=>f.noVat?s+payFeeAmt(f):s,0);
         const feeTot=taxFeeTot+noVatFeeTot;
         base+=taxFeeTot;
-        const isInspFc=(it.inspectionFcId===fcId);
+        const isInspFc=((((typeof orderFc==='function')?orderFc(o,it,'inspectionFcId'):'')||it.inspectionFcId)===fcId);
         if(!base&&!noVatFeeTot&&!isInspFc)continue;
         const vatRate=vatOf(sch);
         const vat=Math.round(base*vatRate/100);
