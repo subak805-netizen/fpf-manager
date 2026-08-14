@@ -1762,7 +1762,10 @@ function _mergeArrTombs(remoteTomb){ if(!S._tomb)S._tomb={}; remoteTomb=remoteTo
 // 객체맵 병합(키 단위 union, 같은 키는 b 승) — trimLedger·시재·참고·브랜드설정 등 "통째 교체" 유실 방지
 function _mergeMap(a,b){ a=(a&&typeof a==='object'&&!Array.isArray(a))?a:{}; b=(b&&typeof b==='object'&&!Array.isArray(b))?b:{}; var out={},k; for(k in a)out[k]=a[k]; for(k in b)out[k]=b[k]; return out; }
 // 택배장부 전용: bank는 b(비어있지 않으면) 승, entries는 id 병합
-function _mergeCourier(a,b){ a=(a&&typeof a==='object')?a:{bank:'',entries:[]}; b=(b&&typeof b==='object')?b:{bank:'',entries:[]}; return {bank:(b.bank!=null&&b.bank!=='')?b.bank:(a.bank||''), entries:_mergeById(a.entries,b.entries)}; }
+/* 택배 시재 병합. ★2026-08-14 — 예전엔 묘비를 안 넘겨서 **지운 줄이 다른 기기 사본에서 계속 되살아났다**
+   (신고: "삭제했는데 자꾸 다시 생겨" · 지워도 미정산 건수가 안 줄어듦).
+   삭제는 clDel에서 _tombArr('courierEntries', id)로 기록한다. */
+function _mergeCourier(a,b){ a=(a&&typeof a==='object')?a:{bank:'',entries:[]}; b=(b&&typeof b==='object')?b:{bank:'',entries:[]}; return {bank:(b.bank!=null&&b.bank!=='')?b.bank:(a.bank||''), entries:_mergeById(a.entries,b.entries,(S&&S._tomb&&S._tomb.courierEntries)||null)}; }
 function applyRemoteCoData(data,ts,opts){
   // opts.noRender: 병합·저장만 하고 화면 재렌더는 생략 — 편집 중 저장 경로(cloudSyncSave 스테일 병합)에서 입력 방해 방지 (2026-07-21)
   if(!data)return;
@@ -3543,6 +3546,19 @@ function migrateData(){
   if(!S.trimLedgerPaid)S.trimLedgerPaid={};
   if(!S.courierLedger||typeof S.courierLedger!=='object'||Array.isArray(S.courierLedger)){var _oce=Array.isArray(S.courierLedger)?S.courierLedger:[];S.courierLedger={bank:(S.courierLedger&&S.courierLedger.bank)||'',entries:_oce};}
   if(!Array.isArray(S.courierLedger.entries))S.courierLedger.entries=[];
+  /* 같은 id를 가진 줄이 있으면 뒤엣것에 새 id를 준다 (2026-08-14).
+     _mergeById는 id가 같으면 뒤엣것이 앞엣것을 **덮어쓴다** → 두 줄이 한 자리를 두고 싸워서
+     "아이케이를 지우면 투케이가 생기고, 투케이를 지우면 아이케이가 생기는" 증상이 났다.
+     id를 갈라주면 둘 다 제자리에 남고 각각 지울 수 있다. */
+  try{
+    var _clSeen={},_clFixed=0;
+    S.courierLedger.entries.forEach(function(e){
+      if(!e)return;
+      if(!e.id||_clSeen[e.id]){ e.id=uid(); _clFixed++; }
+      _clSeen[e.id]=1;
+    });
+    if(_clFixed&&typeof console!=='undefined')console.warn('[택배시재] 겹친 id '+_clFixed+'건 분리');
+  }catch(e){}
   if(!S.courierLedger.bank&&!S.courierLedger._bankSet){S.courierLedger.bank='카카오뱅크 3333-07-1771142 박수빈';S.courierLedger._bankSet=true;}
   if(!S.refData||typeof S.refData!=='object')S.refData={};
   if(!S.refData.brands)S.refData.brands={}; if(!S.refData.factories)S.refData.factories={}; if(!S.refData.checklists)S.refData.checklists={sample:[],main:[]};
@@ -22514,7 +22530,10 @@ function clQuickBtn(){
   saveData();renderCourierLedger();
   showToast(''+names.length+'건 추가'+(date?' ('+date.slice(5).replace('-','/')+')':''));
 }
-function clDel(id){var cl=clEnsure();var i=cl.entries.findIndex(function(e){return e.id===id;});if(i<0)return;var e=cl.entries[i];if(!confirm('"'+(e.name||'')+'" 항목을 삭제할까요?'))return;cl.entries.splice(i,1);saveData();renderCourierLedger();}
+function clDel(id){var cl=clEnsure();var i=cl.entries.findIndex(function(e){return e.id===id;});if(i<0)return;var e=cl.entries[i];if(!confirm('"'+(e.name||'')+'" 항목을 삭제할까요?'))return;
+  cl.entries.splice(i,1);
+  _tombArr('courierEntries',id);/* 다른 기기 사본에서 되살아나지 않게 */
+  saveData();renderCourierLedger();}
 function clSetAmt(id){var cl=clEnsure();var e=cl.entries.find(function(x){return x.id===id;});if(!e)return;var v=prompt('금액 (원)',e.amount||0);if(v==null)return;var n=+String(v).replace(/[^\d]/g,'');e.amount=n||0;saveData();renderCourierLedger();}
 /* 내역 브랜드 이동 (2026-08-10): 맥=행 드래그→위 브랜드 버튼에 드롭 / 폰·맥 공통=내용 클릭→브랜드 선택 모달 */
 function clMoveEntry(id,brandId){var cl=clEnsure();var e=cl.entries.find(function(x){return x.id===id;});if(!e)return;if((e.brandId||'')===(brandId||'')){showToast('이미 그 내역서에 있어요');return;}e.brandId=brandId||'';saveData();renderCourierLedger();showToast('"'+(e.name||'')+'" → '+(brandId?_clBrandName(brandId):'미지정')+' 내역서로 이동');}
