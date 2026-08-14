@@ -7352,6 +7352,42 @@ function colorToHex(name){
 }
 function colorDot(name){var base='display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid rgba(0,0,0,.18);margin-right:5px;vertical-align:-1px;';var parts=String(name||'').split(/[\/·]/).map(function(x){return x.trim();}).filter(Boolean);if(parts.length<=1)return '<span style="'+base+'background:'+colorToHex(name)+'"></span>';var n=parts.length,seg=[];for(var i=0;i<n;i++){var c=colorToHex(parts[i]);seg.push(c+' '+Math.round(i*100/n)+'%',c+' '+Math.round((i+1)*100/n)+'%');}return '<span style="'+base+'background:linear-gradient(90deg,'+seg.join(',')+')"></span>';}
 // 컬러 칩 드래그 순서변경 (터치+마우스 = 포인터 이벤트)
+/* ===== 드래그 중 가장자리 자동 스크롤 (2026-08-14) =====
+   순서 바꾸기 드래그는 pointermove에서 e.preventDefault()를 하고 손잡이에 touch-action:none이 걸려 있어
+   **드래그하는 동안 화면이 안 굴러간다** → 화면 밖 아래쪽 줄로는 옮길 수가 없었다
+   (신고: "드래그앤드롭이 되려면 스크롤이 되어야 하는데 스크롤이 안 돼서 아래로 못 옮겨").
+   → 손가락/마우스가 위아래 가장자리 70px 안에 들어오면 대신 굴려준다. 가까울수록 빨라진다.
+   ⚠️ 반드시 "드래그가 실제로 시작된 뒤"(active)에만 켤 것 — 그냥 톡 눌렀을 때 켜지면 화면이 멋대로 움직인다.
+   ⚠️ 새 순서변경 드래그를 만들면 move에서 _dragScrollOn/_dragScrollY, end에서 _dragScrollOff를 꼭 붙일 것. */
+var _dsState=null;
+function _dragScrollHost(el){
+  for(var n=el;n&&n!==document.body&&n!==document.documentElement;n=n.parentElement){
+    var s;try{s=getComputedStyle(n);}catch(e){continue;}
+    if(/(auto|scroll)/.test(s.overflowY)&&n.scrollHeight>n.clientHeight+4)return n;
+  }
+  return null; // null = 창 전체
+}
+function _dragScrollEdge(y,host){
+  var MAX=20,top,bot;
+  if(host){var r=host.getBoundingClientRect();top=Math.max(0,r.top);bot=Math.min(window.innerHeight,r.bottom);}
+  else{top=0;bot=window.innerHeight;}
+  /* 가장자리 폭은 보이는 높이에 맞춘다. 고정 70px로 두면 폰처럼 보이는 영역이 짧을 때
+     위·아래 구역이 겹쳐 **화면 전체가 스크롤 구역**이 돼서, 가운데에 놓으려 해도 계속 굴러간다. */
+  var EDGE=Math.max(20,Math.min(70,(bot-top)*0.18));
+  var dy=0;
+  if(y<top+EDGE)dy=-Math.ceil(MAX*Math.min(1,(top+EDGE-y)/EDGE));
+  else if(y>bot-EDGE)dy=Math.ceil(MAX*Math.min(1,(y-(bot-EDGE))/EDGE));
+  if(!dy)return;
+  if(host)host.scrollTop+=dy; else window.scrollBy(0,dy);
+}
+function _dragScrollOn(target,y){
+  if(_dsState)return;
+  _dsState={host:_dragScrollHost(target),y:y||0,raf:0};
+  var step=function(){ if(!_dsState)return; _dragScrollEdge(_dsState.y,_dsState.host); _dsState.raf=requestAnimationFrame(step); };
+  _dsState.raf=requestAnimationFrame(step);
+}
+function _dragScrollY(y){ if(_dsState)_dsState.y=y; }
+function _dragScrollOff(){ if(!_dsState)return; try{cancelAnimationFrame(_dsState.raf);}catch(e){} _dsState=null; }
 function colorDragStart(e,i){
   if(e.target.closest('button'))return; // ×버튼은 드래그 시작 안 함
   window._colDrag={i:i,sx:e.clientX,sy:e.clientY,active:false};
@@ -7361,13 +7397,14 @@ function colorDragStart(e,i){
 }
 function colorDragMove(e){
   var d=window._colDrag;if(!d)return;
-  if(!d.active){ if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<7)return; d.active=true; var el0=document.getElementById('color-chips'); if(el0)el0.classList.add('dragging'); }
-  e.preventDefault();
+  if(!d.active){ if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<7)return; d.active=true; var el0=document.getElementById('color-chips'); if(el0)el0.classList.add('dragging'); _dragScrollOn(el0||e.target,e.clientY); }
+  e.preventDefault();_dragScrollY(e.clientY);
   var tgt=document.elementFromPoint(e.clientX,e.clientY); var chip=tgt&&tgt.closest&&tgt.closest('[data-ci]');
   if(!chip)return; var ti=+chip.getAttribute('data-ci'); if(isNaN(ti)||ti===d.i)return;
   var moved=formColors.splice(d.i,1)[0]; formColors.splice(ti,0,moved); d.i=ti; renderColorChips();
 }
 function colorDragEnd(){
+  _dragScrollOff();
   document.removeEventListener('pointermove',colorDragMove);
   var d=window._colDrag; window._colDrag=null;
   var el=document.getElementById('color-chips'); if(el)el.classList.remove('dragging');
@@ -7427,13 +7464,14 @@ function sizeDragStart(e,i){
 }
 function sizeDragMove(e){
   var d=window._szDrag;if(!d)return;
-  if(!d.active){ if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<7)return; d.active=true; var el0=document.getElementById('size-chips'); if(el0)el0.classList.add('dragging'); }
-  e.preventDefault();
+  if(!d.active){ if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<7)return; d.active=true; var el0=document.getElementById('size-chips'); if(el0)el0.classList.add('dragging'); _dragScrollOn(el0||e.target,e.clientY); }
+  e.preventDefault();_dragScrollY(e.clientY);
   var tgt=document.elementFromPoint(e.clientX,e.clientY); var chip=tgt&&tgt.closest&&tgt.closest('[data-si]');
   if(!chip)return; var ti=+chip.getAttribute('data-si'); if(isNaN(ti)||ti===d.i)return;
   var moved=formSizes.splice(d.i,1)[0]; formSizes.splice(ti,0,moved); d.i=ti; renderSizeChips();
 }
 function sizeDragEnd(){
+  _dragScrollOff();
   document.removeEventListener('pointermove',sizeDragMove);
   var d=window._szDrag; window._szDrag=null;
   var el=document.getElementById('size-chips'); if(el)el.classList.remove('dragging');
@@ -32901,8 +32939,8 @@ function tpRowSet(path,i,f,v){var a=tpRowsEnsure(path,[]);if(a[i]){a[i][f]=v;try
 function tpRowToggle(path,i,el){var a=tpRowsEnsure(path,[]);if(a[i]){a[i].on=!a[i].on;if(el)el.classList.toggle('on',!!a[i].on);try{saveData();}catch(e){}}}
 function tpRowMove(path,from,to){var a=tpRowsEnsure(path,[]);if(from<0||from>=a.length||to<0||to>=a.length||from===to)return;var m=a.splice(from,1)[0];a.splice(to,0,m);try{saveData();}catch(e){}tpRender();}
 function tpRowDragStart(e,path,i){if(e.target.closest('input,button,textarea'))return;window._tpRowDrag={path:path,i:i,sx:e.clientX,sy:e.clientY,lx:e.clientX,ly:e.clientY,active:false};document.addEventListener('pointermove',tpRowDragMove,{passive:false});document.addEventListener('pointerup',tpRowDragEnd,{once:true});document.addEventListener('pointercancel',tpRowDragEnd,{once:true});}
-function tpRowDragMove(e){var d=window._tpRowDrag;if(!d)return;d.lx=e.clientX;d.ly=e.clientY;if(!d.active){if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<7)return;d.active=true;}e.preventDefault();var t=document.elementFromPoint(e.clientX,e.clientY),tr=t&&t.closest&&t.closest('tr[data-trow]');document.querySelectorAll('#tp-modal tr.tp-dragging').forEach(function(x){x.classList.remove('tp-dragging');});if(tr)tr.classList.add('tp-dragging');}
-function tpRowDragEnd(){document.removeEventListener('pointermove',tpRowDragMove);var d=window._tpRowDrag;window._tpRowDrag=null;document.querySelectorAll('#tp-modal tr.tp-dragging').forEach(function(x){x.classList.remove('tp-dragging');});if(!d||!d.active)return;var t=document.elementFromPoint(d.lx,d.ly),tr=t&&t.closest&&t.closest('tr[data-trow]');if(tr){var ti=+tr.getAttribute('data-trow');if(!isNaN(ti)&&ti!==d.i)tpRowMove(d.path,d.i,ti);}}
+function tpRowDragMove(e){var d=window._tpRowDrag;if(!d)return;d.lx=e.clientX;d.ly=e.clientY;if(!d.active){if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<7)return;d.active=true;_dragScrollOn(e.target,e.clientY);}e.preventDefault();_dragScrollY(e.clientY);var t=document.elementFromPoint(e.clientX,e.clientY),tr=t&&t.closest&&t.closest('tr[data-trow]');document.querySelectorAll('#tp-modal tr.tp-dragging').forEach(function(x){x.classList.remove('tp-dragging');});if(tr)tr.classList.add('tp-dragging');}
+function tpRowDragEnd(){_dragScrollOff();document.removeEventListener('pointermove',tpRowDragMove);var d=window._tpRowDrag;window._tpRowDrag=null;document.querySelectorAll('#tp-modal tr.tp-dragging').forEach(function(x){x.classList.remove('tp-dragging');});if(!d||!d.active)return;var t=document.elementFromPoint(d.lx,d.ly),tr=t&&t.closest&&t.closest('tr[data-trow]');if(tr){var ti=+tr.getAttribute('data-trow');if(!isNaN(ti)&&ti!==d.i)tpRowMove(d.path,d.i,ti);}}
 function tpEditList(path,defs,opts){opts=opts||{};var a=tpRowsEnsure(path,defs);var nt=!!opts.noToggle;var rows=a.map(function(it,i){return '<tr data-trow="'+i+'"><td class="tp-drag" onpointerdown="tpRowDragStart(event,\''+path+'\','+i+')" title="드래그로 순서 변경">⋮⋮</td>'
   +'<td class="l"><input class="tp-li" value="'+tpEsc(it.name||'')+'" onchange="tpRowSet(\''+path+'\','+i+',\'name\',this.value)" placeholder="'+tpEsc(opts.namePh||'항목')+'"></td>'
   +(nt?'':'<td style="width:38px;text-align:center"><span class="tp-lck'+(it.on?' on':'')+'" onclick="tpRowToggle(\''+path+'\','+i+',this)"></span></td>')
