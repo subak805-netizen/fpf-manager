@@ -1702,6 +1702,37 @@ function _arrDelWhere(name,pred){ var a=S[name]||[],keep=[],n=0; a.forEach(funct
       폰이 옛 공유문서를 올려두면 방금 등록한 업체·단가가 그대로 사라졌다(실제 유실: '퍼니베베').
    이제 **키 합집합**으로 합치고, 진짜 삭제만 묘비(_tomb)로 걸러 부활을 막는다. */
 function _tombHas(name,key){ try{ return !!(S._tomb&&S._tomb[name]&&S._tomb[name][key]); }catch(e){ return false; } }
+/* ===== refData 병합 — 2026-08-14 =====
+   refData에는 **사용자가 직접 만든 목록**이 들어있다(가공 종류 procKinds, 부자재 종류 trimCategories, 체크리스트 등).
+   예전엔 `_mergeMap(S.refData, data.refData)` — 같은 키면 **원격이 통째로 이김**이라,
+   방금 추가한 종류가 다른 기기의 옛 목록에 덮여 사라졌다(신고: "종류 추가했는데 왜 안 나와").
+   → 배열 값은 **합집합**(로컬 순서 먼저, 원격에만 있는 건 뒤에). 진짜 삭제만 묘비('refArr:<키>')로 막는다.
+   ⚠️ 새로 삭제 UI를 만들면 반드시 _tombArr('refArr:<키>', 값)을 같이 남길 것 — 안 그러면 다른 기기에서 되살아난다. */
+function _mergeStrArr(tombName,a,b){
+  var out=[],seen={};
+  (Array.isArray(a)?a:[]).concat(Array.isArray(b)?b:[]).forEach(function(v){
+    var k=String(v);
+    if(seen[k])return; seen[k]=1;
+    if(tombName&&_tombHas(tombName,k))return; // 지운 항목은 되살리지 않는다
+    out.push(v);
+  });
+  return out;
+}
+function _mergeRefData(a,b){
+  a=(a&&typeof a==='object'&&!Array.isArray(a))?a:{};
+  b=(b&&typeof b==='object'&&!Array.isArray(b))?b:{};
+  var out=_mergeMap(a,b),k;
+  for(k in out){
+    if(Array.isArray(a[k])||Array.isArray(b[k])){ out[k]=_mergeStrArr('refArr:'+k,a[k],b[k]); continue; }
+    var av=a[k],bv=b[k];
+    if(av&&bv&&typeof av==='object'&&typeof bv==='object'&&!Array.isArray(av)&&!Array.isArray(bv)){
+      var sub=_mergeMap(av,bv),s;
+      for(s in sub){ if(Array.isArray(av[s])||Array.isArray(bv[s]))sub[s]=_mergeStrArr('refArr:'+k+'.'+s,av[s],bv[s]); }
+      out[k]=sub;
+    }
+  }
+  return out;
+}
 function _mergeFactories(local,remote){
   local=(local&&typeof local==='object')?local:{}; remote=(remote&&typeof remote==='object')?remote:{};
   var out={},k;
@@ -1753,7 +1784,7 @@ function applyRemoteCoData(data,ts,opts){
   if(typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
   // 객체맵도 키 단위 병합(통째 교체 금지) — 원격 키 승, 로컬 전용 키 보존
   S.brandConfig=_mergeMap(S.brandConfig,data.brandConfig);
-  S.trimLedger=_mergeMap(S.trimLedger,data.trimLedger);S.trimLedgerPaid=_mergeMap(S.trimLedgerPaid,data.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(S.trimLedgerOvr,data.trimLedgerOvr);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeMap(S.refData,data.refData);
+  S.trimLedger=_mergeMap(S.trimLedger,data.trimLedger);S.trimLedgerPaid=_mergeMap(S.trimLedgerPaid,data.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(S.trimLedgerOvr,data.trimLedgerOvr);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeRefData(S.refData,data.refData);
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
   if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
@@ -2175,7 +2206,7 @@ async function cloudSyncSave(){
         S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(cloudCurrent.refCards,S.refCards,S._tomb.refCards);S.refCollections=_mergeById(cloudCurrent.refCollections,S.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(cloudCurrent.matExtra,S.matExtra,S._tomb.matExtra);
         // 객체맵 키 단위 병합(b=로컬 승) — 다른 기기가 추가한 키를 내 저장이 안 지움
         S.trimLedger=_mergeMap(cloudCurrent.trimLedger,S.trimLedger);S.trimLedgerPaid=_mergeMap(cloudCurrent.trimLedgerPaid,S.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(cloudCurrent.trimLedgerOvr,S.trimLedgerOvr);
-        S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeMap(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMap(cloudCurrent.brandConfig,S.brandConfig);
+        S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeRefData(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMap(cloudCurrent.brandConfig,S.brandConfig);
         // 할일판: 송신에도 _mt 최신판정 — 낡은 기기의 옛 보드가 클라우드의 새 보드(다른 기기 삭제 반영본)를 안 덮음. 동률=로컬 승(내가 저장 중)
         if(typeof _tbPick==='function')S.todoBoard=_tbPick(cloudCurrent.todoBoard,S.todoBoard);
         _entShadowInit(); // 병합 결과가 새 기준
@@ -3210,7 +3241,7 @@ async function cloudSyncLoad(id,opts){
         pickups:_mergeById(S.pickups,d.pickups,_tombNew.pickups),
         packages:_mergeById(S.packages,d.packages,_tombNew.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
         goals:_mergeById(S.goals,d.goals,_tombNew.goals),
-        trimLedger:_mergeMap(S.trimLedger,d.trimLedger),trimLedgerPaid:_mergeMap(S.trimLedgerPaid,d.trimLedgerPaid),trimLedgerOvr:_mergeMap(S.trimLedgerOvr,d.trimLedgerOvr),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refCollections:_mergeById(S.refCollections,d.refCollections,_tombNew.refCollections),matExtra:_mergeById(S.matExtra,d.matExtra,_tombNew.matExtra),refData:_mergeMap(S.refData,d.refData),
+        trimLedger:_mergeMap(S.trimLedger,d.trimLedger),trimLedgerPaid:_mergeMap(S.trimLedgerPaid,d.trimLedgerPaid),trimLedgerOvr:_mergeMap(S.trimLedgerOvr,d.trimLedgerOvr),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refCollections:_mergeById(S.refCollections,d.refCollections,_tombNew.refCollections),matExtra:_mergeById(S.matExtra,d.matExtra,_tombNew.matExtra),refData:_mergeRefData(S.refData,d.refData),
         tasks:_mergeById(S.tasks,d.tasks,_tombNew.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
         brandConfig:_mergeMap(S.brandConfig,d.brandConfig),
         deductions:_mergeById(S.deductions,d.deductions,_tombNew.deductions),
@@ -4857,12 +4888,21 @@ function saveToPB(item){
   for(const t of item.trims||[]){if(!t.supplier||!t.name)continue;
     // 부자재처(거래처) 동/호수 → 단가장 거래처 위치정보에 저장 (입력값 있을 때만)
     const pbSupT=getPB(t.supplier);if(t.building)pbSupT.building=t.building;if(t.floorRoom)pbSupT.room=t.floorRoom;
-    const key=pbKey(t.name,t.color||'',t.size||'');const _pbT=getPB(t.supplier);if(!_pbT.materials[key]&&!_pbT.materials[pbKey(t.name,t.color||'')])continue; // 단가장 미등록은 자동 생성 안 함
-    const existing=_pbT.materials[key]||_pbT.materials[pbKey(t.name,t.color||'')]||{};
+    /* ★2026-08-14 단가장 중복 증식 수정.
+       pbKey에는 사이즈가 들어간다. 예전엔 "이름만 맞으면 통과"시켜 놓고 저장은 t.size를 붙인 **새 키**로 해서,
+       아이템마다 사이즈 글자가 조금만 달라도(44 / 44") 단가장에 항목이 계속 늘어났다.
+       아이템 자동저장이 2.5초마다 도니 지워도 바로 되살아남 → "중복을 다 지웠는데 자꾸 생긴다".
+       이제 **실제로 매칭된 키에만 다시 쓴다**(정확한 키 우선, 없으면 사이즈 없는 이름 키). 새 키는 절대 안 만든다.
+       사이즈별 단가 항목이 따로 필요하면 단가장에서 직접 등록하면 되고, 그때는 정확한 키가 매칭된다. */
+    const _pbT=getPB(t.supplier);
+    const _kSz=pbKey(t.name,t.color||'',t.size||''),_kNm=pbKey(t.name,t.color||'');
+    const key=_pbT.materials[_kSz]?_kSz:(_pbT.materials[_kNm]?_kNm:'');
+    if(!key)continue; // 단가장 미등록은 자동 생성 안 함
+    const existing=_pbT.materials[key]||{};
     // 단가 보호: 새 단가가 0이면 기존 단가 유지
     const newTP=+t.unitPrice||0;
     const finalTP=newTP>0?newTP:(existing.unitPrice||0);
-    var pbEntry={...existing,type:'trim',name:t.name,color:t.color||'',orderType:t.orderType||'count',unitPrice:finalTP,unit:t.unit||existing.unit||'yard',size:t.size||existing.size||'',yardsPerRoll:t.yardsPerRoll||existing.yardsPerRoll||null,
+    var pbEntry={...existing,type:'trim',name:t.name,color:t.color||'',orderType:t.orderType||'count',unitPrice:finalTP,unit:t.unit||existing.unit||'yard',size:existing.size||t.size||'',yardsPerRoll:t.yardsPerRoll||existing.yardsPerRoll||null,
       consumptionPerPiece:(t.consumptionPerPiece!=null&&t.consumptionPerPiece!==''?+t.consumptionPerPiece:(existing.consumptionPerPiece!=null?existing.consumptionPerPiece:null)),
       qtyPerPiece:(t.qtyPerPiece!=null&&t.qtyPerPiece!==''?+t.qtyPerPiece:(existing.qtyPerPiece!=null?existing.qtyPerPiece:null)),
       useMinSplit:(t.useMinSplit!=null?!!t.useMinSplit:existing.useMinSplit),
@@ -5593,7 +5633,7 @@ function _pbCatOrder(){ var l=getTrimCategories().slice(); l.push('미분류'); 
 function _saveTrimCat(){try{savePB();}catch(e){}try{saveData();}catch(e){}}
 async function addTrimCategory(){var nm=(await appPrompt('새 부자재 종류 이름 (예: 심지, 밴드, 테잎)')||'').trim();if(!nm)return '';var list=getTrimCategories();if(list.indexOf(nm)<0){list.push(nm);S.refData.trimCategories=list;_saveTrimCat();}if(typeof renderBook==='function')renderBook();return nm;}
 function renameTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;var nm=(prompt('종류 이름 변경',old)||'').trim();if(!nm||nm===old)return;if(list.indexOf(nm)>=0&&list.indexOf(nm)!==idx){showToast('이미 있는 종류예요');return;}list[idx]=nm;S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category=nm;});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
-function deleteTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;if(!confirm('"'+old+'" 종류를 삭제할까요?\n이 종류로 지정된 부자재는 미분류가 돼요.'))return;list.splice(idx,1);S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category='';});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
+function deleteTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;if(!confirm('"'+old+'" 종류를 삭제할까요?\n이 종류로 지정된 부자재는 미분류가 돼요.'))return;list.splice(idx,1);_tombArr('refArr:trimCategories',old);/* 다른 기기에서 되살아나지 않게 */S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category='';});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
 async function setPbMatCategory(encSup,encKey,val){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);var pb=S.priceBook[sup];if(!pb||!pb.materials[key])return;if(val==='__new'){var nm=await addTrimCategory();if(!nm)return;pb.materials[key].category=nm;}else{pb.materials[key].category=val;}_saveTrimCat();if(typeof renderBookList==='function')renderBookList();}
 function toggleTrimCatEdit(){window._pbCatEdit=!window._pbCatEdit;if(typeof renderBook==='function')renderBook();}
 function _trimCatBarHTML(){
@@ -7322,7 +7362,11 @@ function renderColorChips(){const el=document.getElementById('color-chips');if(!
    접혀 있으면 DOM에 입력칸이 없으므로 colLaborBySize는 메모리(formLaborBySize) 값을 지킨다. */
 function renderLaborSizes(){
   var el=document.getElementById('labor-size-wrap');if(!el)return;
-  if(!formSizes.length){el.innerHTML='';return;}
+  if(!formSizes.length){
+    // 사이즈 미등록 아이템: 예전엔 빈칸이라 기능 자체가 없는 줄 알게 됐다 → 왜 안 보이는지 알려준다
+    el.innerHTML='<div style="font-size:11px;color:#9aa0a8">위 「사이즈」에 사이즈를 추가하면 여기서 사이즈별 공임을 따로 넣을 수 있어요</div>';
+    return;
+  }
   var on=!!window._laborSzOn;
   var h='<button type="button" class="btn s" onclick="toggleLaborBySize()" style="font-size:11px;padding:3px 10px">'+(on?'사이즈별 공임 접기':'사이즈별로 다르게')+'</button>';
   if(on){
@@ -9019,6 +9063,7 @@ function loadDraft(){
   formFabs=JSON.parse(JSON.stringify(d.fabrics||[]));
   formTrims=JSON.parse(JSON.stringify(d.trims||[]));
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
+  try{renderLaborSizes();}catch(e){}
   setTimeout(refreshWorkRoute,0);
   const ind=document.getElementById('draft-ind');
   if(ind)ind.textContent=`임시저장본 불러옴 (${d.savedAt})`;
@@ -9245,6 +9290,7 @@ function showItemForm(id){
     <div class="fg"><label>메모</label><textarea id="f-notes" rows="2" oninput="scheduleDraft()">${esc(p.notes||'')}</textarea></div>
     <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="hideItemForm()">닫기</button><button class="btn p" onclick="saveItemForm()">✓ 저장</button></div>`;
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
+  try{renderLaborSizes();}catch(e){}
   setTimeout(refreshWorkRoute,0);
 }
 function refreshWorkRoute(){
@@ -13723,9 +13769,18 @@ function cloneOrder(oid){
 
 /* 개당 가공비가 걸린 부자재의 벌당 개수(요척) — 개당=부자재1개당이라 벌당개수만큼 곱해야 함. 연결 부자재 없으면 1 */
 function getProcKinds(){S.refData=S.refData||{};if(!Array.isArray(S.refData.procKinds)||!S.refData.procKinds.length)S.refData.procKinds=['바이어스 재단','파이핑 제작','본딩','누빔'];return S.refData.procKinds;}
-function addProcKind(i){var nm=(prompt('새 가공 종류 이름 (예: 스티치, 아일렛)')||'').trim();if(!nm)return;var l=getProcKinds();if(l.indexOf(nm)<0){l.push(nm);try{saveData();}catch(e){}}
-  colTrimCosts();var tc=formTrimCosts[i];if(tc)tc.procKind=nm;renderTrimCostRows();}
-function setProcKind(i,v){colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;if(v==='__add__'){addProcKind(i);return;}tc.procKind=v;renderTrimCostRows();}
+/* ⚠️ 가공비 줄은 두 군데에 그려진다 — 부자재 카드 안 「가공·염색」 탭(renderTrimRows)과
+   카드 밖 독립 가공비(renderTrimCostRows). 예전엔 renderTrimCostRows만 불러서,
+   카드 안에서 「＋ 종류 추가」를 하면 목록이 안 바뀌고 셀렉트가 「＋ 종류 추가…」에 멈춰 있었다
+   (신고 2026-08-14 "종류 추가했는데 왜 안 나와"). 둘 다 다시 그린다.
+   다시 그리기 전 colTR()로 입력 중인 부자재 값을 먼저 거둔다(안 하면 타이핑하던 게 날아감).
+   부자재 카드의 열린 탭은 window._trimUI[t.id].tab에 남아 있어 그대로 복원된다. */
+function _procKindRerender(){try{colTR();}catch(e){}try{renderTrimRows();}catch(e){}try{renderTrimCostRows();}catch(e){}}
+function addProcKind(i){var nm=(prompt('새 가공 종류 이름 (예: 스티치, 아일렛)')||'').trim();
+  if(!nm){_procKindRerender();return;} // 취소해도 셀렉트가 「＋ 종류 추가…」에 멈춰 있지 않게 되돌린다
+  var l=getProcKinds();if(l.indexOf(nm)<0){l.push(nm);try{saveData();}catch(e){}}
+  colTrimCosts();var tc=formTrimCosts[i];if(tc)tc.procKind=nm;_procKindRerender();}
+function setProcKind(i,v){colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;if(v==='__add__'){addProcKind(i);return;}tc.procKind=v;_procKindRerender();}
 function _tcQtyPerPiece(tc,trims){var t=(trims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});var q=t?+t.qtyPerPiece:0;return q>0?q:1;}
 /* 조건부(tier) 가공비 — 원가에서도 수량 보고 판단 (2026-07-28 사용자 확정)
    부자재 총개수(만들 장수 × 벌당개수)가 기준 이하면 '정액'(13,000원), 넘으면 '개당'(40원).
