@@ -249,6 +249,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-pay" onclick="switchTab('pay')">결제 관리</button>
   <button class="ntab" id="nt-ledger" onclick="switchTab('ledger')">부자재 결제</button>
   <button class="ntab" id="nt-courier" onclick="switchTab('courier')">택배 시재</button>
+  <button class="ntab" id="nt-material" onclick="switchTab('material')">소재 관리</button>
   <button class="ntab" id="nt-book" onclick="window._bookScope='fabric';switchTab('book')">원단 단가장</button>
   <button class="ntab" id="nt-booktrim" onclick="window._bookScope='trim';switchTab('book')">부자재 단가장</button>
   <button class="ntab" id="nt-pricecompare" onclick="switchTab('pricecompare')">단가 비교</button>
@@ -381,6 +382,10 @@ tryInitFirebase();
   <!-- 레퍼런스 (앞뒤 사진 + 설명, A4 가로 카드) -->
   <div id="pane-reference" class="panel" style="display:none">
     <div id="reference-body"></div>
+  </div>
+  <!-- 소재 관리 (원단·부자재를 사진으로 훑고 용도로 찾는 탭) -->
+  <div id="pane-material" class="panel" style="display:none">
+    <div id="material-body"></div>
   </div>
   <!-- Orders - split -->
   <div id="pane-orders" class="split" style="display:none">
@@ -1687,7 +1692,7 @@ function _mergeById(a,b,tomb){
 }
 var _mergeTasksById=_mergeById;   // 구명 호환
 // ── 배열 묘비(tombstone): 지운 id를 S._tomb.<배열명>에 기록 → 병합 때 부활 차단 (items/orders의 _entMerge 무덤과 동일 사상)
-var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections'];
+var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra'];
 function _tombArr(name,id){ try{ if(!id)return; if(!S._tomb)S._tomb={}; if(!S._tomb[name])S._tomb[name]={}; S._tomb[name][id]=(typeof todayISO==='function'?todayISO():new Date().toISOString().slice(0,10)); }catch(e){} }
 // 배열에서 조건에 맞는 항목 삭제 + 묘비 기록 (모든 삭제는 가급적 이걸 통해서)
 function _arrDelWhere(name,pred){ var a=S[name]||[],keep=[],n=0; a.forEach(function(x){ if(x&&pred(x)){ if(x.id)_tombArr(name,x.id); n++; } else keep.push(x); }); S[name]=keep; return n; }
@@ -1743,12 +1748,12 @@ function applyRemoteCoData(data,ts,opts){
   _mergeArrTombs(_ctombR);
   S.tasks=_mergeById(S.tasks,data.tasks,S._tomb.tasks);S.pickups=_mergeById(S.pickups,data.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(S.sampleOrders,data.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(S.deductions,data.deductions,S._tomb.deductions);
   // 이전엔 실시간 수신에서 아예 빠져 있던 필드들(다른 기기 변경이 새로고침 전 미반영) — 병합으로 반영
-  S.packages=_mergeById(S.packages,data.packages,S._tomb.packages);S.goals=_mergeById(S.goals,data.goals,S._tomb.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(S.refCards,data.refCards,S._tomb.refCards);S.refCollections=_mergeById(S.refCollections,data.refCollections,S._tomb.refCollections);
+  S.packages=_mergeById(S.packages,data.packages,S._tomb.packages);S.goals=_mergeById(S.goals,data.goals,S._tomb.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(S.refCards,data.refCards,S._tomb.refCards);S.refCollections=_mergeById(S.refCollections,data.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(S.matExtra,data.matExtra,S._tomb.matExtra);
   if(typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
   // 객체맵도 키 단위 병합(통째 교체 금지) — 원격 키 승, 로컬 전용 키 보존
   S.brandConfig=_mergeMap(S.brandConfig,data.brandConfig);
   S.trimLedger=_mergeMap(S.trimLedger,data.trimLedger);S.trimLedgerPaid=_mergeMap(S.trimLedgerPaid,data.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(S.trimLedgerOvr,data.trimLedgerOvr);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeMap(S.refData,data.refData);
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
   if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -1758,7 +1763,7 @@ function applyRemoteOrders(orders,tomb){
   _entEnsureTomb();
   var _mo=_entMerge(S.orders||{},orders,S._tomb.orders,tomb,'cloud');
   S.orders=_mo.map; S._tomb.orders=_mo.tomb;
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){}
   try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -2166,7 +2171,7 @@ async function cloudSyncSave(){
         _mergeArrTombs(_ctombS);
         S.tasks=_mergeById(cloudCurrent.tasks,S.tasks,S._tomb.tasks);
         S.pickups=_mergeById(cloudCurrent.pickups,S.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(cloudCurrent.sampleOrders,S.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(cloudCurrent.deductions,S.deductions,S._tomb.deductions);
-        S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(cloudCurrent.refCards,S.refCards,S._tomb.refCards);S.refCollections=_mergeById(cloudCurrent.refCollections,S.refCollections,S._tomb.refCollections);
+        S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(cloudCurrent.refCards,S.refCards,S._tomb.refCards);S.refCollections=_mergeById(cloudCurrent.refCollections,S.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(cloudCurrent.matExtra,S.matExtra,S._tomb.matExtra);
         // 객체맵 키 단위 병합(b=로컬 승) — 다른 기기가 추가한 키를 내 저장이 안 지움
         S.trimLedger=_mergeMap(cloudCurrent.trimLedger,S.trimLedger);S.trimLedgerPaid=_mergeMap(cloudCurrent.trimLedgerPaid,S.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(cloudCurrent.trimLedgerOvr,S.trimLedgerOvr);
         S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeMap(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMap(cloudCurrent.brandConfig,S.brandConfig);
@@ -2188,7 +2193,7 @@ async function cloudSyncSave(){
       pickups:S.pickups||[],
       packages:S.packages||[],
       goals:S.goals||[],
-      trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},
+      trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},
       todoBoard:S.todoBoard||{},
       tasks:S.tasks||[],
       brandConfig:S.brandConfig||{},
@@ -2703,7 +2708,7 @@ function recoverFromAutoBackup(idx){
     S.pickups=d.pickups||[];
     S.packages=d.packages||[];
     S.goals=d.goals||[];
-    S.trimLedger=d.trimLedger||{};S.trimLedgerPaid=d.trimLedgerPaid||{};S.trimLedgerOvr=d.trimLedgerOvr||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refCollections=d.refCollections||[];S.refData=d.refData||{};
+    S.trimLedger=d.trimLedger||{};S.trimLedgerPaid=d.trimLedgerPaid||{};S.trimLedgerOvr=d.trimLedgerOvr||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refCollections=d.refCollections||[];S.matExtra=d.matExtra||[];S.refData=d.refData||{};
     S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{};
     S.deductions=d.deductions||[];
@@ -2722,7 +2727,7 @@ function recoverFromAutoBackup(idx){
 // 현재 메모리 상태를 백업 파일로 즉시 다운로드 (저장 실패 시 안전망)
 function _downloadBackupNow(){
   try{
-    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions,todoBoard:S.todoBoard||{}};
+    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions,todoBoard:S.todoBoard||{}};
     var out={version:'pro2',ts:new Date().toISOString(),companies:companies,allCoData:allCo,shared:{factories:S.factories,priceBook:S.priceBook}};
     var blob=new Blob([JSON.stringify(out)],{type:'application/json'});var url=URL.createObjectURL(blob);
     var a=document.createElement('a');a.href=url;a.download='fpm복구본-'+Date.now()+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
@@ -2739,7 +2744,7 @@ function recoverFromHourlyBackup(idx){
     if(typeof tpMergeLocalImages==='function'){ try{newItems=tpMergeLocalImages(newItems,S.items||{});}catch(e){} }
     S.items=newItems;
     S.orders=d.orders||{}; S.brands=d.brands||[]; S.sampleOrders=d.sampleOrders||[];
-    S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.trimLedger=d.trimLedger||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refCollections=d.refCollections||[];S.refData=d.refData||{}; S.tasks=d.tasks||[];
+    S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.trimLedger=d.trimLedger||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refCollections=d.refCollections||[];S.matExtra=d.matExtra||[];S.refData=d.refData||{}; S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{}; S.deductions=d.deductions||[];
     S.todoBoard=d.todoBoard||{}; // ★할일판 복원
     var _saveOk2=true; try{saveData();}catch(se){_saveOk2=false;console.error('[매시간백업 복구] saveData 실패:',se);}
@@ -3204,7 +3209,7 @@ async function cloudSyncLoad(id,opts){
         pickups:_mergeById(S.pickups,d.pickups,_tombNew.pickups),
         packages:_mergeById(S.packages,d.packages,_tombNew.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
         goals:_mergeById(S.goals,d.goals,_tombNew.goals),
-        trimLedger:_mergeMap(S.trimLedger,d.trimLedger),trimLedgerPaid:_mergeMap(S.trimLedgerPaid,d.trimLedgerPaid),trimLedgerOvr:_mergeMap(S.trimLedgerOvr,d.trimLedgerOvr),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refCollections:_mergeById(S.refCollections,d.refCollections,_tombNew.refCollections),refData:_mergeMap(S.refData,d.refData),
+        trimLedger:_mergeMap(S.trimLedger,d.trimLedger),trimLedgerPaid:_mergeMap(S.trimLedgerPaid,d.trimLedgerPaid),trimLedgerOvr:_mergeMap(S.trimLedgerOvr,d.trimLedgerOvr),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refCollections:_mergeById(S.refCollections,d.refCollections,_tombNew.refCollections),matExtra:_mergeById(S.matExtra,d.matExtra,_tombNew.matExtra),refData:_mergeMap(S.refData,d.refData),
         tasks:_mergeById(S.tasks,d.tasks,_tombNew.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
         brandConfig:_mergeMap(S.brandConfig,d.brandConfig),
         deductions:_mergeById(S.deductions,d.deductions,_tombNew.deductions),
@@ -3217,7 +3222,7 @@ async function cloudSyncLoad(id,opts){
       lsSet('fpm_'+id,{
         items:S.items,orders:S.orders,_tomb:S._tomb||{},
         brands:S.brands,sampleOrders:S.sampleOrders,
-        pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,
+        pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,
         brandConfig:S.brandConfig,deductions:S.deductions
       });
       lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
@@ -3384,7 +3389,7 @@ function autoLocalBackup(){
       data:{
         items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,
         orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],
-        packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],
+        packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],
         brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]
       }
     };
@@ -3407,7 +3412,7 @@ function autoHourlyBackup(){
     var list=window._hbkCache;
     if(list.length&&list[list.length-1].stamp===stamp)return; // 이번 시간 이미 저장됨
     var snap={stamp:stamp,ts:Date.now(),hr:hr,date:(now.getMonth()+1)+'/'+now.getDate(),n:Object.keys(items).length,
-      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
+      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
     list.push(snap); while(list.length>HBK_MAX)list.shift();
     idbBkSet('fpm_hbk_'+curCoId,list).catch(function(){}); // IndexedDB에 비동기 저장
   }catch(e){}
@@ -3423,7 +3428,7 @@ function saveData(){
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   window._lsQuotaErr=false;
-  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
@@ -3457,7 +3462,7 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
+  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{_entShadowInit();}catch(e){} // 항목별 병합 기준선 — 마이그레이션 "이후"에 찍어야 기계적 변경이 _mt 오염 안 함
@@ -3500,6 +3505,7 @@ function migrateData(){
   if(!S.goals)S.goals=[];
   if(!S.defectRecs)S.defectRecs=[];
   if(!Array.isArray(S.refCards))S.refCards=[];
+  if(!Array.isArray(S.matExtra))S.matExtra=[];
   if(!Array.isArray(S.refCollections))S.refCollections=[];
   if(!S.trimLedger)S.trimLedger={};if(!S.trimLedgerOvr)S.trimLedgerOvr={};
   if(!S.trimLedgerPaid)S.trimLedgerPaid={};
@@ -3763,6 +3769,22 @@ function migrateData(){
           if(_chg)recomputeShipping(sch);
         }
       }
+    /* 저장돼 있는 shippingQty/shippingGrid에 「수선중」·「잔량(미출고)」이 섞여 있으면 걷어낸다 (2026-08-14).
+         섞인 회차가 있는 스케줄만 손대고, shipments가 아예 없는 옛 수기 입력값은 그대로 둔다.
+         날짜(shippingDate)는 건드리지 않는다 — 손으로 맞춰둔 출고일이 밀리면 안 되므로. */
+      if(Array.isArray(sch.shipments)&&sch.shipments.length&&sch.shipments.some(function(s){return _shipExcl(s);})){
+        var _mg={},_mt=0;
+        sch.shipments.forEach(function(s){
+          if(!s||_shipExcl(s))return;
+          var q=+s.qty||0;if(!q)return;
+          _mt+=q;
+          if(!s.itemId)return;
+          var _i=s.itemId,_c=s.color||'',_z=s.size||'';
+          _mg[_i]=_mg[_i]||{};_mg[_i][_c]=_mg[_i][_c]||{};
+          _mg[_i][_c][_z]=(_mg[_i][_c][_z]||0)+q;
+        });
+        sch.shippingGrid=_mg;sch.shippingQty=_mt;
+      }
       if(sch.processDone===undefined)sch.processDone=false;
       if(!sch.processDate)sch.processDate='';
       if(sch.advanceRate===undefined)sch.advanceRate=0;
@@ -3802,13 +3824,13 @@ function _collectBackupData(){
     if(cid===curCoId){
       allCoData[cid]={
         items:S.items||{},orders:S.orders||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],
-        pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],refData:S.refData||{},tasks:S.tasks||[],
+        pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},tasks:S.tasks||[],
         brandConfig:S.brandConfig||{},deductions:S.deductions||[]
       };
     }else{
       allCoData[cid]={
         items:d.items||{},orders:d.orders||{},brands:d.brands||[],sampleOrders:d.sampleOrders||[],
-        pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],refData:d.refData||{},tasks:d.tasks||[],
+        pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],refData:d.refData||{},tasks:d.tasks||[],
         brandConfig:d.brandConfig||{},deductions:d.deductions||[]
       };
     }
@@ -4225,6 +4247,7 @@ var PD_NAVTABS=[
   {k:'pay',label:'결제',icon:'',fn:function(){switchTab('pay');}},
   {k:'ledger',label:'부자재 결제',icon:'',fn:function(){switchTab('ledger');}},
   {k:'courier',label:'택배 시재',icon:'',fn:function(){switchTab('courier');}},
+  {k:'material',label:'소재 관리',icon:'',fn:function(){switchTab('material');}},
   {k:'book',label:'원단 단가장',icon:'',fn:function(){window._bookScope='fabric';switchTab('book');}},
   {k:'booktrim',label:'부자재 단가장',icon:'',fn:function(){window._bookScope='trim';switchTab('book');}},
   {k:'pricecompare',label:'단가 비교',icon:'',fn:function(){switchTab('pricecompare');}},
@@ -4238,7 +4261,7 @@ var PD_NAVGROUPS=[
   {label:'아이템',keys:['cinv','items','linesheet','idea','dosik','ref']},
   {label:'생산',keys:['dash','orders','yocheok','defect','leftover']},
   {label:'작업',keys:['todoboard','tasks','route','jaedan']},
-  {label:'결제·단가',keys:['pay','ledger','courier','book','booktrim','pricecompare']},
+  {label:'결제·단가',keys:['pay','ledger','courier','material','book','booktrim','pricecompare']},
   {label:'기타',keys:['vendors','brand','analytics']}
 ];
 function getBottomTabs(){
@@ -4289,7 +4312,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','reference','yocheok','jaedan','ledger','courier','cinv','pricecompare'].forEach(n=>{
+  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','reference','yocheok','jaedan','ledger','courier','cinv','pricecompare','material'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -4342,6 +4365,7 @@ function switchTab(t){
     else if(t==='courier')renderCourierLedger();
     else if(t==='cinv')renderCiTab();
     else if(t==='pricecompare')pcSyncFromCloud();
+    else if(t==='material')renderMaterial();
   }catch(err){
     console.error('Tab render error:',err);
     if(pane)pane.innerHTML=`<div class="warn-box" style="margin:1rem">화면 오류: ${esc(err.message)}<br><div class="muted" style="margin-top:4px">새로고침 후 다시 시도해주세요</div></div>`;
@@ -5721,6 +5745,525 @@ function pbDetailAddPriceRow(encSup,encKey){var sup=decodeURIComponent(encSup),k
 function pbDetailDelPriceRow(encSup,encKey,ri){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);var m=S.priceBook[sup]&&S.priceBook[sup].materials[key];if(!m||!m.priceMatrix)return;m.priceMatrix.splice(ri,1);savePB();_pbdRefresh();}
 function pbDetailSetPriceCell(encSup,encKey,ri,encAxis,val){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey),axis=decodeURIComponent(encAxis);var m=S.priceBook[sup]&&S.priceBook[sup].materials[key];if(!m||!m.priceMatrix||!m.priceMatrix[ri])return;m.priceMatrix[ri].vals=m.priceMatrix[ri].vals||{};m.priceMatrix[ri].vals[axis]=val;savePB();}
 function pbDetailSetPriceVal(encSup,encKey,ri,val){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);var m=S.priceBook[sup]&&S.priceBook[sup].materials[key];if(!m||!m.priceMatrix||!m.priceMatrix[ri])return;m.priceMatrix[ri].price=+val||0;savePB();}
+/* ===================== 소재 관리 탭 (2026-08-14 신규) =====================
+   · 목록 = 단가장 원단/부자재(S.priceBook) + 직접 추가 소재(S.matExtra) 합침
+   · 단가장 소재의 부가정보(용도·상태·실물위치·요청수령·사진)는 그 단가장 항목에 그대로 저장
+     → 원단 라이브러리가 쓰던 자리와 동일(swatches/tags/issues/pros/cons 승계, 이중 저장 없음)
+   · 직접 추가 소재만 S.matExtra(top-level 배열) — defectRecs/refCards와 동일하게 _mergeById+묘비
+   · 사진은 URL만 저장(tpUpload) — 기존 작지/레퍼런스와 동일 원칙
+   ------------------------------------------------------------------------ */
+var MT_STATUS={main:'양산 씀',sample:'샘플만 씀',sourced:'수배만 함',req:'스와치 요청중'};
+var MT_USES=['자켓','코트','셔츠','원피스','치마','바지','셋업','안감','공통'];
+function _mtS(){ if(!window._mt)window._mt={kind:'all',view:'grid',q:'',use:[],status:[],sw:'',sup:[],sort:'recent'}; return window._mt; }
+function _mtKeyPB(sup,name){return 'pb:'+encodeURIComponent(sup)+'|'+encodeURIComponent(name);}
+function _mtParse(key){
+  if(key.indexOf('ex:')===0)return {src:'ex',id:key.slice(3)};
+  var b=key.slice(3).split('|');
+  return {src:'pb',sup:decodeURIComponent(b[0]||''),name:decodeURIComponent(b[1]||'')};
+}
+/* 저장 대상 객체(부가정보가 실제로 들어가는 곳) */
+function _mtRec(key){
+  var k=_mtParse(key);
+  if(k.src==='ex')return (S.matExtra||[]).find(function(x){return x&&x.id===k.id;})||null;
+  return _fabE(k.sup,k.name);
+}
+function _mtSave(key){
+  if(key.indexOf('ex:')===0){ var r=_mtRec(key); if(r)r.updatedAt=Date.now(); saveData(); }
+  else savePB();
+}
+/* 단가장 + 직접추가를 한 목록으로 */
+function _mtAll(){
+  var out=[];
+  Object.keys(S.priceBook||{}).forEach(function(sup){
+    var pb=S.priceBook[sup]||{},mats=pb.materials||{};
+    Object.keys(mats).forEach(function(nm){
+      var e=mats[nm]; if(!e)return;
+      var kind=(e.type==='trim')?'trim':(e.type==='fabric'?'fabric':null);
+      if(!kind)return;
+      out.push({key:_mtKeyPB(sup,nm),src:'pb',kind:kind,name:nm,sup:sup,rec:e,
+        loc:[pb.market||'',pb.building||'',pb.room||''].filter(Boolean).join(' '),
+        comp:e.composition||'',width:e.width||'',priceN:(e.unitPrice!=null&&e.unitPrice!=='')?(+e.unitPrice||0):'',price:(e.unitPrice!=null&&e.unitPrice!=='')?num(e.unitPrice):'',
+        unit:(e.pricingUnit==='kg'?'kg':(kind==='trim'?(e.rollUnit||'개'):'y')),ord:0});
+    });
+  });
+  (S.matExtra||[]).forEach(function(x){
+    if(!x||!x.id)return;
+    out.push({key:'ex:'+x.id,src:'ex',kind:x.kind||'fabric',name:x.name||'(이름없음)',sup:x.sup||'',rec:x,
+      loc:x.loc||'',comp:x.composition||'',width:x.width||'',priceN:(x.unitPrice!=null&&x.unitPrice!=='')?(+x.unitPrice||0):'',price:(x.unitPrice!=null&&x.unitPrice!=='')?num(x.unitPrice):'',
+      unit:x.unit||'y',ord:x.createdAt||0});
+  });
+  return out;
+}
+/* 이 소재를 쓴 아이템 (원단·부자재 둘 다) */
+function _mtUsage(m){
+  var used=[];
+  Object.values(S.items||{}).forEach(function(it){
+    var hit=(m.kind==='trim')
+      ? (it.trims||[]).some(function(t){return t&&t.supplier===m.sup&&t.name===m.name;})
+      : (it.fabrics||[]).some(function(f){return f&&f.supplier===m.sup&&f.name===m.name;});
+    if(hit){
+      var ph=(typeof deriveItemBadge==='function')?deriveItemBadge(it).phase:'';
+      used.push({id:it.id,name:it.name||'(이름없음)',phase:ph});
+    }
+  });
+  return used;
+}
+/* 상태 = 직접 지정(mStatus) 우선, 없으면 쓴 아이템·스와치 요청으로 자동 판정 */
+function _mtStatus(m,usage){
+  var r=m.rec||{};
+  if(r.mStatus&&MT_STATUS[r.mStatus])return r.mStatus;
+  var u=usage||_mtUsage(m);
+  if(u.some(function(x){return x.phase==='main'||x.phase==='reorder';}))return 'main';
+  if(u.length)return 'sample';
+  var rq=r.mReq||{};
+  if(rq.ask&&!rq.got)return 'req';
+  return 'sourced';
+}
+function _mtUses(m){var u=(m.rec&&m.rec.mUses)||[];return Array.isArray(u)?u:[];}
+function _mtPhotos(m){var a=(m.rec&&m.rec.swatches)||[];return Array.isArray(a)?a:[];}
+function _mtSpecLine(m){
+  var bits=[];
+  if(m.comp)bits.push(String(m.comp).replace(/\n/g,' '));
+  if(m.kind!=='trim'&&m.width)bits.push(m.width+'"');
+  if(m.rec&&m.rec.size)bits.push(m.rec.size);
+  return bits.join(' · ');
+}
+/* ── 검색·필터 ── */
+function _mtHay(m,usage){
+  var r=m.rec||{},u=_mtUses(m);
+  return [m.name,m.sup,m.comp,m.loc,r.mSwLoc||'',MT_STATUS[_mtStatus(m,usage)],(r.tags||[]).join(' '),
+          u.join(' '),u.map(function(x){return x+'용';}).join(' '),
+          (usage||[]).map(function(x){return x.name;}).join(' ')].join(' ').toLowerCase();
+}
+function _mtPass(m,skip){
+  var st=_mtS(),usage=m._usage||(m._usage=_mtUsage(m)),r=m.rec||{};
+  if(st.kind!=='all'&&m.kind!==st.kind)return false;
+  if(skip!=='use'&&st.use.length){var mu=_mtUses(m);if(!st.use.some(function(x){return mu.indexOf(x)>=0;}))return false;}
+  if(skip!=='status'&&st.status.length&&st.status.indexOf(_mtStatus(m,usage))<0)return false;
+  if(skip!=='sup'&&st.sup.length&&st.sup.indexOf(m.sup)<0)return false;
+  if(skip!=='sw'&&st.sw){var has=!!(r.mSwLoc||'').trim();if(st.sw==='y'&&!has)return false;if(st.sw==='n'&&has)return false;}
+  var q=(st.q||'').toLowerCase().trim();
+  if(q){
+    var hay=m._hay||(m._hay=_mtHay(m,usage));
+    if(hay.indexOf(q)<0&&hay.replace(/\s/g,'').indexOf(q.replace(/\s/g,''))<0)return false;
+  }
+  return true;
+}
+function mtSetKind(k){_mtS().kind=k;renderMaterial();}
+function mtSetView(v){_mtS().view=v;renderMaterial();}
+function mtSetSort(v){_mtS().sort=v;renderMaterial();}
+function mtSearch(v){_mtS().q=v;clearTimeout(window._mtT);window._mtT=setTimeout(renderMaterial,150);}
+function mtTog(k,v){var a=_mtS()[k],i=a.indexOf(v);if(i<0)a.push(v);else a.splice(i,1);renderMaterial();}
+function mtTogSw(v){var st=_mtS();st.sw=(st.sw===v?'':v);renderMaterial();}
+function mtReset(){window._mt={kind:_mtS().kind,view:_mtS().view,q:'',use:[],status:[],sw:'',sup:[],sort:_mtS().sort};renderMaterial();}
+function mtSheet(on){var b=document.getElementById('mt-sheet-bg'),sh=document.getElementById('mt-sheet');if(!b||!sh)return;b.style.display=on?'block':'none';sh.classList.toggle('on',!!on);}
+
+/* ── 렌더 ── */
+function _mtChip(v,label,cur){return '<span class="mt-kchip'+(cur===v?' on':'')+'" onclick="mtSetKind(\''+v+'\')">'+esc(label)+'</span>';}
+function _mtOpt(key,val,label,n){
+  var st=_mtS(),on=(key==='sw')?(st.sw===val):(st[key].indexOf(val)>=0);
+  var fn=(key==='sw')?("mtTogSw('"+val+"')"):("mtTog('"+key+"','"+encodeURIComponent(val).replace(/'/g,'%27')+"')");
+  if(key!=='sw')fn="mtTog('"+key+"',decodeURIComponent('"+encodeURIComponent(val)+"'))";
+  return '<span class="mt-fo'+(on?' on':'')+(n?'':' zero')+'" onclick="'+fn+'">'+esc(label)+'<span class="n">'+n+'</span></span>';
+}
+function _mtCount(rows,key,val){
+  return rows.filter(function(m){
+    if(!_mtPass(m,key))return false;
+    if(key==='use')return _mtUses(m).indexOf(val)>=0;
+    if(key==='status')return _mtStatus(m,m._usage)===val;
+    if(key==='sup')return m.sup===val;
+    if(key==='sw'){var h=!!((m.rec&&m.rec.mSwLoc||'').trim());return val==='y'?h:!h;}
+    return true;
+  }).length;
+}
+function _mtFiltersHTML(all){
+  var base=all.filter(function(m){var k=_mtS().kind;return k==='all'||m.kind===k;});
+  var sups=[];base.forEach(function(m){if(m.sup&&sups.indexOf(m.sup)<0)sups.push(m.sup);});
+  sups.sort();
+  var h='';
+  h+='<div class="mt-fg"><div class="mt-ft">용도</div><div class="mt-fo-w">'+MT_USES.map(function(u){return _mtOpt('use',u,u,_mtCount(base,'use',u));}).join('')+'</div></div>';
+  h+='<div class="mt-fg"><div class="mt-ft">상태</div><div class="mt-fo-w">'+Object.keys(MT_STATUS).map(function(s){return _mtOpt('status',s,MT_STATUS[s],_mtCount(base,'status',s));}).join('')+'</div></div>';
+  h+='<div class="mt-fg"><div class="mt-ft">실물 스와치</div><div class="mt-fo-w">'+_mtOpt('sw','y','가지고 있음',_mtCount(base,'sw','y'))+_mtOpt('sw','n','없음',_mtCount(base,'sw','n'))+'</div></div>';
+  if(sups.length)h+='<div class="mt-fg"><div class="mt-ft">업체</div><div class="mt-fo-w">'+sups.map(function(s){return _mtOpt('sup',s,s,_mtCount(base,'sup',s));}).join('')+'</div></div>';
+  return h;
+}
+function _mtPhStyle(m){
+  var p=_mtPhotos(m)[0];
+  if(p)return "background:#fff url('"+String(p).replace(/'/g,"%27")+"') center/cover no-repeat";
+  return 'background:'+((m.rec&&m.rec.mColor)||'#e5e2dc');
+}
+function _mtCardHTML(m){
+  var usage=m._usage||(m._usage=_mtUsage(m)),stt=_mtStatus(m,usage),sw=(m.rec&&m.rec.mSwLoc||'').trim();
+  var uses=_mtUses(m).slice(0,3).map(function(u){return '<span class="mt-ut">'+esc(u)+'</span>';}).join('');
+  var np=_mtPhotos(m).length;
+  return '<div class="mt-card" onclick="mtOpen(\''+m.key+'\')">'
+   +'<div class="mt-ph" style="'+_mtPhStyle(m)+'">'
+     +'<span class="mt-bdg s-'+stt+'">'+MT_STATUS[stt]+'</span>'
+     +'<span class="mt-kind">'+(m.kind==='fabric'?'원단':'부자재')+'</span>'
+     +(np?'':'<span class="mt-nophoto">사진 없음</span>')
+     +(sw?'<span class="mt-loc">실물 '+esc(sw)+'</span>':'')
+   +'</div>'
+   +'<div class="mt-cin">'
+     +'<div class="mt-crow"><div class="mt-nm">'+esc(m.name)+'</div>'+(m.price!==''?'<div class="mt-pr">'+esc(m.price)+'<span class="u">/'+esc(m.unit)+'</span></div>':'')+'</div>'
+     +'<div class="mt-sup">'+esc([m.sup,m.loc].filter(Boolean).join(' · '))+'</div>'
+     +'<div class="mt-spec">'+esc(_mtSpecLine(m))+'</div>'
+     +'<div class="mt-uses">'+uses+(usage.length?'<span class="mt-ut ghost">쓴 아이템 '+usage.length+'</span>':'')+'</div>'
+   +'</div></div>';
+}
+function _mtRowHTML(m){
+  var usage=m._usage||(m._usage=_mtUsage(m)),stt=_mtStatus(m,usage),sw=(m.rec&&m.rec.mSwLoc||'').trim();
+  return '<div class="mt-row" onclick="mtOpen(\''+m.key+'\')">'
+   +'<div class="mt-rph" style="'+_mtPhStyle(m)+'"></div>'
+   +'<div class="mt-rin">'
+     +'<div class="mt-rnm">'+esc(m.name)+' <span class="mt-ut">'+MT_STATUS[stt]+'</span></div>'
+     +'<div class="mt-rsup">'+esc([m.sup,m.loc].filter(Boolean).join(' · '))+'</div>'
+     +'<div class="mt-rspec">'+esc(_mtSpecLine(m))+(usage.length?' · 쓴 아이템 '+usage.length:'')+'</div>'
+   +'</div>'
+   +'<div class="mt-rrt">'+(m.price!==''?'<div class="mt-pr">'+esc(m.price)+'<span class="u">/'+esc(m.unit)+'</span></div>':'')
+     +(sw?'<span class="mt-rsw">실물 '+esc(sw)+'</span>':'<span class="mt-rsw none">실물 없음</span>')+'</div>'
+   +'</div>';
+}
+function renderMaterial(){
+  var el=document.getElementById('material-body'); if(!el)return;
+  _mtEnsureStyle();
+  var st=_mtS(),all=_mtAll();
+  all.forEach(function(m){m._usage=null;m._hay=null;});
+  var rows=all.filter(function(m){return _mtPass(m,null);});
+  rows.sort(function(a,b){
+    if(st.sort==='name')return String(a.name).localeCompare(String(b.name),'ko');
+    if(st.sort==='used')return (b._usage||[]).length-(a._usage||[]).length;
+    if(st.sort==='price')return (a.priceN===''?1e12:a.priceN)-(b.priceN===''?1e12:b.priceN);
+    return (b.ord||0)-(a.ord||0)||String(a.name).localeCompare(String(b.name),'ko');
+  });
+  var nSw=rows.filter(function(m){return (m.rec&&m.rec.mSwLoc||'').trim();}).length;
+  var fh=_mtFiltersHTML(all);
+  var html=''
+   +'<div class="mt-hd"><h2 class="mt-ttl">소재 관리</h2><span class="mt-cnt">총 '+rows.length+'개 · 실물 스와치 '+nSw+'개 보유</span>'
+     +'<span style="flex:1"></span><button class="btn s" onclick="mtAddExtra()">＋ 소재 직접 추가</button></div>'
+   +'<div class="mt-bar">'
+     +_mtChip('all','전체',st.kind)+_mtChip('fabric','원단',st.kind)+_mtChip('trim','부자재',st.kind)
+     +'<button class="btn s mt-fbtn" onclick="mtSheet(true)">필터</button>'
+     +'<div class="mt-search"><span class="lb">검색</span><input id="mt-q" value="'+esc(st.q)+'" placeholder="울100, 자켓용, 업체명, 쓴 아이템…" oninput="mtSearch(this.value)"></div>'
+     +'<select class="mt-sel" onchange="mtSetSort(this.value)">'
+       +['recent:최신순','name:이름순','used:많이 쓴 순','price:단가 낮은 순'].map(function(o){var b=o.split(':');return '<option value="'+b[0]+'"'+(st.sort===b[0]?' selected':'')+'>'+b[1]+'</option>';}).join('')
+     +'</select>'
+     +'<div class="mt-vsw"><button class="'+(st.view==='grid'?'on':'')+'" onclick="mtSetView(\'grid\')">격자</button><button class="'+(st.view==='list'?'on':'')+'" onclick="mtSetView(\'list\')">목록</button></div>'
+   +'</div>'
+   +'<div class="mt-body">'
+     +'<aside class="mt-side"><div class="mt-fh"><b>필터</b><span onclick="mtReset()">초기화</span></div>'+fh+'</aside>'
+     +'<div class="mt-main">'+(rows.length
+        ? (st.view==='grid'?'<div class="mt-grid">'+rows.map(_mtCardHTML).join('')+'</div>':'<div class="mt-list">'+rows.map(_mtRowHTML).join('')+'</div>')
+        : '<div class="mt-empty">'+(all.length?'조건에 맞는 소재가 없어요.<br>필터를 지우거나 다른 말로 검색해 보세요.':'아직 소재가 없어요.<br>단가장에 원단·부자재를 등록하면 여기에 자동으로 모여요.')+'</div>')+'</div>'
+   +'</div>'
+   +'<div class="mt-sheet-bg" id="mt-sheet-bg" onclick="mtSheet(false)"></div>'
+   +'<div class="mt-sheet" id="mt-sheet"><div class="mt-fh"><b>필터</b><span onclick="mtReset()">초기화</span></div>'+fh
+     +'<button class="btn p" style="width:100%;margin-top:12px" onclick="mtSheet(false)">닫기</button></div>';
+  el.innerHTML=html;
+}
+
+/* ── 상세 ── */
+function mtOpen(key){
+  var m=_mtAll().find(function(x){return x.key===key;});
+  if(!m){showToast('소재를 찾을 수 없어요');return;}
+  var mo=document.getElementById('mt-modal');
+  if(!mo){mo=document.createElement('div');mo.id='mt-modal';mo.className='mt-dv';
+    mo.addEventListener('click',function(e){if(e.target===mo)mtClose();});document.body.appendChild(mo);}
+  mo.innerHTML='<div class="mt-dt">'+_mtDetailHTML(m)+'</div>';
+  mo.style.display='flex'; window._mtCur=key;
+}
+function mtClose(){var mo=document.getElementById('mt-modal');if(mo)mo.style.display='none';window._mtCur=null;try{renderMaterial();}catch(e){}}
+function _mtReopen(){if(window._mtCur)mtOpen(window._mtCur);}
+function _mtIn(key,field,label,val,ph,type){
+  return '<div class="mt-kv"><label>'+esc(label)+'</label><input '+(type==='num'?'type="number" inputmode="decimal" ':'')
+    +'value="'+esc(val==null?'':val)+'" placeholder="'+esc(ph||'')+'" onchange="mtSet(\''+key+'\',\''+field+'\',this.value)"></div>';
+}
+function _mtDetailHTML(m){
+  var key=m.key,r=m.rec||{},usage=_mtUsage(m),stt=_mtStatus(m,usage);
+  var ph=_mtPhotos(m),rq=r.mReq||{},uses=_mtUses(m);
+  var big=ph.length?"background:#fff url('"+String(ph[0]).replace(/'/g,'%27')+"') center/cover no-repeat":'background:'+(r.mColor||'#e5e2dc');
+  var thumbs=ph.map(function(u,i){return '<div class="mt-th" style="background:#fff url(\''+String(u).replace(/'/g,'%27')+'\') center/cover no-repeat"><button onclick="event.stopPropagation();mtDelPhoto(\''+key+'\','+i+')">×</button></div>';}).join('');
+  var isEx=(m.src==='ex');
+  var specRows=isEx
+    ? _mtIn(key,'name','소재명',r.name,'예: 울 멜톤 24수')
+      +_mtIn(key,'sup','업체',r.sup,'예: 대한섬유')
+      +_mtIn(key,'loc','업체 위치',r.loc,'예: 동대문종합시장 A동 3층 A2217')
+      +_mtIn(key,'composition','혼용률',r.composition,'예: 울 100%')
+      +_mtIn(key,'width','폭(inch)',r.width,'58','num')
+      +_mtIn(key,'unitPrice','단가',r.unitPrice,'','num')
+      +_mtIn(key,'unit','단위',r.unit,'y')
+    : '<table class="mt-spec">'
+      +[['종류',(m.kind==='fabric'?'원단':'부자재')],['업체',m.sup+(m.loc?' · '+m.loc:'')],
+        ['혼용률',(m.comp||'-').replace(/\n/g,' ')],['폭',m.width?m.width+'inch':'-'],
+        ['크기/규격',r.size||'-'],['단가',m.price!==''?(m.price+' / '+m.unit):'-']]
+        .map(function(x){return '<tr><td>'+esc(x[0])+'</td><td>'+esc(x[1])+'</td></tr>';}).join('')
+      +'</table><div class="mt-hint">이 값들은 <b>단가장</b>에서 관리돼요. 고치려면 단가장에서 고치면 여기도 같이 바뀝니다.</div>';
+  return ''
+  +'<div class="mt-dhd"><b>'+esc(m.name)+'</b><span class="mt-ut">'+MT_STATUS[stt]+'</span>'
+    +(isEx?'<button class="btn s d" onclick="mtDelExtra(\''+key+'\')">삭제</button>':'')
+    +'<button class="mt-dx" onclick="mtClose()">✕</button></div>'
+  +'<div class="mt-dbd">'
+  +'<div class="mt-dl">'
+    +'<div class="mt-dz" ondragover="mtDragOver(event,1)" ondragleave="mtDragOver(event,0)" ondrop="mtDrop(event,\''+key+'\')">'
+      +'<div class="mt-big" style="'+big+'">'+(ph.length?'':'<span class="mt-nophoto2">사진을 끌어다 놓으세요</span>')+'</div>'
+      +'<div class="mt-thumbs">'+thumbs+'<button class="mt-add" onclick="mtPickPhoto(\''+key+'\')">＋ 사진</button></div>'
+    +'</div>'
+    +'<div class="mt-dzh">사진을 여기로 끌어다 놓거나 ＋사진을 누르세요 (여러 장 가능)</div>'
+    +'<div class="mt-sec"><div class="mt-st">실물 스와치 어디 있나</div>'
+      +_mtIn(key,'mSwLoc','보관 위치',r.mSwLoc,'예: A바인더 12')
+      +'<div class="mt-box">비워두면 목록에서 <b>실물 없음</b>으로 표시돼요. 필터에서 <b>가지고 있음</b>만 골라 볼 수 있어요.</div></div>'
+  +'</div>'
+  +'<div class="mt-dr">'
+    +'<div class="mt-sec">'+specRows+'</div>'
+    +'<div class="mt-sec"><div class="mt-st">용도 <span class="mt-hint2">누르면 켜고 꺼져요</span></div><div class="mt-fo-w">'
+      +MT_USES.map(function(u){return '<span class="mt-fo'+(uses.indexOf(u)>=0?' on':'')+'" onclick="mtTogUse(\''+key+'\',decodeURIComponent(\''+encodeURIComponent(u)+'\'))">'+esc(u)+'</span>';}).join('')
+    +'</div></div>'
+    +'<div class="mt-sec"><div class="mt-st">상태</div>'
+      +'<select class="mt-sel" onchange="mtSet(\''+key+'\',\'mStatus\',this.value)">'
+        +'<option value="">자동 (쓴 아이템으로 판단 — 지금 '+MT_STATUS[stt]+')</option>'
+        +Object.keys(MT_STATUS).map(function(s){return '<option value="'+s+'"'+(r.mStatus===s?' selected':'')+'>'+MT_STATUS[s]+'</option>';}).join('')
+      +'</select></div>'
+    +'<div class="mt-sec"><div class="mt-st">이 소재 쓴 아이템 <span class="mt-auto">자동</span></div><div class="mt-used">'
+      +(usage.length?usage.map(function(u){return '<a onclick="mtClose();showItemForm(\''+u.id+'\')">'+esc(u.name)+(u.phase?' ('+_phLabel(u.phase)+')':'')+'</a>';}).join('')
+                   :'<span class="mt-none">아직 이 소재를 쓴 아이템이 없어요</span>')+'</div></div>'
+    +'<div class="mt-sec"><div class="mt-st">스와치 요청 · 수령</div>'
+      +'<div class="mt-rq">'
+        +'<label>요청일</label><input type="date" value="'+esc(rq.ask||'')+'" onchange="mtSetReq(\''+key+'\',\'ask\',this.value)">'
+        +'<label>받은 날</label><input type="date" value="'+esc(rq.got||'')+'" onchange="mtSetReq(\''+key+'\',\'got\',this.value)">'
+        +'<button class="btn s" onclick="mtSetReq(\''+key+'\',\'got\',todayISO())">오늘 받음</button>'
+      +'</div>'
+      +'<div class="mt-box">요청만 하고 못 받은 소재는 상태가 <b>스와치 요청중</b>으로 뜹니다.</div></div>'
+    +'<div class="mt-sec"><div class="mt-st">이슈 기록</div>'
+      +((r.issues||[]).length?(r.issues||[]).map(function(x,i){return '<div class="mt-iss"><span class="w">'+esc(x.date||'')+'</span>'+esc(x.text||'')+'<button onclick="mtDelIssue(\''+key+'\','+i+')">×</button></div>';}).join(''):'<div class="mt-none">기록된 이슈 없음</div>')
+      +'<div class="mt-issadd"><input id="mt-iss-in" placeholder="예: 워싱 후 수축 3%" onkeydown="if(event.key===\'Enter\'&&!event.isComposing)mtAddIssue(\''+key+'\')"><button class="btn s" onclick="mtAddIssue(\''+key+'\')">＋ 추가</button></div></div>'
+    +'<div class="mt-sec"><div class="mt-st">장단점</div><div class="mt-pn">'
+      +'<div><div class="h">좋은 점</div><textarea rows="2" onchange="mtSet(\''+key+'\',\'pros\',this.value)">'+esc(r.pros||'')+'</textarea></div>'
+      +'<div><div class="h">아쉬운 점</div><textarea rows="2" onchange="mtSet(\''+key+'\',\'cons\',this.value)">'+esc(r.cons||'')+'</textarea></div>'
+    +'</div></div>'
+  +'</div></div>';
+}
+function mtSet(key,field,val){
+  var r=_mtRec(key); if(!r)return;
+  if(field==='width'||field==='unitPrice'){var n=parseFloat(String(val).replace(/,/g,''));r[field]=isNaN(n)?'':n;}
+  else r[field]=val;
+  _mtSave(key);
+  if(field==='mStatus'||field==='name')_mtReopen();
+}
+function mtTogUse(key,u){
+  var r=_mtRec(key); if(!r)return;
+  if(!Array.isArray(r.mUses))r.mUses=[];
+  var i=r.mUses.indexOf(u); if(i<0)r.mUses.push(u); else r.mUses.splice(i,1);
+  _mtSave(key); _mtReopen();
+}
+function mtSetReq(key,f,v){
+  var r=_mtRec(key); if(!r)return;
+  r.mReq=r.mReq||{}; r.mReq[f]=v; _mtSave(key); _mtReopen();
+}
+function mtAddIssue(key){
+  var r=_mtRec(key); if(!r)return;
+  var inp=document.getElementById('mt-iss-in'),t=(inp&&inp.value||'').trim();
+  if(!t){showToast('이슈 내용을 입력하세요');return;}
+  if(!Array.isArray(r.issues))r.issues=[];
+  r.issues.unshift({date:(typeof todayISO==='function'?todayISO().slice(2).replace(/-/g,'.'):''),text:t});
+  _mtSave(key); _mtReopen();
+}
+function mtDelIssue(key,i){var r=_mtRec(key);if(!r||!r.issues)return;r.issues.splice(i,1);_mtSave(key);_mtReopen();}
+
+/* ── 사진: 드래그앤드롭 + 고르기 ── */
+function mtDragOver(e,on){e.preventDefault();e.currentTarget.classList.toggle('over',!!on);}
+function mtDrop(e,key){
+  e.preventDefault();e.currentTarget.classList.remove('over');
+  var fs=e.dataTransfer&&e.dataTransfer.files; if(fs&&fs.length)mtAddPhotos(key,fs);
+}
+function mtPickPhoto(key){
+  var inp=document.getElementById('mt-file');
+  if(!inp){inp=document.createElement('input');inp.type='file';inp.id='mt-file';inp.accept='image/*';inp.multiple=true;inp.style.display='none';document.body.appendChild(inp);}
+  inp.onchange=function(){if(this.files&&this.files.length)mtAddPhotos(key,this.files);this.value='';};
+  inp.click();
+}
+function mtAddPhotos(key,files){
+  var r=_mtRec(key); if(!r)return;
+  var list=Array.prototype.filter.call(files,function(f){return /^image\//.test(f.type);});
+  if(!list.length){showToast('이미지 파일만 올릴 수 있어요');return;}
+  // 로그인(연동)돼 있을 때만 Storage로 올리고, 아니면/실패하면 dataURL로 이 기기에 저장
+  var useCloud=!!(window.fbStorage&&(typeof fbUser!=='undefined')&&fbUser);
+  var ov=(typeof tpShowUp==='function')?tpShowUp('사진 올리는 중...'):null,done=0,fell=0;
+  var seq=Promise.resolve();
+  list.forEach(function(f,idx){
+    seq=seq.then(function(){
+      return tpCompress(f,1600,0.86,false,useCloud).then(function(c){
+        if(!useCloud)return c.dataUrl;
+        return tpUpload(c.blob,encodeURIComponent(key)+'_'+idx+'_'+Date.now(),'swatch',false)
+          .catch(function(){ fell++; return tpCompress(f,1100,0.8,false,false).then(function(c2){return c2.dataUrl;}); });
+      }).then(function(url){
+        if(!url)return;
+        if(!Array.isArray(r.swatches))r.swatches=[];
+        r.swatches.push(url); done++;
+      });
+    });
+  });
+  seq.then(function(){
+    _mtSave(key); if(typeof tpHideUp==='function')tpHideUp(ov);
+    showToast(done?(done+'장 추가됐어요'+((!useCloud||fell)?' (이 기기에만 저장 — 연동 로그인하면 모든 기기에서 보여요)':'')):'사진을 추가하지 못했어요');
+    _mtReopen();
+  }).catch(function(err){
+    if(typeof tpHideUp==='function')tpHideUp(ov);
+    console.error('mt photo',err); showToast('사진 올리기 실패 — 다시 시도해주세요');
+    _mtSave(key); _mtReopen();
+  });
+}
+function mtDelPhoto(key,i){
+  var r=_mtRec(key); if(!r||!r.swatches)return;
+  if(!confirm('이 사진을 지울까요?'))return;
+  r.swatches.splice(i,1); _mtSave(key); _mtReopen();
+}
+
+/* ── 직접 추가 소재 ── */
+function mtAddExtra(){
+  if(!Array.isArray(S.matExtra))S.matExtra=[];
+  var id='mx_'+uid();
+  S.matExtra.push({id:id,kind:(_mtS().kind==='trim'?'trim':'fabric'),name:'',sup:'',loc:'',composition:'',width:'',unitPrice:'',unit:'y',
+    mUses:[],mSwLoc:'',mReq:{},swatches:[],issues:[],createdAt:Date.now()});
+  saveData(); renderMaterial(); mtOpen('ex:'+id);
+}
+function mtDelExtra(key){
+  var k=_mtParse(key); if(k.src!=='ex')return;
+  if(!confirm('이 소재를 목록에서 지울까요?'))return;
+  _arrDelWhere('matExtra',function(x){return x&&x.id===k.id;});
+  saveData(); mtClose(); renderMaterial();
+}
+
+/* ── 스타일 (head에 1회 주입 — 재렌더돼도 안 지워지게) ── */
+function _mtEnsureStyle(){
+  if(document.getElementById('mt-css'))return;
+  var c=''
+  +'#pane-material{--mtbd:var(--card-bd,#e0ddd8);--mtbg:var(--card-bg,#fff);--mtt2:var(--t2,#666);--mtt3:var(--t3,#999)}'
+  +'.mt-hd{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:12px}'
+  +'.mt-ttl{font-size:19px;font-weight:800;margin:0}'
+  +'.mt-cnt{font-size:12px;color:var(--mtt2);padding-bottom:2px}'
+  +'.mt-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}'
+  +'.mt-kchip{font-size:12.5px;font-weight:700;padding:7px 14px;border:1px solid var(--btn-bd,#c5c0ba);background:var(--mtbg);color:var(--mtt2);border-radius:999px;cursor:pointer;white-space:nowrap}'
+  +'.mt-kchip.on{background:#222;color:#fff;border-color:#222}'
+  +'.mt-search{flex:1;min-width:170px;max-width:400px;display:flex;align-items:center;gap:7px;background:var(--input-bg,#fff);border:1px solid var(--input-bd,#e0ddd8);border-radius:999px;padding:6px 14px}'
+  +'.mt-search input{flex:1;min-width:0;border:none;outline:none;background:transparent;font-size:16px;padding:0;height:24px}'
+  +'.mt-search .lb{font-size:11px;font-weight:800;color:var(--mtt3);white-space:nowrap}'
+  +'#pane-material select.mt-sel{font-size:12.5px;padding:7px 11px;border:1px solid var(--input-bd,#e0ddd8);background:var(--input-bg,#fff);border-radius:var(--input-radius,6px);color:inherit;width:auto;min-width:120px}'
+  +'.mt-vsw{display:flex;border:1px solid var(--btn-bd,#c5c0ba);border-radius:var(--input-radius,6px);overflow:hidden}'
+  +'.mt-vsw button{font-size:12px;font-weight:700;padding:7px 12px;border:none;background:var(--mtbg);color:var(--mtt2);cursor:pointer;white-space:nowrap}'
+  +'.mt-vsw button.on{background:#222;color:#fff}'
+  +'.mt-fbtn{display:none}'
+  +'.mt-body{display:flex;gap:14px;align-items:flex-start}'
+  +'.mt-side{width:206px;flex:0 0 206px;background:var(--mtbg);border:var(--card-bdw,1px) solid var(--mtbd);border-radius:var(--card-radius,8px);box-shadow:var(--card-shadow,none);padding:12px;max-height:76vh;overflow:auto}'
+  +'.mt-main{flex:1;min-width:0}'
+  +'.mt-fh{display:flex;align-items:center;margin:0 0 8px}.mt-fh b{font-size:13px}'
+  +'.mt-fh span{margin-left:auto;font-size:11px;color:var(--mtt3);cursor:pointer;text-decoration:underline}'
+  +'.mt-fg{margin-bottom:13px}.mt-ft{font-size:11.5px;font-weight:800;color:var(--mtt2);margin-bottom:6px}'
+  +'.mt-fo-w{display:flex;flex-wrap:wrap;gap:5px}'
+  +'.mt-fo{font-size:11.5px;font-weight:600;padding:5px 9px;border:1px solid var(--input-bd,#e0ddd8);background:var(--input-bg,#fff);border-radius:var(--input-radius,6px);cursor:pointer;white-space:nowrap}'
+  +'.mt-fo .n{font-size:10.5px;color:var(--mtt3);margin-left:4px;font-weight:500}'
+  +'.mt-fo.on{background:#222;color:#fff;border-color:#222}.mt-fo.on .n{color:inherit;opacity:.75}'
+  +'.mt-fo.zero{opacity:.35}'
+  +'.mt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}'
+  +'.mt-card{background:var(--mtbg);border:var(--card-bdw,1px) solid var(--mtbd);border-radius:var(--card-radius,8px);box-shadow:var(--card-shadow,none);overflow:hidden;cursor:pointer}'
+  +'.mt-ph{position:relative;aspect-ratio:1/1;background:#e5e2dc}'
+  +'.mt-bdg{position:absolute;left:7px;top:7px;font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,.93);white-space:nowrap;border:1px solid rgba(0,0,0,.1)}'
+  +'.mt-bdg.s-main{background:#dcfce7;color:#166534}.mt-bdg.s-sample{background:#fef9c3;color:#854f0b}'
+  +'.mt-bdg.s-sourced{background:#f1f5f9;color:#475569}.mt-bdg.s-req{background:#ede9fe;color:#5b21b6}'
+  +'.mt-kind{position:absolute;right:7px;top:7px;font-size:10px;font-weight:800;padding:3px 7px;background:rgba(11,10,5,.72);color:#fff;border-radius:999px}'
+  +'.mt-nophoto{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#a9a49b}'
+  +'.mt-loc{position:absolute;left:0;right:0;bottom:0;font-size:10.5px;font-weight:700;padding:5px 8px;background:rgba(11,10,5,.68);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+  +'.mt-cin{padding:9px 10px 11px}'
+  +'.mt-crow{display:flex;align-items:baseline;gap:6px}'
+  +'.mt-nm{flex:1;min-width:0;font-size:13px;font-weight:800;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+  +'.mt-pr{font-size:13px;font-weight:800;white-space:nowrap}.mt-pr .u{font-size:10.5px;font-weight:600;color:var(--mtt3)}'
+  +'.mt-sup{font-size:11px;color:var(--mtt2);margin:3px 0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+  +'.mt-spec{font-size:11px;color:var(--mtt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:14px}'
+  +'.mt-uses{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px}'
+  +'.mt-ut{font-size:10.5px;font-weight:700;padding:2px 7px;background:var(--accent-bg,#eff6ff);color:var(--accent-text,#1e40af);border:1px solid var(--accent-bd,#bfdbfe);border-radius:999px;white-space:nowrap}'
+  +'.mt-ut.ghost{background:transparent;border-style:dashed}'
+  +'.mt-list{background:var(--mtbg);border:var(--card-bdw,1px) solid var(--mtbd);border-radius:var(--card-radius,8px);box-shadow:var(--card-shadow,none);overflow:hidden}'
+  +'.mt-row{display:flex;align-items:center;gap:11px;padding:10px 12px;border-bottom:1px solid var(--mtbd);cursor:pointer}'
+  +'.mt-row:last-child{border-bottom:none}'
+  +'.mt-rph{width:54px;height:54px;flex:0 0 54px;border-radius:var(--input-radius,6px);background:#e5e2dc;border:1px solid rgba(0,0,0,.08)}'
+  +'.mt-rin{flex:1;min-width:0}'
+  +'.mt-rnm{font-size:13.5px;font-weight:800;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+  +'.mt-rsup,.mt-rspec{font-size:11.5px;color:var(--mtt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+  +'.mt-rrt{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px}'
+  +'.mt-rsw{font-size:10.5px;font-weight:700;padding:3px 8px;border:1px dashed var(--soft-bd,#c5c0ba);border-radius:999px;color:var(--mtt2);white-space:nowrap}'
+  +'.mt-rsw.none{opacity:.45}'
+  +'.mt-empty{padding:38px 16px;text-align:center;font-size:13px;color:var(--mtt2);background:var(--mtbg);border:1px dashed var(--mtbd);border-radius:var(--card-radius,8px);line-height:1.8}'
+  /* 상세 */
+  +'.mt-dv{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:flex-start;justify-content:center;padding:20px 14px;overflow:auto}'
+  +'.mt-dt{width:100%;max-width:860px;background:var(--mtbg);border:var(--card-bdw,1px) solid var(--mtbd);border-radius:var(--card-radius,8px);box-shadow:var(--card-shadow,none);overflow:hidden}'
+  +'.mt-dhd{display:flex;align-items:center;gap:8px;padding:11px 13px;background:var(--head-bg,#f8f7f5);border-bottom:1px solid var(--head-bd,#e0ddd8)}'
+  +'.mt-dhd b{font-size:15px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+  +'.mt-dx{font-size:15px;font-weight:800;border:1px solid var(--btn-bd,#c5c0ba);background:var(--btn-bg,#fff);border-radius:var(--input-radius,6px);width:30px;height:30px;cursor:pointer;color:inherit;flex:0 0 30px}'
+  +'.mt-dbd{padding:14px;display:flex;gap:16px;align-items:flex-start}'
+  +'.mt-dl{flex:0 0 300px;max-width:300px}.mt-dr{flex:1;min-width:0}'
+  +'.mt-dz{position:relative;border-radius:var(--input-radius,6px)}'
+  +'.mt-dz.over::after{content:"여기에 놓으면 사진이 올라가요";position:absolute;inset:-6px;border:2.5px dashed var(--accent,#185FA5);border-radius:var(--input-radius,6px);background:rgba(24,95,165,.08);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:var(--accent-text,#1e40af);z-index:3}'
+  +'.mt-big{position:relative;width:100%;aspect-ratio:1/1;border-radius:var(--input-radius,6px);background:#e5e2dc;border:1px solid rgba(0,0,0,.08)}'
+  +'.mt-nophoto2{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;color:#a9a49b}'
+  +'.mt-thumbs{display:flex;gap:7px;margin-top:8px;flex-wrap:wrap}'
+  +'.mt-th{position:relative;width:64px;height:64px;border-radius:var(--input-radius,6px);border:1px solid rgba(0,0,0,.08)}'
+  +'.mt-th button{position:absolute;right:-6px;top:-6px;width:20px;height:20px;border-radius:50%;border:1px solid var(--mtbd);background:#fff;color:#A32D2D;font-weight:800;cursor:pointer;line-height:1;padding:0}'
+  +'.mt-add{width:64px;height:64px;border-radius:var(--input-radius,6px);border:1px dashed var(--soft-bd,#c5c0ba);background:var(--soft-bg,#f8f7f5);font-size:11px;font-weight:800;color:var(--mtt2);cursor:pointer}'
+  +'.mt-dzh{font-size:11px;color:var(--mtt3);font-weight:700;margin-top:7px;text-align:center}'
+  +'.mt-sec{margin-top:14px}.mt-dr .mt-sec:first-child{margin-top:0}'
+  +'.mt-st{font-size:12px;font-weight:800;margin-bottom:7px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}'
+  +'.mt-auto,.mt-hint2{font-size:10px;font-weight:700;padding:2px 6px;background:var(--accent-bg,#eff6ff);color:var(--accent-text,#1e40af);border:1px solid var(--accent-bd,#bfdbfe);border-radius:999px}'
+  +'.mt-hint2{background:transparent;border-style:dashed;color:var(--mtt3)}'
+  +'.mt-box{background:var(--soft-bg,#f8f7f5);border:1px solid var(--soft-bd,#c5c0ba);border-radius:var(--input-radius,6px);padding:9px 11px;font-size:12px;line-height:1.7;margin-top:7px}'
+  +'.mt-hint{font-size:11px;color:var(--mtt3);margin-top:6px;line-height:1.6}'
+  +'.mt-spec{width:100%;border-collapse:collapse;font-size:12.5px}'
+  +'.mt-spec td{padding:8px 2px;border-bottom:1px solid var(--mtbd)}'
+  +'.mt-spec td:first-child{color:var(--mtt2);white-space:nowrap}'
+  +'.mt-spec td:last-child{text-align:right;font-weight:700}'
+  +'.mt-kv{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:7px}'
+  +'.mt-kv label{font-size:11.5px;font-weight:800;color:var(--mtt2);flex:0 0 82px}'
+  +'#pane-material .mt-kv input{flex:1;min-width:110px;font-size:16px;padding:7px 10px;border:1px solid var(--input-bd,#e0ddd8);background:var(--input-bg,#fff);border-radius:var(--input-radius,6px);width:auto;height:36px}'
+  +'.mt-used a{display:inline-block;font-size:12px;font-weight:700;padding:5px 10px;background:var(--mtbg);border:1px solid var(--mtbd);border-radius:999px;margin:0 5px 5px 0;color:var(--accent-text,#1e40af);cursor:pointer;white-space:nowrap}'
+  +'.mt-none{font-size:12px;color:var(--mtt3)}'
+  +'.mt-rq{display:flex;gap:7px;align-items:center;flex-wrap:wrap}'
+  +'.mt-rq label{font-size:11.5px;font-weight:800;color:var(--mtt2)}'
+  +'#pane-material .mt-rq input{font-size:15px;padding:6px 9px;border:1px solid var(--input-bd,#e0ddd8);background:var(--input-bg,#fff);border-radius:var(--input-radius,6px);width:auto;height:34px}'
+  +'.mt-iss{font-size:12px;padding:6px 0;border-bottom:1px dotted var(--mtbd);display:flex;align-items:center;gap:6px}'
+  +'.mt-iss .w{color:var(--mtt3);font-size:11px;white-space:nowrap}'
+  +'.mt-iss button{margin-left:auto;border:none;background:transparent;color:#A32D2D;font-weight:800;cursor:pointer}'
+  +'.mt-issadd{display:flex;gap:6px;margin-top:8px}'
+  +'#pane-material .mt-issadd input{flex:1;min-width:0;font-size:16px;padding:7px 10px;border:1px solid var(--input-bd,#e0ddd8);background:var(--input-bg,#fff);border-radius:var(--input-radius,6px);height:36px}'
+  +'.mt-pn{display:grid;grid-template-columns:1fr 1fr;gap:9px}'
+  +'.mt-pn .h{font-size:11.5px;font-weight:800;color:var(--mtt2);margin-bottom:4px}'
+  +'#pane-material .mt-pn textarea{width:100%;font-size:14px;padding:7px 10px;border:1px solid var(--input-bd,#e0ddd8);background:var(--input-bg,#fff);border-radius:var(--input-radius,6px);font-family:inherit;box-sizing:border-box}'
+  /* 바텀시트 (폰) */
+  +'.mt-sheet-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:990}'
+  +'.mt-sheet{position:fixed;left:0;right:0;bottom:0;z-index:991;background:var(--mtbg);border-top:1px solid var(--mtbd);border-radius:14px 14px 0 0;padding:14px 14px 24px;max-height:74vh;overflow:auto;transform:translateY(100%);transition:transform .22s}'
+  +'.mt-sheet.on{transform:translateY(0)}'
+  /* 레트로 */
+  +'html[data-theme="retro"] #pane-material .mt-kchip,html[data-theme="retro"] #pane-material .mt-search,html[data-theme="retro"] #pane-material .mt-rsw,html[data-theme="retro"] #pane-material .mt-ut,html[data-theme="retro"] #pane-material .mt-bdg,html[data-theme="retro"] #pane-material .mt-kind,html[data-theme="retro"] #pane-material .mt-used a,html[data-theme="retro"] #pane-material .mt-auto,html[data-theme="retro"] #pane-material .mt-hint2{border-radius:0}'
+  +'html[data-theme="retro"] #pane-material .mt-kchip{border:2px solid #0B0A05;box-shadow:2px 2px 0 #0B0A05;color:#0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-kchip.on{background:#A5E6BA;color:#0B0A05;border-color:#0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-fo.on,html[data-theme="retro"] #pane-material .mt-vsw button.on{background:#A5E6BA;color:#0B0A05;border-color:#0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-search,html[data-theme="retro"] #pane-material .mt-vsw{border:2px solid #0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-fo,html[data-theme="retro"] #pane-material .mt-th,html[data-theme="retro"] #pane-material .mt-add,html[data-theme="retro"] #pane-material .mt-big,html[data-theme="retro"] #pane-material .mt-rph{border:1.5px solid #0B0A05;border-radius:0}'
+  +'html[data-theme="retro"] #pane-material .mt-bdg.s-main{background:#A5E6BA;color:#0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-bdg.s-sample{background:#FFF6B8;color:#0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-bdg.s-sourced{background:#F5F1E8;color:#0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-bdg.s-req{background:#B0DBF0;color:#0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-kind{background:#0B0A05}'
+  +'html[data-theme="retro"] .mt-dt,html[data-theme="retro"] .mt-sheet{border:2.5px solid #0B0A05;border-radius:0;box-shadow:4px 4px 0 #0B0A05}'
+  +'html[data-theme="retro"] #pane-material .mt-ut{border:1.5px solid #0B0A05;background:#EAF3F8;color:#0B0A05}'
+  /* 폰 */
+  +'@media (max-width:760px){'
+  +'#pane-material .mt-side{display:none}'
+  +'#pane-material .mt-fbtn{display:inline-flex}'
+  +'#pane-material .mt-grid{grid-template-columns:repeat(2,1fr);gap:9px}'
+  +'#pane-material .mt-search{max-width:none;flex-basis:100%}'
+  +'.mt-dbd{flex-direction:column}.mt-dl{flex:1 1 auto;max-width:100%;width:100%}'
+  +'.mt-pn{grid-template-columns:1fr}'
+  +'}';
+  var st=document.createElement('style'); st.id='mt-css'; st.textContent=c; document.head.appendChild(st);
+}
+
 function renderBook(){
   const el=document.getElementById('book-c');if(!el)return;
   const _scope=window._bookScope||'fabric';
@@ -7429,6 +7972,7 @@ function refAutoClassify(){ var n=0; (S.refCards||[]).forEach(function(c){ if(c&
 function refAddCard(colId){
   var id=(typeof uid==='function')?uid():('rf'+Date.now());
   if(!Array.isArray(S.refCards))S.refCards=[];
+  if(!Array.isArray(S.matExtra))S.matExtra=[];
   var cid=(colId!=null?colId:(window._refOpenCol&&window._refOpenCol!=='__orphan'?window._refOpenCol:''));
   var _col=cid?_refColFind(cid):null;   // 폴더 안에서 만들면 폴더의 거래처 브랜드·카테고리 물려받기
   S.refCards.push({id:id,collectionId:cid,brandId:(_col&&_col.brandId)||'',category:(_col&&_col.category)||'',title:'',brand:'',front:'',back:'',desc:'',createdAt:(typeof todayISO==='function'?todayISO():'')});
@@ -16887,8 +17431,14 @@ function backfillShipItemIds(o,fcId){
 }
 function recomputeShipping(sch){
   if(!sch)return;
+  /* ★2026-08-14 — 「수선중」·「잔량(미출고)」 회차는 합계에서 뺀다.
+     예전엔 전부 더해서 shippingQty/shippingGrid에 수선중 수량이 섞였고,
+     결제·거래명세서·원가계산서가 회차가 없을 때 이 값을 폴백으로 쓰기 때문에
+     **수선중인데 결제에 청구되는** 일이 생겼다(신고: 수선중 11장이 결제에 올라감).
+     _shipExcl = 잔량 미출고 + 수선중 = "아직 안 나감". 출고 처리하면 그때 합계에 들어온다. */
   var grid={},total=0;
   (sch.shipments||[]).forEach(function(s){
+    if(_shipExcl(s))return;
     var q=+s.qty||0;total+=q;
     if(s.itemId){ // 아이템 지정된 출고만 그리드에 누적 (컬러/사이즈는 빈값=무컬러/free 허용)
       var it=s.itemId,c=s.color||'',sz=s.size||'';
@@ -16897,7 +17447,7 @@ function recomputeShipping(sch){
     }
   });
   sch.shippingGrid=grid;sch.shippingQty=total;
-  var _dts=(sch.shipments||[]).filter(function(s){return(+s.qty>0)&&s.date;}).map(function(s){return s.date;}).sort();
+  var _dts=(sch.shipments||[]).filter(function(s){return(+s.qty>0)&&s.date&&!_shipExcl(s);}).map(function(s){return s.date;}).sort();
   if(_dts.length)sch.shippingDate=_dts[0];
 }
 function fcSewItems(o,fcId){return(o.orderItems||[]).filter(function(oi){return S.items[oi.itemId]&&S.items[oi.itemId].sewingFcId===fcId;});}
@@ -20625,6 +21175,7 @@ function dfQuickAdd(){ // 순수 기록(2026-07-10) — 오더에 안 붙고 S.d
   var q=window._dfq||{};var st=q.st||'검품';
   if(!S.defectRecs)S.defectRecs=[];
   if(!Array.isArray(S.refCards))S.refCards=[];
+  if(!Array.isArray(S.matExtra))S.matExtra=[];
   if(!Array.isArray(S.refCollections))S.refCollections=[];
   S.defectRecs.push({id:uid(),date:(typeof todayISO==='function'?todayISO():today()),brandId:(it&&it.brandId)||'',
     itemId:it?it.id:'',itemName:it?it.name:raw,code:it?(it.code||''):'',color:color,
@@ -20694,6 +21245,7 @@ function dfQuickNL(){ // 순수 기록(2026-07-10) — 오더에 안 붙고 S.de
   var o=dfParseNL(inp.value);if(!o||!o.segs.length){showToast('내용을 입력하세요');return;}
   if(!S.defectRecs)S.defectRecs=[];
   if(!Array.isArray(S.refCards))S.refCards=[];
+  if(!Array.isArray(S.matExtra))S.matExtra=[];
   if(!Array.isArray(S.refCollections))S.refCollections=[];
   var base=(typeof todayISO==='function'?todayISO():today());
   var added=0;
@@ -22536,7 +23088,8 @@ function payWhyMissing(){
       var live=mine.filter(function(s){return !_shipExcl(s);});
       var qty=live.reduce(function(a,s){return a+(+s.qty||0);},0);
       if(!live.length){
-        var fb=(+sewSch.shippingQty||0)+((sewSch.extraShipments||[]).reduce(function(a,e){return a+(+e.qty||0);},0));
+        var _hasRecs=(sewSch.shipments||[]).some(function(s){return s&&+s.qty;});
+        var fb=(_hasRecs?0:(+sewSch.shippingQty||0))+((sewSch.extraShipments||[]).reduce(function(a,e){return a+(+e.qty||0);},0));
         if(fb>0)qty=fb;
       }
       if(!qty){
@@ -22650,7 +23203,10 @@ function renderItemPay(opts){
             sewShipRecs.push({date:s.date||'',color:s.color||'',size:s.size||'',qty:+s.qty||0,bg:s.bg?1:0,bgDc:s.bgDc});
           });
           if(!sewShipRecs.length){
-            const sQty=(sewSch.shippingQty||0)+(sewSch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
+            /* 회차가 적혀 있는데 전부 「수선중/잔량」이면 아직 안 나간 것 → 옛 합계로 되살리면 안 된다.
+               회차가 아예 없을 때만 예전 수기 합계(shippingQty)를 쓴다. (2026-08-14 수선중이 결제에 오르던 마지막 구멍) */
+            const _hasRecs=(sewSch.shipments||[]).some(function(s){return s&&+s.qty;});
+            const sQty=(_hasRecs?0:(sewSch.shippingQty||0))+(sewSch.extraShipments||[]).reduce((s,e)=>s+(+e.qty||0),0);
             if(sQty>0){
               sewShipQty=sQty;
               if(sewSch.shippingDate)sewShipRecs.push({date:sewSch.shippingDate,color:'',size:'',qty:sQty});
