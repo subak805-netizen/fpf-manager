@@ -1306,7 +1306,7 @@ let companies={},curCoId='';
 let S={items:{},orders:{},factories:{},priceBook:{}};
 let curOid=null,curOTab='po',curPayTab='all';
 let editFcId=null,editItemId=null,_itemListScrollY=0;
-let formColors=[],formSizes=[],formFabs=[],formTrims=[],formTrimCosts=[];
+let formColors=[],formSizes=[],formFabs=[],formTrims=[],formTrimCosts=[],formLaborBySize={};
 
 const COST_DEFS=[
   ['laborCost','공임','sewingFcId','봉제공임공장'],
@@ -1317,6 +1317,18 @@ const COST_DEFS=[
   ['inspectionCost','검품비','inspectionFcId','검품공장'],
   ['promotionCost','프로모션','promotionFcId','프로모션공장'],
 ];
+/* ── 사이즈별 공임 (2026-08-13) ────────────────────────────────
+   it.laborBySize = {사이즈명: 원}. 그 사이즈에 값이 있으면 그 단가, 없으면 기본 it.laborCost.
+   ⚠️ 공임 단가가 필요한 곳은 결제·거래명세서·원가계산서 전부 이 함수 하나만 쓴다.
+      it.laborCost를 직접 곱하면 세 화면 금액이 갈라진다.
+   ⚠️ 사이즈별 값이 하나도 없으면 laborRate는 기존과 100% 같은 값을 돌려준다(옛 아이템 불변). */
+function laborRate(it,size){
+  if(!it)return 0;
+  var m=it.laborBySize;
+  if(m&&size!=null&&size!==''&&size!=='free'){var v=+m[size];if(v>0)return v;}
+  return +it.laborCost||0;
+}
+function hasLaborBySize(it){var m=it&&it.laborBySize;if(!m)return false;for(var k in m){if(+m[k]>0)return true;}return false;}
 // 오더별 공장 스냅샷 — 오더 생성 시점의 공장을 오더에 얼려둠(아이템 공장을 나중에 바꿔도 옛 오더 결제/명세서 안 꼬임).
 // orderFc(o,it,fk): fcMap에 얼려둔 값 우선(빈값도 존중), 없으면(옛 오더) 아이템 현재값 폴백.
 function orderFc(o,it,fk){ if(o&&o.fcMap&&it&&o.fcMap[it.id]&&Object.prototype.hasOwnProperty.call(o.fcMap[it.id],fk))return o.fcMap[it.id][fk]||''; return it?(it[fk]||''):''; }
@@ -6762,7 +6774,45 @@ function colorDragEnd(){
   if(d&&d.active)window._colDragEnd=Date.now(); // 드래그 직후 rename(click) 억제용
 }
 function renderColorChips(){const el=document.getElementById('color-chips');if(!el)return;el.innerHTML=formColors.map((c,i)=>`<span class="chip" data-ci="${i}" onpointerdown="colorDragStart(event,${i})" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none" title="드래그해서 순서 변경">${colorDot(c)}<span onclick="renameColor(${i})" style="cursor:pointer" title="클릭해서 컬러명 수정 (연결된 원단·부자재 컬러도 따라감)">${esc(c)}</span><button onpointerdown="event.stopPropagation()" onclick="removeColor(${i})" title="삭제">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">단색 (추가하면 컬러별 발주)</span>';}
-function renderSizeChips(){const el=document.getElementById('size-chips');if(!el)return;el.innerHTML=formSizes.map((s,i)=>`<span class="chip" data-si="${i}" onpointerdown="sizeDragStart(event,${i})" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none" title="드래그해서 순서 변경"><span onclick="renameSize(${i})" style="cursor:pointer" title="클릭해서 사이즈명 수정">${esc(s)}</span><button onpointerdown="event.stopPropagation()" onclick="removeSize(${i})">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">프리사이즈</span>';}
+/* 사이즈별 공임 입력칸 — 공임 행 바로 아래. 사이즈가 없으면 아무것도 안 그린다.
+   접혀 있으면 DOM에 입력칸이 없으므로 colLaborBySize는 메모리(formLaborBySize) 값을 지킨다. */
+function renderLaborSizes(){
+  var el=document.getElementById('labor-size-wrap');if(!el)return;
+  if(!formSizes.length){el.innerHTML='';return;}
+  var on=!!window._laborSzOn;
+  var h='<button type="button" class="btn s" onclick="toggleLaborBySize()" style="font-size:11px;padding:3px 10px">'+(on?'사이즈별 공임 접기':'사이즈별로 다르게')+'</button>';
+  if(on){
+    h+='<div class="tx-extras" style="margin-top:6px;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">'
+      +'<div style="width:100%;font-size:11px;color:#6b7280;margin-bottom:2px">비워둔 사이즈는 위의 기본 공임으로 계산돼요</div>'
+      +formSizes.map(function(sz){
+        var v=+formLaborBySize[sz]||0;
+        return '<div style="width:96px"><label style="font-size:11px">'+esc(sz)+'</label>'
+          +'<input type="number" min="0" inputmode="numeric" data-labor-sz="'+encodeURIComponent(sz)+'" value="'+(v>0?v:'')+'" placeholder="기본" oninput="onLaborSizeIn(this)" style="width:100%"></div>';
+      }).join('')
+      +'</div>';
+  }
+  el.innerHTML=h;
+}
+function toggleLaborBySize(){window._laborSzOn=!window._laborSzOn;renderLaborSizes();}
+function onLaborSizeIn(el){
+  var sz=decodeURIComponent(el.dataset.laborSz||'');
+  var v=+el.value||0;
+  if(v>0)formLaborBySize[sz]=v;else delete formLaborBySize[sz];
+  try{scheduleDraft();}catch(e){}
+}
+function colLaborBySize(){
+  var inps=document.querySelectorAll('[data-labor-sz]');
+  if(!inps.length)return Object.assign({},formLaborBySize); // 접힘 = 손 안 댐
+  var out={};
+  inps.forEach(function(inp){
+    var sz=decodeURIComponent(inp.dataset.laborSz||'');
+    var v=+inp.value||0;
+    if(v>0)out[sz]=v;
+  });
+  formLaborBySize=out;
+  return out;
+}
+function renderSizeChips(){const el=document.getElementById('size-chips');if(!el)return;el.innerHTML=formSizes.map((s,i)=>`<span class="chip" data-si="${i}" onpointerdown="sizeDragStart(event,${i})" style="touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none" title="드래그해서 순서 변경"><span onclick="renameSize(${i})" style="cursor:pointer" title="클릭해서 사이즈명 수정">${esc(s)}</span><button onpointerdown="event.stopPropagation()" onclick="removeSize(${i})">×</button></span>`).join('')||'<span class="muted" style="font-size:11px">프리사이즈</span>';try{renderLaborSizes();}catch(e){}}
 /* 사이즈 칩 드래그 순서 변경 (2026-07-28) — 컬러 칩과 동일 방식. 사이즈 순서는 수량표·발주서 열 순서에 그대로 쓰임 */
 function sizeDragStart(e,i){
   if(e.target.closest('button'))return;
@@ -6816,10 +6866,16 @@ function renameSize(i){
   if(!v||v===old)return;
   if(formSizes.indexOf(v)>=0){alert('이미 있는 사이즈예요');return;}
   try{if(typeof colTR==='function')colTR();}catch(e){}
+  try{if(typeof colFR==='function')colFR();}catch(e){} // 원단 입력값도 먼저 거둬야 다시 그릴 때 안 날아감
   formSizes[i]=v;
   (formTrims||[]).forEach(function(t){['sizeBySize','qtyBySize'].forEach(function(k){if(t[k]&&Object.prototype.hasOwnProperty.call(t[k],old)){t[k][v]=t[k][old];delete t[k][old];}});});
+  /* 사이즈 이름을 바꾸면 사이즈로 키를 잡은 값들도 같이 옮겨야 한다.
+     원단 요척(consumptionBySize)은 예전에 빠져 있어서 이름만 바꿔도 사이즈별 요척이 통째로 사라졌다(2026-08-13 수정). */
+  (formFabs||[]).forEach(function(f){if(f&&f.consumptionBySize&&Object.prototype.hasOwnProperty.call(f.consumptionBySize,old)){f.consumptionBySize[v]=f.consumptionBySize[old];delete f.consumptionBySize[old];}});
+  if(Object.prototype.hasOwnProperty.call(formLaborBySize,old)){formLaborBySize[v]=formLaborBySize[old];delete formLaborBySize[old];}
   renderSizeChips();
   try{renderTrimRows();}catch(e){}
+  try{renderFabRows();}catch(e){}
   if(typeof showToast==='function')showToast('사이즈명 수정: '+esc(old)+' → '+esc(v));
 }
 
@@ -8379,6 +8435,7 @@ function collectFormData(){
     inclOnce:document.getElementById('f-inclOnce')?.checked||false,
   };
   COST_DEFS.forEach(([ck,,fk])=>{d[ck]=+document.getElementById('f-'+ck)?.value||0;d[fk]=document.getElementById('f-'+fk)?.value||'';});
+  d.laborBySize=colLaborBySize();
   d.workRoute=document.getElementById('f-workRoute')?.value||'';
   return d;
 }
@@ -8411,6 +8468,8 @@ function loadDraft(){
   s('f-onceCost',d.onceCost||0);s('f-onceCostNm',d.onceCostNm||'');
   const ic=document.getElementById('f-inclOnce');if(ic)ic.checked=!!d.inclOnce;
   COST_DEFS.forEach(([ck,,fk])=>{s('f-'+ck,d[ck]||0);s('f-'+fk,d[fk]||'');});
+  formLaborBySize=Object.assign({},d.laborBySize||{});
+  window._laborSzOn=Object.keys(formLaborBySize).length>0;
   formColors=[...(d.colors||[])];formSizes=[...(d.sizes||[])];
   formFabs=JSON.parse(JSON.stringify(d.fabrics||[]));
   formTrims=JSON.parse(JSON.stringify(d.trims||[]));
@@ -8528,6 +8587,8 @@ function showItemForm(id){
   formFabs=it?.fabrics?JSON.parse(JSON.stringify(it.fabrics)):[];
   formTrims=it?.trims?JSON.parse(JSON.stringify(it.trims)):[];
   formTrimCosts=it?.trimCosts?JSON.parse(JSON.stringify(it.trimCosts)):[];
+  formLaborBySize=(it&&it.laborBySize)?Object.assign({},it.laborBySize):{};
+  window._laborSzOn=hasLaborBySize(it); // 이미 쓰던 아이템이면 펼친 채로 연다
   document.getElementById('if-t').textContent=id?'아이템 수정':'아이템 추가';
   _itemListScrollY=window.scrollY||0;
   document.getElementById('ipl').style.display='none';document.getElementById('ipf').style.display='';
@@ -8572,7 +8633,7 @@ function showItemForm(id){
     </div>
     <div class="sec" style="margin-top:12px"><span>가공비 및 담당 공장 연결</span></div>
     <div class="info-box">공장을 미리 연결하면 오더 생성 시 자동 배정됩니다</div>
-    ${COST_DEFS.map(([ck,lbl,fk,ft])=>`<div class="fr" style="margin-bottom:8px;align-items:flex-end;gap:8px"><div style="flex:1"><label>${lbl} (원/pcs)</label><input id="f-${ck}" type="number" value="${p[ck]||0}" min="0" oninput="scheduleDraft()"></div><div style="flex:1.6"><label>${ft}</label><select id="f-${fk}" onchange="scheduleDraft();refreshWorkRoute()">${fcOpts(p[fk]||'',ft)}</select></div></div>`).join('')}
+    ${COST_DEFS.map(([ck,lbl,fk,ft])=>`<div class="fr" style="margin-bottom:8px;align-items:flex-end;gap:8px"><div style="flex:1"><label>${lbl} (원/pcs)</label><input id="f-${ck}" type="number" value="${p[ck]||0}" min="0" oninput="scheduleDraft()"></div><div style="flex:1.6"><label>${ft}</label><select id="f-${fk}" onchange="scheduleDraft();refreshWorkRoute()">${fcOpts(p[fk]||'',ft)}</select></div></div>${ck==='laborCost'?'<div id="labor-size-wrap" style="margin:-4px 0 10px"></div>':''}`).join('')}
     <div class="sec" style="margin-top:14px"><span>작업경로 <span class="muted" style="font-weight:400;font-size:10px">— 여기서 정하면 작업지시서에 자동으로 들어가요</span></span></div>
     <div class="info-box">위에 연결한 공장들로 만든 경로가 <b>이미 적혀 있어요</b> — 그대로 두거나 자유롭게 고치면 돼요. 작업지시서에 <b>그대로 자동 표시</b>돼요. (싹 비우면 공장 연결로 다시 자동)</div>
     <div class="fr" style="margin-bottom:8px"><input id="f-workRoute" style="flex:1;font-size:14px;padding:9px 11px" value="${esc(p.workRoute||(p.techpack&&p.techpack.head&&p.techpack.head.route)||(typeof tpAutoRoute==='function'?tpAutoRoute(p).join(' → '):''))}" placeholder="예: 원단 광진나비 → 봉제 엄지 → 출고 더프루토" oninput="window._wrManual=this.value.trim()!=='';if(!window._wrManual)refreshWorkRoute();scheduleDraft()"></div>
@@ -10899,6 +10960,10 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
       item[ck]=_ce?(+_ce.value||0):(_prev?(+_prev[ck]||0):0);
       item[fk]=_fe?(_fe.value||''):(_prev?(_prev[fk]||''):'');
     });})();
+  (function(){var _lb=colLaborBySize(),_keep={},_any=false;
+    (item.sizes||[]).forEach(function(sz){if(+_lb[sz]>0){_keep[sz]=+_lb[sz];_any=true;}});
+    if(_any)item.laborBySize=_keep;else delete item.laborBySize; // 없으면 칸 자체를 안 만든다(옛 아이템과 동일)
+  })();
   item.workRoute=document.getElementById('f-workRoute')?.value?.trim()||'';item.workRouteManual=!!window._wrManual;
   item.defaultTrimSup=document.getElementById('f-defaultsup')?.value?.trim()||'';
   item.patternCost=+document.getElementById('f-patternCost')?.value||0;
@@ -11011,6 +11076,13 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
           }
         }
       }
+      // 사이즈로 키를 잡은 값들 이름 따라가기: 사이즈별 공임 + 원단 사이즈별 요척
+      if(item.laborBySize){var _nlb={};for(var _ok in item.laborBySize){var _nk=sizeMap[_ok]||_ok;if(+item.laborBySize[_ok]>0)_nlb[_nk]=+item.laborBySize[_ok];}item.laborBySize=_nlb;}
+      (item.fabrics||[]).forEach(function(_f){
+        if(!_f||!_f.consumptionBySize)return;
+        var _n={};for(var _os in _f.consumptionBySize){_n[sizeMap[_os]||_os]=_f.consumptionBySize[_os];}
+        _f.consumptionBySize=_n;
+      });
       // 트림 sizeRates도 마이그레이션 (지퍼/단추 사이즈별 단가)
       if(sizesChanged){
         (item.trims||[]).forEach(function(t){
@@ -13210,7 +13282,9 @@ function fcShipped(sch){return !!(sch&&(sch.shipDone||fcShippedQty(sch)>0));}
 // 비품 단가 = 공임 × (100-할인%) / 100, 원 단위 반올림. 결제탭·거래명세서가 같은 함수를 써서 금액 일치.
 function bgUnitPrice(rate,dc){ dc=(dc==null||dc==='')?50:+dc; if(!(dc>=0))dc=50; if(dc>100)dc=100; return Math.round((+rate||0)*(100-dc)/100); }
 // 출고 회차 목록 → 공임 기본액: 정상수량×공임 + Σ(비품수량×비품단가). {base, normalQty, bgQty, bgAmt}
-function sewLaborBase(rate,recs){ var nq=0,bq=0,amt=0; (recs||[]).forEach(function(r){ if(!r)return; var q=+r.qty||0; if(!(q>0))return; if(r.bg){ bq+=q; amt+=bgUnitPrice(rate,r.bgDc)*q; } else nq+=q; }); return {base:(+rate||0)*nq+amt,normalQty:nq,bgQty:bq,bgAmt:amt}; }
+/* 봉제 공임 합계. it을 주고 그 아이템에 사이즈별 공임이 있으면 회차의 사이즈 단가로 계산한다.
+   it이 없거나 사이즈별 공임이 하나도 없으면 예전 식(rate×수량)과 결과가 완전히 같다. */
+function sewLaborBase(rate,recs,it){ var nq=0,bq=0,amt=0,norm=0; var bySz=(typeof hasLaborBySize==='function')&&hasLaborBySize(it); (recs||[]).forEach(function(r){ if(!r)return; var q=+r.qty||0; if(!(q>0))return; var u=bySz?laborRate(it,r.size):(+rate||0); if(r.bg){ bq+=q; amt+=bgUnitPrice(u,r.bgDc)*q; } else { nq+=q; norm+=u*q; } }); return {base:norm+amt,normalQty:nq,bgQty:bq,bgAmt:amt}; }
 // 검색 input 공용 디바운스 — IME 조합·이벤트 호환성 안전. 입력 멈추고 120ms 후 검색 발동.
 window._searchTimers=window._searchTimers||{};
 function debounceSearch(key,fn,delay){
@@ -17021,7 +17095,21 @@ function renderPayShtTab(o){
           }
         }
         const rate=it[ck]||0;
-        if(rate>0){base+=rate*qty;qtySum+=qty;}
+        /* 사이즈별 공임: 사이즈별 수량 × 그 사이즈 단가로 합산(결제·명세서와 같은 기준).
+           사이즈 분해가 안 되는 경우(그리드도 오더수량도 없음)엔 아래 기본식으로 떨어진다. */
+        var _lbDone=false;
+        if(ck==='laborCost'&&hasLaborBySize(it)){
+          var _lbBase=0,_lbQty=0;
+          const _lcs=it.colors&&it.colors.length?it.colors:[''];
+          const _lss=it.sizes&&it.sizes.length?it.sizes:['free'];
+          const _lsg=sch.shippingGrid&&sch.shippingGrid[oi.itemId];
+          _lcs.forEach(function(c2){_lss.forEach(function(sz2){
+            var q2=_lsg?(+((_lsg[c2]&&_lsg[c2][sz2])||0)):(+((oi.qtyGrid&&oi.qtyGrid[c2]&&oi.qtyGrid[c2][sz2])||0));
+            if(q2>0){_lbBase+=laborRate(it,sz2)*q2;_lbQty+=q2;}
+          });});
+          if(_lbBase>0){base+=_lbBase;qtySum+=_lbQty;_lbDone=true;}
+        }
+        if(!_lbDone&&rate>0){base+=rate*qty;qtySum+=qty;}
       }
       if(!base)return null;
       const vat=Math.round(base*(vatOf(sch)/100));
@@ -17380,7 +17468,8 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
               var iso=toISO(s.date)||_shipISO||'';
               // 비품 출고 회차 = 봉제 공임만 할인 단가(bgUnitPrice). 완성·검품 등 다른 비용은 정상 단가 유지.
               var _u=rate,_bgTag='';
-              if(s.bg&&ck==='laborCost'&&_isSew){_u=bgUnitPrice(rate,s.bgDc);_bgTag=' (비품 '+(((s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50))+'%할인)';}
+              if(ck==='laborCost'&&_isSew&&hasLaborBySize(it))_u=laborRate(it,s.size); // 사이즈별 공임
+              if(s.bg&&ck==='laborCost'&&_isSew){_u=bgUnitPrice(_u,s.bgDc);_bgTag=' (비품 '+(((s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50))+'%할인)';}
               rows.push({
                 date:iso?(typeof fmtKoDate==='function'?fmtKoDate(iso):iso):_rowDate,
                 _iso:iso||'',
@@ -17396,7 +17485,8 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
                 // 출고수량(이 공장→봉제공장) 있으면 그걸, 없으면 오더수량
                 var q=_srcGrid?(+((_srcGrid[c]&&_srcGrid[c][sz])||0)):(+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0));
                 if(!q)continue;
-                rows.push({date:_rowDate,_iso:_shipISO||'',itemName:it.name,color:c||'',size:sz==='free'?'':sz,qty:q,unitPrice:rate,amount:rate*q,costType:lbl,oid:o.id,payKey:payKey,orderName:o.name});
+                var _ug=(ck==='laborCost'&&_isSew&&hasLaborBySize(it))?laborRate(it,sz):rate; // 사이즈별 공임
+                rows.push({date:_rowDate,_iso:_shipISO||'',itemName:it.name,color:c||'',size:sz==='free'?'':sz,qty:q,unitPrice:_ug,amount:_ug*q,costType:lbl,oid:o.id,payKey:payKey,orderName:o.name});
               }
             }
           }
@@ -22590,7 +22680,7 @@ function renderItemPay(opts){
         const qty=sewShipQty;
         let base=rate*qty,bgQty=0,bgAmt=0;
         // 비품 출고 공임 할인: 봉제 공임에만 — 비품 회차는 bgDc%(기본 50) 할인 단가로 계산
-        if(ck==='laborCost'&&isSewing&&rate>0){const _lb=sewLaborBase(rate,sewShipRecs);base=_lb.base;bgQty=_lb.bgQty;bgAmt=_lb.bgAmt;}
+        if(ck==='laborCost'&&isSewing&&rate>0){const _lb=sewLaborBase(rate,sewShipRecs,it);base=_lb.base;bgQty=_lb.bgQty;bgAmt=_lb.bgAmt;}
         const feeKey='fc:'+fcId;
         const fees=(o.payFees||{})[feeKey]||[];
         const taxFeeTot=fees.reduce((s,f)=>f.noVat?s:s+payFeeAmt(f),0);

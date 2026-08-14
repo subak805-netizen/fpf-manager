@@ -17,13 +17,14 @@ var curCoId = 'testco';
 var S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
 
 // ---- 채점기 ----
-var _fails = [], _okCount = 0;
+var _fails = [], _okCount = 0, _testCount = 0;
 function CHECK(name, actual, expected){
   var ok = JSON.stringify(actual) === JSON.stringify(expected);
   if(ok){ _okCount++; print('    ' + name + ' ... 통과'); }
   else { _fails.push(name); print('    ' + name + ' ... 실패! 기대 ' + JSON.stringify(expected) + ', 나온 답 ' + JSON.stringify(actual)); }
 }
 function TEST(title, fn){
+  _testCount++;
   print('  ' + title);
   try{ fn(); }
   catch(e){ _fails.push(title + ' (오류)'); print('    오류로 중단: ' + e); }
@@ -211,6 +212,35 @@ TEST('문제 11. 비품 공임 30% 할인 = 2,820,000원 · 기본율 50%', func
   CHECK('비품 없으면 전액 정상', r2.base, 2400000);
 });
 
+// ── 문제 13. 사이즈별 공임 (2026-08-13) ─────────────────────────────
+// 공임 기본 24,000원, M사이즈만 26,000원(it.laborBySize={M:26000}).
+// 출고 S 100장 + M 50장.
+// 손계산: 24,000×100=2,400,000 + 26,000×50=1,300,000 → 3,700,000원.
+// 사이즈별을 안 쓰는 아이템은 예전 그대로 24,000×150=3,600,000원이어야 한다(회귀 방지).
+TEST('문제 13. 사이즈별 공임 = 3,700,000원 · 미사용 아이템은 불변', function(){
+  var itSz = { sizes:['S','M'], laborCost:24000, laborBySize:{ M:26000 } };
+  var itNo = { sizes:['S','M'], laborCost:24000 };
+  CHECK('M은 사이즈 단가', laborRate(itSz,'M'), 26000);
+  CHECK('S는 기본 공임', laborRate(itSz,'S'), 24000);
+  CHECK('사이즈 없으면 기본', laborRate(itSz,''), 24000);
+  CHECK('프리사이즈는 기본', laborRate(itSz,'free'), 24000);
+  CHECK('사이즈별 미사용 판정', hasLaborBySize(itNo), false);
+  CHECK('사이즈별 사용 판정', hasLaborBySize(itSz), true);
+
+  var recs = [ { size:'S', qty:100 }, { size:'M', qty:50 } ];
+  CHECK('사이즈별 공임 합계', sewLaborBase(24000, recs, itSz).base, 3700000);
+  CHECK('사이즈별 미사용은 예전대로', sewLaborBase(24000, recs, itNo).base, 3600000);
+  CHECK('it 없이 부르면 예전대로', sewLaborBase(24000, recs).base, 3600000);
+
+  // 사이즈가 안 적힌 옛 출고 회차 → 기본 공임으로 떨어져야 한다
+  CHECK('옛 회차(사이즈 없음)', sewLaborBase(24000, [{ qty:10 }], itSz).base, 240000);
+
+  // 비품 할인은 "그 사이즈 단가" 기준 — 26,000의 50% = 13,000
+  var rBg = sewLaborBase(24000, [{ size:'M', qty:20, bg:1, bgDc:50 }], itSz);
+  CHECK('비품 할인 단가 기준', rBg.bgAmt, 260000);
+  CHECK('비품 합계', rBg.base, 260000);
+});
+
 // ── 문제 12. 벌치 로스 = 컬러별 +N벌 (2026-07-09 사용자 확정) ─────────────────────────────
 // 지퍼(벌당 1개) 컬러링크 아이·블랙, 오더 아이 20 + 블랙 40.
 // 벌치 5 → 컬러마다 +5개: 아이 25 / 검정 45. (예전 비례분배+올림 22/44는 회귀)
@@ -242,5 +272,5 @@ if(_fails.length){
   print('실패 목록: ' + _fails.join(' / '));
   print('>>> 고치기 전에는 push 금지. (검사 자체를 건너뛰려면 SKIP_CALC=1 ./safe-push.sh)');
 }else{
-  print('CALC TESTS: OK — 12문제 전부 통과 (검사 ' + _okCount + '개)');
+  print('CALC TESTS: OK — ' + _testCount + '문제 전부 통과 (검사 ' + _okCount + '개)');
 }
