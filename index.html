@@ -8125,6 +8125,22 @@ function _refFileName(c,label){
   var ext=/^data:image\/png/.test((c&&(c.front||c.back))||'')?'.png':'.jpg';
   return t+'_'+(label||'')+ext;
 }
+/* 사진을 파일로 내려받기 — 클로드처럼 웹페이지끼리는 드래그로 파일이 안 넘어가서, 저장한 뒤 첨부하는 길 */
+function refDownloadImage(id,side){
+  var c=_refFind(id),url=c&&c[side];
+  if(!url){ showToast('사진이 없어요'); return; }
+  var nm=_refFileName(c,side==='front'?'앞':'뒤');
+  var save=function(href,revoke){
+    var a=document.createElement('a');a.href=href;a.download=nm;document.body.appendChild(a);a.click();
+    setTimeout(function(){ if(a.parentNode)a.parentNode.removeChild(a); if(revoke)URL.revokeObjectURL(href); },800);
+    showToast('사진 저장됨 — 클로드에 첨부해서 보내세요');
+  };
+  if(/^data:/.test(url)){ save(url); return; }
+  // 다른 서버 사진은 download 속성이 무시되므로 blob으로 받아서 저장
+  fetch(url,{mode:'cors'}).then(function(r){ if(!r.ok)throw 0; return r.blob(); })
+    .then(function(b){ save(URL.createObjectURL(b),true); })
+    .catch(function(){ try{ window.open(url,'_blank'); showToast('새 창에서 사진을 길게 눌러 저장해주세요'); }catch(e){ showToast('사진을 내려받지 못했어요'); } });
+}
 /* 사진을 클립보드로 복사 — 카톡·클로드에 그냥 붙여넣기 (드래그가 안 되는 앱용) */
 function refCopyImage(id,side){
   var c=_refFind(id),url=c&&c[side];
@@ -8153,7 +8169,8 @@ function _refSlot(c,side,label){
     return '<div class="rf-slot" data-side="'+side+'">'
       +'<span class="rf-tag">'+label+'</span>'
       +'<img src="'+esc(url)+'" alt="" draggable="true" data-dl="'+esc(_refFileName(c,label))+'">'
-      +'<button class="rf-cp" onclick="event.stopPropagation();refCopyImage(\''+c.id+'\',\''+side+'\')" title="사진 복사 — 카톡·클로드에 붙여넣기">복사</button>'
+      +'<button class="rf-dl" onclick="event.stopPropagation();refDownloadImage(\''+c.id+'\',\''+side+'\')" title="사진 파일로 내려받기 — 저장한 뒤 첨부">저장</button>'
+      +'<button class="rf-cp" onclick="event.stopPropagation();refCopyImage(\''+c.id+'\',\''+side+'\')" title="사진 복사 — 클로드·카톡에 붙여넣기(⌘V)">복사</button>'
       +'<button class="rf-rm" onclick="event.stopPropagation();refDelImage(\''+c.id+'\',\''+side+'\')" title="사진 삭제">&times;</button>'
       +'<div class="rf-swap">눌러서 다른 사진으로 바꾸기</div>'
     +'</div>';
@@ -8499,6 +8516,9 @@ function _refStyle(){
     +'#reference-body .rf-slot img:active{cursor:grabbing}'
     +'#reference-body .rf-cp{position:absolute;top:7px;right:37px;height:24px;padding:0 9px;border-radius:12px;border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--ink,#0B0A05);font-size:11px;font-weight:800;cursor:pointer;line-height:1;z-index:3;display:none}'
     +'#reference-body .rf-slot:not(.empty):hover .rf-cp{display:block}'
+    +'#reference-body .rf-dl{position:absolute;top:7px;right:85px;height:24px;padding:0 9px;border-radius:12px;border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--ink,#0B0A05);font-size:11px;font-weight:800;cursor:pointer;line-height:1;z-index:3;display:none}'
+    +'#reference-body .rf-slot:not(.empty):hover .rf-dl{display:block}'
+    +'#reference-body .rf-sheet.rf-capturing .rf-dl{display:none!important}'
     +'#reference-body .rf-sheet.rf-capturing .rf-cp{display:none!important}'
     +'#reference-body .rf-ph{display:flex;flex-direction:column;align-items:center;gap:6px;color:#9a988f;font-weight:700;font-size:13px;text-align:center;padding:14px;pointer-events:none}'
     +'#reference-body .rf-plus{font-size:26px;line-height:1}'
