@@ -8125,6 +8125,47 @@ function _refFileName(c,label){
   var ext=/^data:image\/png/.test((c&&(c.front||c.back))||'')?'.png':'.jpg';
   return t+'_'+(label||'')+ext;
 }
+/* 사진 크게 보기 (확대) — 카드가 작아 디테일이 안 보여서. 여기서도 끌어내기·저장·복사 가능 */
+function refZoomImage(id,side){
+  var c=_refFind(id),url=c&&c[side];
+  if(!url){ refPickImage(id,side); return; }   // 사진 없으면 고르기로
+  refZoomClose();
+  var lbl=(side==='front'?'앞':'뒤');
+  var ov=document.createElement('div'); ov.id='rf-zoom';
+  ov.innerHTML='<div class="rz-bar">'
+    +'<button type="button" data-rz="ch">바꾸기</button>'
+    +'<button type="button" data-rz="dl">저장</button>'
+    +'<button type="button" data-rz="cp">복사</button>'
+    +'<button type="button" data-rz="x">닫기</button>'
+  +'</div>'
+  +'<img alt="" draggable="true" data-dl="'+esc(_refFileName(c,lbl))+'">'
+  +'<div class="rz-cap">'+esc((c.title||'레퍼런스')+' · '+lbl)+' — 배경을 누르면 닫혀요</div>';
+  ov.querySelector('img').src=url;
+  ov.addEventListener('click',function(e){
+    var b=e.target.closest('button'),act=b&&b.getAttribute('data-rz');
+    if(act==='x'){ refZoomClose(); return; }
+    if(act==='ch'){ refZoomClose(); refPickImage(id,side); return; }
+    if(act==='dl'){ refDownloadImage(id,side); return; }
+    if(act==='cp'){ refCopyImage(id,side); return; }
+    if(e.target===ov)refZoomClose();            // 배경 클릭만 닫기(사진 클릭은 유지)
+  });
+  ov.addEventListener('dragstart',function(e){
+    var im=(e.target&&e.target.tagName==='IMG')?e.target:null;
+    if(!im||!e.dataTransfer)return;
+    e.dataTransfer.effectAllowed='copy';
+    var u=im.src||'',nm=im.getAttribute('data-dl')||'reference.jpg';
+    var mime=/^data:([^;,]+)/.test(u)?RegExp.$1:(/\.png/i.test(u)?'image/png':'image/jpeg');
+    try{ e.dataTransfer.setData('DownloadURL',mime+':'+nm+':'+u); }catch(err){}
+    try{ e.dataTransfer.setData('text/uri-list',u); e.dataTransfer.setData('text/plain',u); }catch(err){}
+  });
+  document.body.appendChild(ov);
+  window._rfZoomEsc=function(e){ if(e.key==='Escape')refZoomClose(); };
+  document.addEventListener('keydown',window._rfZoomEsc);
+}
+function refZoomClose(){
+  var ov=document.getElementById('rf-zoom'); if(ov&&ov.parentNode)ov.parentNode.removeChild(ov);
+  if(window._rfZoomEsc){ document.removeEventListener('keydown',window._rfZoomEsc); window._rfZoomEsc=null; }
+}
 /* 사진을 파일로 내려받기 — 클로드처럼 웹페이지끼리는 드래그로 파일이 안 넘어가서, 저장한 뒤 첨부하는 길 */
 function refDownloadImage(id,side){
   var c=_refFind(id),url=c&&c[side];
@@ -8169,10 +8210,11 @@ function _refSlot(c,side,label){
     return '<div class="rf-slot" data-side="'+side+'">'
       +'<span class="rf-tag">'+label+'</span>'
       +'<img src="'+esc(url)+'" alt="" draggable="true" data-dl="'+esc(_refFileName(c,label))+'">'
+      +'<button class="rf-ch" onclick="event.stopPropagation();refPickImage(\''+c.id+'\',\''+side+'\')" title="다른 사진으로 바꾸기">바꾸기</button>'
       +'<button class="rf-dl" onclick="event.stopPropagation();refDownloadImage(\''+c.id+'\',\''+side+'\')" title="사진 파일로 내려받기 — 저장한 뒤 첨부">저장</button>'
       +'<button class="rf-cp" onclick="event.stopPropagation();refCopyImage(\''+c.id+'\',\''+side+'\')" title="사진 복사 — 클로드·카톡에 붙여넣기(⌘V)">복사</button>'
       +'<button class="rf-rm" onclick="event.stopPropagation();refDelImage(\''+c.id+'\',\''+side+'\')" title="사진 삭제">&times;</button>'
-      +'<div class="rf-swap">눌러서 다른 사진으로 바꾸기</div>'
+      +'<div class="rf-swap">눌러서 크게 보기 · 끌어다 놓으면 다른 앱으로 전송</div>'
     +'</div>';
   }
   return '<div class="rf-slot empty" data-side="'+side+'">'
@@ -8333,7 +8375,12 @@ function _refWireDrop(){
   if(el&&!el._refDrop){ el._refDrop=1;
     var slotOf=function(e){ return (e.target&&e.target.closest)?e.target.closest('.rf-slot'):null; };
     var cardId=function(s){ var c=s&&s.closest?s.closest('[data-ref-card]'):null; return c?c.getAttribute('data-ref-card'):''; };
-    el.addEventListener('click',function(e){ var s=slotOf(e); if(!s)return; if(e.target.closest('.rf-rm'))return; refPickImage(cardId(s),s.getAttribute('data-side')); });
+    el.addEventListener('click',function(e){ var s=slotOf(e); if(!s)return;
+      if(e.target.closest('button'))return;                       // 버튼(삭제·바꾸기·저장·복사)은 각자 처리
+      var side=s.getAttribute('data-side'),id=cardId(s);
+      if(s.classList.contains('empty')){ refPickImage(id,side); return; }
+      refZoomImage(id,side);                                      // 사진 있으면 확대 보기
+    });
     el.addEventListener('dragstart',function(e){
       var im=(e.target&&e.target.tagName==='IMG'&&e.target.closest('.rf-slot'))?e.target:null;
       if(!im||!e.dataTransfer)return;
@@ -8519,6 +8566,16 @@ function _refStyle(){
     +'#reference-body .rf-dl{position:absolute;top:7px;right:85px;height:24px;padding:0 9px;border-radius:12px;border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--ink,#0B0A05);font-size:11px;font-weight:800;cursor:pointer;line-height:1;z-index:3;display:none}'
     +'#reference-body .rf-slot:not(.empty):hover .rf-dl{display:block}'
     +'#reference-body .rf-sheet.rf-capturing .rf-dl{display:none!important}'
+    +'#reference-body .rf-ch{position:absolute;top:7px;right:133px;height:24px;padding:0 9px;border-radius:12px;border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--ink,#0B0A05);font-size:11px;font-weight:800;cursor:pointer;line-height:1;z-index:3;display:none}'
+    +'#reference-body .rf-slot:not(.empty):hover .rf-ch{display:block}'
+    +'#reference-body .rf-sheet.rf-capturing .rf-ch{display:none!important}'
+    +'#rf-zoom{position:fixed;inset:0;z-index:100200;background:rgba(11,10,5,.88);display:flex;align-items:center;justify-content:center;padding:22px}'
+    +'#rf-zoom img{max-width:96vw;max-height:86vh;object-fit:contain;background:#fff;border:3px solid #fff;box-shadow:0 10px 40px rgba(0,0,0,.5);-webkit-user-drag:element;cursor:grab}'
+    +'#rf-zoom .rz-bar{position:absolute;top:14px;right:14px;display:flex;gap:8px;align-items:center}'
+    +'#rf-zoom .rz-bar button{height:36px;padding:0 14px;border-radius:18px;border:2px solid #fff;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:800;cursor:pointer;line-height:1}'
+    +'#rf-zoom .rz-bar button:hover{background:#fff;color:var(--ink,#0B0A05)}'
+    +'#rf-zoom .rz-cap{position:absolute;bottom:16px;left:0;right:0;text-align:center;color:#fff;font-size:12.5px;font-weight:700;opacity:.85}'
+    +'@media (max-width:760px){#rf-zoom{padding:10px}#rf-zoom img{max-height:78vh}#rf-zoom .rz-bar{top:10px;right:10px;gap:6px}#rf-zoom .rz-bar button{height:32px;padding:0 11px;font-size:12px}}'
     +'#reference-body .rf-sheet.rf-capturing .rf-cp{display:none!important}'
     +'#reference-body .rf-ph{display:flex;flex-direction:column;align-items:center;gap:6px;color:#9a988f;font-weight:700;font-size:13px;text-align:center;padding:14px;pointer-events:none}'
     +'#reference-body .rf-plus{font-size:26px;line-height:1}'
