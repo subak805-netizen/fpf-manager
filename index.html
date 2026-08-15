@@ -8231,6 +8231,39 @@ function _refBrandName(bid){ if(!bid)return ''; if(typeof getBrandName==='functi
 function _refColFind(id){ return (S.refCollections||[]).find(function(x){return x&&x.id===id;})||null; }
 function _refColCards(colId){ return (S.refCards||[]).filter(function(c){ return c && ((c.collectionId||'')===(colId||'')); }); }
 function refSetCatFlt(c){ window._refCatFlt=c; renderReference(); }
+/* ── 시즌 (폴더 col.season) ─────────────────────────────────────────────
+   폴더 이름에 이미 '26FW …'처럼 적어두신 게 많아 이름에서 자동 추정한다.
+   추정은 표시용 폴백일 뿐이고, 셀렉트로 고르면 col.season에 저장돼 그게 우선. */
+function _refGuessSeason(name){
+  var m=String(name||'').toUpperCase().match(/\b(\d{2})\s*[\/\-]?\s*(FW|SS|AW|SU|F\/W|S\/S)\b/);
+  if(!m)return '';
+  var t=m[2].replace('/',''); if(t==='AW')t='FW'; if(t==='SU')t='SS';
+  return m[1]+t;
+}
+function _refColSeason(col){ return (col&&col.season)||_refGuessSeason(col&&col.name)||''; }
+/* 화면에 띄울 시즌 목록 = 실제 쓰이는 값 + 직접 추가한 값, 최신순 */
+function getRefSeasons(){
+  S.refData=S.refData||{};
+  if(!Array.isArray(S.refData.refSeasons))S.refData.refSeasons=[];
+  var set={};
+  S.refData.refSeasons.forEach(function(x){ if(x)set[x]=1; });
+  (S.refCollections||[]).forEach(function(c){ var v=_refColSeason(c); if(v)set[v]=1; });
+  return Object.keys(set).sort(function(a,b){
+    var na=+String(a).slice(0,2),nb=+String(b).slice(0,2);
+    if(na!==nb)return nb-na;                       // 최신 연도 먼저
+    return String(a).slice(2)<String(b).slice(2)?1:-1;   // 같은 해면 FW 먼저
+  });
+}
+function refAddSeasonUI(){
+  var v=(prompt('추가할 시즌 (예: 26FW, 27SS)')||'').trim().toUpperCase().replace(/\s|\//g,'');
+  if(!v)return;
+  if(!/^\d{2}(FW|SS)$/.test(v)){ showToast('26FW · 27SS 처럼 적어주세요'); return; }
+  S.refData=S.refData||{}; if(!Array.isArray(S.refData.refSeasons))S.refData.refSeasons=[];
+  if(S.refData.refSeasons.indexOf(v)<0)S.refData.refSeasons.push(v);
+  saveData(); window._refSeaFlt=v; renderReference();
+}
+function refSetSeaFlt(v){ window._refSeaFlt=v; renderReference(); }
+function refSetGroupBy(v){ window._refGroupBy=v; try{lsSet('fpm_refGroupBy',v);}catch(e){} renderReference(); }
 function refOpenCol(id){ window._refOpenCol=id; renderReference(); try{window.scrollTo(0,0);}catch(e){} }
 function refCloseCol(){ window._refOpenCol=null; renderReference(); try{window.scrollTo(0,0);}catch(e){} }
 function refSetColField(id,key,val){ var c=_refColFind(id); if(!c)return; c[key]=val; _refSaveSoon(); }
@@ -8239,7 +8272,7 @@ function refAddCollection(){
   var id=(typeof uid==='function')?uid():('rc'+Date.now());
   if(!Array.isArray(S.refCollections))S.refCollections=[];
   var bf=window._itemBrandFlt;
-  S.refCollections.push({id:id,name:'',brandId:(bf&&bf!=='__none')?bf:'',category:(window._refCatFlt||''),date:(typeof todayISO==='function'?todayISO():''),createdAt:(typeof todayISO==='function'?todayISO():'')});
+  S.refCollections.push({id:id,name:'',brandId:(bf&&bf!=='__none')?bf:'',category:(window._refCatFlt||''),season:(window._refSeaFlt||''),date:(typeof todayISO==='function'?todayISO():''),createdAt:(typeof todayISO==='function'?todayISO():'')});
   saveData(); window._refOpenCol=id; renderReference();
   setTimeout(function(){ var el=document.querySelector('.rfc-name-input'); if(el)el.focus(); },40);
 }
@@ -8258,7 +8291,8 @@ function _refFolderCard(col){
   return '<div class="rf-folder" onclick="refOpenCol(\''+col.id+'\')">'
     +(thumb?'<div class="rf-fth"><img src="'+esc(thumb)+'" alt=""></div>':'<div class="rf-fth rf-fth-empty">사진 없음</div>')
     +'<div class="rf-fbody"><div class="rf-fname">'+esc(col.name||'무제 폴더')+'</div>'
-      +'<div class="rf-fmeta">'+(col.category?'<span class="rf-fcat">'+esc(col.category)+'</span>':'')
+      +'<div class="rf-fmeta">'+((_refColSeason(col))?'<span class="rf-fsea">'+esc(_refColSeason(col))+'</span>':'')
+        +(col.category?'<span class="rf-fcat">'+esc(col.category)+'</span>':'')
         +'<span class="rf-fcount">'+cards.length+'개</span>'+(col.date?'<span class="rf-fdate">'+esc(col.date)+'</span>':'')+'</div>'
     +'</div></div>';
 }
@@ -8306,18 +8340,45 @@ function _refRenderFolders(el){
   var head='<div class="rf-top"><h2>레퍼런스</h2><span class="rf-cnt">폴더 '+cols.length+'개'+(looseCnt?' · 미분류 '+looseCnt+'개':'')+'</span><span class="rf-sp"></span>'
     +(looseCnt?'<button class="rf-auto" onclick="refAutoClassify()">제목으로 자동 분류</button>':'')
     +'<button class="rf-new" onclick="refAddCollection()">＋ 새 레퍼런스 폴더</button></div>';
+  var seas=getRefSeasons(); var seaFlt=window._refSeaFlt||'';
+  if(window._refGroupBy===undefined){ try{window._refGroupBy=lsGet('fpm_refGroupBy')||'season';}catch(e){window._refGroupBy='season';} }
+  var gb=window._refGroupBy;
   var chips='<div class="rf-chips"><button class="rf-chip'+(!catFlt?' on':'')+'" onclick="refSetCatFlt(\'\')">전체</button>'
     +cats.map(function(c){return '<button class="rf-chip'+(catFlt===c?' on':'')+'" onclick="refSetCatFlt(\''+esc(c)+'\')">'+esc(c)+'</button>';}).join('')
     +'<button class="rf-chip rf-chip-add" onclick="refAddCategoryUI()">＋ 카테고리</button></div>';
-  var shown=cols.filter(function(c){ return !catFlt || (c.category||'')===catFlt; });
-  var byBrand={}; shown.forEach(function(c){ var b=c.brandId||'__none'; (byBrand[b]=byBrand[b]||[]).push(c); });
-  var brandIds=Object.keys(byBrand).filter(function(b){return b!=='__none';});
-  brandIds.sort(function(a,b){ return _refBrandName(a).localeCompare(_refBrandName(b),'ko'); });
-  if(byBrand['__none'])brandIds.push('__none');
-  var sections=brandIds.map(function(bid){
-    return '<div class="rf-bsec"><div class="rf-bsec-h">'+esc(bid==='__none'?'브랜드 미지정':_refBrandName(bid))+'</div>'
-      +'<div class="rf-folders">'+byBrand[bid].map(_refFolderCard).join('')+'</div></div>';
-  }).join('');
+  var seaChips='<div class="rf-chips rf-seachips"><span class="rf-chiplbl">시즌</span>'
+    +'<button class="rf-chip'+(!seaFlt?' on':'')+'" onclick="refSetSeaFlt(\'\')">전체</button>'
+    +seas.map(function(v){return '<button class="rf-chip'+(seaFlt===v?' on':'')+'" onclick="refSetSeaFlt(\''+esc(v)+'\')">'+esc(v)+'</button>';}).join('')
+    +'<button class="rf-chip rf-chip-add" onclick="refAddSeasonUI()">＋ 시즌</button>'
+    +'<span class="rf-sp"></span><span class="rf-chiplbl">묶기</span>'
+    +'<button class="rf-chip'+(gb==='season'?' on':'')+'" onclick="refSetGroupBy(\'season\')">시즌별</button>'
+    +'<button class="rf-chip'+(gb==='brand'?' on':'')+'" onclick="refSetGroupBy(\'brand\')">브랜드별</button>'
+  +'</div>';
+  var shown=cols.filter(function(c){
+    if(catFlt&&(c.category||'')!==catFlt)return false;
+    if(seaFlt&&_refColSeason(c)!==seaFlt)return false;
+    return true;
+  });
+  var sections;
+  if(gb==='season'){
+    var bySea={}; shown.forEach(function(c){ var v=_refColSeason(c)||'__none'; (bySea[v]=bySea[v]||[]).push(c); });
+    var keys=Object.keys(bySea).filter(function(v){return v!=='__none';});
+    var order=getRefSeasons(); keys.sort(function(a,b){ return order.indexOf(a)-order.indexOf(b); });
+    if(bySea['__none'])keys.push('__none');
+    sections=keys.map(function(v){
+      return '<div class="rf-bsec"><div class="rf-bsec-h">'+esc(v==='__none'?'시즌 미지정':v)+' <span class="rf-bsecn">'+bySea[v].length+'개</span></div>'
+        +'<div class="rf-folders">'+bySea[v].map(_refFolderCard).join('')+'</div></div>';
+    }).join('');
+  }else{
+    var byBrand={}; shown.forEach(function(c){ var b=c.brandId||'__none'; (byBrand[b]=byBrand[b]||[]).push(c); });
+    var brandIds=Object.keys(byBrand).filter(function(b){return b!=='__none';});
+    brandIds.sort(function(a,b){ return _refBrandName(a).localeCompare(_refBrandName(b),'ko'); });
+    if(byBrand['__none'])brandIds.push('__none');
+    sections=brandIds.map(function(bid){
+      return '<div class="rf-bsec"><div class="rf-bsec-h">'+esc(bid==='__none'?'브랜드 미지정':_refBrandName(bid))+' <span class="rf-bsecn">'+byBrand[bid].length+'개</span></div>'
+        +'<div class="rf-folders">'+byBrand[bid].map(_refFolderCard).join('')+'</div></div>';
+    }).join('');
+  }
   var orphan=_refColCards(''); var orphanSec='';
   if(orphan.length){ var oth=''; for(var i=0;i<orphan.length;i++){if(orphan[i].front){oth=orphan[i].front;break;}}
     orphanSec='<div class="rf-bsec"><div class="rf-bsec-h">미분류 (폴더 없는 레퍼런스)</div><div class="rf-folders">'
@@ -8325,8 +8386,8 @@ function _refRenderFolders(el){
       +(oth?'<div class="rf-fth"><img src="'+esc(oth)+'" alt=""></div>':'<div class="rf-fth rf-fth-empty">사진 없음</div>')
       +'<div class="rf-fbody"><div class="rf-fname">미분류</div><div class="rf-fmeta"><span class="rf-fcount">'+orphan.length+'개</span></div></div></div>'
       +'</div></div>'; }
-  var empty=(!shown.length&&!orphan.length)?'<div class="rf-empty">'+(catFlt?'이 카테고리엔 폴더가 없어요.':'아직 폴더가 없어요. 위 <b>＋ 새 레퍼런스 폴더</b>로 시작해보세요')+'</div>':'';
-  el.innerHTML=head+chips+empty+sections+orphanSec;
+  var empty=(!shown.length&&!orphan.length)?'<div class="rf-empty">'+((catFlt||seaFlt)?'이 조건엔 폴더가 없어요.':'아직 폴더가 없어요. 위 <b>＋ 새 레퍼런스 폴더</b>로 시작해보세요')+'</div>':'';
+  el.innerHTML=head+chips+seaChips+empty+sections+orphanSec;
 }
 function _refRenderInside(el,colId){
   var orphan=(colId==='__orphan'); var col=orphan?null:_refColFind(colId);
@@ -8353,6 +8414,8 @@ function _refRenderInside(el,colId){
   }
   var brands=(typeof getBrands==='function')?getBrands():(S.brands||[]);
   var brandOpts='<option value="">브랜드 없음</option>'+brands.map(function(b){var bid=b.id||b;return '<option value="'+esc(bid)+'"'+((col.brandId||'')===bid?' selected':'')+'>'+esc(_refBrandName(bid))+'</option>';}).join('');
+  var _cs=_refColSeason(col);
+  var seaOpts='<option value="">시즌 없음</option>'+getRefSeasons().map(function(v){return '<option value="'+esc(v)+'"'+(_cs===v?' selected':'')+'>'+esc(v)+'</option>';}).join('');
   var catOpts='<option value="">카테고리</option>'+getRefCategories().map(function(k){return '<option value="'+esc(k)+'"'+((col.category||'')===k?' selected':'')+'>'+esc(k)+'</option>';}).join('');
   var hdr2='<div class="rfc-hd"><button class="rfc-back" onclick="refCloseCol()">← 폴더 목록</button>'
     +'<div class="rfc-titlewrap">'
@@ -8360,6 +8423,7 @@ function _refRenderInside(el,colId){
       +'<div class="rfc-metarow">'
         +'<select class="rfc-sel" onchange="refSetColField(\''+col.id+'\',\'brandId\',this.value)">'+brandOpts+'</select>'
         +'<select class="rfc-sel" onchange="refSetColField(\''+col.id+'\',\'category\',this.value)">'+catOpts+'</select>'
+        +'<select class="rfc-sel" onchange="refSetColField(\''+col.id+'\',\'season\',this.value)">'+seaOpts+'</select>'
         +'<input type="date" class="rfc-date" value="'+esc(col.date||'')+'" onchange="refSetColField(\''+col.id+'\',\'date\',this.value)">'
       +'</div>'
     +'</div>'
@@ -8559,6 +8623,11 @@ function _refStyle(){
     +'#reference-body .rf-slot{position:relative;border:2px solid var(--ink,#0B0A05);background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:pointer}'
     +'#reference-body .rf-slot.empty{border-style:dashed;border-color:#c9c2b0;background:repeating-linear-gradient(45deg,#faf8f2,#faf8f2 10px,#f4f1e8 10px,#f4f1e8 20px)}'
     +'#reference-body .rf-slot.over{border-color:var(--green,#1a7a4a);background:#e6f5ec;border-style:solid}'
+    +'#reference-body .rf-seachips{margin-top:-4px;align-items:center}'
+    +'#reference-body .rf-chiplbl{font-size:11.5px;font-weight:800;color:var(--t2,#8a8470);margin-right:2px}'
+    +'#reference-body .rf-seachips .rf-sp{flex:1}'
+    +'#reference-body .rf-fsea{font-size:10.5px;font-weight:800;background:var(--ink,#0B0A05);color:#fff;padding:2px 7px;border-radius:0}'
+    +'#reference-body .rf-bsecn{font-size:11.5px;font-weight:700;color:var(--t2,#8a8470);margin-left:4px}'
     +'#reference-body .rf-slot img{width:100%;height:100%;object-fit:contain;display:block;-webkit-user-drag:element;cursor:grab}'
     +'#reference-body .rf-slot img:active{cursor:grabbing}'
     +'#reference-body .rf-cp{position:absolute;top:7px;right:37px;height:24px;padding:0 9px;border-radius:12px;border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--ink,#0B0A05);font-size:11px;font-weight:800;cursor:pointer;line-height:1;z-index:3;display:none}'
