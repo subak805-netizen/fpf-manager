@@ -1616,6 +1616,63 @@ function _entMerge(localMap,cloudMap,localTomb,cloudTomb,tieWin){
 // ===ENT-MERGE-END===
 
 // 어떤 객체든 인라인 dataURL 문자열을 깊이 제거(클라우드 문서 축소용). 로컬 원본은 안 건드림.
+
+/* ===== 클라우드 문서 다이어트 (2026-08-17) =============================
+   증상: 「동기화 실패 — 문서 1MB 초과 — 발주서데이터 1050KB」.
+   오더 전체를 한 문서로 올리는데 1MB를 넘으면 **저장이 거부돼 동기화가 통째로 멈춘다.**
+   그 사이 다른 기기가 옛 자료를 올리면 되돌아간 것처럼 보인다(오늘 유실 사고의 유력 경로).
+
+   덜어내는 것 = **추가발주의 발주서 줄(ex.suppliers[*].materials)**.
+   이건 ex.addGrid/qty/loss/excl 로 **다시 계산되는 값**이고, 렌더 쪽에서 이미
+   "비어 있으면 다시 만든다"(exBuildSuppliers)를 하고 있어 구조상 안전하다.
+   ⚠️ **발송된(status==='sent') 발주서는 실제로 보낸 내용이라 절대 안 건드린다.**
+   ⚠️ 로컬(localStorage)엔 원본 그대로 저장한다 — 줄이는 건 클라우드 업로드본만. */
+function _slimOrdersForCloud(orders){
+  var out={},n=0;
+  for(var oid in (orders||{})){
+    var o=orders[oid];
+    if(!o||!o.extraOrders||!o.extraOrders.length){ out[oid]=o; continue; }
+    var c=null;
+    (o.extraOrders||[]).forEach(function(ex,i){
+      if(!ex||!ex.suppliers)return;
+      Object.keys(ex.suppliers).forEach(function(sn){
+        var sp=ex.suppliers[sn];
+        if(!sp||sp.status==='sent')return;            // 보낸 발주서는 그대로
+        if(!sp.materials||!sp.materials.length)return;
+        if(!c){ try{ c=JSON.parse(JSON.stringify(o)); }catch(e){ return; } }
+        if(c.extraOrders&&c.extraOrders[i]&&c.extraOrders[i].suppliers&&c.extraOrders[i].suppliers[sn]){
+          c.extraOrders[i].suppliers[sn].materials=[];
+          c.extraOrders[i].suppliers[sn]._slim=1;      // 열 때 다시 만들라는 표시
+          n++;
+        }
+      });
+    });
+    out[oid]=c||o;
+  }
+  if(n)console.log('[용량] 추가발주 발주서 줄 '+n+'건을 업로드에서 제외(열 때 다시 계산)');
+  return out;
+}
+/* 위에서 덜어낸 자리를 다시 채운다. 표시(_slim)가 붙은 것만. */
+function _rehydrateExtraSuppliers(){
+  try{
+    if(typeof exBuildSuppliers!=='function')return;
+    Object.keys(S.orders||{}).forEach(function(oid){
+      var o=S.orders[oid]; if(!o||!o.extraOrders)return;
+      o.extraOrders.forEach(function(ex){
+        if(!ex||!ex.suppliers)return;
+        var need=Object.keys(ex.suppliers).some(function(sn){ var sp=ex.suppliers[sn]; return sp&&sp._slim; });
+        if(!need)return;
+        var fresh={}; try{ fresh=exBuildSuppliers(o,ex)||{}; }catch(e){ return; }
+        Object.keys(ex.suppliers).forEach(function(sn){
+          var sp=ex.suppliers[sn]; if(!sp||!sp._slim)return;
+          if(fresh[sn]&&fresh[sn].materials)sp.materials=fresh[sn].materials;
+          delete sp._slim;
+        });
+      });
+    });
+  }catch(e){ console.warn('[용량] 추가발주 복원',e); }
+}
+
 function _stripDataUrlsDeep(v,cnt){
   if(typeof v==='string'){ if(v.indexOf('data:')===0){ if(cnt)cnt.n++; return ''; } return v; }
   if(Array.isArray(v)){ var a=new Array(v.length); for(var i=0;i<v.length;i++)a[i]=_stripDataUrlsDeep(v[i],cnt); return a; }
@@ -1813,6 +1870,7 @@ function applyRemoteOrders(orders,tomb){
   _entEnsureTomb();
   var _mo=_entMerge(S.orders||{},orders,S._tomb.orders,tomb,'cloud');
   S.orders=_mo.map; S._tomb.orders=_mo.tomb;
+  try{_rehydrateExtraSuppliers();}catch(e){} // 업로드에서 뺐던 추가발주 발주서 줄 다시 계산
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){}
   try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
@@ -2252,7 +2310,7 @@ async function cloudSyncSave(){
     // 인라인 dataURL 사진은 클라우드 문서에 넣지 않음(로컬엔 보존) — Firestore 1MB(바이트) 초과 방지
     var _stripCnt={n:0};
     coData=_stripDataUrlsDeep(coData,_stripCnt);
-    var ordersData=_stripDataUrlsDeep({orders:S.orders||{},_tomb:{orders:(S._tomb||{}).orders||{}}},_stripCnt); // orders 별도 문서(쪼개기)로 분리 + 무덤(삭제 전파용)
+    var ordersData=_stripDataUrlsDeep({orders:_slimOrdersForCloud(S.orders||{}),_tomb:{orders:(S._tomb||{}).orders||{}}},_stripCnt); // orders 별도 문서(쪼개기)로 분리 + 무덤(삭제 전파용) + 다시 계산 가능한 발주서 줄은 제외
     var sharedData=_stripDataUrlsDeep({factories:S.factories,priceBook:S.priceBook},_stripCnt);
     function _docBytes(o){try{return new Blob([JSON.stringify(o)]).size;}catch(e){try{return JSON.stringify(o).length;}catch(e2){return 0;}}}
     function _topKeys(o){try{return Object.keys(o).map(function(k){return [k,_docBytes(o[k])];}).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(x){return x[0]+' '+Math.round(x[1]/1024)+'KB';}).join('·');}catch(e){return '';}}
@@ -2284,6 +2342,10 @@ async function cloudSyncSave(){
       var _big=Math.max(_coBytes,_shBytes,_ordBytes);
       var _detail=(_big===_ordBytes)?('발주서데이터 '+Math.round(_ordBytes/1024)+'KB'):((_big===_coBytes)?('회사데이터 '+Math.round(_coBytes/1024)+'KB('+_topKeys(coData)+')'):('공유데이터 '+Math.round(_shBytes/1024)+'KB('+_topKeys(sharedData)+')'));
       var _why=(_over?'문서 1MB 초과 — ':('저장 거부['+(window._cloudLastErr||'?')+'] — '))+_detail;
+      /* 어느 오더가 자리를 먹는지 바로 알려준다 — 따로 화면 열 필요 없게 */
+      try{ if(_over&&_big===_ordBytes&&typeof fpfSizeReport==='function'){ var _r=fpfSizeReport();
+        if(_r.orders&&_r.orders.length){ var _t=_r.orders.slice(0,2).map(function(x){ var p=(x.parts&&x.parts[0])?x.parts[0].k:''; return x.name+'('+Math.round(x.b/1024)+'KB'+(p?'·'+p:'')+')'; }).join(', ');
+          _why+=' · 큰 오더: '+_t; } } }catch(e){}
       setCloudInd('err',_why);
       if(typeof showToast==='function')showToast('동기화 실패 — '+_why,9000);
       console.error('[cloudSyncSave] cloudSet 실패. coBytes='+_coBytes+' shBytes='+_shBytes+' coTop='+_topKeys(coData)+' shTop='+_topKeys(sharedData));
@@ -3602,7 +3664,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17g';
+var APP_BUILD=/*BUILD*/'2026-08-17h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -3983,6 +4045,7 @@ function loadCoData(id){
   S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
+  try{_rehydrateExtraSuppliers();}catch(e){} // 클라우드에서 뺐던 추가발주 발주서 줄 복원
   try{_entShadowInit();}catch(e){} // 항목별 병합 기준선 — 마이그레이션 "이후"에 찍어야 기계적 변경이 _mt 오염 안 함
   try{ window._bkCacheCoId=null; if(typeof idbBkEnsureLoaded==='function')idbBkEnsureLoaded(); }catch(e){} // 백업 IndexedDB 로드/이사(회사 전환 시 캐시 갱신)
   try{ if(typeof pbBkEnsureLoaded==='function')pbBkEnsureLoaded(); }catch(e){} // 단가장 백업 IDB 로드/이사(A-③)
