@@ -17,7 +17,7 @@ src=open('index.html',encoding='utf-8').read()
 FUNCS=['orderFc','snapshotOrderFc','calcFabAdditionForColor','calcFabShrinkForColor',
 'getFabRound','roundYards','calcFabYards','trimExtrasCost','calcTrimNeed','_calcTrimNeedRaw',
 'getMatActualQty','getMatActualCost','getMatOrigQty','hasMatOverride','getMatBaseQty',
-'_trimWeightedPrice','ensureOrderLoss','orderLabelBuffer','calcSups','mkSup','mkSupWithDefaults',
+'_trimWeightedPrice','ensureOrderLoss','_ensureOrderLossRaw','_entMech','_entPre','_entMechAbsorb','_entJson','orderLabelBuffer','calcSups','mkSup','mkSupWithDefaults',
 'lossParse','lossEnc','getEffectivePcsByColor','getEffectivePcsForOrderItem','getEffectivePcsBreakdown',
 'getPayFees','payFeeAmt','payFeeBlock','bgUnitPrice','sewLaborBase','laborRate','hasLaborBySize']
 CONSTS=['COST_DEFS']
