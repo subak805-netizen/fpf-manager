@@ -1613,6 +1613,13 @@ function _entMerge(localMap,cloudMap,localTomb,cloudTomb,tieWin){
   });
   return {map:out,tomb:tomb};
 }
+/* ===== 기계적 변형 흡수 (2026-08-17, 원인 6) =====
+   화면을 그리기만 해도 오더/아이템이 바뀌는 코드(발주서 줄 재계산·loss 기본값·공장카드 자동생성·작지 기본값)가 있어,
+   다음 saveData 때 그 항목에 _mt=now가 찍혔다 → 옛 자료를 든 기기가 "보기만" 해도 최신인 척 다른 기기의 진짜 수정을 이겼다.
+   _entMech: 사용자 편집이 대기 중이 아닐 때(그림자==변형 전)만 그림자를 변형 후로 갱신 → 도장 안 찍힘. 편집 대기 중이면 손 안 댐(정상 도장). */
+function _entPre(kind,id){ try{ var sh=window._entShadow&&window._entShadow[kind]; var e=S[kind]&&S[kind][id]; return (sh&&e)?_entJson(e):null; }catch(e){ return null; } }
+function _entMechAbsorb(kind,id,pre){ try{ if(pre===null||pre===undefined)return; var sh=window._entShadow&&window._entShadow[kind]; var e=S[kind]&&S[kind][id]; if(sh&&e&&sh[id]===pre)sh[id]=_entJson(e); }catch(e){} }
+function _entMech(kind,id,fn){ var pre=_entPre(kind,id); var r=fn(); _entMechAbsorb(kind,id,pre); return r; }
 // ===ENT-MERGE-END===
 
 // 어떤 객체든 인라인 dataURL 문자열을 깊이 제거(클라우드 문서 축소용). 로컬 원본은 안 건드림.
@@ -3829,7 +3836,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17k';
+var APP_BUILD=/*BUILD*/'2026-08-17l';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -8979,7 +8986,8 @@ function refAddCollection(){
   var id=(typeof uid==='function')?uid():('rc'+Date.now());
   if(!Array.isArray(S.refCollections))S.refCollections=[];
   var bf=window._itemBrandFlt;
-  S.refCollections.push({id:id,name:'',brandId:(bf&&bf!=='__none')?bf:'',category:(window._refCatFlt||''),season:(window._refSeaFlt||''),date:(typeof todayISO==='function'?todayISO():''),createdAt:(typeof todayISO==='function'?todayISO():'')});
+  var _nvA=_refNav();
+  S.refCollections.push({id:id,name:'',brandId:(_nvA.b&&_nvA.b!=='__none')?_nvA.b:((bf&&bf!=='__none')?bf:''),category:(window._refCatFlt||''),season:(_nvA.s&&_nvA.s!=='__none')?_nvA.s:(window._refSeaFlt||''),date:(typeof todayISO==='function'?todayISO():''),createdAt:(typeof todayISO==='function'?todayISO():'')});
   saveData(); window._refOpenCol=id; renderReference();
   setTimeout(function(){ var el=document.querySelector('.rfc-name-input'); if(el)el.focus(); },40);
 }
@@ -9030,14 +9038,113 @@ function _refCardHtml(c){
     +'</div>'
   +'</div>';
 }
+
+/* ===== 레퍼런스 폴더 분류 (2026-08-17) — 브랜드 → 시즌 → 폴더 → 카드 =========
+   「묶기」는 그때만 묶어 보는 것이고, 이건 **실제 분류(폴더 위치)**다.
+   ⚠️ 자료를 옮기지 않는다 — 폴더에 이미 붙어 있는 brandId / season 을 '위치'로 읽을 뿐이다.
+      그래서 되돌리기도 쉽고, 폴더의 브랜드·시즌을 바꾸면 그 자리로 자동으로 옮겨간다.
+   위치 기억: lsGet/lsSet('fpm_refNav') = {b:브랜드id, s:시즌}. 미지정은 '__none'. */
+function _refNav(){
+  if(window._refNavB===undefined){
+    var v=null; try{ v=lsGet('fpm_refNav'); }catch(e){}
+    v=v||{}; window._refNavB=v.b||''; window._refNavS=v.s||'';
+  }
+  return {b:window._refNavB,s:window._refNavS};
+}
+function _refNavSet(b,s){
+  window._refNavB=b||''; window._refNavS=s||'';
+  try{ lsSet('fpm_refNav',{b:window._refNavB,s:window._refNavS}); }catch(e){}
+  window._refOpenCol=null;
+  renderReference(); try{window.scrollTo(0,0);}catch(e){}
+}
+function refOpenBrand(b){ _refNavSet(b,''); }
+function refOpenSeason(s){ _refNavSet(_refNav().b,s); }
+function refNavHome(){ _refNavSet('',''); }
+function refNavUpToBrand(){ _refNavSet(_refNav().b,''); }
+function _refCrumb(){
+  var n=_refNav();
+  var h='<div class="rf-crumb"><button type="button" onclick="refNavHome()">레퍼런스</button>';
+  if(n.b)h+='<span class="rf-crumb-sep">›</span><button type="button" onclick="refNavUpToBrand()">'+esc(n.b==='__none'?'브랜드 미지정':_refBrandName(n.b))+'</button>';
+  if(n.b&&n.s)h+='<span class="rf-crumb-sep">›</span><span class="rf-crumb-on">'+esc(n.s==='__none'?'시즌 미지정':n.s)+'</span>';
+  return h+'</div>';
+}
+/* 폴더 묶음의 대표 사진 — 안에 든 첫 사진 */
+function _refGroupThumb(list){
+  for(var i=0;i<list.length;i++){
+    var cs=_refColCards(list[i].id)||[];
+    for(var j=0;j<cs.length;j++){ if(cs[j]&&cs[j].front)return cs[j].front; }
+  }
+  return '';
+}
+function _refBigFolder(onclick,name,metas,thumb,extraCls){
+  return '<div class="rf-folder '+(extraCls||'')+'" onclick="'+onclick+'">'
+    +(thumb?'<div class="rf-fth"><img src="'+esc(thumb)+'" alt=""></div>':'<div class="rf-fth rf-fth-empty">사진 없음</div>')
+    +'<div class="rf-fbody"><div class="rf-fname">'+esc(name)+'</div>'
+    +'<div class="rf-fmeta">'+metas.map(function(m){return '<span class="rf-fcount">'+esc(m)+'</span>';}).join('')+'</div></div></div>';
+}
+
+/* 화면 맨 위 머리말 — 세 단계가 같이 쓴다 */
+function _refHeadHTML(cnt){
+  var looseCnt=_refColCards('').length;
+  return '<div class="rf-top"><h2>레퍼런스</h2><span class="rf-cnt">폴더 '+cnt+'개'+(looseCnt?' · 미분류 '+looseCnt+'개':'')+'</span><span class="rf-sp"></span>'
+    +(looseCnt?'<button class="rf-auto" onclick="refAutoClassify()">제목으로 자동 분류</button>':'')
+    +'<button class="rf-new" onclick="refAddCollection()">＋ 새 레퍼런스 폴더</button></div>';
+}
+/* 레벨0 — 브랜드 폴더 */
+function _refRenderBrands(el){
+  var cols=(S.refCollections||[]);
+  var by={}; cols.forEach(function(c){ var b=(c&&c.brandId)||'__none'; (by[b]=by[b]||[]).push(c); });
+  var ids=Object.keys(by).filter(function(b){return b!=='__none';});
+  ids.sort(function(a,b){ return _refBrandName(a).localeCompare(_refBrandName(b),'ko'); });
+  if(by['__none'])ids.push('__none');
+  var cards=ids.map(function(b){
+    var list=by[b], sea={};
+    list.forEach(function(c){ sea[_refColSeason(c)||'__none']=1; });
+    return _refBigFolder("refOpenBrand('"+esc(b)+"')",
+      (b==='__none'?'브랜드 미지정':_refBrandName(b)),
+      ['폴더 '+list.length+'개','시즌 '+Object.keys(sea).length+'개'],
+      _refGroupThumb(list),'rf-folder-lv');
+  }).join('');
+  var orphan=_refColCards(''); var orphanSec='';
+  if(orphan.length){
+    var oth=''; for(var i=0;i<orphan.length;i++){ if(orphan[i].front){oth=orphan[i].front;break;} }
+    orphanSec=_refBigFolder("refOpenCol('__orphan')",'미분류 (폴더 없는 레퍼런스)',[orphan.length+'개'],oth,'rf-folder-orphan');
+  }
+  var head=_refHeadHTML(cols.length);
+  var empty=(!ids.length&&!orphan.length)?'<div class="rf-empty">아직 폴더가 없어요. 위 <b>＋ 새 레퍼런스 폴더</b>로 시작해보세요</div>':'';
+  el.innerHTML=head+_refCrumb()+empty+'<div class="rf-folders">'+cards+orphanSec+'</div>';
+}
+/* 레벨1 — 그 브랜드 안의 시즌 폴더 */
+function _refRenderSeasons(el){
+  var n=_refNav();
+  var cols=(S.refCollections||[]).filter(function(c){ return ((c&&c.brandId)||'__none')===n.b; });
+  var by={}; cols.forEach(function(c){ var s=_refColSeason(c)||'__none'; (by[s]=by[s]||[]).push(c); });
+  var order=getRefSeasons()||[];
+  var keys=Object.keys(by).filter(function(s){return s!=='__none';});
+  keys.sort(function(a,b){ return order.indexOf(a)-order.indexOf(b); });
+  if(by['__none'])keys.push('__none');
+  var cards=keys.map(function(s){
+    var list=by[s];
+    return _refBigFolder("refOpenSeason('"+esc(s)+"')",
+      (s==='__none'?'시즌 미지정':s), ['폴더 '+list.length+'개'],
+      _refGroupThumb(list),'rf-folder-lv');
+  }).join('');
+  var head=_refHeadHTML(cols.length);
+  var empty=(!keys.length)?'<div class="rf-empty">이 브랜드엔 아직 폴더가 없어요.</div>':'';
+  el.innerHTML=head+_refCrumb()+empty+'<div class="rf-folders">'+cards+'</div>';
+}
+
 function renderReference(){
   var el=document.getElementById('reference-body'); if(!el)return;
   _refStyle();
   if(window._ref2col===undefined){ try{window._ref2col=!!lsGet('fpm_ref2col');}catch(e){window._ref2col=false;} }
   el.classList.toggle('rf-2col',!!window._ref2col);
   var oc=window._refOpenCol;
+  var _nv=_refNav();
   if(oc==='__orphan'||(oc&&_refColFind(oc))) _refRenderInside(el,oc);
-  else { window._refOpenCol=null; _refRenderFolders(el); }
+  else if(!_nv.b) { window._refOpenCol=null; _refRenderBrands(el); }      // 레벨0 브랜드
+  else if(!_nv.s) { window._refOpenCol=null; _refRenderSeasons(el); }     // 레벨1 시즌
+  else { window._refOpenCol=null; _refRenderFolders(el); }                // 레벨2 폴더
   _refWireDrop();
 }
 function _refRenderFolders(el){
@@ -9053,7 +9160,7 @@ function _refRenderFolders(el){
   var chips='<div class="rf-chips"><button class="rf-chip'+(!catFlt?' on':'')+'" onclick="refSetCatFlt(\'\')">전체</button>'
     +cats.map(function(c){return '<button class="rf-chip'+(catFlt===c?' on':'')+'" onclick="refSetCatFlt(\''+esc(c)+'\')">'+esc(c)+'</button>';}).join('')
     +'<button class="rf-chip rf-chip-add" onclick="refAddCategoryUI()">＋ 카테고리</button></div>';
-  var seaChips='<div class="rf-chips rf-seachips"><span class="rf-chiplbl">시즌</span>'
+  var seaChips=_refCrumb()+'<div class="rf-chips rf-seachips" style="display:none">'
     +'<button class="rf-chip'+(!seaFlt?' on':'')+'" onclick="refSetSeaFlt(\'\')">전체</button>'
     +seas.map(function(v){return '<button class="rf-chip'+(seaFlt===v?' on':'')+'" onclick="refSetSeaFlt(\''+esc(v)+'\')">'+esc(v)+'</button>';}).join('')
     +'<button class="rf-chip rf-chip-add" onclick="refAddSeasonUI()">＋ 시즌</button>'
@@ -9062,9 +9169,12 @@ function _refRenderFolders(el){
     +'<button class="rf-chip'+(gb==='brand'?' on':'')+'" onclick="refSetGroupBy(\'brand\')">브랜드별</button>'
     +'<button class="rf-chip'+(gb==='brandsea'?' on':'')+'" onclick="refSetGroupBy(\'brandsea\')">브랜드 → 시즌</button>'
   +'</div>';
+  /* 레벨2는 「지금 들어와 있는 브랜드 → 시즌」 안만 보여준다 (분류가 위치가 됐으므로) */
+  var _nv2=_refNav();
   var shown=cols.filter(function(c){
+    if(((c&&c.brandId)||'__none')!==_nv2.b)return false;
+    if((_refColSeason(c)||'__none')!==_nv2.s)return false;
     if(catFlt&&(c.category||'')!==catFlt)return false;
-    if(seaFlt&&_refColSeason(c)!==seaFlt)return false;
     return true;
   });
   var sections;
@@ -9104,7 +9214,7 @@ function _refRenderFolders(el){
       return '<div class="rf-bsec rf-bsec-2lv">'+head+inner+'</div>';
     }).join('');
   }
-  var orphan=_refColCards(''); var orphanSec='';
+  var orphan=[]; var orphanSec='';   // 미분류는 첫 화면(브랜드 목록)에 둔다
   if(orphan.length){ var oth=''; for(var i=0;i<orphan.length;i++){if(orphan[i].front){oth=orphan[i].front;break;}}
     orphanSec='<div class="rf-bsec"><div class="rf-bsec-h">미분류 (폴더 없는 레퍼런스)</div><div class="rf-folders">'
       +'<div class="rf-folder rf-folder-orphan" onclick="refOpenCol(\'__orphan\')">'
@@ -9351,6 +9461,13 @@ function _refStyle(){
     +'#reference-body .rf-seachips .rf-sp{flex:1}'
     +'#reference-body .rf-fsea{font-size:10.5px;font-weight:800;background:var(--ink,#0B0A05);color:#fff;padding:2px 7px;border-radius:0}'
     +'#reference-body .rf-bsecn{font-size:11.5px;font-weight:700;color:var(--t2,#8a8470);margin-left:4px}'
+    // 경로(브랜드 › 시즌) — 어디 들어와 있는지 + 눌러서 되돌아가기
+    +'#reference-body .rf-crumb{display:flex;align-items:center;gap:7px;margin:2px 2px 14px;flex-wrap:wrap}'
+    +'#reference-body .rf-crumb button{font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink,#0B0A05);background:#fff;border:2px solid var(--ink,#0B0A05);padding:5px 12px;border-radius:0;cursor:pointer;box-shadow:2px 2px 0 rgba(11,10,5,.15)}'
+    +'#reference-body .rf-crumb button:active{box-shadow:0 0 0;transform:translate(2px,2px)}'
+    +'#reference-body .rf-crumb-sep{font-weight:800;color:var(--t2,#8a8470)}'
+    +'#reference-body .rf-crumb-on{font-size:12.5px;font-weight:800;color:#fff;background:var(--ink,#0B0A05);padding:5px 12px}'
+    +'#reference-body .rf-folder-lv .rf-fth{background:#f4efe2}'
     // 브랜드 → 시즌 2단: 브랜드 칸을 테두리로 감싸고 안에 시즌 소제목을 둔다
     +'#reference-body .rf-bsec-2lv{border:2px solid var(--ink,#0B0A05);padding:0 12px 12px;background:#fbf8f0}'
     +'#reference-body .rf-bsec-2lv>.rf-bsec-h{margin-left:-12px;margin-right:-12px;border-left:none;border-right:none;border-top:none}'
@@ -13357,7 +13474,8 @@ function _trimWeightedPrice(t,sizeTotals){
   return sumQ?(sumQP/sumQ):null;
 }
 // 로스 발주서 이동 1단계: 오더가 자기 로스를 갖게 — 현재 아이템 로스(효과값)를 오더에 스냅샷(없는 것만 채움=못 박기)
-function ensureOrderLoss(o){
+function ensureOrderLoss(o){ if(!o||!o.orderItems)return; return _entMech('orders',o.id,function(){ return _ensureOrderLossRaw(o); }); } // 기본값 채우기 = 기계적 변형(2026-08-17)
+function _ensureOrderLossRaw(o){
   if(!o||!o.orderItems)return;
   if(!o.loss)o.loss={};
   var FLP=(typeof FAB_LOSS_PCT!=='undefined')?FAB_LOSS_PCT:0, TLP=(typeof TRIM_LOSS_PCT!=='undefined')?TRIM_LOSS_PCT:2;
@@ -16250,7 +16368,8 @@ function renderOTab(){
 
 // 발주서 진입 시 최신 아이템 정의(로스율·요척 등)로 자재 재계산
 // — 수동 입력값(actualOrderedQty)과 메타(발송상태/출고처 등)는 보존
-function refreshOrderSuppliers(o){
+function refreshOrderSuppliers(o){ if(!o||!o.orderItems||!o.suppliers)return; return _entMech('orders',o.id,function(){ return _refreshOrderSuppliersRaw(o); }); } // 렌더마다 재계산 = 기계적 변형(2026-08-17)
+function _refreshOrderSuppliersRaw(o){
   if(!o||!o.orderItems||!o.suppliers)return;
   // 1) 수동 입력값 백업 — 키에 용도(part)+fabId 포함 (같은 원단 몸판/스트링감 구분)
   const overrides={};
@@ -16970,7 +17089,8 @@ function setActualOrderedQty(oid,sn,matIdx,val,opts){
 // 원단의 actualOrderedQty 변경 후 같은 아이템의 다른 자재(원단+부자재) totalYards/calc를 비율로 재계산
 // actualOrderedQty가 설정된 자재는 그대로 두고, 그 외 자재는 effective pcs 기준으로 갱신
 // 호출: setActualOrderedQty에서 자재 변경 후 호출
-function propagateEffectiveRatio(orderId,itemId){
+function propagateEffectiveRatio(orderId,itemId){ return _entMech('orders',orderId,function(){ return _propagateEffectiveRatioRaw(orderId,itemId); }); } // 파생값 기록 = 기계적 변형(2026-08-17)
+function _propagateEffectiveRatioRaw(orderId,itemId){
   try{
     var o=S.orders[orderId];if(!o||!o.orderItems||!o.suppliers)return;
     // calcSups를 다시 돌려 fresh 계산값 얻기
@@ -17239,7 +17359,8 @@ function promptNegoPrice(oid,sn,matIdx){
   setNegotiatedPrice(oid,sn,matIdx,matName,isKg,newPrice,{confirm:true});
 }
 
-function renderArrTab(o){
+function renderArrTab(o){ return _entMech('orders',o&&o.id,function(){ return _renderArrTabRaw(o); }); }
+function _renderArrTabRaw(o){
   const sns=Object.keys(o.suppliers||{});
   const supCards=sns.map(sn=>{
     const sup=o.suppliers[sn];
@@ -17501,6 +17622,7 @@ function genShipText(oid,fcId,itemId){
 
 function renderProdTab(o){
   const fcs=Object.values(S.factories||{});if(!fcs.length)return'<div class="warn-box">공장 관리 탭에서 공장을 먼저 등록하세요.</div>';
+  var _preO=_entPre('orders',o.id); // 렌더 중 자동생성은 기계적 변형(2026-08-17)
   if(!o.factorySchedules)o.factorySchedules={};
   // 아이템에 fk만 잡혀있어도 공장 카드를 자동 생성 (사용자가 수동 추가 안 해도 표시)
   let _autoChanged=false;
@@ -17516,6 +17638,7 @@ function renderProdTab(o){
       }
     }
   }
+  _entMechAbsorb('orders',o.id,_preO);
   if(_autoChanged&&typeof saveData==='function')saveData();
   const sels=Object.keys(o.factorySchedules);
   return`<div class="fr" style="margin-bottom:12px;gap:6px"><b style="font-size:13px">공장/처별 진행</b><select id="add-fc-sel" style="font-size:12px;max-width:200px"><option value="">공장/처 선택</option>${fcs.map(f=>`<option value="${f.id}">${esc(f.name)}${f.type?' ('+esc(f.type)+')':''}</option>`).join('')}</select><button class="btn s ok" onclick="addFcToOrder()">＋ 추가</button></div>
@@ -18295,7 +18418,8 @@ function exReasonLineHTML(oid,ex){
   var chips=presets.map(function(p){var on=cur===p;return '<button type="button" onclick="setExtraReason(\''+oid+'\',\''+ex.id+'\',\''+p+'\')" style="border:1.5px solid '+(on?'#b45309':'#d9cdb0')+';background:'+(on?'#b45309':'#fff')+';color:'+(on?'#fff':'#7a5c00')+';border-radius:14px;padding:2px 9px;font-size:10.5px;font-weight:700;cursor:pointer;font-family:inherit">'+e(p)+'</button>';}).join('');
   return '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;background:#fffdf7;border:1.5px solid #e3d6b3;border-radius:7px;padding:5px 8px;margin:0 0 8px"><span style="font-size:10.5px;font-weight:800;color:#b45309;white-space:nowrap">사유</span>'+chips+'<input value="'+(isCustom?e(cur):'')+'" placeholder="직접입력 (왜 추가발주 했는지)" onchange="setExtraReason(\''+oid+'\',\''+ex.id+'\',this.value)" style="flex:1;min-width:90px;border:1px solid #d9cdb0;border-radius:5px;padding:3px 7px;font-size:10.5px;font-family:inherit"></div>';
 }
-function extraOrdersSectionHTML(o){
+function extraOrdersSectionHTML(o){ if(!o||!o.extraOrders||!o.extraOrders.length)return ''; return _entMech('orders',o.id,function(){ return _extraOrdersSectionHTMLRaw(o); }); }
+function _extraOrdersSectionHTMLRaw(o){
   if(!o.extraOrders||!o.extraOrders.length)return '';
   var h='<div style="margin-top:14px;border-top:2px dashed var(--amber);padding-top:12px"><div style="font-size:13px;font-weight:700;color:var(--amber);margin-bottom:8px">추가 발주분 (재단 초과분) <span style="font-weight:400;font-size:10px;color:var(--t2)">· 첫 발주와 같은 발주서</span></div>';
   o.extraOrders.forEach(function(ex){
@@ -18380,7 +18504,8 @@ function trimColorQty(oi,it,t,fallbackQty){
   useColors.forEach(function(c){szs.forEach(function(sz){q+=(+(oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);});});
   return q;
 }
-function trimRecoveryHTML(o){
+function trimRecoveryHTML(o){ return _entMech('orders',o&&o.id,function(){ return _trimRecoveryHTMLRaw(o); }); }
+function _trimRecoveryHTMLRaw(o){
   if(!o.trimRecovery)o.trimRecovery={};
   var rows=[];
   (o.orderItems||[]).forEach(function(oi){
@@ -34017,7 +34142,7 @@ function tpBrandAssetRender(){var ctx=window._tpAssetCtx;if(!ctx)return;var qel=
 function tpBrandAssetSelect(i){var ctx=window._tpAssetCtx;if(!ctx)return;var e=ctx.list[i];if(!e||!e.img)return;tpSet('images.'+ctx.slot,e.img);tpBrandAssetClose();if(typeof tpRender==='function')tpRender();if(typeof showToast==='function')showToast('도안 불러옴: '+(e.name||''));}
 function tpBrandAssetClose(){var ov=document.getElementById('tp-asset-pick');if(ov){ov.style.display='none';ov.innerHTML='';}window._tpAssetCtx=null;}
 // ===== 작업지시서 편집형 리스트 (완성 작업 · 검품 항목) — 추가/수정/삭제 + 드래그 순서변경 =====
-function tpRowsEnsure(path,defs){var d=tpData();if(!d)return [];var ks=path.split('.'),o=d;for(var i=0;i<ks.length-1;i++){if(o[ks[i]]==null||typeof o[ks[i]]!=='object')o[ks[i]]={};o=o[ks[i]];}var last=ks[ks.length-1];if(!Array.isArray(o[last])){o[last]=(defs||[]).map(function(x){return (typeof x==='string')?{name:x,on:true,detail:''}:x;});try{saveData();}catch(e){}}return o[last];}
+function tpRowsEnsure(path,defs){var _preI=_entPre('items',_tpItemId);var d=tpData();if(!d)return [];var ks=path.split('.'),o=d;for(var i=0;i<ks.length-1;i++){if(o[ks[i]]==null||typeof o[ks[i]]!=='object')o[ks[i]]={};o=o[ks[i]];}var last=ks[ks.length-1];if(!Array.isArray(o[last])){o[last]=(defs||[]).map(function(x){return (typeof x==='string')?{name:x,on:true,detail:''}:x;});_entMechAbsorb('items',_tpItemId,_preI);try{saveData();}catch(e){}}return o[last];}
 function tpRowAdd(path){var a=tpRowsEnsure(path,[]);a.push({name:'',on:false,detail:''});try{saveData();}catch(e){}tpRender();}
 function tpRowDel(path,i){var a=tpRowsEnsure(path,[]);a.splice(i,1);try{saveData();}catch(e){}tpRender();}
 function tpRowSet(path,i,f,v){var a=tpRowsEnsure(path,[]);if(a[i]){a[i][f]=v;try{saveData();}catch(e){}}}
@@ -34032,7 +34157,7 @@ function tpEditList(path,defs,opts){opts=opts||{};var a=tpRowsEnsure(path,defs);
   +'<td class="l"><input class="tp-li" value="'+tpEsc(it.detail||'')+'" onchange="tpRowSet(\''+path+'\','+i+',\'detail\',this.value)" placeholder="'+tpEsc(opts.detailPh||'세부 / 위치')+'"></td>'
   +'<td style="width:24px"><button class="tp-lx" onclick="tpRowDel(\''+path+'\','+i+')">×</button></td></tr>';}).join('');
   return '<table class="tp-elist"><tr><th style="width:22px"></th><th class="l">'+tpEsc(opts.nameLabel||'항목')+'</th>'+(nt?'':'<th style="width:38px">'+tpEsc(opts.toggleLabel||'적용')+'</th>')+'<th class="l">'+tpEsc(opts.detailLabel||'세부 / 위치')+'</th><th style="width:24px"></th></tr>'+rows+'</table><button class="tp-ladd" onclick="tpRowAdd(\''+path+'\')">＋ 항목 추가</button>';}
-function tpPackMatTbl(){var _it=tpItem();var _b=(typeof tpBrandObj==='function')?tpBrandObj(_it):null;var _ps=(_b&&_b.packMatPreset&&Array.isArray(_b.packMatPreset.labels)&&_b.packMatPreset.labels.length)?_b.packMatPreset:null;var _d=tpData();var _wasUnset=!(_d&&_d.pack2&&Array.isArray(_d.pack2.matLabels));var _defs=_ps?_ps.labels.slice(0,7):['메인택','행택끈','스티커','비고','','',''];var labels=tpRowsEnsure('pack2.matLabels',_defs);if(_wasUnset&&_ps&&Array.isArray(_ps.images)){_ps.images.forEach(function(u,i){if(u&&i<7&&!tpGet('images.pack2mat'+i,''))tpSet('images.pack2mat'+i,u);});}var _ch=false;while(labels.length<7){labels.push({name:'',on:false,detail:''});_ch=true;}if(_ch){try{saveData();}catch(e){}}labels=labels.slice(0,7);var cells=labels.map(function(l,i){return '<div class="tp-pmcell">'+tpIzMat('pack2mat'+i)+'<input class="tp-pmcap" value="'+tpEsc(l.name||'')+'" onchange="tpRowSet(\'pack2.matLabels\','+i+',\'name\',this.value)" placeholder="항목"></div>';}).join('');return '<div class="tp-packmat tp-packmat-row">'+cells+'</div>';}
+function tpPackMatTbl(){var _preI=_entPre('items',_tpItemId);var _it=tpItem();var _b=(typeof tpBrandObj==='function')?tpBrandObj(_it):null;var _ps=(_b&&_b.packMatPreset&&Array.isArray(_b.packMatPreset.labels)&&_b.packMatPreset.labels.length)?_b.packMatPreset:null;var _d=tpData();var _wasUnset=!(_d&&_d.pack2&&Array.isArray(_d.pack2.matLabels));var _defs=_ps?_ps.labels.slice(0,7):['메인택','행택끈','스티커','비고','','',''];var labels=tpRowsEnsure('pack2.matLabels',_defs);if(_wasUnset&&_ps&&Array.isArray(_ps.images)){_ps.images.forEach(function(u,i){if(u&&i<7&&!tpGet('images.pack2mat'+i,''))tpSet('images.pack2mat'+i,u);});}var _ch=false;while(labels.length<7){labels.push({name:'',on:false,detail:''});_ch=true;}_entMechAbsorb('items',_tpItemId,_preI);if(_ch){try{saveData();}catch(e){}}labels=labels.slice(0,7);var cells=labels.map(function(l,i){return '<div class="tp-pmcell">'+tpIzMat('pack2mat'+i)+'<input class="tp-pmcap" value="'+tpEsc(l.name||'')+'" onchange="tpRowSet(\'pack2.matLabels\','+i+',\'name\',this.value)" placeholder="항목"></div>';}).join('');return '<div class="tp-packmat tp-packmat-row">'+cells+'</div>';}
 function tpSavePackMatPreset(){var it=tpItem();if(!it)return;var b=(typeof tpBrandObj==='function')?tpBrandObj(it):null;if(!b){alert('이 아이템에 브랜드가 지정돼 있어야 기본값을 저장할 수 있어요. (아이템에서 브랜드를 먼저 선택)');return;}var labels=tpRowsEnsure('pack2.matLabels',[]).slice(0,7).map(function(l){return (l&&l.name)||'';});while(labels.length<7)labels.push('');var images=[];for(var i=0;i<7;i++){images.push(tpGet('images.pack2mat'+i,'')||'');}if(b.packMatPreset&&!confirm('"'+(b.name||'브랜드')+'"에 이미 저장된 기본 완성부자재가 있어요. 지금 7칸으로 덮어쓸까요?'))return;b.packMatPreset={labels:labels,images:images,savedAt:(typeof today==='function'?today():'')};try{saveData();}catch(e){}showToast('"'+(b.name||'브랜드')+'" 기본 완성부자재로 저장했어요 — 이 브랜드 새 작업지시서에 자동으로 떠요',3200);}
 function tpLoadPackMatPreset(){var it=tpItem();if(!it)return;var b=(typeof tpBrandObj==='function')?tpBrandObj(it):null;if(!b||!b.packMatPreset||!Array.isArray(b.packMatPreset.labels)){alert('이 브랜드에 저장된 기본 완성부자재가 없어요. 먼저 "이 브랜드 기본으로 저장"을 눌러주세요.');return;}if(!confirm('현재 완성부자재 7칸을 "'+(b.name||'')+'" 브랜드 기본값으로 바꿀까요? (지금 입력한 이름·사진은 덮어써져요)'))return;var p=b.packMatPreset;tpSet('pack2.matLabels',(p.labels||[]).slice(0,7).map(function(n){return {name:n||'',on:true,detail:''};}));for(var i=0;i<7;i++){tpSet('images.pack2mat'+i,(p.images&&p.images[i])||'');}try{saveData();}catch(e){}tpRender();showToast('브랜드 기본 완성부자재를 불러왔어요');}
 function tpIzMat(slot){var u=tpGet('images.'+slot,'');var lb='<button class="tp-loadbtn" onclick="event.stopPropagation();tpBrandAssetPick(\''+slot+'\',\'mat\')" title="브랜드 완성부자재에서 불러오기" style="position:absolute;left:6px;bottom:6px;font-size:11px;padding:3px 9px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">불러오기</button>';return '<div class="iz" style="position:relative" onclick="tpPickImage(\''+slot+'\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'+tpUpBadge(slot)):'＋')+lb+'</div>';}
@@ -34047,7 +34172,7 @@ function tpDesignPanelHTML(it,key,cfg,onCls,qb){
   return '<div class="panel'+onCls+'" data-panel="'+key+'"><div class="row">'+left+right+'</div></div>';
 }
 // 디자인 시트 목록 (없으면 공장 연결 기준으로 1회 생성)
-function tpDesignSheets(){ var d=tpData(); if(!d)return []; if(!Array.isArray(d.designSheets)){ var it=tpItem(); var arr=[]; if(it&&it.embroideryFcId)arr.push({k:'emb',type:'emb'}); if(it&&it.printingFcId)arr.push({k:'prt',type:'prt'}); d.designSheets=arr; try{saveData();}catch(e){} } return d.designSheets; }
+function tpDesignSheets(){ var _preI=_entPre('items',_tpItemId); var d=tpData(); if(!d)return []; if(!Array.isArray(d.designSheets)){ var it=tpItem(); var arr=[]; if(it&&it.embroideryFcId)arr.push({k:'emb',type:'emb'}); if(it&&it.printingFcId)arr.push({k:'prt',type:'prt'}); d.designSheets=arr; _entMechAbsorb('items',_tpItemId,_preI); try{saveData();}catch(e){} } return d.designSheets; }
 function tpNextKey(type){ var sheets=(tpData()&&tpData().designSheets)||[]; var used=sheets.filter(function(s){return s.type===type;}).map(function(s){return s.k;}); for(var n=1;n<=3;n++){ var k=(n===1?type:type+n); if(used.indexOf(k)<0)return k; } return null; }
 function tpAddSheet(type){ tpCloseSheetMenu(); var sheets=tpDesignSheets(); var cfg=TP_DESIGN_CFG[type]; if(!cfg)return; var cnt=sheets.filter(function(s){return s.type===type;}).length; if(cnt>=3){alert(cfg.label+' 지시서는 최대 3개예요');return;} var k=tpNextKey(type); if(!k)return; sheets.push({k:k,type:type}); try{saveData();}catch(e){} _tpTab=k; tpRender(); }
 function tpDelSheet(k){ var d=tpData(); if(!d||!Array.isArray(d.designSheets))return; var s=d.designSheets.find(function(x){return x.k===k;}); if(!s)return; var cfg=TP_DESIGN_CFG[s.type]||{label:s.type}; if(!confirm(cfg.label+' 지시서를 삭제할까요? (이 시트 내용도 지워져요)'))return; d.designSheets=d.designSheets.filter(function(x){return x.k!==k;}); try{ if(d[k])delete d[k]; if(d.images){['Design','Place','Ref'].forEach(function(sf){delete d.images[k+sf];}); } }catch(e){} try{saveData();}catch(e){} _tpTab='sew'; tpRender(); }
@@ -34343,8 +34468,8 @@ function tpTab(id){ _tpTab=id;
 }
 function tpOrient(o){ _tpOrient=o; var d=document.getElementById('tp-doc'); if(d)d.classList.toggle('land',o==='landscape'); var pr=document.getElementById('tp-page-rule'); if(pr)pr.textContent='@page{size:A4 '+o+';margin:3mm;}'; var bl=document.getElementById('tp-bL'),bp=document.getElementById('tp-bP'); if(bl)bl.classList.toggle('on',o==='landscape'); if(bp)bp.classList.toggle('on',o!=='landscape'); if(typeof tpRender==='function')tpRender(); else if(typeof tpFit==='function')tpFit(); }
 function tpPrint(){ document.body.classList.add('tp-printing'); if(typeof tpFit==='function')tpFit(); var clean=function(){ document.body.classList.remove('tp-printing'); window.removeEventListener('afterprint',clean); if(typeof tpFit==='function')tpFit(); }; window.addEventListener('afterprint',clean); setTimeout(function(){ try{window.print();}catch(e){clean();} },120); }
-function tpInitDefaults(){ var d=tpData(); if(!d)return; if(!d.spat)d.spat={}; var _oldS='원단 축률 테스트\n불량 확인\n패턴 확인\n요척 (심지·부속까지)\n공임 적어서 보내주세요\n패턴·샘플감·견본·지시서 회수해서 보내주세요',_newS='원단 축률 테스트, 원단 문제(불량) 확인, 패턴 확인 해주세요\n요척 (심지·부속까지), 공임 적어서 보내주세요, 패턴·샘플감·견본·지시서 회수해서 보내주세요'; if(!d.spat.sampleMemo||d.spat.sampleMemo===_oldS)d.spat.sampleMemo=_newS; var _oldP='새 패턴입니다\n기존 패턴에서 수정입니다\n그래이딩입니다',_newP='새 패턴입니다, 기존 패턴에서 수정입니다, 그래이딩입니다'; if(!d.spat.patternMemo||d.spat.patternMemo===_oldP)d.spat.patternMemo=_newP;
-  if(!d.grd)d.grd={}; if(!d.grd.patternMemo)d.grd.patternMemo='그레이딩입니다\n기준 사이즈: \n사이즈 전개: '; if(!d.sew)d.sew={}; var _itB=tpItem(); if(_itB&&!d.sew.wash&&/프루토/.test(tpBrandName(_itB)||''))d.sew.wash='노말워싱'; if(!d.sew.threadColor)d.sew.threadColor='몸판매칭'; if(!Array.isArray(d.sew.legend)||!d.sew.legend.length)d.sew.legend=[{sym:'★',desc:'',stitch:''},{sym:'☆',desc:'',stitch:''}]; if(!Array.isArray(d.sew.spec)||!d.sew.spec.length)d.sew.spec=TP_SPEC_TOP.map(function(p){return {part:p};}); if(!d.head)d.head={}; if(!d.head.manager)d.head.manager='박수빈'; try{saveData();}catch(e){} }
+function tpInitDefaults(){ var _preI=_entPre('items',_tpItemId); var d=tpData(); if(!d)return; if(!d.spat)d.spat={}; var _oldS='원단 축률 테스트\n불량 확인\n패턴 확인\n요척 (심지·부속까지)\n공임 적어서 보내주세요\n패턴·샘플감·견본·지시서 회수해서 보내주세요',_newS='원단 축률 테스트, 원단 문제(불량) 확인, 패턴 확인 해주세요\n요척 (심지·부속까지), 공임 적어서 보내주세요, 패턴·샘플감·견본·지시서 회수해서 보내주세요'; if(!d.spat.sampleMemo||d.spat.sampleMemo===_oldS)d.spat.sampleMemo=_newS; var _oldP='새 패턴입니다\n기존 패턴에서 수정입니다\n그래이딩입니다',_newP='새 패턴입니다, 기존 패턴에서 수정입니다, 그래이딩입니다'; if(!d.spat.patternMemo||d.spat.patternMemo===_oldP)d.spat.patternMemo=_newP;
+  if(!d.grd)d.grd={}; if(!d.grd.patternMemo)d.grd.patternMemo='그레이딩입니다\n기준 사이즈: \n사이즈 전개: '; if(!d.sew)d.sew={}; var _itB=tpItem(); if(_itB&&!d.sew.wash&&/프루토/.test(tpBrandName(_itB)||''))d.sew.wash='노말워싱'; if(!d.sew.threadColor)d.sew.threadColor='몸판매칭'; if(!Array.isArray(d.sew.legend)||!d.sew.legend.length)d.sew.legend=[{sym:'★',desc:'',stitch:''},{sym:'☆',desc:'',stitch:''}]; if(!Array.isArray(d.sew.spec)||!d.sew.spec.length)d.sew.spec=TP_SPEC_TOP.map(function(p){return {part:p};}); if(!d.head)d.head={}; if(!d.head.manager)d.head.manager='박수빈'; _entMechAbsorb('items',_tpItemId,_preI); try{saveData();}catch(e){} }
 function dosikOpen(itemId){
   var url='dosik.html'; try{ if(itemId)url+='?item='+encodeURIComponent(itemId); }catch(e){}
   var w=window.open(url,'_blank');
