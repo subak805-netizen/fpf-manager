@@ -2487,6 +2487,71 @@ function _recoveryFallback(msg){
   ov.onclick=function(e){ if(e.target===ov)ov.remove(); };
   document.body.appendChild(ov);
 }
+
+/* ===== 용량 진단 (2026-08-17) ==========================================
+   클라우드는 **문서 1개당 1MB**가 한계다. 넘으면 저장이 거부돼 동기화가 통째로 멈추고,
+   그 사이 다른 기기가 옛 자료를 올리면 데이터가 되돌아간 것처럼 보인다(실제 사고와 연결).
+   무엇이 자리를 먹는지 정확히 보고 줄이기 위한 읽기 전용 진단. */
+function _szBytes(v){ try{ return new Blob([JSON.stringify(v)]).size; }catch(e){ try{ return JSON.stringify(v).length; }catch(e2){ return 0; } } }
+function _szKB(n){ return Math.round(n/1024)+'KB'; }
+function _szOrderParts(o){
+  var parts=[];
+  ['suppliers','extraOrders','factorySchedules','orderItems','payFees','trackBlocks'].forEach(function(k){
+    if(o[k]==null)return;
+    parts.push({k:k,b:_szBytes(o[k])});
+  });
+  parts.sort(function(a,b){return b.b-a.b;});
+  return parts;
+}
+function fpfSizeReport(){
+  var rep={docs:[],orders:[],total:0};
+  try{
+    var ordersData={orders:S.orders||{},_tomb:{orders:(S._tomb||{}).orders||{}}};
+    rep.docs.push({name:'발주서 데이터 (오더)',b:_szBytes(ordersData)});
+    rep.docs.push({name:'회사 데이터 (아이템 등)',b:_szBytes({items:S.items||{},tasks:S.tasks,pickups:S.pickups,defectRecs:S.defectRecs,refCards:S.refCards})});
+    rep.docs.push({name:'공유 데이터 (공장·단가장)',b:_szBytes({factories:S.factories||{},priceBook:S.priceBook||{}})});
+    rep.docs.sort(function(a,b){return b.b-a.b;});
+    Object.keys(S.orders||{}).forEach(function(oid){
+      var o=S.orders[oid]; if(!o)return;
+      var b=_szBytes(o);
+      rep.total+=b;
+      rep.orders.push({oid:oid,name:o.name||oid,b:b,parts:_szOrderParts(o)});
+    });
+    rep.orders.sort(function(a,b){return b.b-a.b;});
+  }catch(e){ console.warn('[용량진단]',e); }
+  return rep;
+}
+function fpfSizeReportHTML(){
+  var r=fpfSizeReport();
+  var LIMIT=1024*1024;
+  var h='<div style="border:2px solid #a855f7;background:#faf5ff;border-radius:8px;padding:12px;margin-bottom:14px">';
+  h+='<div style="font-weight:700;color:#6b21a8;font-size:13px;margin-bottom:6px">용량 진단 <span style="font-weight:400">(클라우드는 문서 1개당 1MB가 한계예요)</span></div>';
+  r.docs.forEach(function(d){
+    var pct=Math.min(100,Math.round(d.b/LIMIT*100));
+    var over=d.b>LIMIT;
+    h+='<div style="margin-bottom:7px">';
+    h+='<div style="display:flex;justify-content:space-between;font-size:12px;color:#6b21a8"><span>'+esc(d.name)+'</span><span style="font-weight:700;color:'+(over?'#b91c1c':(pct>80?'#b45309':'#6b21a8'))+'">'+_szKB(d.b)+' ('+pct+'%)'+(over?' 초과!':'')+'</span></div>';
+    h+='<div style="height:7px;background:#e9d5ff;border-radius:4px;overflow:hidden;margin-top:3px"><div style="height:100%;width:'+pct+'%;background:'+(over?'#dc2626':(pct>80?'#f59e0b':'#a855f7'))+'"></div></div>';
+    h+='</div>';
+  });
+  if(r.orders.length){
+    h+='<div style="font-size:11px;color:#6b21a8;margin:10px 0 5px;font-weight:700">자리를 많이 먹는 오더 (상위 8개)</div>';
+    h+='<div style="max-height:210px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">';
+    r.orders.slice(0,8).forEach(function(x){
+      var top=(x.parts&&x.parts[0])?(x.parts[0].k+' '+_szKB(x.parts[0].b)):'';
+      var _lbl={suppliers:'발주서',extraOrders:'추가발주',factorySchedules:'공장일정',orderItems:'수량표',payFees:'결제비용',trackBlocks:'생산블록'};
+      if(x.parts&&x.parts[0])top=(_lbl[x.parts[0].k]||x.parts[0].k)+' '+_szKB(x.parts[0].b);
+      h+='<div style="display:flex;justify-content:space-between;background:#fff;border:1px solid #e9d5ff;border-radius:6px;padding:5px 9px;font-size:11.5px;gap:8px">'
+       +'<span style="min-width:0;color:#6b21a8"><b>'+esc(x.name)+'</b>'+(top?' <span style="color:#9333ea">· 대부분 '+esc(top)+'</span>':'')+'</span>'
+       +'<span style="font-weight:700;color:#6b21a8;white-space:nowrap">'+_szKB(x.b)+'</span></div>';
+    });
+    h+='</div>';
+  }
+  h+='<div style="font-size:11px;color:#7e22ce;margin-top:9px;line-height:1.6">한 문서가 1MB를 넘으면 <b>저장이 거부돼 동기화가 멈춥니다.</b> 그동안 다른 기기가 옛 자료를 올리면 되돌아간 것처럼 보일 수 있어요. 80%를 넘으면 알려주세요 — 오래된 오더를 따로 빼는 작업이 필요합니다.</div>';
+  h+='</div>';
+  return h;
+}
+
 async function _openRecoveryToolInner(){
   // 데이터 복구 도구 — 사용자가 콘솔 명령 안 치고도 진단/복구할 수 있게
   
@@ -2595,6 +2660,9 @@ async function _openRecoveryToolInner(){
       html+='</div>';
     }
   }catch(e){console.warn('[recovery] imgStat',e);}
+
+  // === 용량 진단 (동기화 실패의 직접 원인이라 맨 위) ===
+  try{ html+=fpfSizeReportHTML(); }catch(e){ console.warn('[recovery] size',e); }
 
   // === 저장 폴더 (2026-08-14): 앱이 만드는 파일을 어디에 둘지 ===
   try{
@@ -3534,7 +3602,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17f';
+var APP_BUILD=/*BUILD*/'2026-08-17g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
