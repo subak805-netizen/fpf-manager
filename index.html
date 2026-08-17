@@ -2133,7 +2133,7 @@ async function onFirebaseLogin(){
       if(saveInd)saveInd.textContent='자동 저장됨';
 
       setCloudInd('ok');
-      showToast('클라우드 데이터 가져오기 완료!', 3000);
+      showToast(changed?'클라우드 데이터 가져오기 완료!':'클라우드 확인 완료 (이 기기 자료가 최신)', 3000); // 병합 안 했는데 '가져오기 완료'라고 하던 오해 수정 (2026-08-17)
     } else {
       // 클라우드가 비어 있음.
       if(localIds.length>0){
@@ -2287,6 +2287,31 @@ async function cloudSyncSave(){
           return;
         }
 
+        // (3) 스테일 감지 (옵티미스틱 락) — 개수가 같아도 잡음(V넥탑 검품단가 500→0 같은 한 칸 손실).
+        //     클라우드 ts가 내 기준(base)보다 새로움 = 아직 못 받은 다른 기기 변경이 있음 → 통째로 덮으면 그게 사라짐.
+        //     덮어쓰기 중단하고 최신을 받아온다. (편집 중이면 배너로 알림)
+        var _base=getSyncBase('fpm_'+curCoId);
+        var _myLast=(window._lastPushTs&&window._lastPushTs['fpm_'+curCoId])||'';
+        /* ★2026-08-17: 기준 ts가 아예 없는 기기(=07-07 이후 한 번도 동기화 안 한 옛 스냅샷, 또는 저장소가 지워진 기기)도
+             스테일로 본다. 아이패드가 5월 데이터를 들고 있다가 저장 한 번으로 클라우드를 옛것으로 되돌리던 경로.
+             또 이 병합을 축소 가드(2)보다 먼저 돌려서, 옛 기기가 '줄어들어요' 확인창에서 [확인]을 눌러도 이미 클라우드를 합친 뒤라 안전. */
+        window._wasStaleSave=false;
+        if(_cloudTs&&(!_base||_cloudTs>_base)&&_cloudTs!==_myLast&&!window._allowShrinkOnce){
+          window._wasStaleSave=true;
+          // 스테일 = 아직 못 받은 다른 기기(또는 다른 탭) 변경이 클라우드에 있음.
+          // 예전: 이번 저장을 통째로 건너뜀(return) + 편집 중이면 배너만 → 배너를 안 누르면 base가 안 갱신돼
+          //       다음 저장도 계속 스킵 = "저장이 안 된다" 체감 (2026-07-21 사용자 보고).
+          // 지금: 원격을 병합으로 받아들인 뒤(항목별 병합이라 내 최신 편집은 살아남음) 저장을 계속 진행.
+          //       편집 중이면 noRender로 화면은 안 건드림(입력 보존) — 데이터만 합쳐짐.
+          console.warn('[cloudSyncSave] 스테일 감지: cloudTs '+_cloudTs+' > base '+(_base||'(없음)')+' → 병합 후 계속 저장');
+          var _editing=(typeof isEditingNow==='function'&&isEditingNow());
+          try{ applyRemoteCoData(cloudCurrent,_cloudTs,{noRender:_editing}); }catch(e){console.warn('[cloudSyncSave] 스테일 병합 실패:',e);}
+          // 방금 그 문서를 병합했으니 메인 문서 배너 대기분은 해소 (발주 문서 대기분은 별도 유지)
+          if(_rtPending&&_rtPending.coId===curCoId){_rtPending=null; if(!_rtPendingOrders&&typeof hideRemoteBanner==='function')hideRemoteBanner();}
+          if(typeof showToast==='function')showToast('다른 기기 변경을 합쳐서 저장했어요',4000);
+          memItemCount=Object.keys(S.items||{}).length; memOrderCount=Object.keys(S.orders||{}).length; memImgCount=_countTpImages(S.items||{}); memRowCount=_rowCount(S.items); memEmpty=false;
+        }
+
         // (2) 부분 손실 — 클라우드보다 데이터가 크게 줄면 확인 후에만 저장
         //     임계: 아이템 1개↓ / 오더 3개↓ / 작업지시서 사진 2개↓ (정상적인 1~2개 삭제는 통과)
         if(!memEmpty&&!window._allowShrinkOnce){
@@ -2309,24 +2334,6 @@ async function cloudSyncSave(){
           }
         }
 
-        // (3) 스테일 감지 (옵티미스틱 락) — 개수가 같아도 잡음(V넥탑 검품단가 500→0 같은 한 칸 손실).
-        //     클라우드 ts가 내 기준(base)보다 새로움 = 아직 못 받은 다른 기기 변경이 있음 → 통째로 덮으면 그게 사라짐.
-        //     덮어쓰기 중단하고 최신을 받아온다. (편집 중이면 배너로 알림)
-        var _base=getSyncBase('fpm_'+curCoId);
-        var _myLast=(window._lastPushTs&&window._lastPushTs['fpm_'+curCoId])||'';
-        if(_cloudTs&&_base&&_cloudTs>_base&&_cloudTs!==_myLast&&!window._allowShrinkOnce){
-          // 스테일 = 아직 못 받은 다른 기기(또는 다른 탭) 변경이 클라우드에 있음.
-          // 예전: 이번 저장을 통째로 건너뜀(return) + 편집 중이면 배너만 → 배너를 안 누르면 base가 안 갱신돼
-          //       다음 저장도 계속 스킵 = "저장이 안 된다" 체감 (2026-07-21 사용자 보고).
-          // 지금: 원격을 병합으로 받아들인 뒤(항목별 병합이라 내 최신 편집은 살아남음) 저장을 계속 진행.
-          //       편집 중이면 noRender로 화면은 안 건드림(입력 보존) — 데이터만 합쳐짐.
-          console.warn('[cloudSyncSave] 스테일 감지: cloudTs '+_cloudTs+' > base '+_base+' → 병합 후 계속 저장');
-          var _editing=(typeof isEditingNow==='function'&&isEditingNow());
-          try{ applyRemoteCoData(cloudCurrent,_cloudTs,{noRender:_editing}); }catch(e){console.warn('[cloudSyncSave] 스테일 병합 실패:',e);}
-          // 방금 그 문서를 병합했으니 메인 문서 배너 대기분은 해소 (발주 문서 대기분은 별도 유지)
-          if(_rtPending&&_rtPending.coId===curCoId){_rtPending=null; if(!_rtPendingOrders&&typeof hideRemoteBanner==='function')hideRemoteBanner();}
-          if(typeof showToast==='function')showToast('다른 기기 변경을 합쳐서 저장했어요',4000);
-        }
       }
     }catch(checkErr){
       console.warn('[cloudSyncSave] 클라우드 사전 확인 실패:',checkErr);
@@ -2345,12 +2352,13 @@ async function cloudSyncSave(){
       if(cloudCurrent){
         _entEnsureTomb();
         var _ctombS=(cloudCurrent._tomb)||{};
-        var _miS=_entMerge(S.items||{},cloudCurrent.items||{},S._tomb.items,_ctombS.items,'local');
+        var _tieS=(window._wasStaleSave||!getSyncBase('fpm_'+curCoId))?'cloud':'local'; // 내가 스테일이었으면 동률(둘 다 _mt 없음=옛 데이터)은 클라우드가 맞다 (2026-08-17)
+        var _miS=_entMerge(S.items||{},cloudCurrent.items||{},S._tomb.items,_ctombS.items,_tieS);
         _miS.map=tpMergeLocalImages(_miS.map,S.items||{}); // 클라우드 승 항목의 사진(스트립됨)은 로컬 원본으로 복원
         try{_miS.map=_restoreLocalDataUrls(_miS.map,S.items||{});}catch(e2){}
         var _cOrdMap=(_cloudOrdDoc&&_cloudOrdDoc.orders)||cloudCurrent.orders||{};
         var _cOrdTomb=(_cloudOrdDoc&&_cloudOrdDoc._tomb&&_cloudOrdDoc._tomb.orders)||_ctombS.orders;
-        var _moS=_entMerge(S.orders||{},_cOrdMap,S._tomb.orders,_cOrdTomb,'local');
+        var _moS=_entMerge(S.orders||{},_cOrdMap,S._tomb.orders,_cOrdTomb,_tieS);
         // 병합으로 실제 바뀐 항목이 있나 (클라우드 승·삭제) — 없으면 재렌더 불필요
         var _entChanged=false;
         var _chkChanged=function(merged,cur){ if(_entChanged)return;
@@ -3065,6 +3073,7 @@ async function _openRecoveryToolInner(){
   // 옵션 3: 클라우드에서 강제
   if(isCloudOn()){
     html+='<div style="border:1px solid #fde68a;background:#fef3c7;border-radius:6px;padding:10px;margin-bottom:8px"><div style="font-weight:600;color:#854f0b;font-size:12px;margin-bottom:4px">옵션 3: 클라우드에서 강제로 다시 가져오기</div><div style="font-size:11px;color:#854f0b;margin-bottom:8px">클라우드 데이터가 빈 상태이면 화면도 비워집니다. 클라우드에 데이터가 있는 게 확실할 때만 누르세요.</div><button onclick="recoverFromCloud()" style="background:#92400e;color:#fff;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600">클라우드에서 다시 받기</button></div>';
+  html+='<div style="border:1px solid #fecaca;background:#fef2f2;border-radius:6px;padding:10px;margin-bottom:8px"><div style="font-weight:600;color:#7f1d1d;font-size:12px;margin-bottom:4px">옵션 4: 이 기기 비우고 클라우드에서 새로 받기 (오래된 기기·아이패드용)</div><div style="font-size:11px;color:#7f1d1d;margin-bottom:8px">이 기기에 남은 옛 자료(몇 달 전 것 등)를 전부 지우고, 클라우드 자료만으로 새로 시작해요. 다른 기기(맥·폰)가 최신인 게 확실할 때 이 기기에서 누르세요.</div><button onclick="resetDeviceAndPull()" style="background:#b91c1c;color:#fff;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600">이 기기 비우고 새로 받기</button></div>';
   }
   
   // 안내
@@ -3495,6 +3504,23 @@ function rebuildMissingBrands(){
   alert(msg);
 }
 
+/* 오래된 기기(예: 5월 자료를 들고 있던 아이패드) 전용 — 이 기기의 회사 자료·공유 자료·동기화 기준을 전부 지우고 새로고침.
+   부팅 때 로컬이 비어 있으므로 클라우드가 그대로 들어온다(병합 상대가 없음). fpm_cos(회사 목록)·테마·백업(IndexedDB)은 남긴다. (2026-08-17) */
+function resetDeviceAndPull(){
+  if(!isCloudOn()){alert('Firebase 로그인이 안 됐어요. 먼저 로그인하세요.');return;}
+  if(!confirm('이 기기의 로컬 자료를 전부 비우고 클라우드에서 새로 받아옵니다.\n\n· 다른 기기(맥·폰)의 자료가 최신인 게 확실할 때만 누르세요.\n· 이 기기에서 아직 안 올라간 편집이 있다면 사라집니다.\n\n계속할까요?'))return;
+  try{
+    var rm=['fpm_shared','fpm_syncbase','fpm_dirty','fpm_shdirty'];
+    Object.keys(companies||{}).forEach(function(cid){ rm.push('fpm_'+cid); rm.push('fpm_'+cid+'__orders'); });
+    rm.forEach(function(k){ try{localStorage.removeItem(k);}catch(e){} });
+    try{sessionStorage.removeItem('fpm_force_local');}catch(e){}
+    try{ if(typeof stopRealtimeSync==='function')stopRealtimeSync(); }catch(e){}
+    window._cloudSyncReady=false; // 새로고침 전 어떤 저장도 클라우드로 못 가게
+    if(window._cloudSyncTimer){clearTimeout(window._cloudSyncTimer);window._cloudSyncTimer=null;}
+    showToast('비웠어요. 새로고침해서 클라우드에서 받아옵니다…',3000);
+    setTimeout(function(){ location.reload(); },600);
+  }catch(e){ alert('실패: '+(e&&e.message||e)); }
+}
 async function recoverFromCloud(){
   if(!isCloudOn()){alert('Firebase 로그인이 안 됐어요');return;}
   if(!confirm('현재 화면 데이터가 클라우드 데이터로 덮어쓰여집니다.\n클라우드에 데이터가 있는 게 확실한가요?'))return;
@@ -3636,6 +3662,11 @@ async function cloudSyncLoad(id,opts){
         //   (메인은 내용 동일로 푸시 생략돼 ts 불변) 부팅 때 "로컬 유지" + 실시간 첫 스냅샷 skip = 다음 저장 전까지 옛 발주·옛 단가장.
         var _baseO=getSyncBase('fpm_'+id+'__orders'), _baseS=getSyncBase('fpm_shared');
         var _cloudNewer=(_coTs&&_base&&_coTs>_base)||(_ordTs&&_baseO&&_ordTs>_baseO)||(_shTs&&_baseS&&_shTs>_baseS);
+        /* ★2026-08-17: 기준 ts가 하나도 없는데 로컬에 데이터가 있고 클라우드에도 있다 = 이 기기는 옛 스냅샷(07-07 이전에 마지막 동기화, 또는 저장소 초기화 뒤 남은 것).
+           예전 규칙 "기준 없으면 무조건 로컬 유지"는 통째 교체 시절의 안전장치였고, 지금은 항목별 병합(동률=클라우드)이라 병합이 더 안전.
+           아이패드가 5월 데이터를 '최신'이라며 그대로 쓰던 것의 원인. (07-07 회귀는 개수 기반 통째 채택이었음 — 이건 그게 아님) */
+        var _noBaseStale=(!_base&&!_baseO&&!_baseS&&_coTs&&Object.keys(d.items||{}).length>0);
+        if(_noBaseStale){ _cloudNewer=true; console.warn('[cloudSyncLoad] 기준 ts 없음 + 로컬·클라우드 둘 다 데이터 → 옛 기기로 보고 병합(동률=클라우드)'); if(typeof showToast==='function')showToast('이 기기는 오래된 상태라 클라우드와 합쳤어요',5000); }
         // ⚠️ _firstBootPreferCloud(최초부팅 클라우드우선)는 제거함(2026-07-07): 개수만 봐서 출고수량·출고일·할일 등
         //    개수에 안 잡히는 로컬 내용을 옛 클라우드로 덮어버리는 회귀 유발. 기준 ts 없으면 무조건 로컬 유지(안전).
         if(!_cloudMoreComplete&&!_cloudNewer){
