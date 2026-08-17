@@ -2365,6 +2365,63 @@ function _scheduleImgRetry(){
 window.addEventListener('online',function(){ try{ _runImgRetry(); }catch(e){} });
 // 앱 로드 후: 이미 대기 중인 사진이 있으면 배지 표시 + 자동 재시도 시작
 setTimeout(function(){ try{ if(_imgPendingCount()>0)_scheduleImgRetry(); }catch(e){} },4000);
+
+/* ===== 사라진 오더만 되살리기 (2026-08-17) ==============================
+   백업에는 있는데 지금은 없는 오더를 찾아 **그것만** 되살린다. 아이템·단가장 등 나머지는 안 건드림.
+   (전체 복구는 그 시점 이후에 한 다른 작업까지 되돌려버려서 위험하다.)
+   ⚠️ 되살릴 때 `_mt`를 지금 시각으로 찍고 `S._tomb.orders`에서 삭제기록을 지운다.
+      안 하면 _entMerge가 "삭제가 더 최신"으로 보고 다음 동기화에서 또 지운다. */
+function _ordMissingCands(){
+  var found={};
+  var scan=function(list,src){
+    (list||[]).forEach(function(bk,i){
+      var ords=bk&&bk.data&&bk.data.orders; if(!ords)return;
+      Object.keys(ords).forEach(function(oid){
+        if(S.orders&&S.orders[oid])return;      // 지금 살아있으면 대상 아님
+        var o=ords[oid]; if(!o)return;
+        var ts=+bk.ts||0;
+        if(!found[oid]||ts>found[oid].ts)found[oid]={oid:oid,o:o,src:src,idx:i,ts:ts};
+      });
+    });
+  };
+  try{ scan(window._abkCache,'abk'); }catch(e){}
+  try{ scan(window._hbkCache,'hbk'); }catch(e){}
+  return Object.keys(found).map(function(k){return found[k];}).sort(function(a,b){return b.ts-a.ts;});
+}
+function _ordSum(o){
+  var n=(o&&o.orderItems||[]).length, q=0;
+  (o&&o.orderItems||[]).forEach(function(oi){
+    var g=oi&&oi.qtyGrid||{};
+    for(var c in g)for(var s in g[c])q+=+g[c][s]||0;
+  });
+  return {items:n,qty:q};
+}
+function recoverOrdersOnly(oid){
+  var cands=_ordMissingCands();
+  var list=oid?cands.filter(function(c){return c.oid===decodeURIComponent(oid);}):cands;
+  if(!list.length){ if(typeof showToast==='function')showToast('되살릴 오더가 없어요'); return; }
+  var nm=list.map(function(c){return c.o.name||c.oid;}).slice(0,8).join('\n· ');
+  if(!confirm('오더 '+list.length+'건을 되살릴까요?\n\n· '+nm+(list.length>8?('\n외 '+(list.length-8)+'건'):'')+'\n\n※ 아이템·단가장 등 다른 자료는 그대로 둡니다.'))return;
+  var now=Date.now(), n=0;
+  if(!S._tomb)S._tomb={};
+  if(!S._tomb.orders)S._tomb.orders={};
+  list.forEach(function(c){
+    try{
+      var o=JSON.parse(JSON.stringify(c.o));
+      o._mt=now;                                   // 삭제기록보다 최신이어야 다시 안 지워진다
+      S.orders[c.oid]=o;
+      delete S._tomb.orders[c.oid];                // 삭제기록 제거
+      if(window._entShadow&&window._entShadow.orders)delete window._entShadow.orders[c.oid];
+      n++;
+    }catch(e){ console.warn('[오더복구]',c.oid,e); }
+  });
+  try{ saveData(); }catch(e){ console.error('[오더복구] 저장 실패',e); }
+  try{ if(typeof renderOrderPane==='function')renderOrderPane(); }catch(e){}
+  try{ if(typeof renderProdDash==='function')renderProdDash(); }catch(e){}
+  if(typeof showToast==='function')showToast('오더 '+n+'건 되살렸어요 — 다른 기기도 새로고침하세요',5000);
+  try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+}
+
 async function openRecoveryTool(){
   // 데이터 복구 도구 — 사용자가 콘솔 명령 안 치고도 진단/복구할 수 있게
   
@@ -2523,6 +2580,29 @@ async function openRecoveryTool(){
       html+='</div>';
     }else{
       html+='<div style="font-size:11px;color:#92400e">백업에서 할일판 내용을 못 찾았어요. 아래 전체 복구(옵션 0/0b)를 시도하거나, JSON 백업 파일이 있으면 파일 복원을 써보세요.</div>';
+    }
+    html+='</div>';
+
+    // === 사라진 오더만 되살리기 (다른 자료 안 건드리고 오더만) ===
+    var _ordCands=_ordMissingCands();
+    html+='<div style="border:2px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:14px">';
+    html+='<div style="font-weight:700;color:#991b1b;font-size:13px;margin-bottom:4px">사라진 오더만 되살리기 <span style="font-weight:400">(다른 자료는 그대로 둬요)</span></div>';
+    if(_ordCands.length){
+      html+='<div style="font-size:11px;color:#991b1b;margin-bottom:8px">백업에는 있는데 <b>지금 목록에 없는</b> 오더예요. 되살리면 삭제기록도 지워서 다시 사라지지 않아요.</div>';
+      html+='<div style="max-height:230px;overflow-y:auto;display:flex;flex-direction:column;gap:5px">';
+      _ordCands.forEach(function(c){
+        var s=_ordSum(c.o);
+        var bd=new Date(c.ts); var bp=function(x){return String(x).padStart(2,'0');};
+        var t=isNaN(bd)?'':((bd.getMonth()+1)+'/'+bd.getDate()+' '+bp(bd.getHours())+':'+bp(bd.getMinutes()));
+        html+='<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;gap:8px">';
+        html+='<span style="font-size:12px;color:#991b1b;min-width:0"><b>'+esc(c.o.name||c.oid)+'</b> <span style="color:#b91c1c">· 아이템 '+s.items+'개 · '+s.qty+'장</span> <span style="color:#9ca3af">· 백업 '+esc(t)+'</span></span>';
+        html+='<button onclick="recoverOrdersOnly(\''+encodeURIComponent(c.oid)+'\')" style="background:#dc2626;color:#fff;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">되살리기</button>';
+        html+='</div>';
+      });
+      html+='</div>';
+      if(_ordCands.length>1)html+='<div style="margin-top:8px"><button onclick="recoverOrdersOnly()" style="background:#991b1b;color:#fff;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700">'+_ordCands.length+'건 전부 되살리기</button></div>';
+    }else{
+      html+='<div style="font-size:11px;color:#991b1b">백업과 비교했을 때 없어진 오더가 없어요. (오더가 안 보이면 위쪽 <b>브랜드·상태·공장 필터</b>와 <b>완료 탭</b>, 그리고 상단 <b>업체</b>가 맞는지 먼저 확인해보세요.)</div>';
     }
     html+='</div>';
 
@@ -3389,7 +3469,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17c';
+var APP_BUILD=/*BUILD*/'2026-08-17d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
