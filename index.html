@@ -3534,7 +3534,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17e';
+var APP_BUILD=/*BUILD*/'2026-08-17f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -14860,6 +14860,11 @@ function _qeCopyFallback(t,done){
   }catch(e){ showToast('복사가 안 됐어요 — 길게 눌러 직접 복사해주세요',4000); }
 }
 /* 카톡에서 안 잘리게 세로로 긴 카드 */
+/* 카톡에 보낼 카드.
+   ⚠️ 「수량」 창의 **표 그대로**가 가장 한눈에 들어온다(사용자 확인). 표를 버리지 말 것.
+      대신 표를 그냥 찍으면 가로로 길어 카톡에서 잘리므로, 720px 세로형 카드 안에 넣고
+      표가 남는 세로를 채우게(height:100%) 해서 줄을 두툼하게 만든다 → 세로가 길어지고 글씨도 커진다.
+   ⚠️ 사이즈가 많으면 칸이 좁아지니 개수에 따라 글씨·여백을 줄이고 카드 폭만 조금 넓힌다. */
 function _qeCardEl(oid){
   var arr=_qeItems(oid); if(!arr.length)return null;
   var F="'Pretendard','Apple SD Gothic Neo',-apple-system,sans-serif";
@@ -14867,32 +14872,47 @@ function _qeCardEl(oid){
   wrap.style.cssText='position:fixed;left:-99999px;top:0;z-index:-1;background:#fff';
   var h='';
   arr.forEach(function(x){
-    h+='<div style="width:680px;min-height:900px;box-sizing:border-box;background:#fff;padding:38px 34px 30px;font-family:'+F+';color:#111827;display:flex;flex-direction:column">';
+    var sizes=x.hasSize?(x.it.sizes||[]):[];
+    var nS=sizes.length;
+    var W=nS<=5?720:(nS<=7?860:1000);          // 사이즈 많을 때만 폭을 조금 넓힌다
+    var fCell=nS<=5?26:(nS<=7?22:18);          // 수량 글씨
+    var fHead=nS<=5?17:(nS<=7?15:13);          // 머리글
+    var pad=nS<=5?'14px 10px':'12px 6px';
+    /* 표가 위에만 몰리고 아래가 텅 비지 않게 **줄 높이로 세로를 채운다**.
+       고정 min-height를 쓰면 컬러 수에 따라 빈칸이 크게 남는다(시안에서 확인) → 줄 높이를 역산한다.
+       base = 머리말+합계줄+여백+표머리 대략치. 목표는 '가로보다 세로가 살짝 긴' 정도. */
+    var _base=170+110+68+72;
+    var _need=Math.max(0,Math.round(W*1.05)-_base);
+    var rowH=Math.min(150,Math.max(70,Math.round(_need/Math.max(1,x.rows.length))));
+    h+='<div style="width:'+W+'px;box-sizing:border-box;background:#fff;padding:38px 34px 30px;font-family:'+F+';color:#111827;display:flex;flex-direction:column">';
     h+='<div style="font-size:15px;color:#6b7280;font-weight:700;letter-spacing:.04em">오더 수량</div>';
-    h+='<div style="font-size:32px;font-weight:800;margin-top:6px;line-height:1.25">'+esc(x.name)+'</div>';
+    h+='<div style="font-size:34px;font-weight:800;margin-top:6px;line-height:1.25">'+esc(x.name)+'</div>';
     var sub=[x.code,x.round,x.date].filter(Boolean).map(esc).join(' · ');
     if(sub)h+='<div style="font-size:16px;color:#6b7280;margin-top:8px">'+sub+'</div>';
-    h+='<div style="height:3px;background:#111827;margin:20px 0 2px"></div>';
-    /* 컬러가 적으면 아래에 큰 빈칸이 생겨서 어색했다 → 남는 세로를 컬러 칸들이 고르게 나눠 갖게 한다 */
-    h+='<div style="flex:1;display:flex;flex-direction:column;justify-content:space-evenly">';
+    h+='<div style="height:3px;background:#111827;margin:20px 0 0"></div>';
+    // 표 — 남는 세로를 표가 채운다(줄이 두툼해짐)
+    h+='<div style="margin-top:16px">';
+    h+='<table style="width:100%;border-collapse:collapse;table-layout:fixed">';
+    h+='<thead><tr style="background:#f3f4f6">';
+    h+='<th style="border:2px solid #111827;padding:'+pad+';font-size:'+fHead+'px;font-weight:800;width:'+(nS<=5?22:18)+'%">컬러</th>';
+    sizes.forEach(function(s){ h+='<th style="border:2px solid #111827;padding:'+pad+';font-size:'+fHead+'px;font-weight:800">'+esc(s)+'</th>'; });
+    h+='<th style="border:2px solid #111827;padding:'+pad+';font-size:'+fHead+'px;font-weight:800;background:#e5e7eb;width:'+(nS<=5?20:16)+'%">합계</th>';
+    h+='</tr></thead><tbody>';
     x.rows.forEach(function(r){
-      h+='<div style="padding:18px 0;border-bottom:1px solid #e5e7eb">';
-      h+='<div style="display:flex;align-items:baseline"><span style="font-size:22px;font-weight:800">'+esc(r.color||'수량')+'</span>'
-        +'<span style="margin-left:auto;font-size:22px;font-weight:800">'+r.total+'장</span></div>';
-      if(x.hasSize){
-        h+='<div style="display:flex;flex-wrap:wrap;gap:9px;margin-top:12px">';
-        r.cells.forEach(function(c){
-          h+='<span style="border:2px solid #d1d5db;border-radius:10px;padding:8px 14px;font-size:17px;color:#374151;white-space:nowrap">'
-            +esc(c.sz)+' <b style="font-size:20px;color:#111827">'+c.qty+'</b></span>';
-        });
-        h+='</div>';
-      }
-      h+='</div>';
+      h+='<tr>';
+      h+='<td style="border:2px solid #111827;height:'+rowH+'px;padding:'+pad+';font-size:'+(fCell-4)+'px;font-weight:800;text-align:left;padding-left:16px">'+esc(r.color||'수량')+'</td>';
+      var byS={}; r.cells.forEach(function(c){ byS[c.sz]=c.qty; });
+      sizes.forEach(function(s){
+        var v=byS[s];
+        h+='<td style="border:2px solid #111827;padding:'+pad+';font-size:'+fCell+'px;font-weight:800;text-align:center;color:'+(v?'#111827':'#d1d5db')+'">'+(v||'-')+'</td>';
+      });
+      h+='<td style="border:2px solid #111827;padding:'+pad+';font-size:'+fCell+'px;font-weight:800;text-align:center;background:#f9fafb">'+r.total+'</td>';
+      h+='</tr>';
     });
-    h+='</div>';
-    h+='<div style="padding-top:20px;border-top:3px solid #111827;display:flex;align-items:baseline">'
+    h+='</tbody></table></div>';
+    h+='<div style="padding-top:18px;margin-top:auto;border-top:3px solid #111827;display:flex;align-items:baseline">'
       +'<span style="font-size:22px;font-weight:800">합계</span>'
-      +'<span style="margin-left:auto;font-size:34px;font-weight:800">'+x.grand+'<span style="font-size:20px">장</span></span></div>';
+      +'<span style="margin-left:auto;font-size:38px;font-weight:800">'+x.grand+'<span style="font-size:21px">장</span></span></div>';
     h+='</div>';
   });
   wrap.innerHTML=h;
