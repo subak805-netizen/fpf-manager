@@ -3798,7 +3798,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17j';
+var APP_BUILD=/*BUILD*/'2026-08-17k';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9029,6 +9029,7 @@ function _refRenderFolders(el){
     +'<span class="rf-sp"></span><span class="rf-chiplbl">묶기</span>'
     +'<button class="rf-chip'+(gb==='season'?' on':'')+'" onclick="refSetGroupBy(\'season\')">시즌별</button>'
     +'<button class="rf-chip'+(gb==='brand'?' on':'')+'" onclick="refSetGroupBy(\'brand\')">브랜드별</button>'
+    +'<button class="rf-chip'+(gb==='brandsea'?' on':'')+'" onclick="refSetGroupBy(\'brandsea\')">브랜드 → 시즌</button>'
   +'</div>';
   var shown=cols.filter(function(c){
     if(catFlt&&(c.category||'')!==catFlt)return false;
@@ -9046,13 +9047,30 @@ function _refRenderFolders(el){
         +'<div class="rf-folders">'+bySea[v].map(_refFolderCard).join('')+'</div></div>';
     }).join('');
   }else{
+    /* 브랜드별 / 브랜드→시즌 2단 묶기 (2026-08-17).
+       ⚠️ 폴더가 새로 생기는 게 아니다 — 지금 있는 폴더를 제목 두 겹 아래로 정리만 한다.
+          클릭 단계도 안 늘어난다(한 화면에 브랜드 큰제목 → 시즌 작은제목 → 폴더). */
+    var _twoLv=(gb==='brandsea');
     var byBrand={}; shown.forEach(function(c){ var b=c.brandId||'__none'; (byBrand[b]=byBrand[b]||[]).push(c); });
     var brandIds=Object.keys(byBrand).filter(function(b){return b!=='__none';});
     brandIds.sort(function(a,b){ return _refBrandName(a).localeCompare(_refBrandName(b),'ko'); });
     if(byBrand['__none'])brandIds.push('__none');
+    var _seaOrder=getRefSeasons();
     sections=brandIds.map(function(bid){
-      return '<div class="rf-bsec"><div class="rf-bsec-h">'+esc(bid==='__none'?'브랜드 미지정':_refBrandName(bid))+' <span class="rf-bsecn">'+byBrand[bid].length+'개</span></div>'
-        +'<div class="rf-folders">'+byBrand[bid].map(_refFolderCard).join('')+'</div></div>';
+      var list=byBrand[bid];
+      var head='<div class="rf-bsec-h">'+esc(bid==='__none'?'브랜드 미지정':_refBrandName(bid))+' <span class="rf-bsecn">'+list.length+'개</span></div>';
+      if(!_twoLv){
+        return '<div class="rf-bsec">'+head+'<div class="rf-folders">'+list.map(_refFolderCard).join('')+'</div></div>';
+      }
+      var bySea={}; list.forEach(function(c){ var v=_refColSeason(c)||'__none'; (bySea[v]=bySea[v]||[]).push(c); });
+      var sKeys=Object.keys(bySea).filter(function(v){return v!=='__none';});
+      sKeys.sort(function(a,b){ return _seaOrder.indexOf(a)-_seaOrder.indexOf(b); });
+      if(bySea['__none'])sKeys.push('__none');
+      var inner=sKeys.map(function(v){
+        return '<div class="rf-ssec"><div class="rf-ssec-h">'+esc(v==='__none'?'시즌 미지정':v)+' <span class="rf-bsecn">'+bySea[v].length+'개</span></div>'
+          +'<div class="rf-folders">'+bySea[v].map(_refFolderCard).join('')+'</div></div>';
+      }).join('');
+      return '<div class="rf-bsec rf-bsec-2lv">'+head+inner+'</div>';
     }).join('');
   }
   var orphan=_refColCards(''); var orphanSec='';
@@ -9302,6 +9320,12 @@ function _refStyle(){
     +'#reference-body .rf-seachips .rf-sp{flex:1}'
     +'#reference-body .rf-fsea{font-size:10.5px;font-weight:800;background:var(--ink,#0B0A05);color:#fff;padding:2px 7px;border-radius:0}'
     +'#reference-body .rf-bsecn{font-size:11.5px;font-weight:700;color:var(--t2,#8a8470);margin-left:4px}'
+    // 브랜드 → 시즌 2단: 브랜드 칸을 테두리로 감싸고 안에 시즌 소제목을 둔다
+    +'#reference-body .rf-bsec-2lv{border:2px solid var(--ink,#0B0A05);padding:0 12px 12px;background:#fbf8f0}'
+    +'#reference-body .rf-bsec-2lv>.rf-bsec-h{margin-left:-12px;margin-right:-12px;border-left:none;border-right:none;border-top:none}'
+    +'#reference-body .rf-ssec{margin-top:14px}'
+    +'#reference-body .rf-ssec-h{font-size:12px;font-weight:800;color:var(--ink,#0B0A05);padding:3px 9px;background:#fff;border:1.5px solid var(--ink,#0B0A05);display:inline-block;margin-bottom:-1px}'
+    +'#reference-body .rf-ssec>.rf-folders{border-top:1.5px solid var(--ink,#0B0A05);padding-top:12px}'
     +'#reference-body .rf-slot img{width:100%;height:100%;object-fit:contain;display:block;-webkit-user-drag:element;cursor:grab}'
     +'#reference-body .rf-slot img:active{cursor:grabbing}'
     +'#reference-body .rf-cp{position:absolute;top:7px;right:37px;height:24px;padding:0 9px;border-radius:12px;border:2px solid var(--ink,#0B0A05);background:#fff;color:var(--ink,#0B0A05);font-size:11px;font-weight:800;cursor:pointer;line-height:1;z-index:3;display:none}'
