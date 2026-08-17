@@ -3364,11 +3364,11 @@ function updateCloudModal(){
     loginForm.style.display='none';
     var emailEl=document.getElementById('fb-user-email');
     if(emailEl)emailEl.textContent=window.fbUser.email||'(이메일 없음)';
-    if(sb)sb.innerHTML='<div style="background:#dcfce7;color:#166534;padding:8px 12px;border-radius:6px;font-size:12px">Firebase 동기화 활성화 됨</div>';
+    if(sb)sb.innerHTML='<div style="background:#dcfce7;color:#166534;padding:8px 12px;border-radius:6px;font-size:12px">Firebase 동기화 활성화 됨</div>'+fpfSyncDiagHTML();
   }else{
     loggedIn.style.display='none';
     loginForm.style.display='';
-    if(sb)sb.innerHTML='<div style="background:#fef3c7;color:#854f0b;padding:8px 12px;border-radius:6px;font-size:12px">아래에서 로그인하면 모든 기기에서 자동 동기화됩니다</div>';
+    if(sb)sb.innerHTML='<div style="background:#fef3c7;color:#854f0b;padding:8px 12px;border-radius:6px;font-size:12px">아래에서 로그인하면 모든 기기에서 자동 동기화됩니다</div>'+fpfSyncDiagHTML();
   }
 }
 
@@ -3380,6 +3380,88 @@ function updateCloudModal(){
 // 백업(abk/hbk)이 localStorage(5MB)의 90%를 먹어 꽉 채움 → IndexedDB로 옮긴다.
 // 읽기는 메모리 캐시(_abkCache/_hbkCache)에서 동기로, 쓰기만 IndexedDB에 비동기로 한다(읽기 타이밍 사고 방지).
 window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; window._bkCacheCoId=(typeof window._bkCacheCoId!=='undefined')?window._bkCacheCoId:null;
+
+/* ===== 앱 버전 / 동기화 진단 (2026-08-17) ==============================
+   "아이패드가 최신이 아닌 것 같다"를 눈으로 확인할 수 있게 만든 장치.
+   기기마다 **실행 중인 앱 버전**과 **서버에 올라간 최신 버전**을 비교한다.
+   홈화면 앱(PWA)은 옛 index.html을 오래 물고 있을 수 있는데, 그러면 동기화 로직도 옛것이라
+   고쳐놓은 병합(공장·단가장·할일판·시재)이 안 돌아 데이터가 어긋난다.
+   ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
+   ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
+      (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
+var APP_BUILD=/*BUILD*/'2026-08-17b';
+function _verFmt(ts){
+  if(!ts)return '기록 없음';
+  var d=new Date(ts); if(isNaN(d))return String(ts);
+  var p=function(n){return String(n).padStart(2,'0');};
+  return (d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+/* 서버(깃허브 페이지)에 올라간 최신 버전을 읽어와 비교 */
+async function fpfCheckAppVersion(opts){
+  opts=opts||{};
+  try{
+    var u=location.pathname.replace(/[^\/]*$/,'')+'index.html?vc='+Date.now();
+    var r=await fetch(u,{cache:'no-store'});
+    if(!r.ok)return null;
+    var t=await r.text();
+    var m=t.match(/\/\*BUILD\*\/'([^']+)'/);
+    var latest=m?m[1]:'';
+    var stale=!!(latest&&latest!==APP_BUILD);
+    window._appLatest=latest; window._appStale=stale;
+    if(stale&&!opts.silent)fpfShowUpdateBar(latest);
+    return {running:APP_BUILD,latest:latest,stale:stale};
+  }catch(e){ console.warn('[버전확인]',e); return null; }
+}
+function fpfShowUpdateBar(latest){
+  if(document.getElementById('app-update-bar'))return;
+  var b=document.createElement('div');
+  b.id='app-update-bar';
+  b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:100002;background:#1f2937;color:#fff;padding:11px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.28);display:flex;align-items:center;gap:10px;font-size:13px;max-width:92vw';
+  b.innerHTML='<span>이 기기는 <b>옛 버전</b>이에요 ('+_esc2(APP_BUILD)+' → '+_esc2(latest)+')</span>'
+    +'<button onclick="fpfHardReload()" style="border:none;background:#fff;color:#111827;font-weight:700;padding:7px 13px;border-radius:7px;cursor:pointer;font-family:inherit">최신으로 새로고침</button>'
+    +'<button onclick="var x=document.getElementById(\'app-update-bar\');if(x)x.remove()" style="border:none;background:rgba(255,255,255,.15);color:#fff;padding:7px 10px;border-radius:7px;cursor:pointer;font-family:inherit">나중에</button>';
+  document.body.appendChild(b);
+}
+function _esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+/* 캐시까지 비우고 다시 받기 — 홈화면 앱이 옛 파일을 물고 있을 때 */
+async function fpfHardReload(){
+  try{ if(window.caches&&caches.keys){ var ks=await caches.keys(); for(var i=0;i<ks.length;i++)await caches.delete(ks[i]); } }catch(e){}
+  try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations){ var rs=await navigator.serviceWorker.getRegistrations(); for(var j=0;j<rs.length;j++)await rs[j].unregister(); } }catch(e){}
+  var u=location.href.split('#')[0].replace(/[?&]vc=\d+/,'');
+  location.replace(u+(u.indexOf('?')<0?'?':'&')+'vc='+Date.now());
+}
+/* 동기화 진단 — 클라우드 창에 표시할 내용 */
+function fpfSyncDiagHTML(){
+  var lines=[];
+  var acc=(window.fbUser&&window.fbUser.email)||'로그인 안 됨';
+  var co=(typeof curCoId!=='undefined'&&curCoId)?curCoId:'-';
+  var coNm=co;
+  try{ var c=(companies||[]).find(function(x){return x&&x.id===co;}); if(c&&c.name)coNm=c.name; }catch(e){}
+  var base='';
+  try{ base=getSyncBase('fpm_'+co)||''; }catch(e){}
+  var shared='';
+  try{ shared=getSyncBase('fpm_shared')||''; }catch(e){}
+  var verTxt=window._appLatest
+    ? (window._appStale? '<b style="color:#b91c1c">옛 버전</b> — 이 기기 '+_esc2(APP_BUILD)+' / 서버 '+_esc2(window._appLatest)
+                       : '<b style="color:#15803d">최신</b> — '+_esc2(APP_BUILD))
+    : '이 기기 '+_esc2(APP_BUILD)+' <span style="color:#6b7280">(서버 확인 중…)</span>';
+  lines.push(['앱 버전',verTxt]);
+  lines.push(['계정',_esc2(acc)]);
+  lines.push(['현재 업체',_esc2(coNm)]);
+  lines.push(['이 업체 자료 받은 시각',_esc2(_verFmt(base))]);
+  lines.push(['공장·단가장 받은 시각',_esc2(_verFmt(shared))]);
+  var h='<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-top:10px;font-size:12px;line-height:1.9">';
+  h+='<div style="font-weight:700;margin-bottom:4px">동기화 진단</div>';
+  lines.forEach(function(r){ h+='<div style="display:flex;gap:8px"><span style="color:#6b7280;min-width:132px">'+r[0]+'</span><span>'+r[1]+'</span></div>'; });
+  h+='<div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">'
+   +'<button onclick="fpfCheckAppVersion().then(function(){setTimeout(updateCloudModal,50)})" style="border:1px solid #d1d5db;background:#fff;padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit">버전 다시 확인</button>'
+   +'<button onclick="fpfHardReload()" style="border:none;background:#1f2937;color:#fff;padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit">최신으로 새로고침</button>'
+   +'</div>';
+  h+='<div style="color:#6b7280;margin-top:7px;font-size:11px;line-height:1.6">받은 시각이 다른 기기보다 한참 옛날이거나 앱 버전이 다르면, 그 기기에서 「최신으로 새로고침」을 눌러주세요.</div>';
+  h+='</div>';
+  return h;
+}
+
 function _idbBkDB(){ return new Promise(function(res,rej){ try{ var rq=indexedDB.open('fpmBackups',1); rq.onupgradeneeded=function(){ var db=rq.result; if(!db.objectStoreNames.contains('kv'))db.createObjectStore('kv'); }; rq.onsuccess=function(){res(rq.result);}; rq.onerror=function(){rej(rq.error);}; }catch(e){rej(e);} }); }
 function idbBkGet(key){ return _idbBkDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('kv','readonly'),r=tx.objectStore('kv').get(key); r.onsuccess=function(){res(r.result);}; r.onerror=function(){rej(r.error);}; }); }).catch(function(){ return undefined; }); }
 function idbBkSet(key,val){ return _idbBkDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('kv','readwrite'); tx.objectStore('kv').put(val,key); tx.oncomplete=function(){res(true);}; tx.onerror=function(){rej(tx.error);}; tx.onabort=function(){rej(tx.error);}; }); }); }
@@ -32395,7 +32477,7 @@ function runAlertCheck() {
 // 앱 켤 때 + 30분마다 체크
 setTimeout(() => { runAlertCheck(); setInterval(runAlertCheck, 30 * 60 * 1000); }, 2000);
 // 매일 자동 파일 백업 — 앱 로드 8초 뒤 1회(데이터 로드 대기) + 이후 1분마다 슬롯 확인(오후 2시·밤 9시)
-setTimeout(() => { try{_checkAutoFileBackup();}catch(e){} try{fpfAutoCleanupOnce();}catch(e){} setInterval(() => { try{_checkAutoFileBackup();}catch(e){} }, 60 * 1000); }, 8000);
+setTimeout(() => { try{fpfCheckAppVersion();}catch(e){} try{_checkAutoFileBackup();}catch(e){} try{fpfAutoCleanupOnce();}catch(e){} setInterval(() => { try{_checkAutoFileBackup();}catch(e){} }, 60 * 1000); }, 8000);
 
 /* ===== 할일판 (브랜드→할일/메이드/시장 3칸→자유 그룹→태그·체크 항목, 드래그·인쇄·동기화) ===== */
 var TB_COLS=[['todo','할 일'],['made','메이드'],['market','시장']];
