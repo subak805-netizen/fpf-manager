@@ -2392,9 +2392,8 @@ async function openRecoveryTool(){
     var a=document.createElement('a');
     var _bd=new Date();var _bp=function(n){return String(n).padStart(2,'0');};
     var _bstamp=_bd.getFullYear()+'-'+_bp(_bd.getMonth()+1)+'-'+_bp(_bd.getDate())+'_'+_bp(_bd.getHours())+'시'+_bp(_bd.getMinutes())+'분';
-    a.href=url;a.download='fpm백업-'+_bstamp+'.json';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    fpfSaveFile(blob,'fpm백업-'+_bstamp+'.json',{silent:true});
     console.log('[복구] 안전망 스냅샷 다운로드됨');
   }catch(e){console.error('[복구] 스냅샷 실패:',e);}
   
@@ -2474,6 +2473,33 @@ async function openRecoveryTool(){
       html+='</div>';
     }
   }catch(e){console.warn('[recovery] imgStat',e);}
+
+  // === 저장 폴더 (2026-08-14): 앱이 만드는 파일을 어디에 둘지 ===
+  try{
+    var _sdSup=fpfDirSupported();
+    var _sdH=_sdSup?await fpfDirHandle():null;
+    var _sdNeed=_sdSup?await fpfDirNeedsReconnect():false;
+    var _sdList=(_sdSup&&_sdH&&!_sdNeed)?await fpfListAutoBackups():null;
+    html+='<div style="border:2px solid #0ea5e9;background:#f0f9ff;border-radius:8px;padding:12px;margin-bottom:14px">';
+    html+='<div style="font-weight:700;color:#075985;font-size:13px;margin-bottom:4px">저장 폴더 <span style="font-weight:400">(백업 파일·이미지가 저장되는 곳)</span></div>';
+    if(!_sdSup){
+      html+='<div style="font-size:11px;color:#075985;line-height:1.6">이 브라우저는 폴더 지정을 지원하지 않아요 (크롬·엣지에서 됩니다).<br>지금은 <b>다운로드 폴더</b>로 저장되고 있어요.</div>';
+    }else if(!_sdH){
+      html+='<div style="font-size:11px;color:#075985;margin-bottom:8px;line-height:1.6">지금은 <b>다운로드 폴더</b>로 저장돼요. 폴더를 지정하면 그곳으로 저장되고, <b>오래된 자동백업도 자동으로 정리</b>됩니다.<br><span style="color:#0369a1">(다운로드 폴더는 브라우저가 파일을 지울 수 없어서 정리가 안 돼요)</span></div>';
+      html+='<button onclick="fpfPickSaveDir()" style="background:#0ea5e9;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">폴더 지정하기</button>';
+    }else if(_sdNeed){
+      html+='<div style="font-size:11px;color:#b45309;margin-bottom:8px;line-height:1.6">폴더는 <b>'+esc(_sdH.name||'')+'</b> 로 정해져 있는데 <b>권한이 풀렸어요</b>(브라우저를 껐다 켜면 그럴 수 있어요).<br>지금은 다운로드 폴더로 저장됩니다 — 아래 버튼을 한 번 눌러주세요.</div>';
+      html+='<button onclick="fpfReconnectSaveDir()" style="background:#f59e0b;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">저장 폴더 다시 연결</button> ';
+      html+='<button onclick="fpfPickSaveDir()" style="background:#fff;color:#075985;border:1px solid #7dd3fc;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px">다른 폴더로</button>';
+    }else{
+      html+='<div style="font-size:12px;color:#075985;margin-bottom:8px">저장 위치: <b>'+esc(_sdH.name||'')+'</b> 폴더'+(_sdList?(' <span style="color:#0369a1;font-size:11px">· 자동백업 '+_sdList.length+'개 보관 중</span>'):'')+'</div>';
+      html+='<button onclick="fpfCleanupBackups()" style="background:#0ea5e9;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">지금 오래된 백업 정리 (최근 '+FPF_BK_KEEP+'개만 남김)</button> ';
+      html+='<button onclick="fpfPickSaveDir()" style="background:#fff;color:#075985;border:1px solid #7dd3fc;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px">폴더 바꾸기</button> ';
+      html+='<button onclick="fpfClearSaveDir()" style="background:#fff;color:#64748b;border:1px solid #cbd5e1;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px">해제</button>';
+      html+='<div style="font-size:11px;color:#0369a1;margin-top:7px;line-height:1.6">정리 대상은 <b>패션생산관리_자동백업_*.json</b> 뿐이에요. 직접 받으신 백업과 다른 파일은 안 건드립니다.</div>';
+    }
+    html+='</div>';
+  }catch(e){ console.warn('[recovery] saveDir',e); }
 
   // === 옵션 0: 자동 백업에서 복구 (가장 먼저, 가장 쉬움) ===
   try{
@@ -2765,7 +2791,7 @@ function _downloadBackupNow(){
     var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions,todoBoard:S.todoBoard||{}};
     var out={version:'pro2',ts:new Date().toISOString(),companies:companies,allCoData:allCo,shared:{factories:S.factories,priceBook:S.priceBook}};
     var blob=new Blob([JSON.stringify(out)],{type:'application/json'});var url=URL.createObjectURL(blob);
-    var a=document.createElement('a');a.href=url;a.download='fpm복구본-'+Date.now()+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    URL.revokeObjectURL(url);fpfSaveFile(blob,'fpm복구본-'+Date.now()+'.json',{label:'복구본 저장됨'});
   }catch(e){console.error('_downloadBackupNow',e);}
 }
 
@@ -3359,6 +3385,168 @@ function idbBkGet(key){ return _idbBkDB().then(function(db){ return new Promise(
 function idbBkSet(key,val){ return _idbBkDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('kv','readwrite'); tx.objectStore('kv').put(val,key); tx.oncomplete=function(){res(true);}; tx.onerror=function(){rej(tx.error);}; tx.onabort=function(){rej(tx.error);}; }); }); }
 function idbBkDel(key){ return _idbBkDB().then(function(db){ return new Promise(function(res){ var tx=db.transaction('kv','readwrite'); tx.objectStore('kv').delete(key); tx.oncomplete=function(){res(true);}; tx.onerror=function(){res(false);}; }); }).catch(function(){}); }
 // 현재 회사 백업을 IDB→캐시 로드. IDB에 없고 localStorage에 있으면 1회 이사(IDB 저장 성공 후에만 localStorage 삭제 — 유실 방지, 이때 용량 확보).
+/* ===== 저장 폴더 (2026-08-14) ==========================================
+   앱이 만드는 파일(백업 JSON · 명세서/작지/원가 이미지 등)을 **다운로드 폴더 대신
+   사용자가 고른 폴더**에 저장한다. 폴더를 지정해두면 오래된 자동백업 정리도 가능해진다
+   (브라우저는 다운로드 폴더의 파일을 지울 수 없다 — 고른 폴더만 읽고·쓰고·지울 수 있다).
+
+   ⚠️ 크롬·엣지만 지원(showDirectoryPicker). 사파리·아이폰은 지원 자체가 없어
+      fpfSaveFile이 자동으로 예전 방식(<a download>)으로 떨어진다 — 동작이 나빠지지 않는다.
+   ⚠️ 브라우저를 완전히 껐다 켜면 권한이 'prompt'로 돌아갈 수 있다. requestPermission은
+      **사용자 클릭이 있어야** 하므로, 그동안 자동 저장은 다운로드 폴더로 간다.
+      데이터 관리의 「다시 연결」을 한 번 누르면 이어진다.
+   ⚠️ 새로 파일을 만드는 코드는 <a download>를 직접 쓰지 말고 반드시 fpfSaveFile()을 쓸 것. */
+var FPF_DIR_KEY='fpm_saveDir', FPF_BK_KEEP=14;
+function fpfDirSupported(){ try{ return typeof window.showDirectoryPicker==='function'; }catch(e){ return false; } }
+function _fsdPerm(h,request){
+  try{
+    if(!h||!h.queryPermission)return Promise.resolve('granted');
+    return h.queryPermission({mode:'readwrite'}).then(function(p){
+      if(p==='granted'||!request)return p;
+      return h.requestPermission({mode:'readwrite'});
+    }).catch(function(){ return 'denied'; });
+  }catch(e){ return Promise.resolve('denied'); }
+}
+function fpfDirHandle(){ return idbBkGet(FPF_DIR_KEY); }
+/* 지금 당장(클릭 없이) 쓸 수 있는 폴더만 돌려준다. 권한이 안 풀려 있으면 null → 다운로드로 폴백. */
+function fpfDirReady(){
+  if(!fpfDirSupported())return Promise.resolve(null);
+  return fpfDirHandle().then(function(h){
+    if(!h)return null;
+    return _fsdPerm(h,false).then(function(p){ return p==='granted'?h:null; });
+  }).catch(function(){ return null; });
+}
+/* 폴더가 저장돼는 있는데 권한만 풀린 상태인가? (데이터 관리에 「다시 연결」 버튼을 띄우는 조건) */
+function fpfDirNeedsReconnect(){
+  if(!fpfDirSupported())return Promise.resolve(false);
+  return fpfDirHandle().then(function(h){
+    if(!h)return false;
+    return _fsdPerm(h,false).then(function(p){ return p!=='granted'; });
+  }).catch(function(){ return false; });
+}
+async function fpfPickSaveDir(){
+  if(!fpfDirSupported()){ if(typeof showToast==='function')showToast('이 브라우저는 폴더 지정이 안 돼요 — 크롬·엣지에서 됩니다',4500); return null; }
+  try{
+    var h=await window.showDirectoryPicker({mode:'readwrite',startIn:'downloads'});
+    var p=await _fsdPerm(h,true);
+    if(p!=='granted'){ if(typeof showToast==='function')showToast('폴더 권한이 허락되지 않았어요',4000); return null; }
+    await idbBkSet(FPF_DIR_KEY,h);
+    if(typeof showToast==='function')showToast('저장 폴더: '+h.name,4000);
+    try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+    return h;
+  }catch(e){
+    if(e&&e.name==='AbortError')return null; // 사용자가 창을 닫음 — 조용히
+    console.warn('[저장폴더 선택]',e);
+    if(typeof showToast==='function')showToast('폴더를 지정하지 못했어요',4000);
+    return null;
+  }
+}
+async function fpfReconnectSaveDir(){
+  var h=await fpfDirHandle();
+  if(!h)return fpfPickSaveDir();
+  var p=await _fsdPerm(h,true);
+  if(p==='granted'){
+    if(typeof showToast==='function')showToast('저장 폴더 다시 연결됨 — '+h.name,3500);
+    try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+    return h;
+  }
+  if(typeof showToast==='function')showToast('권한이 거부됐어요 — 폴더를 다시 골라주세요',4000);
+  return null;
+}
+async function fpfClearSaveDir(){
+  await idbBkSet(FPF_DIR_KEY,null);
+  if(typeof showToast==='function')showToast('저장 폴더 해제 — 이제 다운로드 폴더로 저장돼요',3500);
+  try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+}
+function _fpfToBlob(d,mime){
+  if(d instanceof Blob)return d;
+  var s=String(d||'');
+  if(s.indexOf('data:')===0){
+    var i=s.indexOf(','), head=s.slice(0,i), isB64=head.indexOf('base64')>=0, body=s.slice(i+1);
+    var type=(head.match(/data:([^;,]+)/)||[])[1]||mime||'application/octet-stream';
+    if(!isB64)return new Blob([decodeURIComponent(body)],{type:type});
+    var bin=atob(body), arr=new Uint8Array(bin.length);
+    for(var k=0;k<bin.length;k++)arr[k]=bin.charCodeAt(k);
+    return new Blob([arr],{type:type});
+  }
+  return new Blob([s],{type:mime||'text/plain'});
+}
+function _fpfDownload(blob,filename){
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); },2000);
+}
+/* 같은 이름이 있으면 이름(1).png 처럼 비켜 쓴다 — 덮어써서 옛 파일이 사라지는 걸 막는다 */
+async function _fpfUniqueName(dir,filename){
+  var dot=filename.lastIndexOf('.');
+  var base=dot>0?filename.slice(0,dot):filename, ext=dot>0?filename.slice(dot):'';
+  var name=filename;
+  for(var i=1;i<100;i++){
+    var taken=true;
+    try{ await dir.getFileHandle(name); }catch(e){ taken=false; }
+    if(!taken)return name;
+    name=base+'('+i+')'+ext;
+  }
+  return base+'_'+Date.now()+ext;
+}
+/* ★파일 저장 단일 통로. Blob·dataURL·문자열 다 받는다.
+   폴더가 준비돼 있으면 그 폴더에, 아니면 예전처럼 다운로드 폴더로. */
+async function fpfSaveFile(data,filename,opts){
+  opts=opts||{};
+  var blob=_fpfToBlob(data,opts.mime);
+  try{
+    var dir=await fpfDirReady();
+    if(dir){
+      var name=await _fpfUniqueName(dir,filename);
+      var fh=await dir.getFileHandle(name,{create:true});
+      var w=await fh.createWritable();
+      await w.write(blob); await w.close();
+      if(!opts.silent&&typeof showToast==='function')showToast((opts.label||'저장됨')+' — '+dir.name+' 폴더',3500);
+      return {where:'dir',name:name,dir:dir.name};
+    }
+  }catch(e){ console.warn('[fpfSaveFile] 폴더 저장 실패 → 다운로드로',e); }
+  _fpfDownload(blob,filename);
+  if(!opts.silent&&typeof showToast==='function')showToast((opts.label||'저장됨')+' — 다운로드 폴더',3500);
+  return {where:'download',name:filename};
+}
+/* 오래된 자동백업 정리 — 「패션생산관리_자동백업_*.json」만 대상.
+   수동으로 받은 백업(패션생산관리_백업_*)과 다른 파일은 절대 안 건드린다.
+   파일명이 날짜_시각이라 이름순 = 시간순. */
+function _fpfIsAutoBk(nm){ return /^패션생산관리_자동백업_.*\.json$/.test(nm); }
+async function fpfListAutoBackups(){
+  var dir=await fpfDirReady(); if(!dir)return null;
+  var names=[];
+  try{ for await (var ent of dir.values()){ if(ent.kind==='file'&&_fpfIsAutoBk(ent.name))names.push(ent.name); } }
+  catch(e){ console.warn('[백업목록]',e); return null; }
+  names.sort();
+  return names;
+}
+async function fpfCleanupBackups(keep,silent){
+  keep=(keep==null?FPF_BK_KEEP:keep);
+  var dir=await fpfDirReady();
+  if(!dir){ if(!silent&&typeof showToast==='function')showToast('저장 폴더가 연결돼 있지 않아요',3500); return {ok:false}; }
+  var names=await fpfListAutoBackups();
+  if(!names){ return {ok:false}; }
+  var del=names.slice(0,Math.max(0,names.length-keep)), n=0;
+  for(var i=0;i<del.length;i++){ try{ await dir.removeEntry(del[i]); n++; }catch(e){ console.warn('[백업정리] 삭제 실패',del[i],e); } }
+  if(!silent&&typeof showToast==='function')showToast(n?('오래된 자동백업 '+n+'개 정리 — 최근 '+keep+'개 남김'):('정리할 게 없어요 (자동백업 '+names.length+'개)'),4000);
+  try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+  return {ok:true,total:names.length,deleted:n,kept:Math.min(names.length,keep)};
+}
+/* 하루 1회 자동 정리 (앱 켤 때) */
+function fpfAutoCleanupOnce(){
+  try{
+    if(!fpfDirSupported())return;
+    var d=(typeof todayISO==='function')?todayISO():'';
+    var last=''; try{ last=localStorage.getItem('fpm_bkclean_last')||''; }catch(e){}
+    if(!d||last===d)return;
+    fpfCleanupBackups(FPF_BK_KEEP,true).then(function(r){
+      if(r&&r.ok){ try{ localStorage.setItem('fpm_bkclean_last',d); }catch(e){} }
+    }).catch(function(){});
+  }catch(e){}
+}
+
 async function idbBkEnsureLoaded(){
   if(!curCoId)return;
   if(window._bkCacheCoId===curCoId)return;
@@ -3895,12 +4083,7 @@ function exportData(){
   const data=_collectBackupData();
   const allCoData=data.allCoData;
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download='패션생산관리_백업_'+todayISO()+'.json';
-  a.click();
-  URL.revokeObjectURL(url);
+  fpfSaveFile(blob,'패션생산관리_백업_'+todayISO()+'.json',{label:'백업 저장됨'});
   // 백업 내용 요약
   var totalItems=0,totalBrands=0,totalSamples=0;
   Object.values(allCoData).forEach(function(d){
@@ -3919,12 +4102,9 @@ function autoFileBackup(slotLabel){
     if(memItems===0&&memOrders===0&&memBrands===0){console.warn('[autoFileBackup] 데이터 비어있음 — 자동백업 스킵');return false;}
     var data=_collectBackupData();
     var blob=new Blob([JSON.stringify(data)],{type:'application/json'});
-    var url=URL.createObjectURL(blob);
-    var a=document.createElement('a');a.href=url;
-    a.download='패션생산관리_자동백업_'+todayISO()+(slotLabel?'_'+slotLabel:'')+'.json';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(function(){URL.revokeObjectURL(url);},2000);
-    if(typeof showToast==='function')showToast('자동 백업 저장됨'+(slotLabel?' ('+slotLabel+')':'')+' — 다운로드 폴더',4000);
+    fpfSaveFile(blob,'패션생산관리_자동백업_'+todayISO()+(slotLabel?'_'+slotLabel:'')+'.json',
+      {label:'자동 백업 저장됨'+(slotLabel?' ('+slotLabel+')':'')})
+      .then(function(){ try{fpfCleanupBackups(FPF_BK_KEEP,true);}catch(e){} }); // 받자마자 오래된 건 정리
     return true;
   }catch(e){console.error('[autoFileBackup]',e);return false;}
 }
@@ -4695,8 +4875,7 @@ function lsSaveImg(){
   var go=function(){
     el.classList.add('ls-imgmode');
     html2canvas(el,{backgroundColor:'#fffdf8',scale:2,useCORS:true}).then(function(c){
-      var a=document.createElement('a');a.download='라인시트_'+((window._lsBrand&&typeof getBrandName==='function'&&getBrandName(window._lsBrand))||'전체')+'_'+(window._lsSeason||'전시즌')+'.png';
-      a.href=c.toDataURL('image/png');a.click();showToast('이미지 저장됨');
+      fpfSaveFile(c.toDataURL('image/png'),'라인시트_'+((window._lsBrand&&typeof getBrandName==='function'&&getBrandName(window._lsBrand))||'전체')+'_'+(window._lsSeason||'전시즌')+'.png',{label:'이미지 저장됨'});
     }).catch(function(){showToast('이미지 저장 실패');}).then(function(){el.classList.remove('ls-imgmode');});
   };
   if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){if(typeof showToast==='function')showToast('라이브러리 로드 실패 — 인터넷 확인');};document.head.appendChild(s);}else go();
@@ -8172,9 +8351,8 @@ function refDownloadImage(id,side){
   if(!url){ showToast('사진이 없어요'); return; }
   var nm=_refFileName(c,side==='front'?'앞':'뒤');
   var save=function(href,revoke){
-    var a=document.createElement('a');a.href=href;a.download=nm;document.body.appendChild(a);a.click();
-    setTimeout(function(){ if(a.parentNode)a.parentNode.removeChild(a); if(revoke)URL.revokeObjectURL(href); },800);
-    showToast('사진 저장됨 — 클로드에 첨부해서 보내세요');
+    if(revoke){ fetch(href).then(function(r){return r.blob();}).then(function(b){ return fpfSaveFile(b,nm,{label:'사진 저장됨 — 클로드에 첨부해서 보내세요'}); }).catch(function(){ _fpfDownload(new Blob(),nm); }).then(function(){ try{URL.revokeObjectURL(href);}catch(e){} });
+    } else { fpfSaveFile(href,nm,{label:'사진 저장됨 — 클로드에 첨부해서 보내세요'}); }
   };
   if(/^data:/.test(url)){ save(url); return; }
   // 다른 서버 사진은 download 속성이 무시되므로 blob으로 받아서 저장
@@ -8498,9 +8676,7 @@ function refSaveImg(id){
       var lines=_refWrapLines(x,c.desc,W-2*PAD), yy=photoBottom+124, lh=60, lim=H-64;
       for(var i=0;i<lines.length;i++){ if(yy>lim){ x.fillText('…',PAD,yy); break; } x.fillText(lines[i],PAD,yy); yy+=lh; } }
     var url; try{ url=cv.toDataURL('image/png'); }catch(e){ if(typeof showToast==='function')showToast('이미지 저장 실패(사진 보안설정) — 사진 다시 올려보세요'); console.error('ref save taint',e); return; }
-    var a=document.createElement('a'); a.download=nm+'.png'; a.href=url;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    if(typeof showToast==='function')showToast('이미지 저장됨');
+    fpfSaveFile(url,nm+'.png',{label:'이미지 저장됨'});
   };
   var drawCover=function(img,dx,dy,dw,dh){ var ir=img.width/img.height, br=dw/dh, w2,h2;   // contain: 전체가 다 보이게(안 잘림), 남는 여백은 흰색
     if(ir>br){ w2=dw; h2=dw/ir; } else { h2=dh; w2=dh*ir; }
@@ -16929,7 +17105,7 @@ function openInspectionForm(oid,itemId){
 function closeInspection(){var m=document.getElementById('inspection-modal');if(m)m.style.display='none';document.body.style.overflow='';}
 function inspectionSaveImg(){
   var el=document.getElementById('inspection-sheet');if(!el)return;
-  var go=function(){html2canvas(el,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){var a=document.createElement('a');a.download='검사신청서.png';a.href=c.toDataURL('image/png');a.click();if(typeof showToast==='function')showToast('이미지 저장됨');}).catch(function(){if(typeof showToast==='function')showToast('이미지 저장 실패');});};
+  var go=function(){html2canvas(el,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){fpfSaveFile(c.toDataURL('image/png'),'검사신청서.png',{label:'이미지 저장됨'});}).catch(function(){if(typeof showToast==='function')showToast('이미지 저장 실패');});};
   if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){if(typeof showToast==='function')showToast('라이브러리 로드 실패');};document.head.appendChild(s);}else go();
 }
 function openInspectionFromOrder(oid){
@@ -22546,7 +22722,7 @@ function tlSaveImage(){
   document.body.appendChild(el);
   var go=function(){
     html2canvas(el,{scale:2,backgroundColor:'#fff',useCORS:true}).then(function(canvas){
-      try{var a=document.createElement('a');a.href=canvas.toDataURL('image/png');a.download=sel+(sc.bsel?'_'+sc.bsel:'')+'_명세서.png';document.body.appendChild(a);a.click();document.body.removeChild(a);
+      try{fpfSaveFile(canvas.toDataURL('image/png'),sel+(sc.bsel?'_'+sc.bsel:'')+'_명세서.png',{label:'명세서 이미지 저장됨'});
         if(typeof showToast==='function')showToast('명세서 이미지를 저장했어요');
       }catch(e){alert('저장 실패: '+e.message);}
       try{document.body.removeChild(el);}catch(_){}
@@ -23180,7 +23356,7 @@ function clImage(brandId){
     +(cl.bank?'<div style="margin-top:14px;text-align:center;font-size:13px;color:#333">입금 계좌 · '+esc(cl.bank)+'</div>':'')+'</div>';
   var holder=document.createElement('div');holder.style.cssText='position:fixed;left:-9999px;top:0;z-index:-1';holder.innerHTML=html;document.body.appendChild(holder);
   var node=holder.firstChild;
-  var go=function(){html2canvas(node,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){var a=document.createElement('a');a.download=nm+'_택배시재.png';a.href=c.toDataURL('image/png');a.click();if(typeof showToast==='function')showToast('이미지 저장됨 — 카톡에 첨부하세요',3500);holder.remove();}).catch(function(){if(typeof showToast==='function')showToast('이미지 저장 실패');holder.remove();});};
+  var go=function(){html2canvas(node,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){fpfSaveFile(c.toDataURL('image/png'),nm+'_택배시재.png',{label:'이미지 저장됨 — 카톡에 첨부하세요'});holder.remove();}).catch(function(){if(typeof showToast==='function')showToast('이미지 저장 실패');holder.remove();});};
   if(typeof html2canvas==='undefined'){var sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';sc.onload=go;sc.onerror=function(){showToast('라이브러리 로드 실패');holder.remove();};document.head.appendChild(sc);}else go();
 }
 function _clEnsureStyle(){
@@ -25241,7 +25417,7 @@ async function downloadCostImage(){
       el.style.transform=prevTf; el.style.marginLeft=prevML; el.style.marginRight=prevMR; el.style.marginBottom=prevMB;
       window._csCapturing=0;
     }
-    const a=document.createElement('a');a.download=`원가계산서_${it.name}_${todayISO()}.png`;a.href=canvas.toDataURL('image/png');a.click();
+    fpfSaveFile(canvas.toDataURL('image/png'),`원가계산서_${it.name}_${todayISO()}.png`,{label:'이미지 저장됨'});
     showToast('이미지 저장 완료');
   }catch(e){alert('이미지 저장 실패: '+e.message);}
 }
@@ -25274,13 +25450,7 @@ async function savePayReceiptImage(targetId,name){
     }
     const safeName=String(name||'명세서').replace(/[\\\/\?\%\*\:\|"<>]/g,'_');
     const dataUrl=canvas.toDataURL('image/png');
-    const a=document.createElement('a');
-    a.download='거래명세서_'+safeName+'_'+todayISO()+'.png';
-    a.href=dataUrl;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    showToast('이미지 저장 완료');
+    fpfSaveFile(dataUrl,'거래명세서_'+safeName+'_'+todayISO()+'.png',{label:'이미지 저장 완료'});
   }catch(e){
     console.error('savePayReceiptImage error',e);
     alert('이미지 저장 실패: '+(e&&e.message||e));
@@ -32225,7 +32395,7 @@ function runAlertCheck() {
 // 앱 켤 때 + 30분마다 체크
 setTimeout(() => { runAlertCheck(); setInterval(runAlertCheck, 30 * 60 * 1000); }, 2000);
 // 매일 자동 파일 백업 — 앱 로드 8초 뒤 1회(데이터 로드 대기) + 이후 1분마다 슬롯 확인(오후 2시·밤 9시)
-setTimeout(() => { try{_checkAutoFileBackup();}catch(e){} setInterval(() => { try{_checkAutoFileBackup();}catch(e){} }, 60 * 1000); }, 8000);
+setTimeout(() => { try{_checkAutoFileBackup();}catch(e){} try{fpfAutoCleanupOnce();}catch(e){} setInterval(() => { try{_checkAutoFileBackup();}catch(e){} }, 60 * 1000); }, 8000);
 
 /* ===== 할일판 (브랜드→할일/메이드/시장 3칸→자유 그룹→태그·체크 항목, 드래그·인쇄·동기화) ===== */
 var TB_COLS=[['todo','할 일'],['made','메이드'],['market','시장']];
@@ -32558,7 +32728,7 @@ function tpSaveImg(){
   var doc=document.getElementById('tp-doc'); if(!doc)return;
   window._tpCapturing=true; var ctx=tpCaptureExpand();
   var done=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
-  var go=function(){ tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:3,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200),onclone:tpCaptureFixVAlign}); }).then(function(c){ done(); var a=document.createElement('a'); a.download='작업지시서_'+(_tpTab||'')+'_'+tpFileBase()+'.png'; a.href=c.toDataURL('image/png'); a.click(); if(typeof showToast==='function')showToast('이미지 저장됨'); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
+  var go=function(){ tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:3,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200),onclone:tpCaptureFixVAlign}); }).then(function(c){ done(); fpfSaveFile(c.toDataURL('image/png'),'작업지시서_'+(_tpTab||'')+'_'+tpFileBase()+'.png',{label:'이미지 저장됨'}); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
   if(typeof html2canvas==='undefined'){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload=go; s.onerror=function(){done();if(typeof showToast==='function')showToast('라이브러리 로드 실패');}; document.head.appendChild(s); } else go();
 }
 function tpSavePDF(){
