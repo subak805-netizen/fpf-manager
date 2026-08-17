@@ -1727,13 +1727,22 @@ function tpMergeLocalImages(newItems,oldItems){
 }
 /* ===== 실시간 동기화 (Firestore onSnapshot) ===== */
 var _rtUnsub=null, _rtUnsubOrders=null, _rtPending=null, _rtPendingOrders=null, _rtAppliedTs={};
+/* "지금 편집 중인가" — true면 실시간 수신을 배너로 보류한다(입력 중 화면 갈아엎기 방지).
+   ★2026-08-17 오탐 정리: ①체크박스/라디오/버튼에 포커스가 남아 있는 건 편집이 아님(결제 체크 후 오래 남음)
+   ②#o-new-modal은 모달이 아니라 발주 생성 **인라인 패널**(자동으로 열리기도 함)이라 제외.
+   오탐이 길어지면 그 기기는 계속 '못 받은 상태'가 되고, 그 상태에서 저장하면 병합에서 내 배열/맵 수정이 원격 옛값으로 되돌아간다. */
 function isEditingNow(){
   var ae=document.activeElement;
-  if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return true;
+  if(ae&&/^(TEXTAREA|SELECT)$/.test(ae.tagName))return true;
+  if(ae&&ae.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|file|hidden)$/i.test(ae.type||'text'))return true;
   var ipf=document.getElementById('ipf');
   if(ipf&&ipf.style.display&&ipf.style.display!=='none')return true;
   var mods=document.querySelectorAll('[id$="-modal"]');
-  for(var i=0;i<mods.length;i++){var s=mods[i].style.display;if(s&&s!=='none')return true;}
+  for(var i=0;i<mods.length;i++){ var s=mods[i].style.display; if(!s||s==='none')continue;
+    if(mods[i].id!=='o-new-modal')return true;
+    // 발주 생성 패널: 열려만 있으면 편집 아님, 뭔가 적거나 체크한 게 있을 때만 편집 중
+    try{ var ins=mods[i].querySelectorAll('input,textarea,select'); for(var j=0;j<ins.length;j++){ var el=ins[j]; if(el.type==='checkbox'||el.type==='radio'){ if(el.checked)return true; } else if(el.tagName!=='SELECT'&&el.type!=='hidden'&&el.type!=='button'&&el.type!=='date'&&String(el.value||'').trim())return true; } }catch(e){ return true; }
+  }
   return false;
 }
 function tpPreserveLocalContent(inc,old){
@@ -1830,7 +1839,12 @@ function _mergePB(local,remote){
   return out;
 }
 function _mergeTomb(a,b){ a=(a&&typeof a==='object')?a:{}; b=(b&&typeof b==='object')?b:{}; var out={},k; for(k in a)out[k]=a[k]; for(k in b){ if(!out[k]||String(b[k])>String(out[k]))out[k]=b[k]; } return out; }
-function _mergeArrTombs(remoteTomb){ if(!S._tomb)S._tomb={}; remoteTomb=remoteTomb||{}; _ID_ARRS.forEach(function(n){ var m=_mergeTomb(S._tomb[n],remoteTomb[n]); if(Object.keys(m).length)S._tomb[n]=m; }); }
+/* 날짜 묘비 이름 전부 = _ID_ARRS + 그 외 이름(factories·pbSup·pbMat·courierEntries·refArr:<키>·brands 등).
+   ★2026-08-17: 예전엔 _ID_ARRS 10개만 기기 간 union·부팅 보존·청소를 했고, 8월에 추가된 묘비
+   (factories/pbSup/pbMat/courierEntries/refArr:*)는 ①다른 기기로 전달 안 되고 ②cloudSyncLoad의 _tomb 재구성에서
+   통째로 사라져 → "지웠는데 두 번째 부팅쯤 부활"의 원인. items/orders(숫자 ms 무덤)만 빼고 전부 일반화. */
+function _dateTombNames(a,b){ var s={},k; for(k in (a||{})){ if(k!=='items'&&k!=='orders')s[k]=1; } for(k in (b||{})){ if(k!=='items'&&k!=='orders')s[k]=1; } return Object.keys(s); }
+function _mergeArrTombs(remoteTomb){ if(!S._tomb)S._tomb={}; remoteTomb=remoteTomb||{}; _dateTombNames(S._tomb,remoteTomb).forEach(function(n){ var m=_mergeTomb(S._tomb[n],remoteTomb[n]); if(Object.keys(m).length)S._tomb[n]=m; }); }
 // 객체맵 병합(키 단위 union, 같은 키는 b 승) — trimLedger·시재·참고·브랜드설정 등 "통째 교체" 유실 방지
 function _mergeMap(a,b){ a=(a&&typeof a==='object'&&!Array.isArray(a))?a:{}; b=(b&&typeof b==='object'&&!Array.isArray(b))?b:{}; var out={},k; for(k in a)out[k]=a[k]; for(k in b)out[k]=b[k]; return out; }
 // 택배장부 전용: bank는 b(비어있지 않으면) 승, entries는 id 병합
@@ -1850,7 +1864,7 @@ function applyRemoteCoData(data,ts,opts){
   S.items=tpPreserveLocalContent(_miR.map,_oldItems); S._tomb.items=_miR.tomb;
   // 발주(orders)는 별도 문서(__orders)로 분리돼 메인 문서엔 없음 → 메인 스냅샷에 orders 없으면 기존 발주 보존(빈 값으로 덮어쓰기 금지)
   if(data.orders!==undefined&&data.orders!==null){var _moR=_entMerge(S.orders||{},data.orders,S._tomb.orders,_ctombR.orders,'cloud');S.orders=_moR.map;S._tomb.orders=_moR.tomb;}
-  S.brands=_restoreLocalDataUrls(data.brands||[],S.brands||[]);
+  S.brands=_restoreLocalDataUrls(_mergeById(S.brands,data.brands,(S._tomb||{}).brands),S.brands||[]); // 브랜드도 id 병합(통째 교체 금지) — 2026-08-17
   // id 배열은 전부 병합(덮어쓰기 금지) — 다른 기기 추가분 보존. b=클라우드(원격 최신 우선). 묘비 필터로 지운 항목 부활 차단
   _mergeArrTombs(_ctombR);
   S.tasks=_mergeById(S.tasks,data.tasks,S._tomb.tasks);S.pickups=_mergeById(S.pickups,data.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(S.sampleOrders,data.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(S.deductions,data.deductions,S._tomb.deductions);
@@ -2179,6 +2193,7 @@ async function cloudSyncSave(){
       var cloudCurrent=_cloudDoc&&_cloudDoc.value;
       var _cloudTs=(_cloudDoc&&_cloudDoc.ts)||'';
       var _cloudOrdDoc=await cloudGet('fpm_'+curCoId+'__orders'); // orders 별도 문서(쪼개기)
+      var _shDoc=null; try{ _shDoc=await cloudGetDoc('fpm_shared'); }catch(eSh){} // 업체·단가장 공유문서(값+ts) — 송신 병합용(2026-08-17)
       if(cloudCurrent){
         var cloudItems=Object.keys(cloudCurrent.items||{}).length;
         var cloudOrders=Object.keys((_cloudOrdDoc&&_cloudOrdDoc.orders)||cloudCurrent.orders||{}).length;
@@ -2278,6 +2293,7 @@ async function cloudSyncSave(){
         // id 배열들도 클라우드와 병합 후 푸시 → 낡은 기기가 남의 추가분을 안 덮음. b=로컬(저장 경로 = 내 수정이 이겨야 함 — 클라우드 우선이면 방금 체크한 완료가 되돌아감). 묘비 필터로 지운 항목 부활 차단
         _mergeArrTombs(_ctombS);
         S.tasks=_mergeById(cloudCurrent.tasks,S.tasks,S._tomb.tasks);
+        S.brands=_mergeById(cloudCurrent.brands,S.brands,S._tomb.brands); // 브랜드 id 병합(로컬 승) — 낡은 기기가 남의 새 브랜드/라벨을 통째로 안 지움 (2026-08-17)
         S.pickups=_mergeById(cloudCurrent.pickups,S.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(cloudCurrent.sampleOrders,S.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(cloudCurrent.deductions,S.deductions,S._tomb.deductions);
         S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(cloudCurrent.refCards,S.refCards,S._tomb.refCards);S.refCollections=_mergeById(cloudCurrent.refCollections,S.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(cloudCurrent.matExtra,S.matExtra,S._tomb.matExtra);
         // 객체맵 키 단위 병합(b=로컬 승) — 다른 기기가 추가한 키를 내 저장이 안 지움
@@ -2311,6 +2327,18 @@ async function cloudSyncSave(){
     var _stripCnt={n:0};
     coData=_stripDataUrlsDeep(coData,_stripCnt);
     var ordersData=_stripDataUrlsDeep({orders:_slimOrdersForCloud(S.orders||{}),_tomb:{orders:(S._tomb||{}).orders||{}}},_stripCnt); // orders 별도 문서(쪼개기)로 분리 + 무덤(삭제 전파용) + 다시 계산 가능한 발주서 줄은 제외
+    /* ★2026-08-17 공유문서(업체·단가장) 송신 병합 — 예전엔 로컬을 **통째로** 올려서, 다른 기기가 방금 추가한 업체·품목을
+       낡은 기기의 저장 한 번이 지워버렸다(실시간 리스너도 없어 그 기기는 받은 적이 없음). 푸시 직전 클라우드와 키 합집합(로컬 우선·묘비 필터). */
+    try{
+      var _cs=(typeof _shDoc!=='undefined'&&_shDoc&&_shDoc.value)||null;
+      if(_cs&&typeof _mergeFactories==='function'&&typeof _mergePB==='function'){
+        var _fB=Object.keys(S.factories||{}).length,_pB=Object.keys(S.priceBook||{}).length;
+        S.factories=_mergeFactories(S.factories,_cs.factories);
+        S.priceBook=_restoreLocalDataUrls(_mergePB(S.priceBook,_cs.priceBook),S.priceBook||{});
+        var _fA=Object.keys(S.factories||{}).length,_pA=Object.keys(S.priceBook||{}).length;
+        if(_fA!==_fB||_pA!==_pB){ try{lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}catch(e){} console.log('[cloudSyncSave] 공유문서 병합: 업체 '+_fB+'→'+_fA+', 거래처 '+_pB+'→'+_pA); }
+      }
+    }catch(eShM){ console.warn('[cloudSyncSave] 공유문서 병합 실패(통째 저장으로 진행):',eShM); }
     var sharedData=_stripDataUrlsDeep({factories:S.factories,priceBook:S.priceBook},_stripCnt);
     function _docBytes(o){try{return new Blob([JSON.stringify(o)]).size;}catch(e){try{return JSON.stringify(o).length;}catch(e2){return 0;}}}
     function _topKeys(o){try{return Object.keys(o).map(function(k){return [k,_docBytes(o[k])];}).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(x){return x[0]+' '+Math.round(x[1]/1024)+'KB';}).join('·');}catch(e){return '';}}
@@ -2325,7 +2353,7 @@ async function cloudSyncSave(){
     try{ if(cloudCurrent&&_jMain&&JSON.stringify(cloudCurrent)===_jMain)window._lastPushedJson[_kMain]=_jMain; }catch(eC){}
     // 세션 첫 저장이면 orders·shared도 클라우드와 같은지 1회 확인 (이후엔 세션 캐시 비교라 추가 읽기 없음)
     if(_jOrd&&window._lastPushedJson[_kOrd]===undefined){ try{ var _odC=await cloudGetDoc(_kOrd); if(_odC&&_odC.value&&JSON.stringify(_odC.value)===_jOrd)window._lastPushedJson[_kOrd]=_jOrd; }catch(eO){} }
-    if(_jSh&&window._lastPushedJson['fpm_shared']===undefined){ try{ var _shC=await cloudGetDoc('fpm_shared'); if(_shC&&_shC.value&&JSON.stringify(_shC.value)===_jSh)window._lastPushedJson['fpm_shared']=_jSh; }catch(eS){} }
+    if(_jSh&&window._lastPushedJson['fpm_shared']===undefined){ try{ var _shC=(typeof _shDoc!=='undefined'&&_shDoc)?_shDoc:await cloudGetDoc('fpm_shared'); if(_shC&&_shC.value&&JSON.stringify(_shC.value)===_jSh)window._lastPushedJson['fpm_shared']=_jSh; }catch(eS){} }
     var _pushDoc=async function(key,obj,json){
       if(json&&window._lastPushedJson[key]===json)return 'skip';
       var ok=await cloudSet(key,obj); if(ok&&json)window._lastPushedJson[key]=json; return ok;
@@ -3535,12 +3563,12 @@ async function cloudSyncLoad(id,opts){
       // 배열 묘비: 로컬↔클라우드 union 후 새 _tomb에 보존 (이전엔 items/orders만 재구성해 배열 묘비가 여기서 소실됐음)
       _mergeArrTombs(_ctombL);
       var _tombNew={items:_miL.tomb,orders:_moL.tomb};
-      _ID_ARRS.forEach(function(n){ if(S._tomb&&S._tomb[n]&&Object.keys(S._tomb[n]).length)_tombNew[n]=S._tomb[n]; });
+      _dateTombNames(S._tomb,null).forEach(function(n){ if(S._tomb&&S._tomb[n]&&Object.keys(S._tomb[n]).length)_tombNew[n]=S._tomb[n]; }); // 날짜 묘비 전부 보존(_ID_ARRS 밖 이름 포함) — 2026-08-17
       S={
         items:(typeof tpPreserveLocalContent==='function')?tpPreserveLocalContent(_miL.map,S.items||{}):_miL.map,
         orders:_moL.map,
         _tomb:_tombNew,
-        brands:_restoreLocalDataUrls(d.brands||S.brands||[],S.brands||[]),
+        brands:_restoreLocalDataUrls(_mergeById(S.brands,d.brands,_tombNew.brands),S.brands||[]), // 브랜드 id 병합 (2026-08-17)
         sampleOrders:_mergeById(S.sampleOrders,d.sampleOrders,_tombNew.sampleOrders),
         pickups:_mergeById(S.pickups,d.pickups,_tombNew.pickups),
         packages:_mergeById(S.packages,d.packages,_tombNew.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
@@ -3664,7 +3692,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17h';
+var APP_BUILD=/*BUILD*/'2026-08-17i';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4073,7 +4101,7 @@ function migrateData(){
   // 완전히 동일한 원단 행 중복 정리 (실수로 두 줄 넣어 발주·원가 2배 뜨던 것 자동 치유, 2026-07-22)
   try{if(S.items)Object.keys(S.items).forEach(function(k){var it=S.items[k];if(!it)return;var d=_dedupeItemFabrics(it);if(d.removed)it.fabrics=d.fabrics;});}catch(e){}
   // 배열 묘비 90일 청소(무한 누적 방지) — 90일이면 모든 기기가 이미 삭제를 반영했을 시간
-  try{ var _cut=new Date(Date.now()-90*864e5).toISOString().slice(0,10); if(S._tomb&&typeof _ID_ARRS!=='undefined')_ID_ARRS.forEach(function(n){ var t=S._tomb[n]; if(t)Object.keys(t).forEach(function(id){ if(String(t[id])<_cut)delete t[id]; }); }); }catch(e){}
+  try{ var _cut=new Date(Date.now()-90*864e5).toISOString().slice(0,10); if(S._tomb&&typeof _dateTombNames==='function')_dateTombNames(S._tomb,null).forEach(function(n){ var t=S._tomb[n]; if(t)Object.keys(t).forEach(function(id){ if(typeof t[id]==='string'&&t[id]<_cut)delete t[id]; }); }); }catch(e){}
   // 결제 수동완료 1회 마이그레이션: 지금 '결제완료'인 오더의 아이템은 완료로 고정(안 그러면 브랜드별보기에 폭주). 이후부터는 수동 완료.
   try{if(S.orders)Object.keys(S.orders).forEach(function(k){var o=S.orders[k];if(!o||o.payArchivedItems)return;var lbl=(typeof oLabel==='function')?oLabel(o)[0]:'';if(lbl==='결제완료'){o.payArchivedItems={};(o.orderItems||[]).forEach(function(oi){if(oi&&oi.itemId)o.payArchivedItems[oi.itemId]=(typeof todayISO==='function'?todayISO():'');});}});}catch(e){}
   // 오더별 공장 스냅샷 1회: 기존 모든 오더에 현재 아이템 공장을 얼려둠(이후 아이템 공장 바꿔도 옛 오더 결제 불변)
@@ -4417,14 +4445,14 @@ function _collectBackupData(){
     // 현재 활성 회사라면 메모리(S)에서 최신 값을 가져오고, 다른 회사는 로컬스토리지에서
     if(cid===curCoId){
       allCoData[cid]={
-        items:S.items||{},orders:S.orders||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],
+        items:S.items||{},orders:S.orders||{},_tomb:S._tomb||{},todoBoard:S.todoBoard||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],
         pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},tasks:S.tasks||[],
         brandConfig:S.brandConfig||{},deductions:S.deductions||[]
       };
     }else{
       allCoData[cid]={
-        items:d.items||{},orders:d.orders||{},brands:d.brands||[],sampleOrders:d.sampleOrders||[],
-        pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],refData:d.refData||{},tasks:d.tasks||[],
+        items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},todoBoard:d.todoBoard||{},brands:d.brands||[],sampleOrders:d.sampleOrders||[],
+        pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],refData:d.refData||{},tasks:d.tasks||[],
         brandConfig:d.brandConfig||{},deductions:d.deductions||[]
       };
     }
@@ -7752,7 +7780,10 @@ function pbShowPriceLog(encSup,encKey){
   ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
   document.body.appendChild(ov);
 }
-function savePB(){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
+/* ★2026-08-17: savePB는 로컬(fpm_shared)만 쓰고 클라우드 푸시가 없었다 — 57곳 중 saveData 동반 8곳뿐.
+   단가·업체정보·품목 삭제(묘비)·가공단가 편집이 다음 '다른 저장'까지 클라우드에 안 올라가던 원인.
+   → 저장 뒤 saveData를 짧게 모아서 호출(연속 편집 몰아치기 방지). */
+function savePB(){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook}); try{ if(window._pbSaveT)clearTimeout(window._pbSaveT); window._pbSaveT=setTimeout(function(){ window._pbSaveT=null; try{saveData();}catch(e){} },300); }catch(e){} }
 // 시즌 최근순 정렬 (예: 27SS > 26FW > 26SS > 25FW). SS=상반기, FW=하반기
 function seasonKey(s){var m=(''+s).match(/(\d{2})\s*(SS|SP|SU|FW|AW|FA)?/i);if(!m)return -1;var y=+m[1];var h=(m[2]||'').toUpperCase();var half=(h==='SS'||h==='SP'||h==='SU')?1:((h==='FW'||h==='AW'||h==='FA')?2:0);return y*10+half;}
 function sortSeasonsDesc(arr){return (arr||[]).slice().sort(function(a,b){var ka=seasonKey(a),kb=seasonKey(b);if(kb!==ka)return kb-ka;return (''+b).localeCompare(''+a);});}
@@ -10854,7 +10885,7 @@ function renameWashMethod(i,wi){
 function deleteWashMethod(i,wi){
   var list=getWashMethods();var nm=list[wi];if(!nm)return;
   if(!confirm('"'+nm+'" 세탁방법을 목록에서 지울까요?\n(이미 발주한 라벨에는 영향 없어요)'))return;
-  colTR();list.splice(wi,1);S.refData.washMethods=list;
+  colTR();list.splice(wi,1);_tombArr('refArr:washMethods',nm);/* 다른 기기에서 되살아나지 않게 */S.refData.washMethods=list;
   formTrims.forEach(function(ft){if(ft&&Array.isArray(ft.washMethods)){var p=ft.washMethods.indexOf(nm);if(p>=0)ft.washMethods.splice(p,1);}});
   saveData();renderTrimRows();
 }
@@ -26602,6 +26633,7 @@ function saveBrand(brand){
 }
 function deleteBrand(id){
   if(!confirm('이 브랜드를 삭제할까요? (아이템의 브랜드 태그가 제거됩니다)'))return;
+  _tombArr('brands',id); // 브랜드도 id 병합으로 바뀜(2026-08-17) — 묘비 없으면 다른 기기에서 부활
   S.brands=getBrands().filter(b=>b.id!==id);
   // 아이템의 브랜드 ID 제거
   Object.values(S.items||{}).forEach(it=>{if(it.brandId===id)it.brandId='';});
