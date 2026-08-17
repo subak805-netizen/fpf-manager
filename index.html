@@ -1879,11 +1879,62 @@ function applyRemoteCoData(data,ts,opts){
   if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
 // 발주(__orders) 전용 원격 반영 — 별도 문서라 리스너도 따로. 항목별 병합(무덤 포함)
-function applyRemoteOrders(orders,tomb){
+/* ===== 공유문서(업체·단가장) 스마트 병합 — 2026-08-17 =====
+   문제: factories/priceBook은 실시간 리스너가 없고, 병합도 "로컬 우선 합집합"뿐이라
+   **단가·업체정보 수정이 기기 간에 아예 전파되지 않았다**(추가만 붙고, 같은 키는 각자 자기 값 유지·클라우드는 마지막 푸시 기기 값).
+   해결: 키(업체 id·거래처명) 단위 그림자(_shShadow)로 "내가 마지막 동기화 이후 고친 키"를 안다.
+     - 내가 고친(dirty) 키 = 로컬 승 (내 편집 보호)
+     - 안 고친 키 = 원격 승 (다른 기기 편집 수신)
+     - 한쪽에만 있는 키 = 합집합, 묘비(_tomb.factories/pbSup/pbMat)로 삭제만 차단
+   그림자 초기화 시점: 부팅(loadCoData)·cloudSyncLoad 병합 후·공유문서 수신 후·공유문서 푸시 성공 후.
+   ⚠️ _entShadowInit(메인문서 수신마다 호출)에 얹지 말 것 — 푸시 전 1초 창에서 내 단가 편집이 '안 고침'으로 오인됨. */
+window._shShadow=null;
+/* 아직 클라우드에 못 올린 편집 키 목록 — localStorage(fpm_shdirty)에 남겨 새로고침·오프라인 뒤에도 내 편집이 원격에 안 덮이게 */
+function _shDirtyLoad(){ if(window._shDirtySet)return window._shDirtySet; var v=null; try{v=JSON.parse(localStorage.getItem('fpm_shdirty')||'null');}catch(e){} window._shDirtySet={f:(v&&v.f)||{},p:(v&&v.p)||{}}; return window._shDirtySet; }
+function _shDirtySave(){ try{ var d=_shDirtyLoad(); if(Object.keys(d.f).length||Object.keys(d.p).length)localStorage.setItem('fpm_shdirty',JSON.stringify(d)); else localStorage.removeItem('fpm_shdirty'); }catch(e){} }
+/* saveData마다: 그림자와 다른 키를 더티 목록에 누적(푸시 성공 때 비움) */
+function _shDirtyMark(){ try{ var sh=window._shShadow; if(!sh)return; var d=_shDirtyLoad(),k,ch=false; var m1=S.factories||{},m2=S.priceBook||{};
+  for(k in m1){ if(!d.f[k]&&JSON.stringify(m1[k])!==(sh.f[k]||'')){d.f[k]=1;ch=true;} } for(k in sh.f){ if(!m1[k]&&!d.f[k]){d.f[k]=1;ch=true;} }
+  for(k in m2){ if(!d.p[k]&&JSON.stringify(m2[k])!==(sh.p[k]||'')){d.p[k]=1;ch=true;} } for(k in sh.p){ if(!m2[k]&&!d.p[k]){d.p[k]=1;ch=true;} }
+  if(ch)_shDirtySave(); }catch(e){} }
+/* 그림자 초기화. clearDirty=true(푸시 성공)면 더티 목록도 비움. 그 외(수신·부팅)는 더티 키의 옛 그림자를 유지해 계속 '내가 고침'으로 남김 */
+function _shShadowInit(clearDirty){ try{ var old=window._shShadow, d=_shDirtyLoad(); if(clearDirty){ d.f={}; d.p={}; _shDirtySave(); }
+  var sh={f:{},p:{}},k; for(k in (S.factories||{})){ sh.f[k]=(!clearDirty&&d.f[k]&&old&&old.f[k]!==undefined)?old.f[k]:JSON.stringify(S.factories[k]); } for(k in (S.priceBook||{})){ sh.p[k]=(!clearDirty&&d.p[k]&&old&&old.p[k]!==undefined)?old.p[k]:JSON.stringify(S.priceBook[k]); }
+  window._shShadow=sh; }catch(e){} }
+function _shDirty(kind,key){ var d=_shDirtyLoad(); if(d[kind]&&d[kind][key])return true; var sh=window._shShadow; if(!sh)return true; /* 그림자 없음(부팅 전) = 안전하게 로컬 승 */ var m=(kind==='f'?S.factories:S.priceBook)||{}; var cur=''; try{cur=m[key]?JSON.stringify(m[key]):'';}catch(e){return true;} return cur!==(sh[kind][key]||''); }
+/* remoteWins=true(수신)면 안 고친 키는 원격, false(송신)여도 같은 규칙 — 방향이 아니라 '내가 고쳤나'로 결정 */
+function _mergeSharedSmart(local,remote){
+  local=(local&&typeof local==='object')?local:{}; remote=(remote&&typeof remote==='object')?remote:{};
+  var out={factories:{},priceBook:{}},k;
+  var lf=local.factories||{},rf=remote.factories||{},lp=local.priceBook||{},rp=remote.priceBook||{};
+  for(k in lf){ if(_tombHas('factories',k))continue; out.factories[k]=(rf[k]&&!_shDirty('f',k))?rf[k]:lf[k]; }
+  for(k in rf){ if(_tombHas('factories',k)||out.factories[k])continue; out.factories[k]=rf[k]; }
+  for(k in lp){ if(_tombHas('pbSup',k))continue;
+    if(rp[k]&&!_shDirty('p',k)){ out.priceBook[k]=rp[k]; }
+    else if(rp[k]){ out.priceBook[k]=_mergePB({x:lp[k]},{x:rp[k]}).x; } /* 내가 고친 거래처: 로컬 우선이되 원격에만 있는 품목은 합집합(묘비 필터) */
+    else out.priceBook[k]=lp[k]; }
+  for(k in rp){ if(_tombHas('pbSup',k)||out.priceBook[k])continue; out.priceBook[k]=rp[k]; }
+  /* 원격 승 거래처라도 품목 묘비는 지킨다 */
+  for(k in out.priceBook){ var e=out.priceBook[k]; if(e&&e.materials&&typeof e.materials==='object'){ var mk; for(mk in e.materials){ if(_tombHas('pbMat',k+'\u001f'+mk)){ if(e===rp[k]){ e=out.priceBook[k]=JSON.parse(JSON.stringify(e)); } delete e.materials[mk]; } } } }
+  return out;
+}
+var _rtUnsubShared=null,_rtPendingShared=null;
+function applyRemoteShared(data,ts){
+  if(!data)return;
+  try{
+    var m=_mergeSharedSmart({factories:S.factories,priceBook:S.priceBook},data);
+    S.factories=m.factories; S.priceBook=_restoreLocalDataUrls(m.priceBook,S.priceBook||{});
+    lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
+    _shShadowInit(); if(ts)setSyncBase('fpm_shared',ts);
+    try{var _sy=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy);}catch(e){try{render();}catch(e2){}}
+  }catch(e){ console.warn('[applyRemoteShared]',e); }
+}
+function applyRemoteOrders(orders,tomb,ts){
   if(!orders)return;
   _entEnsureTomb();
   var _mo=_entMerge(S.orders||{},orders,S._tomb.orders,tomb,'cloud');
   S.orders=_mo.map; S._tomb.orders=_mo.tomb;
+  if(ts)try{setSyncBase('fpm_'+curCoId+'__orders',ts);}catch(e){} // 발주 문서 기준 ts (부팅 게이트가 3문서를 보게, 2026-08-17)
   try{_rehydrateExtraSuppliers();}catch(e){} // 업로드에서 뺐던 추가발주 발주서 줄 다시 계산
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
   try{_entShadowInit();}catch(e){}
@@ -1902,19 +1953,22 @@ function showRemoteBanner(){
 }
 function hideRemoteBanner(){var b=document.getElementById('rt-banner');if(b)b.style.display='none';}
 function applyPendingRemote(){
-  if(!_rtPending&&!_rtPendingOrders)return hideRemoteBanner();
+  if(!_rtPending&&!_rtPendingOrders&&!_rtPendingShared)return hideRemoteBanner();
   var d=_rtPending;_rtPending=null;
   var od=_rtPendingOrders;_rtPendingOrders=null;
+  var sd=_rtPendingShared;_rtPendingShared=null;
   hideRemoteBanner();
   if(d&&d.coId===curCoId)applyRemoteCoData(d.data,d.ts);
-  if(od&&od.coId===curCoId)applyRemoteOrders(od.orders,od.tomb);
+  if(od&&od.coId===curCoId)applyRemoteOrders(od.orders,od.tomb,od.ts);
+  if(sd)applyRemoteShared(sd.data,sd.ts);
   showToast('다른 기기 변경이 반영됐어요');
 }
 function startRealtimeSync(){
   if(!isCloudOn()||!curCoId)return;
   if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}
   if(_rtUnsubOrders){try{_rtUnsubOrders();}catch(e){}_rtUnsubOrders=null;}
-  hideRemoteBanner();_rtPending=null;_rtPendingOrders=null;
+  if(_rtUnsubShared){try{_rtUnsubShared();}catch(e){}_rtUnsubShared=null;}
+  hideRemoteBanner();_rtPending=null;_rtPendingOrders=null;_rtPendingShared=null;
   var key='fpm_'+curCoId, coAtSub=curCoId, _first=true;
   try{
     var ref=window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key);
@@ -1949,13 +2003,31 @@ function startRealtimeSync(){
       if(!data||data._deleted||data.orders===undefined||data.orders===null)return; // 회사 삭제·발주 키 없음 → 무시
       _rtAppliedTs[okey]=ts;
       var _oTomb=(data._tomb&&data._tomb.orders)||null;
-      if(isEditingNow()){_rtPendingOrders={coId:coAtSub,orders:data.orders,tomb:_oTomb};showRemoteBanner();return;}
-      applyRemoteOrders(data.orders,_oTomb);showToast('다른 기기 발주 변경이 반영됐어요');
+      if(isEditingNow()){_rtPendingOrders={coId:coAtSub,orders:data.orders,tomb:_oTomb,ts:ts};showRemoteBanner();return;}
+      applyRemoteOrders(data.orders,_oTomb,ts);showToast('다른 기기 발주 변경이 반영됐어요');
     },function(err){console.error('onSnapshot(orders) 오류:',err);});
+    // 공유문서(업체·단가장) 리스너 — 없어서 다른 기기의 업체·단가 변경이 부팅 전까지 안 보였음 (2026-08-17)
+    var skey='fpm_shared', _firstS=true;
+    var sref=window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(skey);
+    _rtUnsubShared=sref.onSnapshot(function(snap){
+      if(!snap.exists)return;
+      if(snap.metadata&&snap.metadata.hasPendingWrites)return;
+      if(curCoId!==coAtSub)return;
+      var d=snap.data();if(!d)return;
+      var ts=d.ts||'';
+      if(_firstS){_firstS=false;_rtAppliedTs[skey]=ts;return;}
+      if(ts&&window._lastPushTs&&ts===window._lastPushTs[skey])return; // 내가 방금 올림
+      if(ts&&ts===_rtAppliedTs[skey])return;
+      var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
+      if(!data)return;
+      _rtAppliedTs[skey]=ts;
+      if(isEditingNow()){_rtPendingShared={data:data,ts:ts};showRemoteBanner();return;}
+      applyRemoteShared(data,ts);showToast('다른 기기 업체·단가장 변경이 반영됐어요');
+    },function(err){console.error('onSnapshot(shared) 오류:',err);});
     console.log('실시간 동기화 시작:',key);
   }catch(e){console.error('startRealtimeSync 실패:',e);}
 }
-function stopRealtimeSync(){if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}if(_rtUnsubOrders){try{_rtUnsubOrders();}catch(e){}_rtUnsubOrders=null;}hideRemoteBanner();}
+function stopRealtimeSync(){if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}if(_rtUnsubOrders){try{_rtUnsubOrders();}catch(e){}_rtUnsubOrders=null;}if(_rtUnsubShared){try{_rtUnsubShared();}catch(e){}_rtUnsubShared=null;}_rtPendingShared=null;hideRemoteBanner();}
 
 function skipLoginAndRegister(){
   // 로그인을 건너뛰고 로컬에서만 회사를 만든다.
@@ -2192,7 +2264,7 @@ async function cloudSyncSave(){
       var _cloudDoc=await cloudGetDoc('fpm_'+curCoId); // 값+ts 함께 (스테일 감지용)
       var cloudCurrent=_cloudDoc&&_cloudDoc.value;
       var _cloudTs=(_cloudDoc&&_cloudDoc.ts)||'';
-      var _cloudOrdDoc=await cloudGet('fpm_'+curCoId+'__orders'); // orders 별도 문서(쪼개기)
+      var _cloudOrdDocFull=await cloudGetDoc('fpm_'+curCoId+'__orders'); var _cloudOrdDoc=_cloudOrdDocFull&&_cloudOrdDocFull.value; var _cloudOrdTs=(_cloudOrdDocFull&&_cloudOrdDocFull.ts)||''; // orders 별도 문서(쪼개기, 값+ts)
       var _shDoc=null; try{ _shDoc=await cloudGetDoc('fpm_shared'); }catch(eSh){} // 업체·단가장 공유문서(값+ts) — 송신 병합용(2026-08-17)
       if(cloudCurrent){
         var cloudItems=Object.keys(cloudCurrent.items||{}).length;
@@ -2333,8 +2405,9 @@ async function cloudSyncSave(){
       var _cs=(typeof _shDoc!=='undefined'&&_shDoc&&_shDoc.value)||null;
       if(_cs&&typeof _mergeFactories==='function'&&typeof _mergePB==='function'){
         var _fB=Object.keys(S.factories||{}).length,_pB=Object.keys(S.priceBook||{}).length;
-        S.factories=_mergeFactories(S.factories,_cs.factories);
-        S.priceBook=_restoreLocalDataUrls(_mergePB(S.priceBook,_cs.priceBook),S.priceBook||{});
+        var _shM=_mergeSharedSmart({factories:S.factories,priceBook:S.priceBook},_cs); // 내가 고친 키=로컬, 안 고친 키=원격(다른 기기 단가 수정 수신)
+        S.factories=_shM.factories;
+        S.priceBook=_restoreLocalDataUrls(_shM.priceBook,S.priceBook||{});
         var _fA=Object.keys(S.factories||{}).length,_pA=Object.keys(S.priceBook||{}).length;
         if(_fA!==_fB||_pA!==_pB){ try{lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}catch(e){} console.log('[cloudSyncSave] 공유문서 병합: 업체 '+_fB+'→'+_fA+', 거래처 '+_pB+'→'+_pA); }
       }
@@ -2352,7 +2425,7 @@ async function cloudSyncSave(){
     try{_jMain=JSON.stringify(coData);_jOrd=JSON.stringify(ordersData);_jSh=JSON.stringify(sharedData);_jCos=JSON.stringify(companies);}catch(eJ){}
     try{ if(cloudCurrent&&_jMain&&JSON.stringify(cloudCurrent)===_jMain)window._lastPushedJson[_kMain]=_jMain; }catch(eC){}
     // 세션 첫 저장이면 orders·shared도 클라우드와 같은지 1회 확인 (이후엔 세션 캐시 비교라 추가 읽기 없음)
-    if(_jOrd&&window._lastPushedJson[_kOrd]===undefined){ try{ var _odC=await cloudGetDoc(_kOrd); if(_odC&&_odC.value&&JSON.stringify(_odC.value)===_jOrd)window._lastPushedJson[_kOrd]=_jOrd; }catch(eO){} }
+    if(_jOrd&&window._lastPushedJson[_kOrd]===undefined){ try{ var _odC=(typeof _cloudOrdDocFull!=='undefined'&&_cloudOrdDocFull)?_cloudOrdDocFull:await cloudGetDoc(_kOrd); if(_odC&&_odC.value&&JSON.stringify(_odC.value)===_jOrd)window._lastPushedJson[_kOrd]=_jOrd; }catch(eO){} }
     if(_jSh&&window._lastPushedJson['fpm_shared']===undefined){ try{ var _shC=(typeof _shDoc!=='undefined'&&_shDoc)?_shDoc:await cloudGetDoc('fpm_shared'); if(_shC&&_shC.value&&JSON.stringify(_shC.value)===_jSh)window._lastPushedJson['fpm_shared']=_jSh; }catch(eS){} }
     var _pushDoc=async function(key,obj,json){
       if(json&&window._lastPushedJson[key]===json)return 'skip';
@@ -2365,6 +2438,9 @@ async function cloudSyncSave(){
       _pushDoc('fpm_shared',sharedData,_jSh)
     ]);
     if(_coRes[1]==='skip'){ try{ if(typeof _cloudTs!=='undefined'&&_cloudTs)setSyncBase(_kMain,_cloudTs); }catch(eB){} } // 메인 생략 시 base=클라우드 ts (스테일 오탐 방지)
+    // 발주·공유 문서도 기준 ts 기록 (부팅 게이트가 3문서를 보게) + 공유문서 그림자 갱신 (2026-08-17)
+    try{ if(_coRes[2]===true)setSyncBase(_kOrd,(window._lastPushTs&&window._lastPushTs[_kOrd])||''); else if(_coRes[2]==='skip'&&typeof _cloudOrdTs!=='undefined'&&_cloudOrdTs)setSyncBase(_kOrd,_cloudOrdTs); }catch(eB2){}
+    try{ if(_coRes[3]===true){ setSyncBase('fpm_shared',(window._lastPushTs&&window._lastPushTs['fpm_shared'])||''); _shShadowInit(true); } else if(_coRes[3]==='skip'){ if(typeof _shDoc!=='undefined'&&_shDoc&&_shDoc.ts)setSyncBase('fpm_shared',_shDoc.ts); _shShadowInit(true); } }catch(eB3){}
     if(_coRes.indexOf(false)>=0){
       var _over=(_coBytes>1000000||_shBytes>1000000||_ordBytes>1000000);
       var _big=Math.max(_coBytes,_shBytes,_ordBytes);
@@ -2379,6 +2455,7 @@ async function cloudSyncSave(){
       console.error('[cloudSyncSave] cloudSet 실패. coBytes='+_coBytes+' shBytes='+_shBytes+' coTop='+_topKeys(coData)+' shTop='+_topKeys(sharedData));
     }else{
       setCloudInd('ok');
+      try{ localStorage.removeItem('fpm_dirty'); }catch(e){} // 로컬 편집이 전부 클라우드에 올라감 (2026-08-17)
       try{ setSyncBase('fpm_'+curCoId,(window._lastPushTs&&window._lastPushTs['fpm_'+curCoId])||''); }catch(e){} // 방금 올린 상태가 내 새 기준 ts
       try{ if(typeof buildMorningBrief==='function')cloudSet('fpm_brief',buildMorningBrief()); }catch(e){} // 아침 브리핑 요약(실패해도 무시)
     }
@@ -3503,14 +3580,33 @@ function _careSupMig1Run(){
     if(n){ console.log('[careSupMig1] 케어라벨 부자재처 에이스라벨→하나라벨:',n,'개'); if(typeof showToast==='function')showToast('케어라벨 부자재처를 하나라벨로 변경했어요 ('+n+'개 아이템)',5000); }
   }catch(e){console.warn('[careSupMig1]',e);}
 }
+/* ===== 미푸시 편집 되밀기 (2026-08-17, 원인 5) =====
+   로컬엔 저장됐는데 클라우드 푸시가 안 된 상태(800ms 디바운스 전에 탭이 죽음·iOS 백그라운드·오프라인·초기 로드 전 게이트)가
+   다음 편집 때까지 남아 있어 다른 기기엔 한참 뒤에 나타났고, 그 사이 상대가 저장하면 병합에서 밀렸다.
+   → saveData가 fpm_dirty를 남기고, 부팅 로드 뒤·화면 복귀·온라인 복귀 때 남아 있으면 saveData()로 밀어 올린다.
+     화면이 숨겨질 때는 대기 중인 디바운스 타이머를 기다리지 않고 즉시 푸시를 시작한다. */
+function _hasDirtyLocal(){ try{ if(localStorage.getItem('fpm_dirty'))return true; var d=(typeof _shDirtyLoad==='function')?_shDirtyLoad():null; return !!(d&&(Object.keys(d.f).length||Object.keys(d.p).length)); }catch(e){ return false; } }
+function _flushDirtySoon(){ try{ if(!isCloudOn()||!curCoId||!_hasDirtyLocal())return; if(window._flushDirtyT)clearTimeout(window._flushDirtyT); window._flushDirtyT=setTimeout(function(){ window._flushDirtyT=null; try{ if(_hasDirtyLocal()){ console.log('[sync] 미푸시 편집 되밀기'); saveData(); } }catch(e){} },1500); }catch(e){} }
+try{
+  document.addEventListener('visibilitychange',function(){
+    try{
+      if(document.visibilityState==='hidden'){ if(window._cloudSyncTimer&&isCloudOn()&&window._cloudSyncReady!==false){ clearTimeout(window._cloudSyncTimer); window._cloudSyncTimer=null; cloudSyncSave().catch(function(){}); } }
+      else if(document.visibilityState==='visible'){ _flushDirtySoon(); }
+    }catch(e){}
+  });
+  window.addEventListener('pagehide',function(){ try{ if(window._cloudSyncTimer&&isCloudOn()&&window._cloudSyncReady!==false){ clearTimeout(window._cloudSyncTimer); window._cloudSyncTimer=null; cloudSyncSave().catch(function(){}); } }catch(e){} });
+  window.addEventListener('online',function(){ try{ _flushDirtySoon(); }catch(e){} });
+}catch(e){}
 async function cloudSyncLoad(id,opts){
   opts=opts||{};
   if(!isCloudOn())return false;
   setCloudInd('sync');
   try{
-    const[_coDoc,sharedData,cosData,ordersDoc]=await Promise.all([
-      cloudGetDoc('fpm_'+id),cloudGet('fpm_shared'),cloudGet('fpm_cos'),cloudGet('fpm_'+id+'__orders')
+    const[_coDoc,_shDocL,cosData,_ordDocL]=await Promise.all([
+      cloudGetDoc('fpm_'+id),cloudGetDoc('fpm_shared'),cloudGet('fpm_cos'),cloudGetDoc('fpm_'+id+'__orders')
     ]);
+    const sharedData=_shDocL&&_shDocL.value, ordersDoc=_ordDocL&&_ordDocL.value;
+    const _shTs=(_shDocL&&_shDocL.ts)||'', _ordTs=(_ordDocL&&_ordDocL.ts)||'';
     const coData=_coDoc&&_coDoc.value;
     const _coTs=(_coDoc&&_coDoc.ts)||'';
     let changed=false;
@@ -3536,14 +3632,20 @@ async function cloudSyncLoad(id,opts){
                                 (_cloudItems>_localItems||_cloudOrders>_localOrders||_cloudImgs>_localImgs));
         // 개수는 같아도 클라우드 ts가 내 기준(base)보다 새로우면 = 다른 기기가 값 하나라도 고침 → 받아야 함(V넥탑 검품단가 사고 방지)
         var _base=getSyncBase('fpm_'+id);
-        var _cloudNewer=(_coTs&&_base&&_coTs>_base);
+        // ★2026-08-17: 데이터는 3문서(메인·__orders·shared)인데 게이트는 메인 ts만 봤다 → 발주만/단가장만 바뀌면
+        //   (메인은 내용 동일로 푸시 생략돼 ts 불변) 부팅 때 "로컬 유지" + 실시간 첫 스냅샷 skip = 다음 저장 전까지 옛 발주·옛 단가장.
+        var _baseO=getSyncBase('fpm_'+id+'__orders'), _baseS=getSyncBase('fpm_shared');
+        var _cloudNewer=(_coTs&&_base&&_coTs>_base)||(_ordTs&&_baseO&&_ordTs>_baseO)||(_shTs&&_baseS&&_shTs>_baseS);
         // ⚠️ _firstBootPreferCloud(최초부팅 클라우드우선)는 제거함(2026-07-07): 개수만 봐서 출고수량·출고일·할일 등
         //    개수에 안 잡히는 로컬 내용을 옛 클라우드로 덮어버리는 회귀 유발. 기준 ts 없으면 무조건 로컬 유지(안전).
         if(!_cloudMoreComplete&&!_cloudNewer){
           console.warn('[cloudSyncLoad] 로컬 유지 (기준 ts 없거나 로컬이 더 완전/동일). 다른 기기 변경은 새로고침으로');
           if(_coTs&&!_base)setSyncBase('fpm_'+id,_coTs); // 최초 1회 기준 등록(부트스트랩)
+          if(_ordTs&&!_baseO)setSyncBase('fpm_'+id+'__orders',_ordTs); if(_shTs&&!_baseS)setSyncBase('fpm_shared',_shTs);
+          if(!window._shShadow)_shShadowInit();
           if(_base)_careSupMig1Run(); // 기준 ts 있음 = 로컬이 최신임이 확인된 상태 → 1회 일괄변경 실행 가능
           setCloudInd('ok');
+          _flushDirtySoon(); // 지난번에 못 올린 편집(백그라운드·오프라인·닫힘)이 있으면 밀어 올림
           return false;
         }
         if(_cloudNewer&&!_cloudMoreComplete){ console.log('[cloudSyncLoad] 클라우드 ts 더 새로움 → 자동 수신(개수 동일)'); if(typeof showToast==='function')showToast('다른 기기의 최신 데이터를 받았어요',4000); }
@@ -3562,6 +3664,7 @@ async function cloudSyncLoad(id,opts){
       // 모든 필드를 복원한다 (이전엔 items, orders만 받고 brands 등을 통째로 날려버렸음)
       // 배열 묘비: 로컬↔클라우드 union 후 새 _tomb에 보존 (이전엔 items/orders만 재구성해 배열 묘비가 여기서 소실됐음)
       _mergeArrTombs(_ctombL);
+      var _shSm=null;
       var _tombNew={items:_miL.tomb,orders:_moL.tomb};
       _dateTombNames(S._tomb,null).forEach(function(n){ if(S._tomb&&S._tomb[n]&&Object.keys(S._tomb[n]).length)_tombNew[n]=S._tomb[n]; }); // 날짜 묘비 전부 보존(_ID_ARRS 밖 이름 포함) — 2026-08-17
       S={
@@ -3577,8 +3680,8 @@ async function cloudSyncLoad(id,opts){
         tasks:_mergeById(S.tasks,d.tasks,_tombNew.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
         brandConfig:_mergeMap(S.brandConfig,d.brandConfig),
         deductions:_mergeById(S.deductions,d.deductions,_tombNew.deductions),
-        factories:_mergeFactories(S.factories,sh.factories),
-        priceBook:_restoreLocalDataUrls(_mergePB(S.priceBook,sh.priceBook),S.priceBook||{}),
+        factories:(_shSm=_mergeSharedSmart({factories:S.factories,priceBook:S.priceBook},sh)).factories, // 내가 고친 키=로컬, 안 고친 키=원격 (2026-08-17)
+        priceBook:_restoreLocalDataUrls(_shSm.priceBook,S.priceBook||{}),
         _compMigrated:d._compMigrated||S._compMigrated||false,
         _careSupMig1:d._careSupMig1||S._careSupMig1||false
       };
@@ -3592,10 +3695,13 @@ async function cloudSyncLoad(id,opts){
       lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
       migrateData();changed=true;
       try{_entShadowInit();}catch(e){} // 병합 결과가 이 세션의 새 기준(마이그레이션 이후 시점)
-      try{ if(_coTs)setSyncBase('fpm_'+id,_coTs); }catch(e){} // 클라우드를 반영했으니 그 문서 ts가 내 새 기준
+      try{ if(_coTs)setSyncBase('fpm_'+id,_coTs); if(_ordTs)setSyncBase('fpm_'+id+'__orders',_ordTs); if(_shTs)setSyncBase('fpm_shared',_shTs); }catch(e){} // 클라우드를 반영했으니 그 문서 ts가 내 새 기준(3문서)
+      try{_shShadowInit();}catch(e){} // 공유문서 그림자 = 병합 결과
       if(coData)_careSupMig1Run(); // 병합 직후 = 최신 확보 상태 → 1회 일괄변경
     }
-    setCloudInd('ok');return changed;
+    setCloudInd('ok');
+    _flushDirtySoon();
+    return changed;
   }catch(e){
     console.error('[cloudSyncLoad] 실패:',e);
     setCloudInd('err');return false;
@@ -3692,7 +3798,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17i';
+var APP_BUILD=/*BUILD*/'2026-08-17j';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4038,6 +4144,7 @@ function saveData(){
   window._lsQuotaErr=false;
   var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
+  try{_shDirtyMark();}catch(e){} // 공유문서(업체·단가장) 미푸시 편집 키 기록 (2026-08-17)
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
   var _savedOk=_mainOk&&!window._lsQuotaErr;
@@ -4053,6 +4160,7 @@ function saveData(){
   //   (로컬 저장은 위에서 이미 끝남 — 클라우드 푸시만 미룸. 로드 끝나면 정상 저장/동기화됨)
   if(isCloudOn()){
     if(window._cloudSyncTimer)clearTimeout(window._cloudSyncTimer);
+    try{ if(_ls)localStorage.setItem('fpm_dirty','1'); }catch(e){} // 아직 클라우드에 안 올라간 편집 있음 — 새로고침/백그라운드 뒤 부팅 때 밀어 올림 (2026-08-17)
     window._cloudSyncTimer=setTimeout(function(){
       if(window._cloudSyncReady===false){ // 발화 시점에도 재확인 — 초기 로드 전이면 미룸(로드 끝나면 다음 저장 때 올라감)
         console.log('[saveData] 초기 클라우드 로드 전 — 푸시 보류'); return;
@@ -4075,6 +4183,7 @@ function loadCoData(id){
   migrateData();
   try{_rehydrateExtraSuppliers();}catch(e){} // 클라우드에서 뺐던 추가발주 발주서 줄 복원
   try{_entShadowInit();}catch(e){} // 항목별 병합 기준선 — 마이그레이션 "이후"에 찍어야 기계적 변경이 _mt 오염 안 함
+  try{_shShadowInit();}catch(e){} // 공유문서(업체·단가장) 키별 그림자 (2026-08-17)
   try{ window._bkCacheCoId=null; if(typeof idbBkEnsureLoaded==='function')idbBkEnsureLoaded(); }catch(e){} // 백업 IndexedDB 로드/이사(회사 전환 시 캐시 갱신)
   try{ if(typeof pbBkEnsureLoaded==='function')pbBkEnsureLoaded(); }catch(e){} // 단가장 백업 IDB 로드/이사(A-③)
   try{ if(!window._dosikCleanupTimer){ window._dosikCleanupTimer=setTimeout(function(){ try{ if(typeof _dosikLegacyCleanup==='function')_dosikLegacyCleanup(); }catch(e){} },3000); } }catch(e){} // 도식화 옛 잔재 정리(새 집 확인 후에만)
