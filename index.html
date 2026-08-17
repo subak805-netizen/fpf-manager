@@ -1574,7 +1574,22 @@ function _entStampChanges(){
     var kind=pair[0],map=pair[1],sh=window._entShadow[kind]||(window._entShadow[kind]={});
     Object.keys(map).forEach(function(id){ var e=map[id]; if(!e)return; var j=_entJson(e);
       if(sh[id]!==j){ e._mt=now; sh[id]=j; if(tomb[kind][id])delete tomb[kind][id]; } });
-    Object.keys(sh).forEach(function(id){ if(!map[id]){ tomb[kind][id]=now; delete sh[id]; } });
+    /* ★2026-08-17 대량 삭제 방지 안전밸브.
+       여기서 '그림자엔 있는데 지금 없다'를 곧바로 삭제(무덤)로 확정하기 때문에,
+       어떤 이유로든 S.items/S.orders가 잠깐 비거나 옛 상태로 돌아가면
+       **그 다음 저장 한 번에 전부 삭제로 확정되고 모든 기기에서 사라진다.**
+       (신고: 만든 오더 2건 + 아이템 수정내용이 통째로 사라짐)
+       사람은 보통 하나씩 지운다. 한 번에 여럿이 사라졌다면 사용자의 삭제가 아니라
+       데이터가 잠깐 어긋난 것으로 보고 **무덤을 남기지 않는다**(=살려두는 쪽으로 실수한다). */
+    var _gone=Object.keys(sh).filter(function(id){ return !map[id]; });
+    var _shN=Object.keys(sh).length;
+    var _bulk=_gone.length>3 || (_gone.length>1 && _shN>0 && _gone.length>=_shN*0.34);
+    if(_bulk){
+      console.warn('[안전밸브] '+kind+' '+_gone.length+'건이 한꺼번에 사라져 삭제로 기록하지 않음',_gone.slice(0,10));
+      try{ if(typeof showToast==='function')showToast((kind==='orders'?'오더 ':'아이템 ')+_gone.length+'건이 갑자기 안 보여요 — 삭제로 처리하지 않았어요. 새로고침해보세요',7000); }catch(e){}
+    }else{
+      _gone.forEach(function(id){ tomb[kind][id]=now; delete sh[id]; });
+    }
   });
   var lim=now-45*86400000; // 무덤 45일 보관 후 청소
   ['items','orders'].forEach(function(k){ var t=tomb[k]; Object.keys(t).forEach(function(id){ if(+t[id]<lim)delete t[id]; }); });
@@ -2419,13 +2434,63 @@ function recoverOrdersOnly(oid){
   try{ if(typeof renderOrderPane==='function')renderOrderPane(); }catch(e){}
   try{ if(typeof renderProdDash==='function')renderProdDash(); }catch(e){}
   if(typeof showToast==='function')showToast('오더 '+n+'건 되살렸어요 — 다른 기기도 새로고침하세요',5000);
-  try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+  try{ if(document.getElementById('recovery-overlay'))openRecoveryTool(); }catch(e){}
 }
 
+/* 복구 도구는 **무슨 일이 있어도 열려야 하는 비상 도구**다.
+   예전엔 IndexedDB나 폴더 권한 확인이 응답을 안 주면 await에서 멈춰
+   오류도 없이 창이 안 뜨는 일이 생겼다(2026-08-17 신고). 전부 시간제한을 건다. */
+function _rtWait(p,ms,dflt){
+  return Promise.race([
+    Promise.resolve(p).catch(function(){return dflt;}),
+    new Promise(function(res){ setTimeout(function(){res(dflt);},ms||2500); })
+  ]);
+}
 async function openRecoveryTool(){
+  /* ★안전망 — 복구 도구는 무슨 일이 있어도 열려야 한다.
+     오버레이를 함수 맨 끝에서 만들기 때문에, 중간에서 예외가 나거나 무언가 응답을 안 주면
+     오류도 없이 창이 안 뜬다(2026-08-17 신고). 실패하거나 6초를 넘기면 최소 기능 창이라도 띄운다. */
+  var done=false;
+  var guard=setTimeout(function(){ if(!done)_recoveryFallback('시간이 오래 걸려서 간단 창으로 열었어요'); },6000);
+  try{
+    await _openRecoveryToolInner();
+    done=true;
+  }catch(err){
+    done=true;
+    console.error('[복구도구] 실패',err);
+    _recoveryFallback('복구 도구를 여는 중 문제가 생겼어요 ('+((err&&err.message)||err)+')');
+  }finally{ clearTimeout(guard); }
+}
+/* 최소 기능 창 — 사라진 오더 되살리기만이라도 쓸 수 있게 */
+function _recoveryFallback(msg){
+  if(document.getElementById('recovery-overlay'))return;
+  var cands=[]; try{ cands=_ordMissingCands(); }catch(e){}
+  var h='<div style="background:#fff;max-width:560px;margin:40px auto;border-radius:10px;padding:18px;font-size:13px">'
+   +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:15px">데이터 복구 (간단)</b>'
+   +'<button onclick="var x=document.getElementById(\'recovery-overlay\');if(x)x.remove()" style="border:1px solid #d1d5db;background:#fff;padding:5px 12px;border-radius:6px;cursor:pointer">닫기</button></div>'
+   +'<div style="background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:6px;padding:9px 11px;margin-bottom:12px;font-size:12px">'+_esc2(msg||'')+'</div>';
+  if(cands.length){
+    h+='<div style="font-weight:700;margin-bottom:6px">사라진 오더 '+cands.length+'건을 찾았어요</div>';
+    cands.forEach(function(c){
+      h+='<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;margin-bottom:5px;gap:8px">'
+       +'<span style="font-size:12px"><b>'+_esc2(c.o.name||c.oid)+'</b></span>'
+       +'<button onclick="recoverOrdersOnly(\''+encodeURIComponent(c.oid)+'\')" style="background:#dc2626;color:#fff;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap">되살리기</button></div>';
+    });
+    if(cands.length>1)h+='<button onclick="recoverOrdersOnly()" style="background:#991b1b;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;margin-top:4px">전부 되살리기</button>';
+  }else{
+    h+='<div style="color:#6b7280">백업과 비교했을 때 없어진 오더는 없어요.</div>';
+  }
+  h+='<div style="margin-top:14px;color:#6b7280;font-size:11px">이 창이 뜨는 건 정식 복구 도구가 안 열렸다는 뜻이에요. 새로고침 후 다시 시도해보시고, 계속 그러면 알려주세요.</div></div>';
+  var ov=document.createElement('div'); ov.id='recovery-overlay';
+  ov.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;overflow-y:auto;padding:20px';
+  ov.innerHTML=h;
+  ov.onclick=function(e){ if(e.target===ov)ov.remove(); };
+  document.body.appendChild(ov);
+}
+async function _openRecoveryToolInner(){
   // 데이터 복구 도구 — 사용자가 콘솔 명령 안 치고도 진단/복구할 수 있게
   
-  try{ if(typeof idbBkEnsureLoaded==='function')await idbBkEnsureLoaded(); }catch(e){} // 백업(IndexedDB) 캐시 로드/이사
+  try{ if(typeof idbBkEnsureLoaded==='function')await _rtWait(idbBkEnsureLoaded(),3000,null); }catch(e){} // 백업(IndexedDB) 캐시 로드/이사 — 응답 없으면 3초 뒤 그냥 진행
   // 1) 일단 현재 상태를 자동 다운로드 (안전망)
   try{
     var snapshot={
@@ -2534,9 +2599,9 @@ async function openRecoveryTool(){
   // === 저장 폴더 (2026-08-14): 앱이 만드는 파일을 어디에 둘지 ===
   try{
     var _sdSup=fpfDirSupported();
-    var _sdH=_sdSup?await fpfDirHandle():null;
-    var _sdNeed=_sdSup?await fpfDirNeedsReconnect():false;
-    var _sdList=(_sdSup&&_sdH&&!_sdNeed)?await fpfListAutoBackups():null;
+    var _sdH=_sdSup?await _rtWait(fpfDirHandle(),2000,null):null;
+    var _sdNeed=_sdSup?await _rtWait(fpfDirNeedsReconnect(),2000,false):false;
+    var _sdList=(_sdSup&&_sdH&&!_sdNeed)?await _rtWait(fpfListAutoBackups(),2500,null):null;
     html+='<div style="border:2px solid #0ea5e9;background:#f0f9ff;border-radius:8px;padding:12px;margin-bottom:14px">';
     html+='<div style="font-weight:700;color:#075985;font-size:13px;margin-bottom:4px">저장 폴더 <span style="font-weight:400">(백업 파일·이미지가 저장되는 곳)</span></div>';
     if(!_sdSup){
@@ -3469,7 +3534,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17d';
+var APP_BUILD=/*BUILD*/'2026-08-17e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -3594,7 +3659,7 @@ async function fpfPickSaveDir(){
     if(p!=='granted'){ if(typeof showToast==='function')showToast('폴더 권한이 허락되지 않았어요',4000); return null; }
     await idbBkSet(FPF_DIR_KEY,h);
     if(typeof showToast==='function')showToast('저장 폴더: '+h.name,4000);
-    try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+    try{ if(document.getElementById('recovery-overlay'))openRecoveryTool(); }catch(e){}
     return h;
   }catch(e){
     if(e&&e.name==='AbortError')return null; // 사용자가 창을 닫음 — 조용히
@@ -3609,7 +3674,7 @@ async function fpfReconnectSaveDir(){
   var p=await _fsdPerm(h,true);
   if(p==='granted'){
     if(typeof showToast==='function')showToast('저장 폴더 다시 연결됨 — '+h.name,3500);
-    try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+    try{ if(document.getElementById('recovery-overlay'))openRecoveryTool(); }catch(e){}
     return h;
   }
   if(typeof showToast==='function')showToast('권한이 거부됐어요 — 폴더를 다시 골라주세요',4000);
@@ -3618,7 +3683,7 @@ async function fpfReconnectSaveDir(){
 async function fpfClearSaveDir(){
   await idbBkSet(FPF_DIR_KEY,null);
   if(typeof showToast==='function')showToast('저장 폴더 해제 — 이제 다운로드 폴더로 저장돼요',3500);
-  try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+  try{ if(document.getElementById('recovery-overlay'))openRecoveryTool(); }catch(e){}
 }
 function _fpfToBlob(d,mime){
   if(d instanceof Blob)return d;
@@ -3693,7 +3758,7 @@ async function fpfCleanupBackups(keep,silent){
   var del=names.slice(0,Math.max(0,names.length-keep)), n=0;
   for(var i=0;i<del.length;i++){ try{ await dir.removeEntry(del[i]); n++; }catch(e){ console.warn('[백업정리] 삭제 실패',del[i],e); } }
   if(!silent&&typeof showToast==='function')showToast(n?('오래된 자동백업 '+n+'개 정리 — 최근 '+keep+'개 남김'):('정리할 게 없어요 (자동백업 '+names.length+'개)'),4000);
-  try{ if(document.getElementById('recovery-ov'))openRecoveryTool(); }catch(e){}
+  try{ if(document.getElementById('recovery-overlay'))openRecoveryTool(); }catch(e){}
   return {ok:true,total:names.length,deleted:n,kept:Math.min(names.length,keep)};
 }
 /* 하루 1회 자동 정리 (앱 켤 때) */
