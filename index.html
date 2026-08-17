@@ -3389,7 +3389,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17b';
+var APP_BUILD=/*BUILD*/'2026-08-17c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -14655,6 +14655,152 @@ function setOrderDate(oid,iso){
   if(typeof renderPayContent==='function'){try{renderPayContent();}catch(e){}}
 }
 
+/* ===== 오더수량 공장 안내 — 텍스트 복사 / 이미지 저장·복사 (2026-08-17) =========
+   공장에 "이번 오더 몇 장" 알릴 때 쓰는 것. 텍스트는 기존 카톡 형식(pdQtyLineCS)과 같은 모양
+   「연두 2:30 3:45 4:60 5:40 총175장」— 공장이 이미 익숙한 형태라 그대로 맞춘다.
+   ⚠️ 이미지는 **세로로 길게** 만든다. 표를 그대로 찍으면 가로로 길어 카톡에서 잘린다.
+      컬러마다 한 덩어리 + 사이즈는 칩으로 줄바꿈 → 사이즈가 많아도 옆으로 안 늘어나고 아래로 쌓인다. */
+function _qeItems(oid){
+  var o=S.orders[oid]; if(!o)return [];
+  return (o.orderItems||[]).map(function(oi){
+    var it=S.items[oi.itemId]; if(!it)return null;
+    var colors=(it.colors&&it.colors.length)?it.colors:[''];
+    var sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'];
+    var rows=[],grand=0;
+    colors.forEach(function(c){
+      var cells=[],ct=0;
+      sizes.forEach(function(sz){
+        var v=+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);
+        if(v>0){ cells.push({sz:sz,qty:v}); ct+=v; }
+      });
+      if(ct>0){ rows.push({color:c,cells:cells,total:ct}); grand+=ct; }
+    });
+    var rn=null; try{ rn=getItemReorderNum(o.id,oi.itemId); }catch(e){}
+    var round=''; try{ round=reorderLabel(rn)||''; }catch(e){}
+    var dt=''; try{ dt=o.createdAt?(typeof fmtKoDate==='function'?fmtKoDate(toISO(o.createdAt)):o.createdAt):''; }catch(e){}
+    return {oi:oi,it:it,name:(oi.itemName||it.name||''),code:it.code||'',rows:rows,grand:grand,round:round,date:dt,hasSize:!!(it.sizes&&it.sizes.length)};
+  }).filter(Boolean).filter(function(x){ return x.grand>0; });
+}
+/* 공장에 보낼 텍스트 — 카톡에서 폰트가 달라도 안 깨지게 표 대신 줄글 */
+function qeBuildText(oid){
+  var arr=_qeItems(oid); if(!arr.length)return '';
+  return arr.map(function(x){
+    var head=x.name+(x.code?' ('+x.code+')':'');
+    var sub=[x.round,x.date].filter(Boolean).join(' · ');
+    var body=x.rows.map(function(r){
+      /* 컬러 없음(단색)·사이즈 없음(프리)일 때 빈 자리·중복 표시가 안 생기게 조각을 골라 붙인다 */
+      var parts=[];
+      if(r.color)parts.push(r.color);
+      if(x.hasSize)parts.push(r.cells.map(function(c){return c.sz+':'+c.qty;}).join(' '));
+      parts.push('총'+r.total+'장');
+      return parts.join(' ');
+    }).join('\n');
+    return head+(sub?'\n'+sub:'')+'\n\n'+body+'\n\n합계 '+x.grand+'장';
+  }).join('\n\n──────────\n\n');
+}
+function qeCopyText(oid){
+  var t=qeBuildText(oid);
+  if(!t){ showToast('수량이 적힌 아이템이 없어요'); return; }
+  var done=function(){ showToast('텍스트 복사됨 — 카톡에 붙여넣기 하세요',3500); };
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(function(){ _qeCopyFallback(t,done); });
+  }else _qeCopyFallback(t,done);
+}
+function _qeCopyFallback(t,done){
+  try{
+    var ta=document.createElement('textarea');
+    ta.value=t; ta.style.cssText='position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta); done();
+  }catch(e){ showToast('복사가 안 됐어요 — 길게 눌러 직접 복사해주세요',4000); }
+}
+/* 카톡에서 안 잘리게 세로로 긴 카드 */
+function _qeCardEl(oid){
+  var arr=_qeItems(oid); if(!arr.length)return null;
+  var F="'Pretendard','Apple SD Gothic Neo',-apple-system,sans-serif";
+  var wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;left:-99999px;top:0;z-index:-1;background:#fff';
+  var h='';
+  arr.forEach(function(x){
+    h+='<div style="width:680px;min-height:900px;box-sizing:border-box;background:#fff;padding:38px 34px 30px;font-family:'+F+';color:#111827;display:flex;flex-direction:column">';
+    h+='<div style="font-size:15px;color:#6b7280;font-weight:700;letter-spacing:.04em">오더 수량</div>';
+    h+='<div style="font-size:32px;font-weight:800;margin-top:6px;line-height:1.25">'+esc(x.name)+'</div>';
+    var sub=[x.code,x.round,x.date].filter(Boolean).map(esc).join(' · ');
+    if(sub)h+='<div style="font-size:16px;color:#6b7280;margin-top:8px">'+sub+'</div>';
+    h+='<div style="height:3px;background:#111827;margin:20px 0 2px"></div>';
+    /* 컬러가 적으면 아래에 큰 빈칸이 생겨서 어색했다 → 남는 세로를 컬러 칸들이 고르게 나눠 갖게 한다 */
+    h+='<div style="flex:1;display:flex;flex-direction:column;justify-content:space-evenly">';
+    x.rows.forEach(function(r){
+      h+='<div style="padding:18px 0;border-bottom:1px solid #e5e7eb">';
+      h+='<div style="display:flex;align-items:baseline"><span style="font-size:22px;font-weight:800">'+esc(r.color||'수량')+'</span>'
+        +'<span style="margin-left:auto;font-size:22px;font-weight:800">'+r.total+'장</span></div>';
+      if(x.hasSize){
+        h+='<div style="display:flex;flex-wrap:wrap;gap:9px;margin-top:12px">';
+        r.cells.forEach(function(c){
+          h+='<span style="border:2px solid #d1d5db;border-radius:10px;padding:8px 14px;font-size:17px;color:#374151;white-space:nowrap">'
+            +esc(c.sz)+' <b style="font-size:20px;color:#111827">'+c.qty+'</b></span>';
+        });
+        h+='</div>';
+      }
+      h+='</div>';
+    });
+    h+='</div>';
+    h+='<div style="padding-top:20px;border-top:3px solid #111827;display:flex;align-items:baseline">'
+      +'<span style="font-size:22px;font-weight:800">합계</span>'
+      +'<span style="margin-left:auto;font-size:34px;font-weight:800">'+x.grand+'<span style="font-size:20px">장</span></span></div>';
+    h+='</div>';
+  });
+  wrap.innerHTML=h;
+  document.body.appendChild(wrap);
+  return wrap;
+}
+function _qeCanvas(oid){
+  return new Promise(function(res,rej){
+    var go=function(){
+      var el=_qeCardEl(oid);
+      if(!el){ rej(new Error('빈 수량')); return; }
+      html2canvas(el.firstChild,{backgroundColor:'#ffffff',scale:2,useCORS:true})
+        .then(function(c){ el.remove(); res(c); })
+        .catch(function(e){ el.remove(); rej(e); });
+    };
+    if(typeof html2canvas==='undefined'){
+      var s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      s.onload=go; s.onerror=function(){ rej(new Error('라이브러리 로드 실패')); };
+      document.head.appendChild(s);
+    }else go();
+  });
+}
+function _qeFileName(oid){
+  var arr=_qeItems(oid), x=arr[0]||{};
+  return '오더수량_'+((x.name||'오더').replace(/[\\\/\?\%\*\:\|"<>]/g,'_'))+'_'+(typeof todayISO==='function'?todayISO():'')+'.png';
+}
+function qeSaveImage(oid){
+  showToast('이미지 만드는 중…',1500);
+  _qeCanvas(oid).then(function(c){
+    return fpfSaveFile(c.toDataURL('image/png'),_qeFileName(oid),{label:'이미지 저장됨 — 카톡에 첨부하세요'});
+  }).catch(function(e){ console.warn('[오더수량 이미지]',e); showToast('이미지 저장 실패',3500); });
+}
+/* 이미지 클립보드 복사.
+   ⚠️ 사파리는 클릭 순간에 ClipboardItem을 만들어야 해서 **Blob 대신 Promise**를 넣는다.
+      (그림 그리는 게 비동기라 다 기다렸다 쓰면 '사용자 동작 아님'으로 거부당한다) */
+function qeCopyImage(oid){
+  if(!(navigator.clipboard&&navigator.clipboard.write&&window.ClipboardItem)){
+    showToast('이 브라우저는 이미지 복사가 안 돼요 — 「이미지 저장」을 써주세요',4500); return;
+  }
+  try{
+    var p=_qeCanvas(oid).then(function(c){
+      return new Promise(function(res,rej){
+        if(c.toBlob)c.toBlob(function(b){ b?res(b):rej(new Error('blob 실패')); },'image/png');
+        else rej(new Error('toBlob 없음'));
+      });
+    });
+    navigator.clipboard.write([new ClipboardItem({'image/png':p})])
+      .then(function(){ showToast('이미지 복사됨 — 카톡에 붙여넣기 하세요',3500); })
+      .catch(function(e){ console.warn('[이미지 복사]',e); showToast('이미지 복사가 안 됐어요 — 「이미지 저장」을 써주세요',4500); });
+  }catch(e){ console.warn('[이미지 복사]',e); showToast('이미지 복사가 안 됐어요 — 「이미지 저장」을 써주세요',4500); }
+}
+
 function openQtyEdit(oid){
   var o=S.orders[oid];if(!o||!o.orderItems||!o.orderItems.length){alert('수량을 수정할 아이템이 없어요');return;}
   var html='<div class="fb" style="margin-bottom:10px"><b>오더수량 수정</b><button class="btn s" onclick="closeModal(\'qty-edit-modal\')">✕</button></div>'
@@ -14679,7 +14825,14 @@ function openQtyEdit(oid){
     html+='<div style="text-align:right;font-size:12px;margin-top:4px">합계: <b id="qegt_'+oi.itemId+'" style="color:var(--blue)">0</b>장</div>';
     html+='</div>';
   });
-  html+='<div class="fr" style="justify-content:flex-end;gap:6px;margin-top:6px"><button class="btn" onclick="closeModal(\'qty-edit-modal\')">취소</button><button class="btn p" onclick="saveQtyEdit(\''+oid+'\')">저장 (발주서 반영)</button></div>';
+  /* 공장 안내용 — 텍스트/이미지로 바로 보낼 수 있게 (2026-08-17) */
+  html+='<div class="fr" style="gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center">'
+    +'<span class="muted" style="font-size:11px">공장에 보내기</span>'
+    +'<button class="btn s" onclick="qeCopyText(\''+oid+'\')" title="카톡에 붙여넣을 텍스트">텍스트 복사</button>'
+    +'<button class="btn s" onclick="qeCopyImage(\''+oid+'\')" title="이미지를 클립보드로 — 카톡에 바로 붙여넣기">이미지 복사</button>'
+    +'<button class="btn s" onclick="qeSaveImage(\''+oid+'\')" title="이미지 파일로 저장">이미지 저장</button>'
+    +'</div>';
+  html+='<div class="fr" style="justify-content:flex-end;gap:6px;margin-top:10px"><button class="btn" onclick="closeModal(\'qty-edit-modal\')">취소</button><button class="btn p" onclick="saveQtyEdit(\''+oid+'\')">저장 (발주서 반영)</button></div>';
   document.getElementById('qty-edit-body').innerHTML=html;
   document.getElementById('qty-edit-modal').style.display='flex';
   qeUpd(oid);
