@@ -3836,7 +3836,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-17p';
+var APP_BUILD=/*BUILD*/'2026-08-17q';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -8980,8 +8980,8 @@ function refSetSeaFlt(v){ window._refSeaFlt=v; renderReference(); }
 function refSetGroupBy(v){ window._refGroupBy=v; try{lsSet('fpm_refGroupBy',v);}catch(e){} renderReference(); }
 /* 폴더를 드나들 때 인쇄 체크를 비운다 — 안 그러면 다른 폴더에서 체크한 게 남아
    「선택 인쇄 (4)」가 이 폴더 것이 아닌 수를 가리킨다. */
-function refOpenCol(id){ window._refPick={}; window._refOpenCol=id; renderReference(); try{window.scrollTo(0,0);}catch(e){} }
-function refCloseCol(){ window._refPick={}; window._refOpenCol=null; renderReference(); try{window.scrollTo(0,0);}catch(e){} }
+function refOpenCol(id){ window._refOpenCol=id; renderReference(); try{window.scrollTo(0,0);}catch(e){} }
+function refCloseCol(){ window._refOpenCol=null; renderReference(); try{window.scrollTo(0,0);}catch(e){} }
 function refSetColField(id,key,val){ var c=_refColFind(id); if(!c)return; c[key]=val; _refSaveSoon(); }
 function refMoveCard(cardId,val){ var c=_refFind(cardId); if(!c)return; c.collectionId=(val==='__none'?'':val); saveData(); renderReference(); }
 function refAddCollection(){
@@ -9054,7 +9054,6 @@ function _refNav(){
   return {b:window._refNavB,s:window._refNavS};
 }
 function _refNavSet(b,s){
-  window._refPick={};   // 단계 이동 시에도 인쇄 체크 비움
   window._refNavB=b||''; window._refNavS=s||'';
   try{ lsSet('fpm_refNav',{b:window._refNavB,s:window._refNavS}); }catch(e){}
   window._refOpenCol=null;
@@ -9230,8 +9229,13 @@ function _refRenderFolders(el){
 function _refRenderInside(el,colId){
   var orphan=(colId==='__orphan'); var col=orphan?null:_refColFind(colId);
   var cards=_refColCards(orphan?'':colId);
-  var pickN=Object.keys(window._refPick||{}).length;
-  var printBtn='<button class="rf-auto" id="rf-printsel" onclick="refPrintSelected()"'+(pickN?'':' style="display:none"')+'>선택 인쇄'+(pickN?' ('+pickN+')':'')+'</button>';
+  /* 인쇄는 두 가지를 다 쓴다 (2026-08-17 사용자 요청):
+     ① 「선택 인쇄」 = 지금 폴더 안 체크분만  ② 「다른 폴더까지」 = 앱 전체 체크분 전부.
+     ②는 다른 폴더에도 체크가 남아 있을 때만 나타난다. 체크는 폴더를 옮겨도 유지된다. */
+  var _pc=_refPickCounts(colId);
+  var printBtn='<button class="rf-auto" id="rf-printsel" onclick="refPrintSelected()"'+(_pc.here?'':' style="display:none"')+'>선택 인쇄'+(_pc.here?' ('+_pc.here+')':'')+'</button>'
+    +'<button class="rf-auto rf-printall" id="rf-printall" onclick="refPrintSelectedAll()"'+((_pc.all>_pc.here)?'':' style="display:none"')+'>다른 폴더까지 ('+_pc.all+')</button>'
+    +'<button class="rf-auto rf-pickclr" id="rf-pickclr" onclick="refClearPick()"'+(_pc.all?'':' style="display:none"')+'>선택 해제</button>';
   var _2c=(window._ref2col===undefined?(window._ref2col=(lsGet('fpm_ref2col')?true:false)):window._ref2col);
   var colBtn='<span class="rf-collbl"><button type="button" onclick="refSetCols(1)"'+(_2c?'':' class="on"')+'>1열</button>'
     +'<button type="button" onclick="refSetCols(2)"'+(_2c?' class="on"':'')+'>2열</button></span>';
@@ -9413,10 +9417,33 @@ function _refPrintCards(cards){
 }
 function refPrintCard(id){ _refPrintCards([_refFind(id)]); }
 function refTogglePick(id,on){ if(!window._refPick)window._refPick={}; if(on)window._refPick[id]=1; else delete window._refPick[id];
-  var n=Object.keys(window._refPick).length, b=document.getElementById('rf-printsel'); if(b){ b.textContent='선택 인쇄'+(n?' ('+n+')':''); b.style.display=n?'':'none'; } }
+  var pc=_refPickCounts(window._refOpenCol);
+  var b=document.getElementById('rf-printsel'); if(b){ b.textContent='선택 인쇄'+(pc.here?' ('+pc.here+')':''); b.style.display=pc.here?'':'none'; }
+  var b2=document.getElementById('rf-printall'); if(b2){ b2.textContent='다른 폴더까지 ('+pc.all+')'; b2.style.display=(pc.all>pc.here)?'':'none'; }
+  var b3=document.getElementById('rf-pickclr'); if(b3){ b3.style.display=pc.all?'':'none'; } }
 /* 레퍼런스 카드 1열/2열 — 기본 1열(사진 크게), 고른 값은 기억한다 */
 function refSetCols(n){ window._ref2col=(n===2); try{lsSet('fpm_ref2col',n===2?1:0);}catch(e){} renderReference(); }
 function refApplyCols(){ var b=document.getElementById('reference-body'); if(b)b.classList.toggle('rf-2col',!!window._ref2col); }
+/* 체크 개수 — here=이 폴더 안, all=앱 전체 */
+function _refPickCounts(colId){
+  var p=window._refPick||{}, all=0, here=0;
+  (S.refCards||[]).forEach(function(c){
+    if(!c||!p[c.id])return;
+    all++;
+    if(colId==='__orphan'){ if(!c.collectionId)here++; }
+    else if(colId){ if((c.collectionId||'')===colId)here++; }
+    else here++;
+  });
+  return {all:all,here:here};
+}
+/* 앱 전체에서 체크한 것 전부 인쇄 (폴더 넘나들며 고른 것) */
+function refPrintSelectedAll(){
+  var p=window._refPick||{};
+  var cards=(S.refCards||[]).filter(function(c){return c&&p[c.id];});
+  if(!cards.length){ if(typeof showToast==='function')showToast('체크된 카드가 없어요'); return; }
+  _refPrintCards(cards);
+}
+function refClearPick(){ window._refPick={}; renderReference(); }
 /* 선택 인쇄는 **지금 열어둔 폴더 안**의 체크된 카드만 인쇄한다.
    예전엔 앱 전체에서 체크된 걸 다 인쇄해서, 다른 폴더에서 체크해둔 게 딸려 나왔다. */
 function refPrintSelected(){
@@ -9440,6 +9467,8 @@ function _refStyle(){
     +'#reference-body .rf-sp{flex:1}'
     +'#reference-body .rf-new{border:2.5px solid var(--ink,#0B0A05);background:var(--neon-green,#A5E6BA);color:var(--ink,#0B0A05);font-weight:800;font-size:13px;padding:8px 14px;cursor:pointer;border-radius:0;box-shadow:3px 3px 0 rgba(11,10,5,.18);font-family:inherit}'
     +'#reference-body .rf-new:active{transform:translate(2px,2px);box-shadow:1px 1px 0 rgba(11,10,5,.18)}'
+    +'#reference-body .rf-printall{background:var(--neon-blue,#B0DBF0)}'
+    +'#reference-body .rf-pickclr{background:#fff;color:var(--t2,#8a8470)}'
     +'#reference-body .rf-card{margin:0 auto 26px;max-width:1040px}'
     +'#reference-body .rf-actions{display:flex;flex-direction:column;gap:7px;margin-bottom:10px}'
     +'#reference-body .rf-selgrp{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:6px}'
