@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260819a">
+<link rel="stylesheet" href="css/main.css?v=20260819b">
 </head>
 <body>
 
@@ -4013,7 +4013,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19a';
+var APP_BUILD=/*BUILD*/'2026-08-19b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -30451,19 +30451,43 @@ function ofSaveImage(){
 var SC_PICS=[['front','앞'],['back','뒤'],['lining','안감'],['detail','디테일']];
 var SC_KINDS=['봉제','패턴','원단','부자재','치수','디자인','기타'];
 function _scRounds(it){ var a=it&&it.smpRounds; return Array.isArray(a)?a:[]; }
-function _scCms(it){ var out=[]; _scRounds(it).forEach(function(r){ (r&&Array.isArray(r.cms)?r.cms:[]).forEach(function(c){ out.push(c); }); }); return out; }
-function _scFixN(it){ return _scCms(it).filter(function(c){return c&&c.fix;}).length; }
+/* 코멘트는 **작업지시서 지시사항처럼 자유롭게 적는 두 칸**이다(사용자 요청 2026-08-19):
+   「패턴 코멘트」·「샘플 코멘트」. 줄 단위로 추가/삭제하던 방식은 적은 걸 고치기가 불편했다.
+   ⚠️ 예전 줄 단위 코멘트(r.cms)가 있으면 **샘플 코멘트 칸에 이어붙여 보여준다**(자료는 안 지운다).
+      사용자가 그 칸을 한 번 고치면 그때 memo 로 저장된다. */
+function _scMemo(r,key){
+  var v=(r&&r[key]!=null)?String(r[key]):'';
+  if(v)return v;
+  if(key==='smpMemo'&&r&&Array.isArray(r.cms)&&r.cms.length){
+    return r.cms.map(function(c){ return (c&&c.k?('['+c.k+'] '):'')+((c&&c.t)||''); }).join('\n');
+  }
+  return '';
+}
+function _scHasText(r){ return !!(String(_scMemo(r,'patMemo')).trim()||String(_scMemo(r,'smpMemo')).trim()); }
+function scSetMemo(id,ri,key,v){
+  var it=S.items[id]; if(!it)return;
+  var a=_scRounds(it).slice(); if(!a[ri])return;
+  var r=Object.assign({},a[ri]); r[key]=String(v==null?'':v);
+  if(key==='smpMemo'&&Array.isArray(r.cms))delete r.cms;   /* 옮겨 담았으니 옛 줄은 정리 */
+  a[ri]=r; _scWrite(it,a);
+}
+function scToggleRoundDone(id,ri){
+  var it=S.items[id]; if(!it)return;
+  var a=_scRounds(it).slice(); if(!a[ri])return;
+  a[ri]=Object.assign({},a[ri],{done:!a[ri].done}); _scWrite(it,a); renderSampleComment();
+}
+function _scCms(it){ var out=[]; _scRounds(it).forEach(function(r){ if(_scHasText(r))out.push(r); }); return out; }
+function _scFixN(it){ return _scRounds(it).filter(function(r){ return _scHasText(r)&&!r.done; }).length; }
 function _scWrite(it,arr){ it.smpRounds=arr; saveData(); }
 function _scLastDate(it){
-  var d=''; _scCms(it).forEach(function(c){ if(c&&c.d&&c.d>d)d=c.d; });
-  if(!d)_scRounds(it).forEach(function(r){ if(r&&r.date&&r.date>d)d=r.date; });
+  var d=''; _scRounds(it).forEach(function(r){ if(r&&r.date&&r.date>d)d=r.date; });
   return d;
 }
 function scAddRound(id){
   var it=S.items[id]; if(!it)return;
   var a=_scRounds(it).slice();
   var mx=0; a.forEach(function(r){ if(+r.n>mx)mx=+r.n; });
-  a.unshift({n:mx+1,date:(typeof todayISO==='function'?todayISO():''),pics:{},cms:[]});
+  a.unshift({n:mx+1,date:(typeof todayISO==='function'?todayISO():''),pics:{},patMemo:'',smpMemo:''});
   _scWrite(it,a); window._scOpen=id; renderSampleComment();
 }
 function scDelRound(id,ri){
@@ -30471,31 +30495,6 @@ function scDelRound(id,ri){
   var a=_scRounds(it).slice(); if(!a[ri])return;
   if(!confirm((a[ri].n||'')+'차 샘플을 지울까요? 사진과 코멘트도 같이 없어집니다.'))return;
   a.splice(ri,1); _scWrite(it,a); renderSampleComment();
-}
-function scAddCm(id,ri){
-  var it=S.items[id]; if(!it)return;
-  var kEl=document.getElementById('sc-k-'+id+'-'+ri), tEl=document.getElementById('sc-t-'+id+'-'+ri);
-  var t=(tEl&&tEl.value||'').trim();
-  if(!t){ showToast('내용을 적어주세요'); if(tEl)tEl.focus(); return; }
-  var a=_scRounds(it).slice(); if(!a[ri])return;
-  var r=Object.assign({},a[ri]); r.cms=(Array.isArray(r.cms)?r.cms:[]).slice();
-  r.cms.push({k:(kEl&&kEl.value)||'봉제',t:t,d:(typeof todayISO==='function'?todayISO():''),fix:true});
-  a[ri]=r; _scWrite(it,a);
-  if(tEl)tEl.value='';
-  renderSampleComment();
-}
-function scDelCm(id,ri,ci){
-  var it=S.items[id]; if(!it)return;
-  var a=_scRounds(it).slice(); if(!a[ri])return;
-  var r=Object.assign({},a[ri]); r.cms=(Array.isArray(r.cms)?r.cms:[]).slice();
-  r.cms.splice(ci,1); a[ri]=r; _scWrite(it,a); renderSampleComment();
-}
-function scToggleFix(id,ri,ci){
-  var it=S.items[id]; if(!it)return;
-  var a=_scRounds(it).slice(); if(!a[ri]||!a[ri].cms||!a[ri].cms[ci])return;
-  var r=Object.assign({},a[ri]); r.cms=r.cms.slice();
-  r.cms[ci]=Object.assign({},r.cms[ci],{fix:!r.cms[ci].fix});
-  a[ri]=r; _scWrite(it,a); renderSampleComment();
 }
 function scSetRoundDate(id,ri,v){
   var it=S.items[id]; if(!it)return;
@@ -30578,7 +30577,7 @@ function scOpenItem(id){
         버튼을 누른 건 사용자의 행동이므로 여기서 1차를 만들어 준다(화면 그릴 때 만드는 게 아니라 안전하다). */
   var _it=S.items[id];
   if(_it&&!_scRounds(_it).length){
-    _scWrite(_it,[{n:1,date:(typeof todayISO==='function'?todayISO():''),pics:{},cms:[]}]);
+    _scWrite(_it,[{n:1,date:(typeof todayISO==='function'?todayISO():''),pics:{},patMemo:'',smpMemo:''}]);
   }
   window._scOpen=id;
   window._sc=window._sc||{}; window._sc.fixOnly=false; window._sc.season=''; window._sc.brand='';
@@ -30613,13 +30612,6 @@ function _scPic(id,ri,key,lbl,url){
     +(url?('<img src="'+esc(url)+'" alt=""><button type="button" class="sc-px" onclick="event.stopPropagation();scDelImage('+a+')">×</button>')
          :'<span class="sc-add">＋ 사진<br><i>끌어다 놓기 · 붙여넣기</i></span>')+'</div>';
 }
-function _scCmHTML(id,ri,ci,c){
-  return '<div class="sc-cm'+(c.fix?' fix':'')+'"><span class="sc-k">'+esc(c.k||'')+'</span>'
-    +'<span class="sc-tx">'+esc(c.t||'')+'</span>'
-    +'<span class="sc-dt">'+esc(_scMD(c.d))+'</span>'
-    +'<button type="button" class="sc-stt '+(c.fix?'fix':'done')+'" onclick="scToggleFix(\''+esc(id)+'\','+ri+','+ci+')" title="눌러서 바꾸기">'+(c.fix?'수정필요':'확인됨')+'</button>'
-    +'<button type="button" class="sc-cx" onclick="scDelCm(\''+esc(id)+'\','+ri+','+ci+')" title="지우기">×</button></div>';
-}
 function renderSampleComment(){
   var el=document.getElementById('sccm-body'); if(!el)return;
   var o=_scState(), rows=_scRows();
@@ -30635,7 +30627,7 @@ function renderSampleComment(){
     +'<select onchange="scSet(\'brand\',this.value)"><option value="">전체 브랜드</option>'
       +Object.keys(brands).map(function(b){return '<option value="'+esc(b)+'"'+(b===o.brand?' selected':'')+'>'+esc(getBrandName(b)||b)+'</option>';}).join('')+'</select>'
     +'<select onchange="scSet(\'sort\',this.value)">'
-      +'<option value="recent"'+(o.sort==='recent'?' selected':'')+'>최근 코멘트 순</option>'
+      +'<option value="recent"'+(o.sort==='recent'?' selected':'')+'>최근 순</option>'
       +'<option value="fix"'+(o.sort==='fix'?' selected':'')+'>수정 많은 순</option>'
       +'<option value="name"'+(o.sort==='name'?' selected':'')+'>이름 순</option></select>'
     +'<label class="sc-only"><input type="checkbox"'+(o.fixOnly?' checked':'')+' onchange="scSet(\'fixOnly\',this.checked)">수정필요만</label>'
@@ -30645,7 +30637,7 @@ function renderSampleComment(){
     +'<button class="sc-btn g" onclick="scSaveImage()">이미지 저장</button>'
     +'</div>';
   H+='<div class="sc-stats"><span class="sc-st"><b>'+rows.length+'</b>아이템</span>'
-    +'<span class="sc-st"><b>'+totCm+'</b>코멘트</span>'
+    +'<span class="sc-st"><b>'+totCm+'</b>적은 회차</span>'
     +'<span class="sc-st warn"><b>'+totFix+'</b>수정필요</span></div>';
   if(!rows.length){
     H+='<div class="sc-empty">'+(o.fixOnly?'수정필요인 게 없어요. 위 「수정필요만」을 꺼보세요.':'아직 적어둔 샘플 코멘트가 없어요.')+'<br><span>아이템 목록에서 <b>「진행」</b> 버튼을 누르면 여기로 와서 사진과 코멘트를 적을 수 있어요.</span></div></div>';
@@ -30663,22 +30655,23 @@ function renderSampleComment(){
     if(!open){
       var p=(r0.pics||{});
       H+='<div class="sc-p2">'+_scPic(r.id,0,'front','앞',p.front)+_scPic(r.id,0,'back','뒤',p.back)+'</div>';
-      var cs=[]; r.rs.forEach(function(rr,ri){ (rr.cms||[]).forEach(function(c,ci){ if(!o.fixOnly||c.fix)cs.push({ri:ri,ci:ci,c:c}); }); });
-      H+='<div class="sc-cms">'+cs.slice(0,3).map(function(x){return _scCmHTML(r.id,x.ri,x.ci,x.c);}).join('')
-        +(cs.length>3?('<div class="sc-more">외 '+(cs.length-3)+'개 — 눌러서 펼치기</div>'):'')
-        +(!cs.length?'<div class="sc-more">코멘트 없음 — 눌러서 적기</div>':'')+'</div>';
+      var pm=String(_scMemo(r0,'patMemo')).trim(), sm=String(_scMemo(r0,'smpMemo')).trim();
+      H+='<div class="sc-cms">';
+      if(pm)H+='<div class="sc-prev"><span class="sc-pl">패턴</span><span>'+esc(pm.length>90?(pm.slice(0,90)+'…'):pm)+'</span></div>';
+      if(sm)H+='<div class="sc-prev"><span class="sc-pl">샘플</span><span>'+esc(sm.length>90?(sm.slice(0,90)+'…'):sm)+'</span></div>';
+      if(!pm&&!sm)H+='<div class="sc-more">적은 내용 없음 — 눌러서 적기</div>';
+      H+='</div>';
     }else{
       r.rs.forEach(function(rr,ri){
-        var rf=(rr.cms||[]).filter(function(c){return c.fix;}).length;
         H+='<div class="sc-rnd"><div class="sc-rh"><b>'+(rr.n||(ri+1))+'차 샘플</b>'
           +'<input type="date" class="sc-rd" value="'+esc(rr.date||'')+'" onchange="scSetRoundDate(\''+esc(r.id)+'\','+ri+',this.value)">'
-          +(rf?('<span class="sc-chip fix">수정필요 '+rf+'</span>'):'<span class="sc-chip ok">다 확인됨</span>')
+          +'<button type="button" class="sc-stt '+(rr.done?'done':'fix')+'" onclick="scToggleRoundDone(\''+esc(r.id)+'\','+ri+')" title="눌러서 바꾸기">'+(rr.done?'확인됨':'수정필요')+'</button>'
           +'<span class="sc-sp"></span><button type="button" class="sc-rx" onclick="scDelRound(\''+esc(r.id)+'\','+ri+')">회차 지우기</button></div>';
         H+='<div class="sc-p4">'+SC_PICS.map(function(pk){ return _scPic(r.id,ri,pk[0],pk[1],(rr.pics||{})[pk[0]]); }).join('')+'</div>';
-        H+='<div class="sc-cms">'+((rr.cms||[]).map(function(c,ci){return _scCmHTML(r.id,ri,ci,c);}).join('')||'<div class="sc-more">아직 없음</div>')+'</div>';
-        H+='<div class="sc-add2"><select id="sc-k-'+esc(r.id)+'-'+ri+'">'+SC_KINDS.map(function(k){return '<option>'+k+'</option>';}).join('')+'</select>'
-          +'<input id="sc-t-'+esc(r.id)+'-'+ri+'" placeholder="예: 소매 시보리가 늘어남 — 다시 달아야 함" onkeydown="if(event.key===\'Enter\'){event.preventDefault();scAddCm(\''+esc(r.id)+'\','+ri+');}">'
-          +'<button type="button" onclick="scAddCm(\''+esc(r.id)+'\','+ri+')">＋ 코멘트</button></div>';
+        H+='<div class="sc-memo"><div class="sc-ml">패턴 코멘트</div>'
+          +'<textarea class="sc-ta" rows="4" placeholder="예: 다트 입체패턴으로, 입구 안쪽 미까시 2cm폭" onchange="scSetMemo(\''+esc(r.id)+'\','+ri+',\'patMemo\',this.value)">'+esc(_scMemo(rr,'patMemo'))+'</textarea></div>';
+        H+='<div class="sc-memo"><div class="sc-ml">샘플 코멘트</div>'
+          +'<textarea class="sc-ta" rows="4" placeholder="예: 후드 어깨선 봉제 틀어짐 — 다시 박아주세요" onchange="scSetMemo(\''+esc(r.id)+'\','+ri+',\'smpMemo\',this.value)">'+esc(_scMemo(rr,'smpMemo'))+'</textarea></div>';
         H+='</div>';
       });
       H+='<div class="sc-radd"><button type="button" class="sc-btn" onclick="scAddRound(\''+esc(r.id)+'\')">＋ 회차 추가 (다음 샘플)</button>'
@@ -30699,15 +30692,17 @@ function scBuildText(factoryOnly){
   rows.forEach(function(r){
     var blocks=[];
     r.rs.forEach(function(rr,ri){
-      var cs=(rr.cms||[]).filter(function(c){ return !factoryOnly||c.fix; });
-      if(!cs.length)return;
-      blocks.push('  ['+(rr.n||(ri+1))+'차'+(rr.date?(' '+_scMD(rr.date)):'')+']\n'
-        +cs.map(function(c){ return '   · '+(c.k?('('+c.k+') '):'')+c.t+(factoryOnly?'':(c.fix?'  [수정필요]':'  [확인됨]')); }).join('\n'));
+      if(factoryOnly&&rr.done)return;
+      var pm=String(_scMemo(rr,'patMemo')).trim(), sm=String(_scMemo(rr,'smpMemo')).trim();
+      if(!pm&&!sm)return;
+      var b='  ['+(rr.n||(ri+1))+'차'+(rr.date?(' '+_scMD(rr.date)):'')+(factoryOnly?'':(rr.done?' · 확인됨':' · 수정필요'))+']';
+      if(pm)b+='\n  · 패턴\n'+pm.split('\n').map(function(x){return '    '+x;}).join('\n');
+      if(sm)b+='\n  · 샘플\n'+sm.split('\n').map(function(x){return '    '+x;}).join('\n');
+      blocks.push(b);
     });
     if(!blocks.length)return;
     any=true;
-    T+='\n■ '+r.nm+(r.cd?(' ('+r.cd+')'):'')+'\n'+blocks.join('\n');
-    T+='\n';
+    T+='\n■ '+r.nm+(r.cd?(' ('+r.cd+')'):'')+'\n'+blocks.join('\n')+'\n';
   });
   if(!any)return '';
   if(factoryOnly)T+='\n위 내용 확인 후 수정 부탁드립니다. 궁금한 점 있으면 연락 주세요.\n';
