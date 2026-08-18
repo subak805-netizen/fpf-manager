@@ -765,3 +765,18 @@
   사용자가 그 칸을 한 번 고치면 그때 `smpMemo`로 저장되고 `cms`를 정리한다.
 - 공장용 복사는 **확인 안 된 회차만** 담는다(회차 단위).
 - 안 쓰게 된 `scAddCm`/`scDelCm`/`scToggleFix`/`_scCmHTML` 은 지웠다.
+
+## 2026-08-19c — 아이템 부자재 구역 재정리: 좌 요약목록(거래처 묶음) / 우 카드 1개 · 추가버튼 20개→1개
+
+사용자 결정(역인터뷰): 화면 정리가 목표. 자주 하는 일 = 새 아이템에 부자재 넣기·단가 갱신. 줄엔 용도·이름·요척·단가·단가장 등록여부만.
+타입(롤·단추·야드) 배지·색 구분 없앰, 컬러도 줄에서 뺌. 거래처 정보는 글자 한 줄. 규격·단위·단가는 카드에서 수정 불가(단가장에서만).
+- **설계 원칙 = 카드 DOM은 안 건드림.** `#trim-rows`(colTR가 읽는 실제 카드)는 그대로 두고, 왼쪽에 **읽기전용 요약 목록 `#trim-list`**(`renderTrimSummary`)를 새로 그린다.
+  카드는 선택된 1개만 `.tcd-open`(CSS로 나머지 숨김) → 수집·저장·발주·원가 **0줄 변경**. 요약은 카드 `input` 이벤트에 350ms 뒤 `colTR()+renderTrimSummary()`만(카드 재렌더 X → 타이핑 안 날아감).
+- **레이아웃**(main.css, 두 테마 공통): `.trim-split` = `minmax(0,1fr) 560px`, 오른쪽 `sticky + 자체 스크롤`. **≥1200px에서만 2단**이고 `#ipf`(아이템 폼, 인라인 max-width 680)를 **1180으로 넓힘**(`!important`). 그 밑은 세로 스택(목록→카드), 폰은 용도·등록배지·요척칸 숨기고 이름·단가만.
+- 오른쪽 카드: 탭(`.tcd-tab`) 숨기고 **`.tcd-pane` 전부 표시**(구역 제목은 `::before` content: 기본/디테일/적용컬러/가공·염색/옵션). 헤더 `.tcd-row`는 클릭 막음(원래 접기라 카드가 사라짐)·타입칩 숨김. 순서이동·복제·삭제 버튼(`.tcd-tact`)은 유지.
+- **단가장 등록된 줄**(`_pbHasTrim`) → `_lockTrimPbFields()`(renderTrimRows 끝): `size/zipperSize/zipperLength/buttonSize/snapSize/biasSpec/yardsPerRoll/unitPrice` readonly, `rollUnit/packUnit/unit` select는 `.tcd-ro`(pointer-events 차단, 값은 그대로 → colTR 불변), 단가 옆 「단가장에서 수정」(`openBookWindow('trim')`). 거래처 `.tcd-frow`에 `.tcd-suprow` 붙여 숨기고 앞에 `.tcd-supline`「메이드 B동 2층 215호 · 단가장에서 불러옴」 삽입(입력 DOM은 남김). 미등록 줄은 전부 그대로.
+- **추가 = 「+ 부자재 추가」 하나** → `openTrimPickerNew(sup)`: 기존 `openTrimPicker`에 **인라인 모드**(`#trim-picker-host`에 마운트, 모달 아님; 호스트 없으면 옛 모달 폴백). 고르면 `_pbMatAddKey(m)`(단가장 자재 orderType+플래그 → addTrimRow 키)로 줄을 먼저 만들고 기존 `_trimPickApply`(autofillTrim). 「새 부자재 만들기」= 종류 칩 9개(`_TRIM_NEW_TYPES`) + 이름·단가 → 단가장 등록 후 줄 생성(yardp/buttonloop는 pb에 `plainYard/isButtonLoop` 플래그 저장). 거래처 헤더 「+ 여기에 추가」= 검색어에 거래처 미리 채움.
+- 요약 헤더 **「벌당(순)」 합계** = `_trimPerPcsCost` (요척×단가, 롤은 ÷롤당y, 로스·올림·미니멈·가공비 제외) — 원가계산서와 다를 수 있어 라벨에 (순).
+- 아무것도 안 열려 있으면 첫 부자재 자동 선택. 여러 개 열려 있으면 마지막 것만(단일 선택 강제).
+- 시안: `mockups/trim-split.html`(+`-phone`). 옛 타입 버튼 20개·하단 추가상자 삭제(`.trim-add-grid` CSS는 잔존·무해).
+- ⚠️ 함정: 아이템 폼 `#ipf`는 인라인 `max-width:680px` — 2단을 넓히려면 그 규칙을 이겨야 함. 카드 헤더 클릭은 접기 토글이라 2단에선 반드시 막을 것.
