@@ -1636,8 +1636,11 @@ function _entStampArrMap(now){
 /* 맵 병합(키 단위, 사이드카 시각 비교): 둘 다 있으면 더 최신(동률=b), 한쪽만 있으면 상대의 삭제 시각이 더 늦지 않을 때만 살림 */
 var _kmtTmp={};
 function _mergeMapMt(name,a,b,aK,bK){
+  var aMiss=(a===undefined||a===null), bMiss=(b===undefined||b===null);
   a=(a&&typeof a==='object'&&!Array.isArray(a))?a:{}; b=(b&&typeof b==='object'&&!Array.isArray(b))?b:{};
   aK=(aK&&aK[name])||{}; bK=(bK&&bK[name])||{};
+  if(bMiss){ var ca={},q; for(q in aK)ca[q]=aK[q]; _kmtTmp[name]=ca; return a; } // 상대 맵이 아예 없음(부분 문서) = 정보 없음 → 손대지 않음
+  if(aMiss){ var cb={},r; for(r in bK)cb[r]=bK[r]; _kmtTmp[name]=cb; return b; }
   var out={},mt={},keys={},k;
   for(k in a)keys[k]=1; for(k in b)keys[k]=1;
   for(k in keys){
@@ -1925,27 +1928,24 @@ function _mergeMap(a,b){ a=(a&&typeof a==='object'&&!Array.isArray(a))?a:{}; b=(
 function _mergeCourier(a,b){ a=(a&&typeof a==='object')?a:{bank:'',entries:[]}; b=(b&&typeof b==='object')?b:{bank:'',entries:[]}; return {bank:(b.bank!=null&&b.bank!=='')?b.bank:(a.bank||''), entries:_mergeById(a.entries,b.entries,(S&&S._tomb&&S._tomb.courierEntries)||null)}; }
 function applyRemoteCoData(data,ts,opts){
   // opts.noRender: 병합·저장만 하고 화면 재렌더는 생략 — 편집 중 저장 경로(cloudSyncSave 스테일 병합)에서 입력 방해 방지 (2026-07-21)
+  // ★2026-08-18: 상자 나누기 이후 부분 문서(예: 할일판 상자만)도 들어오므로 **들어 있는 필드만** 병합한다. 없는 필드는 손대지 않음.
   if(!data)return;
-  if(ts)try{setSyncBase('fpm_'+curCoId,ts);}catch(e){} // 원격을 반영했으니 내 기준 ts = 그 문서 ts
-  var _oldItems=S.items||{};
-  // 아이템 = 항목별 병합(재건축 1단계): 통째 교체 대신 항목마다 더 최신 채택. 동률은 클라우드(문서 ts가 더 새로움 확인된 경로)
+  if(ts)try{setSyncBase((opts&&opts.baseKey)||('fpm_'+curCoId),ts);}catch(e){} // 원격을 반영했으니 내 기준 ts = 그 문서 ts (상자는 자기 키)
+  var has=function(f){ return Object.prototype.hasOwnProperty.call(data,f)&&data[f]!==undefined&&data[f]!==null; };
   _entEnsureTomb();
   var _ctombR=(data._tomb)||{};
-  var _miR=_entMerge(_oldItems,data.items||{},S._tomb.items,_ctombR.items,'cloud');
-  S.items=tpPreserveLocalContent(_miR.map,_oldItems); S._tomb.items=_miR.tomb;
-  // 발주(orders)는 별도 문서(__orders)로 분리돼 메인 문서엔 없음 → 메인 스냅샷에 orders 없으면 기존 발주 보존(빈 값으로 덮어쓰기 금지)
-  if(data.orders!==undefined&&data.orders!==null){var _moR=_entMerge(S.orders||{},data.orders,S._tomb.orders,_ctombR.orders,'cloud');S.orders=_moR.map;S._tomb.orders=_moR.tomb;}
-  S.brands=_restoreLocalDataUrls(_mergeById(S.brands,data.brands,(S._tomb||{}).brands),S.brands||[]); // 브랜드도 id 병합(통째 교체 금지) — 2026-08-17
-  // id 배열은 전부 병합(덮어쓰기 금지) — 다른 기기 추가분 보존. b=클라우드(원격 최신 우선). 묘비 필터로 지운 항목 부활 차단
-  _mergeArrTombs(_ctombR);
-  S.tasks=_mergeById(S.tasks,data.tasks,S._tomb.tasks);S.pickups=_mergeById(S.pickups,data.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(S.sampleOrders,data.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(S.deductions,data.deductions,S._tomb.deductions);
-  // 이전엔 실시간 수신에서 아예 빠져 있던 필드들(다른 기기 변경이 새로고침 전 미반영) — 병합으로 반영
-  S.packages=_mergeById(S.packages,data.packages,S._tomb.packages);S.goals=_mergeById(S.goals,data.goals,S._tomb.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(S.refCards,data.refCards,S._tomb.refCards);S.refCollections=_mergeById(S.refCollections,data.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(S.matExtra,data.matExtra,S._tomb.matExtra);
-  if(typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
-  // 객체맵도 키 단위 병합(통째 교체 금지) — 원격 키 승, 로컬 전용 키 보존
-  S.brandConfig=_mergeMapMt('brandConfig',S.brandConfig,data.brandConfig,S._kmt,data._kmt);
-  S.trimLedger=_mergeMapMt('trimLedger',S.trimLedger,data.trimLedger,S._kmt,data._kmt);S.trimLedgerPaid=_mergeMapMt('trimLedgerPaid',S.trimLedgerPaid,data.trimLedgerPaid,S._kmt,data._kmt);S.trimLedgerOvr=_mergeMapMt('trimLedgerOvr',S.trimLedgerOvr,data.trimLedgerOvr,S._kmt,data._kmt);S._kmt=_kmtCollect(S._kmt);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeRefData(S.refData,data.refData);
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{},_kmt:S._kmt||{}});}catch(e){}
+  _mergeArrTombs(_ctombR); // 날짜 묘비 union(삭제 전파) — 어떤 상자에서 오든 안전
+  // 아이템 = 항목별 병합. 동률은 클라우드(문서 ts가 더 새로움 확인된 경로). 아이템 없이 묘비만 와도 삭제는 반영
+  if(has('items')||_ctombR.items){ var _oldItems=S.items||{}; var _miR=_entMerge(_oldItems,has('items')?data.items:{},S._tomb.items,_ctombR.items,'cloud'); S.items=tpPreserveLocalContent(_miR.map,_oldItems); S._tomb.items=_miR.tomb; }
+  if(has('orders')){var _moR=_entMerge(S.orders||{},data.orders,S._tomb.orders,_ctombR.orders,'cloud');S.orders=_moR.map;S._tomb.orders=_moR.tomb;}
+  if(has('brands'))S.brands=_restoreLocalDataUrls(_mergeById(S.brands,data.brands,(S._tomb||{}).brands),S.brands||[]);
+  ['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra'].forEach(function(n){ if(has(n))S[n]=_mergeById(S[n],data[n],S._tomb[n]); });
+  if(has('todoBoard')&&typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
+  ['brandConfig','trimLedger','trimLedgerPaid','trimLedgerOvr'].forEach(function(n){ if(has(n))S[n]=_mergeMapMt(n,S[n],data[n],S._kmt,data._kmt); });
+  S._kmt=_kmtCollect(S._kmt);
+  if(has('courierLedger'))S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);
+  if(has('refData'))S.refData=_mergeRefData(S.refData,data.refData);
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
   if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -1989,7 +1989,7 @@ function _mergeSharedSmart(local,remote){
   for(k in out.priceBook){ var e=out.priceBook[k]; if(e&&e.materials&&typeof e.materials==='object'){ var mk; for(mk in e.materials){ if(_tombHas('pbMat',k+'\u001f'+mk)){ if(e===rp[k]){ e=out.priceBook[k]=JSON.parse(JSON.stringify(e)); } delete e.materials[mk]; } } } }
   return out;
 }
-var _rtUnsubShared=null,_rtPendingShared=null,_rtUnsubOrdersArr=[];
+var _rtUnsubShared=null,_rtPendingShared=null,_rtUnsubOrdersArr=[],_rtPendingAux=null,_rtUnsubAuxArr=[];
 function applyRemoteShared(data,ts){
   if(!data)return;
   try{
@@ -2006,6 +2006,53 @@ function applyRemoteShared(data,ts){
      바뀐 조각만 푸시(_lastPushedJson)한다. 읽기는 조각 전부 합치고, 조각이 하나도 없으면 옛 단일 문서(__orders)로 폴백.
    ⚠️ 옛 버전 앱은 __orders만 보므로 전 기기 새 버전 필수. 조각 수를 바꾸면 모든 오더 위치가 바뀌니 ORD_SHARDS는 늘리지 말 것(늘리려면 이사 코드 필요). */
 var ORD_SHARDS=8;
+/* ===== 회사 자료 상자 나누기 (2026-08-18) =====
+   메인 문서(fpm_<co>)도 1,089KB로 한도(1MB) 턱밑이었다(아이템 527KB·할일판 210KB·레퍼런스 197KB).
+   → **모든 자료를 성격별 상자로 나눈다**: 아이템은 4조각(fpm_<co>__items_0..3), 나머지는 묶음별 상자
+     (__tb 할일판 / __ref 레퍼런스·소재 / __pk 픽업·패키지·골 / __tk 할일·샘플발주·차감·불량 / __ledger 원장·시재 / __br 브랜드·설정·참고).
+   메인(fpm_<co>)엔 플래그·묘비·시각표만 남는다. 각 상자는 자기 배열의 묘비(_tomb)와 자기 맵의 시각표(_kmt)를 함께 싣는다.
+   읽을 땐 상자 값을 메인 위에 덮어 합치고(상자가 없으면 메인의 옛 값=하위호환), 저장은 상자별로 바뀐 것만, 실시간 감시도 상자별.
+   ⚠️ 옛 버전 앱은 메인 하나만 보므로 전 기기 새 버전 필수. ITEM_SHARDS(4)는 늘리지 말 것. */
+var ITEM_SHARDS=4;
+var AUX_GROUPS={
+  '__items':{sharded:true,fields:['items'],tombs:['items']},
+  '__tb':{fields:['todoBoard']},
+  '__ref':{fields:['refCards','refCollections','matExtra'],tombs:['refCards','refCollections','matExtra']},
+  '__pk':{fields:['pickups','packages','goals'],tombs:['pickups','packages','goals']},
+  '__tk':{fields:['tasks','sampleOrders','deductions','defectRecs'],tombs:['tasks','sampleOrders','deductions','defectRecs']},
+  '__ledger':{fields:['trimLedger','trimLedgerPaid','trimLedgerOvr','courierLedger'],tombs:['courierEntries'],kmt:['trimLedger','trimLedgerPaid','trimLedgerOvr']},
+  '__br':{fields:['brands','brandConfig','refData'],tombs:['brands'],tombPrefix:'refArr:',kmt:['brandConfig']}
+};
+function _itemShardOf(id){ return _ordShardOf(id)%ITEM_SHARDS; }
+function _auxKeys(coId){ var out=[]; Object.keys(AUX_GROUPS).forEach(function(sfx){ var g=AUX_GROUPS[sfx]; if(g.sharded){ for(var i=0;i<ITEM_SHARDS;i++)out.push('fpm_'+coId+sfx+'_'+i); } else out.push('fpm_'+coId+sfx); }); return out; }
+function _tombSubset(tomb,names,prefix){ var o={},k; tomb=tomb||{}; (names||[]).forEach(function(n){ if(tomb[n])o[n]=tomb[n]; }); if(prefix)for(k in tomb){ if(k.indexOf(prefix)===0)o[k]=tomb[k]; } return o; }
+function _kmtSubset(kmt,names){ var o={}; kmt=kmt||{}; (names||[]).forEach(function(n){ if(kmt[n])o[n]=kmt[n]; }); return o; }
+/* coData(전체) → {main, aux:{key:obj}} */
+function _auxSplit(coData,coId){
+  var main={},aux={},k; for(k in coData)main[k]=coData[k];
+  Object.keys(AUX_GROUPS).forEach(function(sfx){
+    var g=AUX_GROUPS[sfx];
+    if(g.sharded){ var items=main.items||{}; delete main.items; var shards=[],i; for(i=0;i<ITEM_SHARDS;i++)shards.push({_aux:sfx,_shard:i,items:{},_tomb:{items:(coData._tomb&&coData._tomb.items)||{}}}); Object.keys(items).forEach(function(id){ shards[_itemShardOf(id)].items[id]=items[id]; }); shards.forEach(function(sh,i){ aux['fpm_'+coId+sfx+'_'+i]=sh; }); return; }
+    var o={_aux:sfx}; g.fields.forEach(function(f){ if(main[f]!==undefined){ o[f]=main[f]; delete main[f]; } });
+    o._tomb=_tombSubset(coData._tomb,g.tombs,g.tombPrefix); if(g.kmt)o._kmt=_kmtSubset(coData._kmt,g.kmt);
+    aux['fpm_'+coId+sfx]=o;
+  });
+  return {main:main,aux:aux};
+}
+async function _readAuxDocs(coId){ var keys=_auxKeys(coId); var docs=await Promise.all(keys.map(function(k){ return cloudGetDoc(k); })); var res={values:{},ts:{}}; docs.forEach(function(d,i){ if(d&&d.value&&!d.value._deleted){ res.values[keys[i]]=d.value; res.ts[keys[i]]=d.ts||''; } }); return res; }
+/* 상자 값을 메인 문서 객체 위에 덮어 합침. 아이템 조각은 items 맵에 합치고, 묘비·시각표는 union */
+function _overlayAux(d,auxValues){
+  if(!d||!auxValues)return d;
+  var anyItemShard=Object.keys(auxValues).some(function(k){ var v=auxValues[k]; return v&&v._aux==='__items'; });
+  if(anyItemShard){ d.items={}; } // 조각이 하나라도 있으면 아이템은 조각이 정본(메인의 옛 items 무시)
+  Object.keys(auxValues).forEach(function(k){ var v=auxValues[k]; if(!v)return;
+    if(v._aux==='__items'){ var id; for(id in (v.items||{}))d.items[id]=v.items[id]; }
+    else { Object.keys(v).forEach(function(f){ if(f==='_aux'||f==='_tomb'||f==='_kmt')return; d[f]=v[f]; }); }
+    if(v._tomb){ d._tomb=d._tomb||{}; var n; for(n in v._tomb){ if(!d._tomb[n]||typeof d._tomb[n]!=='object'){ d._tomb[n]=v._tomb[n]; continue; } var t=v._tomb[n],x; for(x in t){ if(d._tomb[n][x]===undefined||String(t[x])>String(d._tomb[n][x]))d._tomb[n][x]=t[x]; } } }
+    if(v._kmt){ d._kmt=d._kmt||{}; var m; for(m in v._kmt){ if(!d._kmt[m])d._kmt[m]={}; var km=v._kmt[m],y; for(y in km){ if(!(+d._kmt[m][y])||+km[y]>+d._kmt[m][y])d._kmt[m][y]=km[y]; } } }
+  });
+  return d;
+}
 function _ordShardOf(id){ var h=0,t=String(id||''); for(var i=0;i<t.length;i++){ h=(h*31+t.charCodeAt(i))|0; } return Math.abs(h)%ORD_SHARDS; }
 function _ordShardKey(coId,i){ return 'fpm_'+coId+'__orders_'+i; }
 function _ordShardKeys(coId){ var a=[]; for(var i=0;i<ORD_SHARDS;i++)a.push(_ordShardKey(coId,i)); return a; }
@@ -2044,12 +2091,13 @@ function showRemoteBanner(){
 }
 function hideRemoteBanner(){var b=document.getElementById('rt-banner');if(b)b.style.display='none';}
 function applyPendingRemote(){
-  if(!_rtPending&&!_rtPendingOrders&&!_rtPendingShared)return hideRemoteBanner();
+  if(!_rtPending&&!_rtPendingOrders&&!_rtPendingShared&&!_rtPendingAux)return hideRemoteBanner();
   var d=_rtPending;_rtPending=null;
   var od=_rtPendingOrders;_rtPendingOrders=null;
   var sd=_rtPendingShared;_rtPendingShared=null;
   hideRemoteBanner();
   if(d&&d.coId===curCoId)applyRemoteCoData(d.data,d.ts);
+  var ad=_rtPendingAux;_rtPendingAux=null; if(ad&&ad.coId===curCoId&&ad.byKey){ Object.keys(ad.byKey).forEach(function(k){ var x=ad.byKey[k]; applyRemoteCoData(x.data,x.ts,{baseKey:k}); }); }
   if(od&&od.coId===curCoId&&od.byKey){ Object.keys(od.byKey).forEach(function(k){ var x=od.byKey[k]; applyRemoteOrders(x.orders,x.tomb,x.ts,k); }); }
   if(sd)applyRemoteShared(sd.data,sd.ts);
   showToast('다른 기기 변경이 반영됐어요');
@@ -2078,6 +2126,27 @@ function startRealtimeSync(){
       if(isEditingNow()){_rtPending={coId:coAtSub,data:data,ts:ts};showRemoteBanner();return;}
       applyRemoteCoData(data,ts);showToast('다른 기기 변경이 반영됐어요');
     },function(err){console.error('onSnapshot 오류:',err);});
+    // 보조 상자(할일판·레퍼런스) 리스너 — 메인에서 뺀 필드는 여기서 받는다 (2026-08-18)
+    _rtUnsubAuxArr=[];
+    _auxKeys(curCoId).forEach(function(akey){
+      var _firstA=true;
+      var aref=window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(akey);
+      _rtUnsubAuxArr.push(aref.onSnapshot(function(snap){
+        if(!snap.exists)return;
+        if(snap.metadata&&snap.metadata.hasPendingWrites)return;
+        if(curCoId!==coAtSub)return;
+        var d=snap.data();if(!d)return;
+        var ts=d.ts||'';
+        if(_firstA){_firstA=false;_rtAppliedTs[akey]=ts;return;}
+        if(_isMyEcho(akey,ts,d.value))return;
+        if(ts&&ts===_rtAppliedTs[akey])return;
+        var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
+        if(!data||data._deleted)return;
+        _rtAppliedTs[akey]=ts;
+        if(isEditingNow()){ if(!_rtPendingAux||_rtPendingAux.coId!==coAtSub)_rtPendingAux={coId:coAtSub,byKey:{}}; _rtPendingAux.byKey[akey]={data:data,ts:ts}; showRemoteBanner(); return; }
+        applyRemoteCoData(data,ts,{baseKey:akey});showToast('다른 기기 변경이 반영됐어요');
+      },function(err){console.error('onSnapshot(aux '+akey+') 오류:',err);}));
+    });
     // 발주 조각 문서 리스너(8개) — 메인 문서엔 orders가 없어서 이걸 따로 들어야 폰↔컴 발주 동기화됨 (2026-08-18 조각내기)
     _rtUnsubOrdersArr=[];
     _ordShardKeys(curCoId).forEach(function(okey){
@@ -2121,7 +2190,7 @@ function startRealtimeSync(){
     console.log('실시간 동기화 시작:',key);
   }catch(e){console.error('startRealtimeSync 실패:',e);}
 }
-function _rtUnsubOrdersAll(){ try{ (_rtUnsubOrdersArr||[]).forEach(function(u){ try{u();}catch(e){} }); }catch(e){} _rtUnsubOrdersArr=[]; if(_rtUnsubOrders){try{_rtUnsubOrders();}catch(e){}_rtUnsubOrders=null;} }
+function _rtUnsubOrdersAll(){ try{ (_rtUnsubOrdersArr||[]).forEach(function(u){ try{u();}catch(e){} }); }catch(e){} _rtUnsubOrdersArr=[]; try{ (_rtUnsubAuxArr||[]).forEach(function(u){ try{u();}catch(e){} }); }catch(e){} _rtUnsubAuxArr=[]; _rtPendingAux=null; if(_rtUnsubOrders){try{_rtUnsubOrders();}catch(e){}_rtUnsubOrders=null;} }
 function stopRealtimeSync(){if(_rtUnsub){try{_rtUnsub();}catch(e){}_rtUnsub=null;}_rtUnsubOrdersAll();if(_rtUnsubShared){try{_rtUnsubShared();}catch(e){}_rtUnsubShared=null;}_rtPendingShared=null;hideRemoteBanner();}
 
 function skipLoginAndRegister(){
@@ -2361,6 +2430,9 @@ async function cloudSyncSave(){
       var _cloudTs=(_cloudDoc&&_cloudDoc.ts)||'';
       var _ordRead=await _readOrderShards(curCoId); var _cloudOrdDoc=(_ordRead.any||_ordRead.legacy)?{orders:_ordRead.orders,_tomb:{orders:_ordRead.tomb}}:null; // 발주 조각 문서 전부(값+ts) — 없으면 옛 단일 문서 폴백 (2026-08-18)
       var _shDoc=null; try{ _shDoc=await cloudGetDoc('fpm_shared'); }catch(eSh){} // 업체·단가장 공유문서(값+ts) — 송신 병합용(2026-08-17)
+      var _auxRead=null; try{ _auxRead=await _readAuxDocs(curCoId); }catch(eAx){} // 보조 상자(할일판·레퍼런스)
+      var _cloudMainRaw=''; try{ if(cloudCurrent)_cloudMainRaw=JSON.stringify(cloudCurrent); }catch(eR){}
+      if(cloudCurrent&&_auxRead)_overlayAux(cloudCurrent,_auxRead.values); // 병합·가드는 합쳐진 전체를 본다
       if(cloudCurrent){
         var cloudItems=Object.keys(cloudCurrent.items||{}).length;
         var cloudOrders=Object.keys((_cloudOrdDoc&&_cloudOrdDoc.orders)||cloudCurrent.orders||{}).length;
@@ -2501,6 +2573,7 @@ async function cloudSyncSave(){
     // 인라인 dataURL 사진은 클라우드 문서에 넣지 않음(로컬엔 보존) — Firestore 1MB(바이트) 초과 방지
     var _stripCnt={n:0};
     coData=_stripDataUrlsDeep(coData,_stripCnt);
+    var _auxSp=_auxSplit(coData,curCoId); coData=_auxSp.main; var _auxObjs=_auxSp.aux, _auxKeyList=Object.keys(_auxObjs); // 할일판·레퍼런스는 별도 상자로 (2026-08-18)
     var ordersData=_stripDataUrlsDeep({orders:_slimOrdersForCloud(S.orders||{}),_tomb:{orders:(S._tomb||{}).orders||{}}},_stripCnt); // orders 별도 문서(쪼개기)로 분리 + 무덤(삭제 전파용) + 다시 계산 가능한 발주서 줄은 제외
     /* ★2026-08-17 공유문서(업체·단가장) 송신 병합 — 예전엔 로컬을 **통째로** 올려서, 다른 기기가 방금 추가한 업체·품목을
        낡은 기기의 저장 한 번이 지워버렸다(실시간 리스너도 없어 그 기기는 받은 적이 없음). 푸시 직전 클라우드와 키 합집합(로컬 우선·묘비 필터). */
@@ -2520,7 +2593,8 @@ async function cloudSyncSave(){
     function _topKeys(o){try{return Object.keys(o).map(function(k){return [k,_docBytes(o[k])];}).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(x){return x[0]+' '+Math.round(x[1]/1024)+'KB';}).join('·');}catch(e){return '';}}
     var _ordShards=_splitOrdersForCloud(ordersData.orders,ordersData._tomb&&ordersData._tomb.orders); // 8조각
     var _ordShardBytes=_ordShards.map(_docBytes);
-    var _coBytes=_docBytes(coData),_shBytes=_docBytes(sharedData),_ordBytes=Math.max.apply(null,_ordShardBytes);
+    var _auxBytesMap={}; _auxKeyList.forEach(function(k){ _auxBytesMap[k]=_docBytes(_auxObjs[k]); });
+    var _coBytes=_docBytes(coData),_shBytes=_docBytes(sharedData),_ordBytes=Math.max.apply(null,_ordShardBytes),_auxBytes=Math.max.apply(null,[0].concat(_auxKeyList.map(function(k){return _auxBytesMap[k];})));
     // === 변경 없으면 푸시 생략 (2026-07-21) — "유령 변경" 차단 ===
     // 내용이 그대로인데도 매 저장마다 ts만 갱신돼, 다른 기기에 "다른 기기에서 변경됨" 배너·병합 토스트가
     // 아무도 편집 안 했는데 뜨던 문제의 뿌리. 폰/다른 탭을 열어만 놔도(부팅 저장) ts가 바뀌던 것도 이걸로 멈춤.
@@ -2529,7 +2603,8 @@ async function cloudSyncSave(){
     var _jMain='',_jSh='',_jCos='';
     try{_jMain=JSON.stringify(coData);_jSh=JSON.stringify(sharedData);_jCos=JSON.stringify(companies);}catch(eJ){}
     var _jOrdArr=_ordShards.map(function(o){ try{return JSON.stringify(o);}catch(e){return '';} });
-    try{ if(cloudCurrent&&_jMain&&JSON.stringify(cloudCurrent)===_jMain)window._lastPushedJson[_kMain]=_jMain; }catch(eC){}
+    try{ if(cloudCurrent&&_jMain&&(typeof _cloudMainRaw!=='undefined'?_cloudMainRaw:JSON.stringify(cloudCurrent))===_jMain)window._lastPushedJson[_kMain]=_jMain; }catch(eC){}
+    var _jAux={}; _auxKeyList.forEach(function(k){ try{_jAux[k]=JSON.stringify(_auxObjs[k]);}catch(e){_jAux[k]='';} if(window._lastPushedJson[k]===undefined){ try{ var v=(typeof _auxRead!=='undefined'&&_auxRead&&_auxRead.values)?_auxRead.values[k]:null; if(v&&JSON.stringify(v)===_jAux[k])window._lastPushedJson[k]=_jAux[k]; }catch(e){} } });
     // 세션 첫 저장이면 orders·shared도 클라우드와 같은지 1회 확인 (이후엔 세션 캐시 비교라 추가 읽기 없음)
     _ordKeys.forEach(function(k,i){ if(window._lastPushedJson[k]===undefined){ try{ var v=_ordRead&&_ordRead.values&&_ordRead.values[k]; if(v&&JSON.stringify(v)===_jOrdArr[i])window._lastPushedJson[k]=_jOrdArr[i]; }catch(e){} } }); // 조각이 클라우드와 같으면 푸시 생략 캐시
     if(_jSh&&window._lastPushedJson['fpm_shared']===undefined){ try{ var _shC=(typeof _shDoc!=='undefined'&&_shDoc)?_shDoc:await cloudGetDoc('fpm_shared'); if(_shC&&_shC.value&&JSON.stringify(_shC.value)===_jSh)window._lastPushedJson['fpm_shared']=_jSh; }catch(eS){} }
@@ -2541,15 +2616,16 @@ async function cloudSyncSave(){
       _pushDoc('fpm_cos',companies,_jCos),
       _pushDoc(_kMain,coData,_jMain),
       _pushDoc('fpm_shared',sharedData,_jSh)
-    ].concat(_ordKeys.map(function(k,i){ return _pushDoc(k,_ordShards[i],_jOrdArr[i]); }))); // [3..] = 발주 조각
+    ].concat(_ordKeys.map(function(k,i){ return _pushDoc(k,_ordShards[i],_jOrdArr[i]); })).concat(_auxKeyList.map(function(k){ return _pushDoc(k,_auxObjs[k],_jAux[k]); }))); // [3..3+8) = 발주 조각, 그 뒤 = 보조 상자
     if(_coRes[1]==='skip'){ try{ if(typeof _cloudTs!=='undefined'&&_cloudTs)setSyncBase(_kMain,_cloudTs); }catch(eB){} } // 메인 생략 시 base=클라우드 ts (스테일 오탐 방지)
     // 발주·공유 문서도 기준 ts 기록 (부팅 게이트가 3문서를 보게) + 공유문서 그림자 갱신 (2026-08-17)
     try{ _ordKeys.forEach(function(k,i){ var r=_coRes[3+i]; if(r===true)setSyncBase(k,(window._lastPushTs&&window._lastPushTs[k])||''); else if(r==='skip'&&_ordRead&&_ordRead.ts&&_ordRead.ts[k])setSyncBase(k,_ordRead.ts[k]); }); }catch(eB2){}
+    try{ _auxKeyList.forEach(function(k,i){ var r=_coRes[3+_ordKeys.length+i]; if(r===true)setSyncBase(k,(window._lastPushTs&&window._lastPushTs[k])||''); else if(r==='skip'&&_auxRead&&_auxRead.ts&&_auxRead.ts[k])setSyncBase(k,_auxRead.ts[k]); }); }catch(eB4){}
     try{ if(_coRes[2]===true){ setSyncBase('fpm_shared',(window._lastPushTs&&window._lastPushTs['fpm_shared'])||''); _shShadowInit(true); } else if(_coRes[2]==='skip'){ if(typeof _shDoc!=='undefined'&&_shDoc&&_shDoc.ts)setSyncBase('fpm_shared',_shDoc.ts); _shShadowInit(true); } }catch(eB3){}
     if(_coRes.indexOf(false)>=0){
-      var _over=(_coBytes>1000000||_shBytes>1000000||_ordBytes>1000000);
-      var _big=Math.max(_coBytes,_shBytes,_ordBytes);
-      var _detail=(_big===_ordBytes)?('발주서 조각(최대) '+Math.round(_ordBytes/1024)+'KB'):((_big===_coBytes)?('회사데이터 '+Math.round(_coBytes/1024)+'KB('+_topKeys(coData)+')'):('공유데이터 '+Math.round(_shBytes/1024)+'KB('+_topKeys(sharedData)+')'));
+      var _over=(_coBytes>1000000||_shBytes>1000000||_ordBytes>1000000||_auxBytes>1000000);
+      var _big=Math.max(_coBytes,_shBytes,_ordBytes,_auxBytes);
+      var _detail=(_big===_auxBytes&&_auxBytes>0)?('할일판/레퍼런스 상자 '+Math.round(_auxBytes/1024)+'KB'):(_big===_ordBytes)?('발주서 조각(최대) '+Math.round(_ordBytes/1024)+'KB'):((_big===_coBytes)?('회사데이터 '+Math.round(_coBytes/1024)+'KB('+_topKeys(coData)+')'):('공유데이터 '+Math.round(_shBytes/1024)+'KB('+_topKeys(sharedData)+')'));
       var _why=(_over?'문서 1MB 초과 — ':('저장 거부['+(window._cloudLastErr||'?')+'] — '))+_detail;
       /* 어느 오더가 자리를 먹는지 바로 알려준다 — 따로 화면 열 필요 없게 */
       try{ if(_over&&_big===_ordBytes&&typeof fpfSizeReport==='function'){ var _r=fpfSizeReport();
@@ -2781,7 +2857,7 @@ function fpfSizeReport(){
     var ordersData={orders:S.orders||{},_tomb:{orders:(S._tomb||{}).orders||{}}};
     try{ var _shs=_splitOrdersForCloud(ordersData.orders,ordersData._tomb.orders); var _mx=0,_mi=0; _shs.forEach(function(x,i){ var b=_szBytes(x); if(b>_mx){_mx=b;_mi=i;} }); rep.docs.push({name:'발주서 데이터 (8조각 중 최대, 조각 '+_mi+')',b:_mx}); }catch(e){}
     rep.docs.push({name:'발주서 데이터 (전체 합)',b:_szBytes(ordersData)});
-    rep.docs.push({name:'회사 데이터 (아이템 등)',b:_szBytes({items:S.items||{},tasks:S.tasks,pickups:S.pickups,defectRecs:S.defectRecs,refCards:S.refCards})});
+    try{ var _cd={items:S.items||{},_tomb:S._tomb||{},_kmt:S._kmt||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brandConfig:S.brandConfig||{},deductions:S.deductions||[]}; var _sp=_auxSplit(_cd,curCoId||'x'); rep.docs.push({name:'회사 메인 상자 (플래그·묘비)',b:_szBytes(_sp.main)}); Object.keys(_sp.aux).forEach(function(k){ rep.docs.push({name:'상자 '+k.replace(/^fpm_[^_]+_?[^_]*/,'').replace(/^_+/,''),b:_szBytes(_sp.aux[k])}); }); }catch(e){}
     rep.docs.push({name:'공유 데이터 (공장·단가장)',b:_szBytes({factories:S.factories||{},priceBook:S.priceBook||{}})});
     rep.docs.sort(function(a,b){return b.b-a.b;});
     Object.keys(S.orders||{}).forEach(function(oid){
@@ -3726,8 +3802,8 @@ async function cloudSyncLoad(id,opts){
   if(!isCloudOn())return false;
   setCloudInd('sync');
   try{
-    const[_coDoc,_shDocL,cosData,_ordRead]=await Promise.all([
-      cloudGetDoc('fpm_'+id),cloudGetDoc('fpm_shared'),cloudGet('fpm_cos'),_readOrderShards(id)
+    const[_coDoc,_shDocL,cosData,_ordRead,_auxReadL]=await Promise.all([
+      cloudGetDoc('fpm_'+id),cloudGetDoc('fpm_shared'),cloudGet('fpm_cos'),_readOrderShards(id),_readAuxDocs(id)
     ]);
     const sharedData=_shDocL&&_shDocL.value, ordersDoc=(_ordRead&&(_ordRead.any||_ordRead.legacy))?{orders:_ordRead.orders,_tomb:{orders:_ordRead.tomb}}:null;
     const _shTs=(_shDocL&&_shDocL.ts)||'';
@@ -3738,6 +3814,8 @@ async function cloudSyncLoad(id,opts){
     let changed=false;
     if(cosData){companies={...cosData};lsSet('fpm_cos',companies);changed=true;}
     const d=coData||{};const sh=sharedData||{};
+    const _auxTsMap=(_auxReadL&&_auxReadL.ts)||{};
+    try{ if(_auxReadL)_overlayAux(d,_auxReadL.values); }catch(e){} // 보조 상자(할일판·레퍼런스) 덮어 합치기
     // orders는 별도 문서(쪼개기)에서 — 없으면 옛 위치(d.orders) 폴백
     const _ord=(ordersDoc&&ordersDoc.orders&&Object.keys(ordersDoc.orders).length)?ordersDoc.orders:(d.orders||{});
     // 데이터 손실 방지 + ⑤ 멀티기기 최신 우선:
@@ -3763,7 +3841,8 @@ async function cloudSyncLoad(id,opts){
         var _baseS=getSyncBase('fpm_shared');
         var _baseO=Object.keys(_ordTsMap).some(function(k){return !!getSyncBase(k);}); // 조각 중 하나라도 기준 있음
         var _ordNewer=Object.keys(_ordTsMap).some(function(k){ var b=getSyncBase(k); return !!(b&&_ordTsMap[k]&&_ordTsMap[k]>b); });
-        var _cloudNewer=(_coTs&&_base&&_coTs>_base)||_ordNewer||(_shTs&&_baseS&&_shTs>_baseS);
+        var _auxNewer=Object.keys(_auxTsMap).some(function(k){ var b=getSyncBase(k); return !!(b&&_auxTsMap[k]&&_auxTsMap[k]>b); });
+        var _cloudNewer=(_coTs&&_base&&_coTs>_base)||_ordNewer||_auxNewer||(_shTs&&_baseS&&_shTs>_baseS);
         /* ★2026-08-17: 기준 ts가 하나도 없는데 로컬에 데이터가 있고 클라우드에도 있다 = 이 기기는 옛 스냅샷(07-07 이전에 마지막 동기화, 또는 저장소 초기화 뒤 남은 것).
            예전 규칙 "기준 없으면 무조건 로컬 유지"는 통째 교체 시절의 안전장치였고, 지금은 항목별 병합(동률=클라우드)이라 병합이 더 안전.
            아이패드가 5월 데이터를 '최신'이라며 그대로 쓰던 것의 원인. (07-07 회귀는 개수 기반 통째 채택이었음 — 이건 그게 아님) */
@@ -3774,7 +3853,7 @@ async function cloudSyncLoad(id,opts){
         if(!_cloudMoreComplete&&!_cloudNewer){
           console.warn('[cloudSyncLoad] 로컬 유지 (기준 ts 없거나 로컬이 더 완전/동일). 다른 기기 변경은 새로고침으로');
           if(_coTs&&!_base)setSyncBase('fpm_'+id,_coTs); // 최초 1회 기준 등록(부트스트랩)
-          Object.keys(_ordTsMap).forEach(function(k){ if(_ordTsMap[k]&&!getSyncBase(k))setSyncBase(k,_ordTsMap[k]); }); if(_shTs&&!_baseS)setSyncBase('fpm_shared',_shTs);
+          Object.keys(_ordTsMap).forEach(function(k){ if(_ordTsMap[k]&&!getSyncBase(k))setSyncBase(k,_ordTsMap[k]); }); Object.keys(_auxTsMap).forEach(function(k){ if(_auxTsMap[k]&&!getSyncBase(k))setSyncBase(k,_auxTsMap[k]); }); if(_shTs&&!_baseS)setSyncBase('fpm_shared',_shTs);
           if(!window._shShadow)_shShadowInit();
           if(_base)_careSupMig1Run(); // 기준 ts 있음 = 로컬이 최신임이 확인된 상태 → 1회 일괄변경 실행 가능
           setCloudInd('ok');
@@ -3829,7 +3908,7 @@ async function cloudSyncLoad(id,opts){
       lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
       migrateData();changed=true;
       try{_entShadowInit();}catch(e){} // 병합 결과가 이 세션의 새 기준(마이그레이션 이후 시점)
-      try{ if(_coTs)setSyncBase('fpm_'+id,_coTs); Object.keys(_ordTsMap).forEach(function(k){ if(_ordTsMap[k])setSyncBase(k,_ordTsMap[k]); }); if(_shTs)setSyncBase('fpm_shared',_shTs); }catch(e){} // 클라우드를 반영했으니 그 문서 ts가 내 새 기준(메인·조각들·공유)
+      try{ if(_coTs)setSyncBase('fpm_'+id,_coTs); Object.keys(_ordTsMap).forEach(function(k){ if(_ordTsMap[k])setSyncBase(k,_ordTsMap[k]); }); Object.keys(_auxTsMap).forEach(function(k){ if(_auxTsMap[k])setSyncBase(k,_auxTsMap[k]); }); if(_shTs)setSyncBase('fpm_shared',_shTs); }catch(e){} // 클라우드를 반영했으니 그 문서 ts가 내 새 기준(메인·조각들·공유)
       try{_shShadowInit();}catch(e){} // 공유문서 그림자 = 병합 결과
       if(coData)_careSupMig1Run(); // 병합 직후 = 최신 확보 상태 → 1회 일괄변경
     }
@@ -3932,7 +4011,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-18i';
+var APP_BUILD=/*BUILD*/'2026-08-18j';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5040,6 +5119,7 @@ async function deleteCo(){
       await cloudSet('fpm_'+deletedCoId, {items:{},orders:{},brands:[],sampleOrders:[],pickups:[],tasks:[],brandConfig:{},deductions:[],_deleted:true,_deletedAt:new Date().toISOString()});
       await cloudSet('fpm_'+deletedCoId+'__orders', {orders:{},_deleted:true,_deletedAt:new Date().toISOString()});
       for(var _si=0;_si<ORD_SHARDS;_si++){ try{ await cloudSet(_ordShardKey(deletedCoId,_si), {orders:{},_deleted:true,_deletedAt:new Date().toISOString()}); }catch(e){} }
+      try{ var _ak=_auxKeys(deletedCoId); for(var _ai=0;_ai<_ak.length;_ai++){ await cloudSet(_ak[_ai], {_deleted:true,_deletedAt:new Date().toISOString()}); } }catch(e){}
       setCloudInd('ok');
       console.log('[deleteCo] 클라우드에서도 회사 제거 완료:', deletedCoId);
     }catch(e){
