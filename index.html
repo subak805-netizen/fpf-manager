@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260818k">
+<link rel="stylesheet" href="css/main.css?v=20260818m">
 </head>
 <body>
 
@@ -4011,7 +4011,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-18l';
+var APP_BUILD=/*BUILD*/'2026-08-18m';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9906,17 +9906,36 @@ function renderItemsList(){
     /* 1회비 — 가공비와 똑같은 접이식 묶음. 패턴비·샘플비·그래이딩비 + 패턴실·샘플실 이름.
        ⚠️ 값은 아이템에 바로 저장한다(setItemCost/setItemText). 아이템 수정 폼에도 같은 칸이 있어야
           폼을 저장할 때 여기서 적은 값이 날아가지 않는다 — 폼에도 넣어뒀다. */
+    /* 업체는 등록해둔 공장 목록에서 고른다(직접 입력도 됨). 값은 '이름'으로 저장 — 샘플 발주와 같은 방식. */
     var _onceNum=function(key,lbl){
       var v=+it[key]||0;
       return '<span class="im-labor"><span class="im-lbl">'+esc(lbl)+'</span><input type="number" inputmode="numeric" value="'+(v||'')+'" placeholder="미입력" onclick="event.stopPropagation()" onchange="setItemCost(\''+it.id+'\',\''+key+'\',this.value)" class="im-labor-in'+(v>0?'':' miss')+'">원</span>';
     };
-    var _onceTxt=function(key,lbl,ph){
+    var _onceSel=function(key,lbl,pref){
       var v=it[key]||'';
-      return '<span class="im-labor"><span class="im-lbl">'+esc(lbl)+'</span><input type="text" value="'+esc(v)+'" placeholder="'+esc(ph)+'" onclick="event.stopPropagation()" onchange="setItemText(\''+it.id+'\',\''+key+'\',this.value)" class="im-labor-in im-txt'+(v?'':' miss')+'"></span>';
+      return '<span class="im-labor"><span class="im-lbl">'+esc(lbl)+'</span><select class="im-labor-in im-sel'+(v?'':' miss')+'" onclick="event.stopPropagation()" onchange="setItemMaker(\''+it.id+'\',\''+key+'\',this)">'+_ncMakerOpts(v,pref)+'</select></span>';
     };
-    var onceBody=_onceNum('patternCost','패턴비')+_onceNum('sampleCost','샘플비')+_onceNum('gradingCost','그래이딩비')
-                +_onceTxt('patternMaker','패턴실','패턴실 이름')+_onceTxt('sampleMaker','샘플실','샘플실 이름');
-    var onceFilled=['patternCost','sampleCost','gradingCost'].filter(function(k){return (+it[k]||0)>0;}).length
+    var _feeBlock=function(kind,lbl,selHtml){
+      var arr=_feeArr(it,kind), sum=_feeSum(it,kind);
+      var rows=arr.map(function(f,i){
+        var v=(+((f||{}).amt))||0;
+        return '<span class="nc-fee"><b>'+(i+1)+'차</b>'
+          +'<input type="number" inputmode="numeric" value="'+(v||'')+'" placeholder="미입력" onclick="event.stopPropagation()" onchange="itemFeeSet(\''+it.id+'\',\''+kind+'\','+i+',this.value)" class="im-labor-in'+(v>0?'':' miss')+'">원'
+          +'<button type="button" class="nc-feex" title="이 차수 지우기" onclick="event.stopPropagation();itemFeeDel(\''+it.id+'\',\''+kind+'\','+i+')">×</button></span>';
+      }).join('');
+      if(!arr.length)rows='<span class="nc-feenone">아직 없음</span>';
+      return '<div class="nc-once-pair">'+selHtml
+        +'<div class="nc-fees">'+rows
+        +'<button type="button" class="nc-feeadd" onclick="event.stopPropagation();itemFeeAdd(\''+it.id+'\',\''+kind+'\')">＋ 차수</button>'
+        +(arr.length>1?('<span class="nc-feesum">합계 '+sum.toLocaleString()+'원</span>'):'')
+        +'</div></div>';
+    };
+    var onceBody='<div class="nc-once-grid">'
+      +_feeBlock('pattern','패턴비',_onceSel('patternMaker','패턴실','패턴'))
+      +_feeBlock('sample','샘플비',_onceSel('sampleMaker','샘플실','봉제'))
+      +'<div class="nc-once-pair">'+_onceNum('gradingCost','그래이딩비')+'</div>'
+      +'</div>';
+    var onceFilled=(_feeSum(it,'pattern')>0?1:0)+(_feeSum(it,'sample')>0?1:0)+((+it.gradingCost||0)>0?1:0)
                   +['patternMaker','sampleMaker'].filter(function(k){return !!it[k];}).length;
     // 상태 칩 — 기존 토글 함수 그대로 호출(toggleItemStat/toggleCostSent/openKcModal). 빨강=대기(중요), 초록=완료
     function chip(key,atKey,label,important,disp){
@@ -9948,10 +9967,12 @@ function renderItemsList(){
       </div>
       <div class="nc-c3">
         <div class="nc-cost">
-          <button type="button" class="nc-cost-tg" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('open');var o=this.nextElementSibling.classList.contains('open');this.textContent='가공비 ${costCount} '+(o?'▴':'▾')">가공비 ${costCount} ▾</button>
-          <div class="nc-cost-body">${costBody}</div>
-          <button type="button" class="nc-cost-tg nc-once-tg" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('open');var o=this.nextElementSibling.classList.contains('open');this.textContent='1회비 ${onceFilled}/5 '+(o?'▴':'▾')">1회비 ${onceFilled}/5 ▾</button>
-          <div class="nc-cost-body">${onceBody}</div>
+          <div class="nc-cost-tgs">
+            <button type="button" class="nc-cost-tg${_ncIsOpen(it.id,'cost')?' on':''}" onclick="event.stopPropagation();ncToggleCost('${it.id}','cost')">가공비 ${costCount} ${_ncIsOpen(it.id,'cost')?'▴':'▾'}</button>
+            <div class="nc-cost-body${_ncIsOpen(it.id,'cost')?' open':''}">${costBody}</div>
+            <button type="button" class="nc-cost-tg nc-once-tg${_ncIsOpen(it.id,'once')?' on':''}" onclick="event.stopPropagation();ncToggleCost('${it.id}','once')">1회비 ${onceFilled}/5 ${_ncIsOpen(it.id,'once')?'▴':'▾'}</button>
+            <div class="nc-cost-body${_ncIsOpen(it.id,'once')?' open':''}">${onceBody}</div>
+          </div>
         </div>
         <div class="nc-acts">
           <button type="button" class="nc-ab" onclick="tpOpen('${it.id}')" title="작업지시서 작성·인쇄">작지</button>
@@ -10029,13 +10050,35 @@ function renderItemsList(){
     +'.nc-st.on{background:#A5E6BA;color:#0B0A05;}'
     +'.nc-st.on .nc-dot{background:#0B0A05;border-color:#0B0A05;}'
     +'.nc-st.warn{border-color:#c0392b;color:#c0392b;}'
-    +'.nc-cost{margin-bottom:9px;}'
-    +'.nc-cost-tg{font-family:inherit;font-size:11px;font-weight:700;padding:4px 10px;border:2px solid #0B0A05;background:#fff;color:#3a3528;cursor:pointer;box-shadow:1.5px 1.5px 0 #0B0A05;}'
-    +'.nc-cost-body{display:none;margin-top:7px;padding:8px 10px;background:#EAF3F8;border:2px solid #0B0A05;font-size:12px;color:#374151;}'
-    +'.nc-cost-body.open{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;}'
-    +'.nc-cost-body .im-labor{display:inline-flex;align-items:center;gap:3px;}'
-    +'.nc-cost-body .im-lbl{color:#9ca3af;min-width:30px;text-align:right;}'
-    +'.nc-cost-body .im-labor-in{width:74px;text-align:right;font-variant-numeric:tabular-nums;}'
+    /* ⚠️ 펼친 칸은 **떠 있는 쪽지**여야 한다. 카드가 grid(158px / 1fr / auto)라서
+          펼친 내용이 자리를 차지하면 auto 칸이 부풀고 **아이템 이름 칸이 한 글자 폭으로 찌그러진다**(신고 2026-08-18). */
+    +'.nc-cost{margin-bottom:9px;position:relative;}'
+    +'.nc-cost-tgs{display:flex;gap:6px;justify-content:flex-end;}'
+    +'.nc-cost-tg{font-family:inherit;font-size:11px;font-weight:700;padding:4px 10px;border:2px solid #0B0A05;background:#fff;color:#3a3528;cursor:pointer;box-shadow:1.5px 1.5px 0 #0B0A05;white-space:nowrap;}'
+    +'.nc-cost-tg.on{background:#0B0A05;color:#fff;}'
+    +'.nc-cost-body{display:none;}'
+    +'.nc-cost-body.open{display:block;position:absolute;right:0;top:calc(100% + 5px);z-index:40;min-width:262px;max-width:min(420px,84vw);padding:9px 11px;background:#EAF3F8;border:2.5px solid #0B0A05;box-shadow:4px 4px 0 rgba(11,10,5,.25);font-size:12px;color:#374151;text-align:left;}'
+    +'.nc-cost-body .im-labor{display:flex;align-items:center;gap:6px;padding:2px 0;}'
+    +'.nc-cost-body .im-labor+.im-labor{border-top:1px dashed #cfe0ea;}'
+    +'.nc-cost-body .im-lbl{color:#6b7280;font-weight:700;flex:1;min-width:62px;text-align:left;}'
+    +'.nc-cost-body .im-labor-in{width:92px;text-align:right;font-variant-numeric:tabular-nums;}'
+    +'.nc-cost-body .im-labor-in.im-txt{width:118px;text-align:left;}'
+    +'.nc-once-grid{display:flex;flex-direction:column;gap:0;}'
+    +'.nc-once-pair{display:flex;align-items:center;gap:10px;padding:4px 0;flex-wrap:wrap;}'
+    +'.nc-once-pair+.nc-once-pair{border-top:1px dashed #cfe0ea;}'
+    +'.nc-once-pair .im-labor{padding:0;border:0;flex:0 0 auto;}'
+    +'.nc-once-pair .im-lbl{min-width:52px;flex:0 0 auto;}'
+    +'.nc-cost-body .im-labor-in.im-sel{width:124px;text-align:left;font-family:inherit;font-size:12px;font-weight:700;padding:2px 4px;}'
+    +'.nc-cost-body .im-labor-in.im-sel.miss{border-color:#fecaca;background:#fef2f2;color:#b91c1c;font-weight:600;}'
+    +'.nc-fees{display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px;flex:1;min-width:0;}'
+    +'.nc-fee{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;}'
+    +'.nc-fee b{font-weight:800;color:#6b7280;font-size:10.5px;min-width:20px;}'
+    +'.nc-fee .im-labor-in{width:86px;margin:0 2px;}'
+    +'.nc-feex{font-family:inherit;border:1.5px solid #e5cfcf;background:#fff;color:#b91c1c;font-size:11px;font-weight:800;line-height:1;padding:3px 5px;cursor:pointer;}'
+    +'.nc-feeadd{font-family:inherit;border:1.5px solid #0B0A05;background:#fff;color:#0B0A05;font-size:10.5px;font-weight:800;padding:3px 8px;cursor:pointer;white-space:nowrap;}'
+    +'.nc-feesum{font-size:10.5px;font-weight:800;color:#0B0A05;background:#FFF6B8;border:1.5px solid #0B0A05;padding:2px 7px;white-space:nowrap;}'
+    +'.nc-feenone{font-size:11px;color:#9ca3af;}'
+    +'.nc-once-pair{align-items:flex-start;}'
     +'.nc-acts{display:flex;gap:7px;align-items:stretch;}'
     +'.nc-ab{flex:1;font-family:inherit;font-size:12.5px;font-weight:800;padding:9px 0;border:2.5px solid #0B0A05;background:#B0DBF0;color:#0B0A05;cursor:pointer;box-shadow:2px 2px 0 #0B0A05;}'
     +'.nc-ab.ghost{background:#fff;}'
@@ -10073,7 +10116,7 @@ function renderItemsList(){
     +'.nc-c2 .nc-status{margin:0;}'
     +'.nc-c3{display:flex;flex-direction:column;gap:8px;align-items:flex-end;}'
     +'.nc-c3 .nc-cost{margin:0;}'
-    +'.nc-c3 .nc-cost-body{white-space:nowrap;}'
+    +'.nc-c3 .nc-cost-body{white-space:normal;}'
     +'.nc-c3 .nc-acts{display:flex;gap:6px;}'
     +'.nc-c3 .nc-acts .nc-ab{flex:0 0 auto;padding:7px 14px;}'
     +'.nc-c3 .nc-more{padding:7px 11px;}'
@@ -10285,6 +10328,83 @@ function itemLaborTag(it){
 function setItemLabor(id,val){var it=S.items[id];if(!it)return;it.laborCost=Math.max(0,+val||0);saveData();renderItemsList();}
 function setItemCost(id,key,val){var it=S.items[id];if(!it)return;it[key]=Math.max(0,+val||0);saveData();renderItemsList();}
 /* 아이템 카드에서 글자 값(패턴실·샘플실 이름 등) 바로 저장 */
+/* 카드의 가공비·1회비 쪽지 여닫기.
+   ⚠️ 값을 하나 고칠 때마다 renderItemsList()가 카드를 통째로 다시 그린다.
+      그래서 '어느 카드의 어느 칸을 열어놨는지'를 기억해두지 않으면 **한 글자 고칠 때마다 접힌다**(신고 2026-08-18).
+      → window._ncOpen 에 기억하고, 그릴 때 그대로 다시 펴 준다. 접는 건 토글을 눌렀을 때만. */
+function ncToggleCost(id,which,label){
+  var cur=window._ncOpen;
+  var same=cur&&cur.id===id&&cur.w===which;
+  window._ncOpen=same?null:{id:id,w:which};
+  renderItemsList();
+}
+function _ncIsOpen(id,which){ var o=window._ncOpen; return !!(o&&o.id===id&&o.w===which); }
+/* 등록된 공장 목록을 종류별로 묶어 보여준다. 지금 값이 목록에 없어도 절대 안 지운다(맨 위에 살려둠). */
+/* ===== 패턴비·샘플비 회차 (1차·2차…) =====
+   수정이 나오면 패턴비가 또 든다(사용자). 그래서 금액을 **회차 배열**로 쌓는다.
+   ⚠️ 원가·분석 코드는 지금도 it.patternCost / it.sampleCost 를 읽는다.
+      그래서 회차를 고칠 때마다 **합계를 그 칸에 다시 써 넣는다** — 돈 계산 쪽은 아무것도 안 바꿔도 맞는다.
+   ⚠️ 화면 그릴 때 자료를 만들지 않는다(_feeArr 는 읽기 전용) — 열어보기만 해도 '고침'으로 찍히면 동기화가 흔들린다. */
+function _feeArr(it,kind){
+  var a=it&&it[kind+'Fees'];
+  if(Array.isArray(a))return a;
+  var legacy=+((it||{})[kind+'Cost'])||0;
+  return legacy>0?[{amt:legacy}]:[];
+}
+function _feeSum(it,kind){ var s=0; _feeArr(it,kind).forEach(function(f){ s+=(+((f||{}).amt))||0; }); return s; }
+function _feeWrite(it,kind,arr){
+  it[kind+'Fees']=arr;
+  it[kind+'Cost']=arr.reduce(function(s,f){ return s+((+((f||{}).amt))||0); },0);
+}
+function itemFeeSet(id,kind,i,val){
+  var it=S.items[id]; if(!it)return;
+  var a=_feeArr(it,kind).slice(); if(!a[i])return;
+  a[i]=Object.assign({},a[i],{amt:Math.max(0,+val||0)});
+  _feeWrite(it,kind,a); saveData(); renderItemsList();
+}
+function itemFeeAdd(id,kind){
+  var it=S.items[id]; if(!it)return;
+  var a=_feeArr(it,kind).slice(); a.push({amt:0});
+  _feeWrite(it,kind,a); saveData(); renderItemsList();
+}
+function itemFeeDel(id,kind,i){
+  var it=S.items[id]; if(!it)return;
+  var a=_feeArr(it,kind).slice(); if(i<0||i>=a.length)return;
+  a.splice(i,1); _feeWrite(it,kind,a); saveData(); renderItemsList();
+}
+function _ncMakerOpts(cur,pref){
+  var fs=[]; var src=S.factories||{};
+  Object.keys(src).forEach(function(k){ var f=src[k]; if(f&&f.name)fs.push(f); });
+  var seen={}, groups={};
+  fs.forEach(function(f){
+    if(seen[f.name])return; seen[f.name]=1;
+    var t=f.type||'기타'; (groups[t]=groups[t]||[]).push(f.name);
+  });
+  var order=Object.keys(groups).sort(function(a,b){
+    if(a===pref)return -1; if(b===pref)return 1;
+    return a.localeCompare(b,'ko');
+  });
+  var h='<option value="">— 없음 —</option>';
+  if(cur&&!seen[cur])h+='<option value="'+esc(cur)+'" selected>'+esc(cur)+'</option>';
+  order.forEach(function(t){
+    h+='<optgroup label="'+esc(t)+'">';
+    groups[t].sort(function(a,b){return a.localeCompare(b,'ko');}).forEach(function(n){
+      h+='<option value="'+esc(n)+'"'+(n===cur?' selected':'')+'>'+esc(n)+'</option>';
+    });
+    h+='</optgroup>';
+  });
+  return h+'<option value="__etc">직접 적기…</option>';
+}
+function setItemMaker(id,key,sel){
+  var it=S.items[id]; if(!it)return;
+  var v=sel?sel.value:'';
+  if(v==='__etc'){
+    var t=prompt('업체 이름을 적어주세요', it[key]||'');
+    if(t===null){ sel.value=it[key]||''; return; }
+    v=String(t).trim();
+  }
+  it[key]=v; saveData(); renderItemsList();
+}
 function setItemText(id,key,val){var it=S.items[id];if(!it)return;it[key]=String(val==null?'':val).trim();saveData();renderItemsList();}
 // 상단 '더보기(⋯)' 드롭다운 (작지 가져오기·브랜드)
 function toggleItemsMore(e){ if(e&&e.stopPropagation)e.stopPropagation(); var p=document.getElementById('items-more-pop'); if(!p)return; var willOpen=!p.classList.contains('open'); p.classList.toggle('open',willOpen); if(willOpen){ setTimeout(function(){ document.addEventListener('click',closeItemsMore,{once:true}); },0); } }
@@ -12953,6 +13073,14 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
     item.patternMaker=pEl?String(pEl.value||'').trim():(_prev.patternMaker||'');
     var sEl=document.getElementById('f-sampleMaker');
     item.sampleMaker=sEl?String(sEl.value||'').trim():(_prev.sampleMaker||'');
+    /* ⚠️ 패턴비·샘플비를 회차로 쪼개 놨으면 폼의 한 칸으로 덮어쓰면 안 된다(2차·3차가 통째로 사라진다).
+          회차가 1건 이하일 때만 폼 값을 1차로 반영한다. */
+    ['pattern','sample'].forEach(function(kind){
+      var arr=_prev[kind+'Fees'];
+      if(Array.isArray(arr)&&arr.length>1){ item[kind+'Fees']=arr; item[kind+'Cost']=_feeSum(_prev,kind); return; }
+      var v=+item[kind+'Cost']||0;
+      item[kind+'Fees']=v>0?[{amt:v}]:[];
+    });
   })();
   item.sampleCost=+document.getElementById('f-sampleCost')?.value||0;
   item.onceCost=+document.getElementById('f-onceCost')?.value||0;
