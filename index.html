@@ -1551,10 +1551,22 @@ async function cloudGetDoc(key){
 window._entShadow=null; // 이 세션이 마지막으로 인지한 항목별 JSON (수정 감지용, 회사 로드 때 초기화)
 function _entJson(e){ try{ return e?JSON.stringify(e,function(k,v){return k==='_mt'?undefined:v;}):''; }catch(err){ return ''; } }
 function _entEnsureTomb(){ if(!S._tomb||typeof S._tomb!=='object')S._tomb={}; ['items','orders'].forEach(function(k){ if(!S._tomb[k]||typeof S._tomb[k]!=='object')S._tomb[k]={}; }); return S._tomb; }
+/* ===== 재건축 2단계 (2026-08-18): 배열 항목·맵 키에도 수정시각 =====
+   할일·픽업·샘플발주·차감·패키지·골·불량기록·레퍼런스·소재·브랜드·택배시재 항목 = 각 객체에 _mt 도장.
+   trimLedger·trimLedgerPaid·trimLedgerOvr·brandConfig(맵) = 값이 원시값일 수 있어 S._kmt[맵][키]=ms 사이드카.
+   병합은 "더 최신이 이김"(_mergeById가 _mt 비교, _mergeMapMt가 사이드카 비교), 동률/도장 없음은 종전대로 뒤 인자(b) 승.
+   맵 키 삭제도 사이드카에 삭제 시각을 남겨 전파(늦게 지운 쪽이 이김). */
+var _MT_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra','brands'];
+var _MT_MAPS=['trimLedger','trimLedgerPaid','trimLedgerOvr','brandConfig'];
+function _mtArrList(n){ if(n==='courierEntries')return (S.courierLedger&&Array.isArray(S.courierLedger.entries))?S.courierLedger.entries:[]; return Array.isArray(S[n])?S[n]:[]; }
 function _entShadowInit(){
-  var sh={items:{},orders:{}};
+  var sh={items:{},orders:{},arr:{},map:{}};
   Object.keys(S.items||{}).forEach(function(id){ sh.items[id]=_entJson(S.items[id]); });
   Object.keys(S.orders||{}).forEach(function(id){ sh.orders[id]=_entJson(S.orders[id]); });
+  try{
+    _MT_ARRS.concat(['courierEntries']).forEach(function(n){ var m={}; _mtArrList(n).forEach(function(e){ if(e&&e.id)m[e.id]=_entJson(e); }); sh.arr[n]=m; });
+    _MT_MAPS.forEach(function(n){ var m={},src=(S[n]&&typeof S[n]==='object'&&!Array.isArray(S[n]))?S[n]:{},k; for(k in src){ try{m[k]=JSON.stringify(src[k]);}catch(e){m[k]='';} } sh.map[n]=m; });
+  }catch(e){}
   window._entShadow=sh;
   try{window._tbShadowJson=_tbJson();}catch(e){}   // 할일판 기준선도 함께 (부팅·수신 직후 = 변경 아님)
 }
@@ -1593,7 +1605,42 @@ function _entStampChanges(){
   });
   var lim=now-45*86400000; // 무덤 45일 보관 후 청소
   ['items','orders'].forEach(function(k){ var t=tomb[k]; Object.keys(t).forEach(function(id){ if(+t[id]<lim)delete t[id]; }); });
+  try{_entStampArrMap(now);}catch(e){}
 }
+/* 배열 항목 _mt 도장 + 맵 키 사이드카(S._kmt) 갱신 — saveData마다 (재건축 2단계) */
+function _entStampArrMap(now){
+  var sh=window._entShadow; if(!sh||!sh.arr||!sh.map)return;
+  _MT_ARRS.concat(['courierEntries']).forEach(function(n){
+    var m=sh.arr[n]||(sh.arr[n]={}), seen={};
+    _mtArrList(n).forEach(function(e){ if(!e||!e.id)return; seen[e.id]=1; var j=_entJson(e); if(m[e.id]!==j){ e._mt=now; m[e.id]=j; } });
+    Object.keys(m).forEach(function(id){ if(!seen[id])delete m[id]; }); // 삭제는 묘비(_tombArr)가 담당
+  });
+  if(!S._kmt||typeof S._kmt!=='object')S._kmt={};
+  var lim=now-90*86400000;
+  _MT_MAPS.forEach(function(n){
+    var m=sh.map[n]||(sh.map[n]={}), src=(S[n]&&typeof S[n]==='object'&&!Array.isArray(S[n]))?S[n]:{}, k;
+    var km=S._kmt[n]||(S._kmt[n]={});
+    for(k in src){ var j=''; try{j=JSON.stringify(src[k]);}catch(e){} if(m[k]!==j){ km[k]=now; m[k]=j; } }
+    for(k in m){ if(!(k in src)){ km[k]=now; delete m[k]; } } // 키 삭제 시각(전파용)
+    for(k in km){ if(!(k in src)&&+km[k]<lim)delete km[k]; } // 지운 지 90일 넘은 사이드카 청소
+  });
+}
+/* 맵 병합(키 단위, 사이드카 시각 비교): 둘 다 있으면 더 최신(동률=b), 한쪽만 있으면 상대의 삭제 시각이 더 늦지 않을 때만 살림 */
+var _kmtTmp={};
+function _mergeMapMt(name,a,b,aK,bK){
+  a=(a&&typeof a==='object'&&!Array.isArray(a))?a:{}; b=(b&&typeof b==='object'&&!Array.isArray(b))?b:{};
+  aK=(aK&&aK[name])||{}; bK=(bK&&bK[name])||{};
+  var out={},mt={},keys={},k;
+  for(k in a)keys[k]=1; for(k in b)keys[k]=1;
+  for(k in keys){
+    var ia=Object.prototype.hasOwnProperty.call(a,k), ib=Object.prototype.hasOwnProperty.call(b,k), ta=+aK[k]||0, tb=+bK[k]||0;
+    if(ia&&ib){ out[k]=(tb>=ta)?b[k]:a[k]; if(ta||tb)mt[k]=Math.max(ta,tb); }
+    else if(ia){ if(tb>ta){ mt[k]=tb; } else { out[k]=a[k]; if(ta)mt[k]=ta; } }   // b가 더 늦게 지웠으면 안 살림
+    else { if(ta>tb){ mt[k]=ta; } else { out[k]=b[k]; if(tb)mt[k]=tb; } }
+  }
+  _kmtTmp[name]=mt; return out;
+}
+function _kmtCollect(base){ var out={},k; base=(base&&typeof base==='object')?base:{}; for(k in base)out[k]=base[k]; for(k in _kmtTmp)out[k]=_kmtTmp[k]; _kmtTmp={}; return out; }
 // 항목별 병합: 항목마다 로컬/클라우드 중 더 최신(_mt)을 채택. 삭제(무덤)가 더 최신이면 삭제 유지.
 // tieWin: _mt 동률(옛 데이터 등)일 때 누굴 채택할지 — 저장 경로='local'(내가 올리는 중), 수신 경로='cloud'(문서 ts가 더 새로움이 확인된 상태)
 function _entMerge(localMap,cloudMap,localTomb,cloudTomb,tieWin){
@@ -1775,7 +1822,7 @@ function tpPreserveLocalContent(inc,old){
 function _mergeById(a,b,tomb){
   a=Array.isArray(a)?a:[]; b=Array.isArray(b)?b:[];
   var seen={}, out=[];
-  function add(t){ if(!t)return; if(t.id){ if(tomb&&tomb[t.id])return; if(seen[t.id]){ out[seen[t.id]-1]=t; return; } seen[t.id]=out.length+1; } out.push(t); }
+  function add(t){ if(!t)return; if(t.id){ if(tomb&&tomb[t.id])return; if(seen[t.id]){ var cur=out[seen[t.id]-1]; if((+t._mt||0)>=(+(cur&&cur._mt)||0))out[seen[t.id]-1]=t; return; } seen[t.id]=out.length+1; } out.push(t); } // 같은 id = 수정시각(_mt) 큰 쪽, 동률·도장 없음 = b (2026-08-18)
   a.forEach(add); b.forEach(add);   // a 먼저(순서 보존) → b가 같은 id 덮어쓰고 새 id append
   return out;
 }
@@ -1879,9 +1926,9 @@ function applyRemoteCoData(data,ts,opts){
   S.packages=_mergeById(S.packages,data.packages,S._tomb.packages);S.goals=_mergeById(S.goals,data.goals,S._tomb.goals);S.defectRecs=_mergeById(S.defectRecs,data.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(S.refCards,data.refCards,S._tomb.refCards);S.refCollections=_mergeById(S.refCollections,data.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(S.matExtra,data.matExtra,S._tomb.matExtra);
   if(typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
   // 객체맵도 키 단위 병합(통째 교체 금지) — 원격 키 승, 로컬 전용 키 보존
-  S.brandConfig=_mergeMap(S.brandConfig,data.brandConfig);
-  S.trimLedger=_mergeMap(S.trimLedger,data.trimLedger);S.trimLedgerPaid=_mergeMap(S.trimLedgerPaid,data.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(S.trimLedgerOvr,data.trimLedgerOvr);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeRefData(S.refData,data.refData);
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
+  S.brandConfig=_mergeMapMt('brandConfig',S.brandConfig,data.brandConfig,S._kmt,data._kmt);
+  S.trimLedger=_mergeMapMt('trimLedger',S.trimLedger,data.trimLedger,S._kmt,data._kmt);S.trimLedgerPaid=_mergeMapMt('trimLedgerPaid',S.trimLedgerPaid,data.trimLedgerPaid,S._kmt,data._kmt);S.trimLedgerOvr=_mergeMapMt('trimLedgerOvr',S.trimLedgerOvr,data.trimLedgerOvr,S._kmt,data._kmt);S._kmt=_kmtCollect(S._kmt);S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);S.refData=_mergeRefData(S.refData,data.refData);
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{},_kmt:S._kmt||{}});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
   if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -1943,7 +1990,7 @@ function applyRemoteOrders(orders,tomb,ts){
   S.orders=_mo.map; S._tomb.orders=_mo.tomb;
   if(ts)try{setSyncBase('fpm_'+curCoId+'__orders',ts);}catch(e){} // 발주 문서 기준 ts (부팅 게이트가 3문서를 보게, 2026-08-17)
   try{_rehydrateExtraSuppliers();}catch(e){} // 업로드에서 뺐던 추가발주 발주서 줄 다시 계산
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{}});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{},_kmt:S._kmt||{}});}catch(e){}
   try{_entShadowInit();}catch(e){}
   try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -2384,8 +2431,8 @@ async function cloudSyncSave(){
         S.pickups=_mergeById(cloudCurrent.pickups,S.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(cloudCurrent.sampleOrders,S.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(cloudCurrent.deductions,S.deductions,S._tomb.deductions);
         S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(cloudCurrent.refCards,S.refCards,S._tomb.refCards);S.refCollections=_mergeById(cloudCurrent.refCollections,S.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(cloudCurrent.matExtra,S.matExtra,S._tomb.matExtra);
         // 객체맵 키 단위 병합(b=로컬 승) — 다른 기기가 추가한 키를 내 저장이 안 지움
-        S.trimLedger=_mergeMap(cloudCurrent.trimLedger,S.trimLedger);S.trimLedgerPaid=_mergeMap(cloudCurrent.trimLedgerPaid,S.trimLedgerPaid);S.trimLedgerOvr=_mergeMap(cloudCurrent.trimLedgerOvr,S.trimLedgerOvr);
-        S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeRefData(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMap(cloudCurrent.brandConfig,S.brandConfig);
+        S.trimLedger=_mergeMapMt('trimLedger',cloudCurrent.trimLedger,S.trimLedger,cloudCurrent._kmt,S._kmt);S.trimLedgerPaid=_mergeMapMt('trimLedgerPaid',cloudCurrent.trimLedgerPaid,S.trimLedgerPaid,cloudCurrent._kmt,S._kmt);S.trimLedgerOvr=_mergeMapMt('trimLedgerOvr',cloudCurrent.trimLedgerOvr,S.trimLedgerOvr,cloudCurrent._kmt,S._kmt);
+        S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeRefData(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMapMt('brandConfig',cloudCurrent.brandConfig,S.brandConfig,cloudCurrent._kmt,S._kmt);S._kmt=_kmtCollect(S._kmt);
         // 할일판: 송신에도 _mt 최신판정 — 낡은 기기의 옛 보드가 클라우드의 새 보드(다른 기기 삭제 반영본)를 안 덮음. 동률=로컬 승(내가 저장 중)
         if(typeof _tbPick==='function')S.todoBoard=_tbPick(cloudCurrent.todoBoard,S.todoBoard);
         _entShadowInit(); // 병합 결과가 새 기준
@@ -2397,7 +2444,7 @@ async function cloudSyncSave(){
     // 회사별 데이터 전체 (작업지시서 dataURL 사진은 클라우드 문서에서 제외 — 1MB 초과로 동기화 깨짐 방지)
     var coData={
       items:tpStripDataUrls(S.items||{}),
-      _tomb:S._tomb||{},
+      _tomb:S._tomb||{},_kmt:S._kmt||{},
       _careSupMig1:S._careSupMig1||false,
       brands:S.brands||[],
       sampleOrders:S.sampleOrders||[],
@@ -3714,9 +3761,10 @@ async function cloudSyncLoad(id,opts){
         pickups:_mergeById(S.pickups,d.pickups,_tombNew.pickups),
         packages:_mergeById(S.packages,d.packages,_tombNew.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
         goals:_mergeById(S.goals,d.goals,_tombNew.goals),
-        trimLedger:_mergeMap(S.trimLedger,d.trimLedger),trimLedgerPaid:_mergeMap(S.trimLedgerPaid,d.trimLedgerPaid),trimLedgerOvr:_mergeMap(S.trimLedgerOvr,d.trimLedgerOvr),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refCollections:_mergeById(S.refCollections,d.refCollections,_tombNew.refCollections),matExtra:_mergeById(S.matExtra,d.matExtra,_tombNew.matExtra),refData:_mergeRefData(S.refData,d.refData),
+        trimLedger:_mergeMapMt('trimLedger',S.trimLedger,d.trimLedger,S._kmt,d._kmt),trimLedgerPaid:_mergeMapMt('trimLedgerPaid',S.trimLedgerPaid,d.trimLedgerPaid,S._kmt,d._kmt),trimLedgerOvr:_mergeMapMt('trimLedgerOvr',S.trimLedgerOvr,d.trimLedgerOvr,S._kmt,d._kmt),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refCollections:_mergeById(S.refCollections,d.refCollections,_tombNew.refCollections),matExtra:_mergeById(S.matExtra,d.matExtra,_tombNew.matExtra),refData:_mergeRefData(S.refData,d.refData),
         tasks:_mergeById(S.tasks,d.tasks,_tombNew.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
-        brandConfig:_mergeMap(S.brandConfig,d.brandConfig),
+        brandConfig:_mergeMapMt('brandConfig',S.brandConfig,d.brandConfig,S._kmt,d._kmt),
+        _kmt:_kmtCollect(S._kmt),
         deductions:_mergeById(S.deductions,d.deductions,_tombNew.deductions),
         factories:(_shSm=_mergeSharedSmart({factories:S.factories,priceBook:S.priceBook},sh)).factories, // 내가 고친 키=로컬, 안 고친 키=원격 (2026-08-17)
         priceBook:_restoreLocalDataUrls(_shSm.priceBook,S.priceBook||{}),
@@ -3725,7 +3773,7 @@ async function cloudSyncLoad(id,opts){
       };
       // 로컬 캐시도 모든 필드로 업데이트
       lsSet('fpm_'+id,{
-        items:S.items,orders:S.orders,_tomb:S._tomb||{},
+        items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},
         brands:S.brands,sampleOrders:S.sampleOrders,
         pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,
         brandConfig:S.brandConfig,deductions:S.deductions
@@ -4180,7 +4228,7 @@ function saveData(){
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   window._lsQuotaErr=false;
-  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   try{_shDirtyMark();}catch(e){} // 공유문서(업체·단가장) 미푸시 편집 키 기록 (2026-08-17)
   lsSet('fpm_cos',companies);
@@ -4216,7 +4264,7 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
+  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},_kmt:d._kmt||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{_rehydrateExtraSuppliers();}catch(e){} // 클라우드에서 뺐던 추가발주 발주서 줄 복원
@@ -4592,13 +4640,13 @@ function _collectBackupData(){
     // 현재 활성 회사라면 메모리(S)에서 최신 값을 가져오고, 다른 회사는 로컬스토리지에서
     if(cid===curCoId){
       allCoData[cid]={
-        items:S.items||{},orders:S.orders||{},_tomb:S._tomb||{},todoBoard:S.todoBoard||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],
+        items:S.items||{},orders:S.orders||{},_tomb:S._tomb||{},_kmt:S._kmt||{},todoBoard:S.todoBoard||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],
         pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},tasks:S.tasks||[],
         brandConfig:S.brandConfig||{},deductions:S.deductions||[]
       };
     }else{
       allCoData[cid]={
-        items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},todoBoard:d.todoBoard||{},brands:d.brands||[],sampleOrders:d.sampleOrders||[],
+        items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},_kmt:d._kmt||{},todoBoard:d.todoBoard||{},brands:d.brands||[],sampleOrders:d.sampleOrders||[],
         pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],refData:d.refData||{},tasks:d.tasks||[],
         brandConfig:d.brandConfig||{},deductions:d.deductions||[]
       };
