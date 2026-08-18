@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260818c">
+<link rel="stylesheet" href="css/main.css?v=20260818f">
 </head>
 <body>
 
@@ -3917,7 +3917,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-18d';
+var APP_BUILD=/*BUILD*/'2026-08-18f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -29114,17 +29114,24 @@ function sbSetView(mode){window._sbView=(window._sbView===mode)?'all':mode;rende
       기록은 각자 제 자리에 저장한다: 샘플=s.ssAct·s.shootDate·s.ssOff / 아이템=it.ssAct·it.ssShoot·it.ssOff.
    ⚠️ 메인·리오더로 넘어간 아이템도 **자동으로 숨기지 않는다** — 「메인」 표시만 붙이고 사용자가 체크해서 뺀다.
       (자동으로 숨기면 왜 사라졌는지 알 수 없고 표에서 되돌릴 수도 없다) */
-var SS_LEAD_DEF={matPat:3,patDone:2,patSam:1,samDone:4,samDeliv:1,delivConf:2,confFix:7,fixPrep:3,prepShoot:2};
+/* ⚠️ 컨펌 뒤에 '촬영준비' 같은 단계는 없다. **수정이 나오면 패턴 투입부터 한 바퀴를 더 돈다**(사용자 확인).
+      그래서 재샘플 구간은 따로 날수를 두지 않고 위의 패턴·샘플 날수를 **그대로 다시 쓴다**. */
+var SS_LEAD_DEF={matPat:3,patDone:2,patSam:1,samDone:4,samDeliv:1,delivConf:2,confFix:3,shootAfter:2};
 var SS_LEAD_LBL=[['matPat','원부자재→패턴투입'],['patDone','패턴투입→완료'],['patSam','패턴완료→샘플투입'],
   ['samDone','샘플투입→완료'],['samDeliv','샘플완료→전달'],['delivConf','전달→컨펌'],
-  ['confFix','컨펌→수정·재샘플'],['fixPrep','수정→촬영준비'],['prepShoot','촬영준비→촬영']];
+  ['confFix','컨펌→수정 패턴투입'],['shootAfter','수정샘플 전달→촬영']];
+/* 한 바퀴(패턴투입→완료→샘플투입→완료→전달) */
+function _ssCycle(L){ return L.patDone+L.patSam+L.samDone+L.samDeliv; }
+/* 전달 뒤 촬영까지: 컨펌 → 수정 패턴투입 → 한 바퀴 더 → 촬영 */
+function _ssTail(L){ return L.delivConf+L.confFix+_ssCycle(L)+L.shootAfter; }
 /* 굳힐 수 있는 자리 6군데 — [키, 이름, 다음 자리까지 걸리는 날수] */
 var SS_NODES=[['matIn','원부자재 입고','matPat'],['patIn','패턴 투입','patDone'],['patOut','패턴 완료','patSam'],
   ['samIn','샘플 투입','samDone'],['samOut','샘플 완료','samDeliv'],['deliv','전달','delivConf']];
 function ssLead(bid){
-  S.refData=S.refData||{};
-  if(!S.refData.sampleLead||typeof S.refData.sampleLead!=='object')S.refData.sampleLead={};
-  var k=bid||'_', m=S.refData.sampleLead[k]||{}, out={};
+  /* ⚠️ 읽기만 한다 — 화면 그릴 때마다 불리므로 여기서 자료를 만들면
+        열어보기만 해도 '고쳤다'로 찍혀 동기화가 흔들린다. 만드는 건 ssSetLead 에서만. */
+  var sl=(S.refData&&S.refData.sampleLead&&typeof S.refData.sampleLead==='object')?S.refData.sampleLead:{};
+  var k=bid||'_', m=sl[k]||{}, out={};
   SS_LEAD_LBL.forEach(function(p){ var v=+m[p[0]]; out[p[0]]=(v>0?v:SS_LEAD_DEF[p[0]]); });
   return out;
 }
@@ -29143,6 +29150,67 @@ function _ssAdd(iso,d){
   return t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate());
 }
 function _ssToday(){ return (typeof todayISO==='function')?todayISO():_ssAdd(new Date().getFullYear()+'-01-01',0); }
+/* 토·일에 걸리면 일하는 날로 옮긴다.
+   ⚠️ 방향이 중요하다 — 앞으로 계산한 예정일은 **다음 월요일**로, 거꾸로 계산한 날은 **앞의 금요일**로.
+      둘 다 '일정이 더 빠듯해 보이지 않는' 쪽이다. 거꾸로 계산한 걸 월요일로 밀면 일정이 실제보다 여유 있어 보인다.
+   ⚠️ 사용자가 직접 굳힌 날(실제로 끝난 날)은 절대 안 건드린다 — 토요일에 진짜 받았을 수 있다. */
+/* 빨간날. 설·추석·부처님오신날은 음력이라 계산으로 못 구한다 → 2026년치를 손으로 적어둔다.
+   ⚠️ 다른 해는 사용자가 앱에서 직접 추가한다(S.refData.ssHolidays). 공장 여름휴가도 여기에 넣으면 된다.
+   ⚠️ 해가 바뀌면 이 표를 갱신하거나 사용자가 추가해야 한다 — 화면에 그렇게 안내한다. */
+var SS_HOLI_DEF=[
+  '2026-01-01',                                          /* 신정 */
+  '2026-02-16','2026-02-17','2026-02-18',                /* 설 연휴 */
+  '2026-03-01','2026-03-02',                             /* 삼일절(일) + 대체 */
+  '2026-05-05',                                          /* 어린이날 */
+  '2026-05-24','2026-05-25',                             /* 부처님오신날(일) + 대체 */
+  '2026-06-06','2026-06-08',                             /* 현충일(토) + 대체 */
+  '2026-08-15','2026-08-17',                             /* 광복절(토) + 대체 */
+  '2026-09-24','2026-09-25','2026-09-26','2026-09-28',   /* 추석 연휴 + 대체 */
+  '2026-10-03','2026-10-05',                             /* 개천절(토) + 대체 */
+  '2026-10-09',                                          /* 한글날 */
+  '2026-12-25'                                           /* 성탄절 */
+];
+function _ssHoliList(){
+  var ex=(S.refData&&Array.isArray(S.refData.ssHolidays))?S.refData.ssHolidays:[];
+  return SS_HOLI_DEF.concat(ex);
+}
+function _ssHoliSet(){
+  var m={}; _ssHoliList().forEach(function(d){ if(d)m[d]=1; }); return m;
+}
+function ssAddHoliday(){
+  var el=document.getElementById('ss-holi-in'); var v=(el&&el.value)||'';
+  if(!v){ showToast('날짜를 고르고 눌러주세요'); return; }
+  S.refData=S.refData||{};
+  if(!Array.isArray(S.refData.ssHolidays))S.refData.ssHolidays=[];
+  if(SS_HOLI_DEF.indexOf(v)>=0||S.refData.ssHolidays.indexOf(v)>=0){ showToast('이미 들어 있어요'); return; }
+  S.refData.ssHolidays.push(v);
+  S.refData.ssHolidays.sort();
+  saveData(); renderSampleSchedule(); showToast(_ssMD(v)+' 쉬는 날로 넣었어요');
+}
+function ssDelHoliday(d){
+  if(!S.refData||!Array.isArray(S.refData.ssHolidays))return;
+  var i=S.refData.ssHolidays.indexOf(d); if(i<0)return;
+  S.refData.ssHolidays.splice(i,1);
+  saveData(); renderSampleSchedule();
+}
+function _ssSkipWk(){ var v=(S.refData&&S.refData.ssSkipWeekend); return (v===undefined)?true:!!v; }
+function _ssWk(iso,dir){
+  if(!iso||!_ssSkipWk())return iso;
+  var step=(dir<0)?-1:1, n=0;
+  var holi=_ssHoliSet();
+  var off=function(s){
+    var t=new Date(s+'T00:00:00'); if(isNaN(t))return false;
+    var w=t.getDay();
+    return (w===0||w===6||!!holi[s]);
+  };
+  while(off(iso)&&n<20){ iso=_ssAdd(iso,step); n++; }   /* 연휴가 길어도 빠져나오게 20번까지 */
+  return iso;
+}
+function ssToggleWeekend(){
+  S.refData=S.refData||{};
+  S.refData.ssSkipWeekend=!_ssSkipWk();
+  saveData(); renderSampleSchedule();
+}
 function _ssMD(iso){ if(!iso)return ''; var p=String(iso).split('-'); return p.length===3?((+p[1])+'/'+(+p[2])):iso; }
 function _ssDiff(a,b){ if(!a||!b)return 0; return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000); }
 
@@ -29188,14 +29256,20 @@ function _ssSetShootV(r,v){ var t=_ssTgt(r); if(r.kind==='s')t.shootDate=v||''; 
 function _ssGetAct(r){ var o=_ssTgt(r).ssAct; return (o&&typeof o==='object')?o:{}; }
 function _ssSetActV(r,k,v){ var t=_ssTgt(r); if(!t.ssAct||typeof t.ssAct!=='object')t.ssAct={}; if(v)t.ssAct[k]=v; else delete t.ssAct[k]; }
 function _ssGetOff(r){ return !!_ssTgt(r).ssOff; }
+/* 전달 「완료」는 날짜와 별개다.
+   ⚠️ 전달 예정일을 적어두는 일이 흔한데, 날짜가 있다고 완료로 치면
+      아직 안 준 것이 「전달완료」로 뜨고 거래처 텍스트에도 '전달'로 나간다(실제 신고).
+      그래서 완료는 **체크했을 때만**. */
+function _ssGetDone(r){ return !!_ssTgt(r).ssDone; }
+function _ssSetDoneV(r,v){ var t=_ssTgt(r); if(v)t.ssDone=true; else delete t.ssDone; }
 function _ssSetOffV(r,v){ var t=_ssTgt(r); if(v)t.ssOff=true; else delete t.ssOff; }
 function _ssFind(key){ var a=_ssRows(); for(var i=0;i<a.length;i++)if(a[i].key===key)return a[i]; return null; }
 
 /* ---- 지금 단계 ---- */
 function ssStage(r){
   if(r&&r.hold)return '보류';
+  if(_ssGetDone(r))return '전달완료';      /* 체크해야 완료 — 날짜만으로는 아니다 */
   var a=_ssGetAct(r);
-  if(a.deliv)return '전달완료';
   if(a.samOut)return '샘플 완료';
   if(a.samIn)return '샘플중';
   if(a.patOut)return '패턴 완료';
@@ -29221,7 +29295,7 @@ function _ssRemain(stage,L){
     case '패턴중': case '패턴 대기': toDeliv=L.patDone+L.patSam+L.samDone+L.samDeliv; break;
     default:         toDeliv=L.matPat+L.patDone+L.patSam+L.samDone+L.samDeliv; break;
   }
-  return {deliv:toDeliv, shoot:toDeliv+L.delivConf+L.confFix+L.fixPrep+L.prepShoot};
+  return {deliv:toDeliv, shoot:toDeliv+_ssTail(L)};
 }
 /* 한 줄 계산 — 마지막으로 굳힌 날을 기준점 삼아 뒤는 앞으로, 앞은 거꾸로 채운다 */
 function ssCalc(r){
@@ -29230,22 +29304,22 @@ function ssCalc(r){
   for(i=0;i<SS_NODES.length;i++){ if(a[SS_NODES[i][0]]){anchorI=i;anchorD=a[SS_NODES[i][0]];} }
   if(anchorI<0){
     var rem=_ssRemain(stage,L);
-    plan.deliv=_ssAdd(today,rem.deliv);
-    plan.samOut=_ssAdd(plan.deliv,-L.samDeliv);
-    plan.samIn=_ssAdd(plan.samOut,-L.samDone);
-    plan.patOut=_ssAdd(plan.samIn,-L.patSam);
-    plan.patIn=_ssAdd(plan.patOut,-L.patDone);
-    plan.matIn=_ssAdd(plan.patIn,-L.matPat);
+    plan.deliv=_ssWk(_ssAdd(today,rem.deliv),1);
+    plan.samOut=_ssWk(_ssAdd(plan.deliv,-L.samDeliv),-1);
+    plan.samIn=_ssWk(_ssAdd(plan.samOut,-L.samDone),-1);
+    plan.patOut=_ssWk(_ssAdd(plan.samIn,-L.patSam),-1);
+    plan.patIn=_ssWk(_ssAdd(plan.patOut,-L.patDone),-1);
+    plan.matIn=_ssWk(_ssAdd(plan.patIn,-L.matPat),-1);
   }else{
     plan[SS_NODES[anchorI][0]]=anchorD;
     for(k=anchorI+1;k<SS_NODES.length;k++){
       v=_ssAdd(plan[SS_NODES[k-1][0]],L[SS_NODES[k-1][2]]);
       if(_ssDiff(today,v)<0){v=today;late=true;}   /* 이미 지난 예정일은 오늘로 밀고 「지연」 */
-      plan[SS_NODES[k][0]]=v;
+      plan[SS_NODES[k][0]]=_ssWk(v,1);
     }
-    for(m=anchorI-1;m>=0;m--){ plan[SS_NODES[m][0]]=a[SS_NODES[m][0]]||_ssAdd(plan[SS_NODES[m+1][0]],-L[SS_NODES[m][2]]); }
+    for(m=anchorI-1;m>=0;m--){ plan[SS_NODES[m][0]]=a[SS_NODES[m][0]]||_ssWk(_ssAdd(plan[SS_NODES[m+1][0]],-L[SS_NODES[m][2]]),-1); }
   }
-  var earliestShoot=_ssAdd(plan.deliv,L.delivConf+L.confFix+L.fixPrep+L.prepShoot);
+  var earliestShoot=_ssWk(_ssAdd(plan.deliv,_ssTail(L)),1);
   var shoot=_ssGetShoot(r);
   var ok=shoot?(_ssDiff(earliestShoot,shoot)>=0):true;
   return {r:r,it:r.it,bid:r.bid,L:L,plan:plan,stage:stage,shoot:shoot,deliv:plan.deliv,
@@ -29257,6 +29331,10 @@ function ssSetShoot(key,v){ var r=_ssFind(key); if(!r)return; _ssSetShootV(r,v);
 function ssSetAct(key,node,v){
   var r=_ssFind(key); if(!r)return;
   _ssSetActV(r,node,v||''); saveData(); ssClosePop(); renderSampleSchedule();
+}
+function ssToggleDone(key,v){
+  var r=_ssFind(key); if(!r)return;
+  _ssSetDoneV(r,v); saveData(); renderSampleSchedule();
 }
 function ssSetOff(key,v){
   var r=_ssFind(key); if(!r)return;
@@ -29291,6 +29369,9 @@ function _ssGrpName(k){
   return (k==='_')?'브랜드 미지정':((typeof getBrandName==='function')?getBrandName(k):k);
 }
 function _ssSubKey(c){ return (window._ssGroup==='fc')?(c.bid||'_'):(c.r.fcId||'_'); }
+/* ⚠️ 이름순으로 고정한다. 안 하면 줄 순서가 _ssRows() 가 만든 순서(=S.items 키 순서)를 따라가는데,
+      동기화가 끝나면 _entMerge 가 S.items 를 새로 만들어 키 순서가 바뀐다 → 표가 뒤죽박죽 섞인다(신고). */
+function _ssByName(a,b){ return String(a.r.nm||'').localeCompare(String(b.r.nm||''),'ko'); }
 function _ssSubName(k){
   if(window._ssGroup==='fc')return (k==='_')?'브랜드 미지정':((typeof getBrandName==='function')?getBrandName(k):k);
   if(k==='_')return '공장 미지정';
@@ -29392,7 +29473,14 @@ function renderSampleSchedule(){
     SS_LEAD_LBL.forEach(function(p){
       H+='<span class="ss-dc"><b>'+esc(p[1])+'</b><input type="number" min="0" value="'+LL[p[0]]+'" onchange="ssSetLead(\''+esc(bidFirst==='_'?'':bidFirst)+'\',\''+p[0]+'\',this.value)"><i>일</i></span>';
     });
-    H+='</div><div class="ss-dn">투입한 날부터 전달까지 최소 '+(LL.patDone+LL.patSam+LL.samDone+LL.samDeliv)+'일. 원부자재가 안 들어온 건은 입고된 날부터 시작됩니다.</div></div>';
+    H+='</div><label class="ss-wk"><input type="checkbox"'+(_ssSkipWk()?' checked':'')+' onchange="ssToggleWeekend()">토·일·빨간날에 걸리면 일하는 날로 옮기기</label>';
+    var _hx=(S.refData&&Array.isArray(S.refData.ssHolidays))?S.refData.ssHolidays:[];
+    H+='<div class="ss-holi"><div class="ss-holih">쉬는 날 <span>2026년 공휴일은 들어 있어요 · 다른 해·공장 휴가는 여기에 넣으세요</span></div>'
+      +'<div class="ss-holir"><input type="date" id="ss-holi-in"><button class="ss-btn" onclick="ssAddHoliday()">＋ 넣기</button>'
+      +_hx.map(function(d){ return '<span class="ss-holc">'+esc(_ssMD(d))+'<button onclick="ssDelHoliday(\''+esc(d)+'\')" title="빼기">×</button></span>'; }).join('')
+      +'</div></div>';
+    H+='<div class="ss-dn">투입한 날부터 전달까지 최소 '+_ssCycle(LL)+'일. 원부자재가 안 들어온 건은 입고된 날부터 시작됩니다.'
+      +'<br>컨펌에서 <b>수정이 나오면 패턴 투입부터 한 바퀴를 더 돕니다</b> — 위 날수를 그대로 다시 씁니다. 전달부터 촬영까지 '+_ssTail(LL)+'일.</div></div>';
   }
   H+='<div class="ss-stats">'
     +_ssStat('',live.length,'전체')
@@ -29421,7 +29509,7 @@ function renderSampleSchedule(){
     var byC={}; list.forEach(function(c){ var k=_ssSubKey(c); (byC[k]=byC[k]||[]).push(c); });
     Object.keys(byC).sort(function(x,y){ return _ssSubName(x).localeCompare(_ssSubName(y),'ko'); }).forEach(function(cat){
       H+='<tr class="ss-cat"><td colspan="10">'+esc(_ssSubName(cat))+' <span class="ss-catn">'+byC[cat].length+'건</span></td></tr>';
-      byC[cat].forEach(function(c){
+      byC[cat].slice().sort(_ssByName).forEach(function(c){
         var r=c.r, cls=(c.shoot&&!c.ok)?' class="bad"':'';
         H+='<tr'+cls+'>'
           +'<td class="c"><input type="checkbox"'+(sel[r.key]?' checked':'')+' onchange="ssSelOne(\''+esc(r.key)+'\',this.checked)"></td>'
@@ -29433,7 +29521,9 @@ function renderSampleSchedule(){
           +'<td>'+_ssDtBtn(c,'matIn')+'</td>'
           +'<td>'+_ssDtBtn(c,'patIn')+'<span class="ss-arw">→</span>'+_ssDtBtn(c,'patOut')+'</td>'
           +'<td>'+_ssDtBtn(c,'samIn')+'<span class="ss-arw">→</span>'+_ssDtBtn(c,'samOut')+'</td>'
-          +'<td>'+_ssDtBtn(c,'deliv')+'</td>'
+          +'<td>'+_ssDtBtn(c,'deliv')
+            +'<label class="ss-done'+(c.stage==='전달완료'?' on':'')+'"><input type="checkbox"'+(_ssGetDone(r)?' checked':'')
+            +' onchange="ssToggleDone(\''+esc(r.key)+'\',this.checked)">전달완료</label></td>'
           +'<td><input type="date" class="ss-sd'+((c.shoot&&!c.ok)?' bad':(c.shoot?'':' empty'))+'" value="'+esc(c.shoot)+'" onchange="ssSetShoot(\''+esc(r.key)+'\',this.value)">'
             +((c.shoot&&!c.ok)?('<div class="ss-sn bad">'+esc(_ssMD(c.earliestShoot))+'부터 가능</div>'):'')+'</td>'
           +'<td>'+(c.noShoot?'<span class="ss-v na">촬영일 미정</span>':(c.ok?'<span class="ss-v ok">가능</span>':'<span class="ss-v no">안 나옴</span>'))+'</td></tr>';
@@ -29449,7 +29539,7 @@ function renderSampleSchedule(){
   if((window._ssShowOff||flt==='off'||flt==='hold')&&offView.length){
     H+='<div class="ss-card"><div class="ss-bhd"><b>'+(flt==='hold'?'보류':'뺀 것')+'</b><span class="ss-cnt">'+offView.length+'건 · 표와 거래처 전달 텍스트에 안 나옵니다</span></div>';
     H+='<div class="ss-tw"><table class="ss-tbl">';
-    offView.forEach(function(r){
+    offView.slice().sort(function(a,b){ return String(a.nm||'').localeCompare(String(b.nm||''),'ko'); }).forEach(function(r){
       H+='<tr class="off"><td class="l"><span class="ss-nm">'+esc(r.nm)+'</span>'
         +(r.hold?'<span class="ss-mn hold">보류</span>':'')
         +((r.ph==='main'||r.ph==='reorder')?'<span class="ss-mn">메인</span>':'')
@@ -29493,12 +29583,14 @@ function ssBuildText(gkey){
    +'샘플 투입 → 샘플 완성   '+L.samDone+'일\n'
    +'샘플 완성 → 전달        '+L.samDeliv+'일\n'
    +'──────────────────\n'
-   +'투입한 날부터 전달까지 최소 '+(L.patDone+L.patSam+L.samDone+L.samDeliv)+'일이 걸립니다.\n'
-   +'원부자재가 아직 안 들어온 건은 입고된 날부터 시작됩니다.\n';
+   +'투입한 날부터 전달까지 최소 '+_ssCycle(L)+'일이 걸립니다.\n'
+   +'원부자재가 아직 안 들어온 건은 입고된 날부터 시작됩니다.\n'
+   +'\n수정이 나오면 패턴 투입부터 다시 시작해 같은 기간이 한 번 더 걸립니다.\n'
+   +'전달 후 촬영까지는 컨펌 '+L.delivConf+'일 + 수정 투입 '+L.confFix+'일 + 재샘플 '+_ssCycle(L)+'일 + '+L.shootAfter+'일 = 총 '+_ssTail(L)+'일.\n';
   var byC={}; rows.forEach(function(c){ var k=_ssSubKey(c); (byC[k]=byC[k]||[]).push(c); });
   Object.keys(byC).forEach(function(cat){
     T+='\n\n'+_ssSubName(cat)+'\n';
-    byC[cat].forEach(function(c){
+    byC[cat].slice().sort(_ssByName).forEach(function(c){
       var done=(c.stage==='전달완료'||c.stage==='컨펌완료');
       var mk=function(node,v){ return _ssMD(v)+(c.act[node]?'':''); };
       T+='\n* '+c.r.nm+' ('+c.stage+', 전달 '+_ssMD(c.deliv)+(done?' 전달':' 예정')+')'
