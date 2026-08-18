@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260818f">
+<link rel="stylesheet" href="css/main.css?v=20260818i">
 </head>
 <body>
 
@@ -3932,7 +3932,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-18e';
+var APP_BUILD=/*BUILD*/'2026-08-18i';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -29386,6 +29386,18 @@ function _ssGrpName(k){
 function _ssSubKey(c){ return (window._ssGroup==='fc')?(c.bid||'_'):(c.r.fcId||'_'); }
 /* ⚠️ 이름순으로 고정한다. 안 하면 줄 순서가 _ssRows() 가 만든 순서(=S.items 키 순서)를 따라가는데,
       동기화가 끝나면 _entMerge 가 S.items 를 새로 만들어 키 순서가 바뀐다 → 표가 뒤죽박죽 섞인다(신고). */
+/* 브랜드는 이름순(ㄱㄴㄷ)이 아니라 **브랜드 관리에 등록된 순서**를 따른다.
+   아루드가 맨 위여야 하는데 ㄱㄴㄷ으로 놓으면 더프루토가 먼저 온다(사용자 요청). */
+function _ssBrandOrd(bid){
+  if(!bid||bid==='_')return 9999;
+  var arr=(typeof getBrands==='function')?getBrands():(S.brands||[]);
+  for(var i=0;i<arr.length;i++){ if(arr[i]&&arr[i].id===bid)return i; }
+  return 9998;
+}
+function _ssKeyOrd(k,isBrandAxis){
+  if(isBrandAxis)return _ssBrandOrd(k);
+  return (k==='_')?1:0;   /* 공장: 미지정만 뒤로, 나머지는 이름순 */
+}
 function _ssByName(a,b){ return String(a.r.nm||'').localeCompare(String(b.r.nm||''),'ko'); }
 function _ssSubName(k){
   if(window._ssGroup==='fc')return (k==='_')?'브랜드 미지정':((typeof getBrandName==='function')?getBrandName(k):k);
@@ -29458,7 +29470,11 @@ function renderSampleSchedule(){
   var earliest=rows.reduce(function(a,c){ return (!a||_ssDiff(a,c.earliestShoot)>0)?c.earliestShoot:a; },'');
   var view=rows.filter(function(c){ return _ssPass(c,flt); });
   var byB={}; view.forEach(function(c){ var b=_ssGrpKey(c); (byB[b]=byB[b]||[]).push(c); });
-  var bids=Object.keys(byB).sort(function(a,b){ return _ssGrpName(a).localeCompare(_ssGrpName(b),'ko'); });
+  var _bAxis=(window._ssGroup!=='fc');
+  var bids=Object.keys(byB).sort(function(a,b){
+    var d=_ssKeyOrd(a,_bAxis)-_ssKeyOrd(b,_bAxis); if(d)return d;
+    return _ssGrpName(a).localeCompare(_ssGrpName(b),'ko');
+  });
   var H='<div class="ss-wrap">';
   H+='<div class="ss-top"><h2>샘플 스케줄표</h2><span class="ss-sub">촬영일은 표에서 아이템마다 · 걸리는 날수는 아래에서 직접 고칩니다</span></div>';
   H+='<div class="ss-card ss-goalbar">'
@@ -29522,7 +29538,11 @@ function renderSampleSchedule(){
       +'<th class="l">아이템</th><th class="l">공장</th><th>지금 단계</th><th>자재</th><th>패턴 투입 → 완료</th><th>샘플 투입 → 완료</th>'
       +'<th>전달 예정</th><th>촬영일</th><th>판정</th></tr>';
     var byC={}; list.forEach(function(c){ var k=_ssSubKey(c); (byC[k]=byC[k]||[]).push(c); });
-    Object.keys(byC).sort(function(x,y){ return _ssSubName(x).localeCompare(_ssSubName(y),'ko'); }).forEach(function(cat){
+    var _sAxis=(window._ssGroup==='fc');   /* 공장으로 묶으면 안쪽이 브랜드 */
+    Object.keys(byC).sort(function(x,y){
+      var d=_ssKeyOrd(x,_sAxis)-_ssKeyOrd(y,_sAxis); if(d)return d;
+      return _ssSubName(x).localeCompare(_ssSubName(y),'ko');
+    }).forEach(function(cat){
       H+='<tr class="ss-cat"><td colspan="10">'+esc(_ssSubName(cat))+' <span class="ss-catn">'+byC[cat].length+'건</span></td></tr>';
       byC[cat].slice().sort(_ssByName).forEach(function(c){
         var r=c.r, cls=(c.shoot&&!c.ok)?' class="bad"':'';
