@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260817b">
+<link rel="stylesheet" href="css/main.css?v=20260818a">
 </head>
 <body>
 
@@ -242,6 +242,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-leftover" onclick="switchTab('leftover')">잔량</button>
   <div class="nav-sep"></div>
   <button class="ntab" id="nt-todoboard" onclick="switchTab('todoboard')">할일판</button>
+  <button class="ntab" id="nt-ssched" onclick="switchTab('ssched')">샘플 스케줄표</button>
   <button class="ntab" id="nt-tasks" onclick="switchTab('tasks')">할 일</button>
   <button class="ntab" id="nt-route" onclick="switchTab('route')">동선</button>
   <button class="ntab" id="nt-jaedan" onclick="switchTab('jaedan')">계산기</button>
@@ -328,6 +329,7 @@ tryInitFirebase();
   <div id="pane-analytics" class="panel" style="display:none"><div id="analytics-body"></div></div>
   <!-- Notifications -->
   <div id="pane-notif" class="panel" style="display:none"><div id="notif-body"></div></div>
+  <div id="pane-ssched" class="panel" style="display:none"><div id="ssched-body"></div></div>
   <!-- Items -->
   <div id="pane-items" class="panel" style="display:none">
     <div id="ipl">
@@ -5121,7 +5123,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ref','reference','yocheok','jaedan','ledger','courier','cinv','pricecompare','material'].forEach(n=>{
+  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ssched','ref','reference','yocheok','jaedan','ledger','courier','cinv','pricecompare','material'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -5164,6 +5166,7 @@ function switchTab(t){
     else if(t==='tasks')renderTasksPane();
     else if(t==='route')renderRoutePane();
     else if(t==='todoboard')renderTodoBoard();
+    else if(t==='ssched')renderSampleSchedule();
     else if(t==='analytics')renderAnalyticsPane();
     else if(t==='leftover')renderLeftoverTab();
     else if(t==='ref')renderRefTab();
@@ -29034,6 +29037,243 @@ function computeItemStatus(item){
 }
 
 function sbSetView(mode){window._sbView=(window._sbView===mode)?'all':mode;renderBoardPane();}
+/* ===== 샘플 스케줄표 (2026-08-18) ==========================================
+   목적 ①전체 흐름을 표로 ②거래처가 무리한 촬영일을 요구할 때 「일정 안 나옴 + 가능일」로 막기.
+   ⚠️ 촬영일은 **아이템(샘플)마다 따로** 잡는다(s.shootDate). 위쪽 목표일 칸은 '빈 칸 일괄 채우기'용.
+   ⚠️ 걸리는 날수는 사용자가 앱에서 직접 고친다 — S.refData.sampleLead[브랜드id|'_'].
+   ⚠️ 예정일은 전부 계산값이다. 단계별 '실제 끝난 날'을 적는 칸은 아직 없다(다음 단계). */
+var SS_LEAD_DEF={matPat:3,patDone:2,patSam:1,samDone:4,samDeliv:1,delivConf:2,confFix:7,fixPrep:3,prepShoot:2};
+var SS_LEAD_LBL=[['matPat','원부자재→패턴투입'],['patDone','패턴투입→완료'],['patSam','패턴완료→샘플투입'],
+  ['samDone','샘플투입→완료'],['samDeliv','샘플완료→전달'],['delivConf','전달→컨펌'],
+  ['confFix','컨펌→수정·재샘플'],['fixPrep','수정→촬영준비'],['prepShoot','촬영준비→촬영']];
+function ssLead(bid){
+  S.refData=S.refData||{};
+  if(!S.refData.sampleLead||typeof S.refData.sampleLead!=='object')S.refData.sampleLead={};
+  var k=bid||'_', m=S.refData.sampleLead[k]||{}, out={};
+  SS_LEAD_LBL.forEach(function(p){ var v=+m[p[0]]; out[p[0]]=(v>0?v:SS_LEAD_DEF[p[0]]); });
+  return out;
+}
+function ssSetLead(bid,key,val){
+  S.refData=S.refData||{}; S.refData.sampleLead=S.refData.sampleLead||{};
+  var k=bid||'_'; S.refData.sampleLead[k]=S.refData.sampleLead[k]||{};
+  var v=Math.max(0,+val||0); S.refData.sampleLead[k][key]=v;
+  saveData(); renderSampleSchedule();
+}
+/* ⚠️ toISOString()을 쓰면 안 된다 — 한국 자정을 UTC로 바꾸면서 **하루가 밀린다**(검사에서 실제로 잡힘).
+   내 시간대 기준으로 직접 문자열을 만든다. */
+function _ssAdd(iso,d){
+  if(!iso)return '';
+  var t=new Date(iso+'T00:00:00'); if(isNaN(t))return '';
+  t.setDate(t.getDate()+(+d||0));
+  var p=function(n){return String(n).padStart(2,'0');};
+  return t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate());
+}
+function _ssMD(iso){ if(!iso)return ''; var p=String(iso).split('-'); return p.length===3?((+p[1])+'/'+(+p[2])):iso; }
+function _ssDiff(a,b){ if(!a||!b)return 0; return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000); }
+/* 지금 단계 — 있는 자료(status·checklist)로만 판단 */
+function ssStage(s){
+  var c=s.checklist||{};
+  if(s.status==='confirmed')return '컨펌완료';
+  if(s.status==='received')return '전달완료';
+  if(s.status==='sentToFactory')return '샘플중';
+  if(s.status==='progress')return c.pattern?'샘플중':'패턴중';
+  if(!c.fabric||!c.trim)return '원부자재 대기';
+  return '패턴 대기';
+}
+/* 남은 단계 소요일 — 지금 단계 기준으로 전달까지 / 촬영까지 */
+function _ssRemain(stage,L){
+  var toDeliv;
+  switch(stage){
+    case '컨펌완료': case '전달완료': toDeliv=0; break;
+    case '샘플중':   toDeliv=L.samDone+L.samDeliv; break;
+    case '패턴중':   toDeliv=L.patDone+L.patSam+L.samDone+L.samDeliv; break;
+    case '패턴 대기': toDeliv=L.patDone+L.patSam+L.samDone+L.samDeliv; break;
+    default:         toDeliv=L.matPat+L.patDone+L.patSam+L.samDone+L.samDeliv; break; // 원부자재 대기
+  }
+  return {deliv:toDeliv, shoot:toDeliv+L.delivConf+L.confFix+L.fixPrep+L.prepShoot};
+}
+/* 한 건 계산 */
+function ssCalc(s){
+  var it=S.items[s.itemId]||{};
+  var bid=s.brandId||it.brandId||'';
+  var L=ssLead(bid), stage=ssStage(s), rem=_ssRemain(stage,L);
+  var today=(typeof todayISO==='function')?todayISO():new Date().toISOString().slice(0,10);
+  var shoot=s.shootDate||'';
+  var patS,patE,samS,samE,deliv;
+  if(shoot){ // 촬영일에서 거꾸로
+    var prep=_ssAdd(shoot,-L.prepShoot), fixD=_ssAdd(prep,-L.fixPrep), conf=_ssAdd(fixD,-L.confFix);
+    deliv=_ssAdd(conf,-L.delivConf);
+    samE=_ssAdd(deliv,-L.samDeliv); samS=_ssAdd(samE,-L.samDone);
+    patE=_ssAdd(samS,-L.patSam);    patS=_ssAdd(patE,-L.patDone);
+  }else{ // 오늘부터 앞으로 (언제 샘플 나오는지)
+    patS=today; patE=_ssAdd(patS,L.patDone); samS=_ssAdd(patE,L.patSam);
+    samE=_ssAdd(samS,L.samDone); deliv=_ssAdd(samE,L.samDeliv);
+  }
+  var earliestDeliv=_ssAdd(today,rem.deliv), earliestShoot=_ssAdd(today,rem.shoot);
+  var ok=true;
+  if(shoot)ok=_ssDiff(earliestShoot,shoot)>=0;   // 촬영일이 가능일보다 빠르면 불가
+  return {it:it,bid:bid,L:L,stage:stage,shoot:shoot,patS:patS,patE:patE,samS:samS,samE:samE,
+          deliv:(shoot?deliv:earliestDeliv),earliestShoot:earliestShoot,ok:ok,noShoot:!shoot};
+}
+function ssSetShoot(id,v){
+  var arr=getSampleOrders(), s=arr.filter(function(x){return x&&x.id===id;})[0]; if(!s)return;
+  s.shootDate=v||''; saveData(); renderSampleSchedule();
+}
+function ssFillEmpty(){
+  var v=(document.getElementById('ss-goal')||{}).value||''; if(!v){showToast('촬영 예정일을 먼저 넣어주세요');return;}
+  var n=0; getSampleOrders().forEach(function(s){ if(s&&!s.shootDate){ s.shootDate=v; n++; } });
+  saveData(); renderSampleSchedule(); showToast(n?('빈 칸 '+n+'건에 '+_ssMD(v)+' 넣었어요'):'빈 칸이 없어요');
+}
+function ssToggleLead(){ window._ssLeadOpen=!window._ssLeadOpen; renderSampleSchedule(); }
+/* 화면 그리기 */
+function renderSampleSchedule(){
+  var el=document.getElementById('ssched-body'); if(!el)return;
+  var samples=(typeof getSampleOrders==='function')?getSampleOrders():[];
+  samples=samples.filter(function(s){return s&&(s.name||s.itemId);});
+  var goal=(document.getElementById('ss-goal')||{}).value||window._ssGoal||'';
+  var rows=samples.map(function(s){ var c=ssCalc(s); c.s=s; return c; });
+  var bad=rows.filter(function(r){return r.shoot&&!r.ok;});
+  var okN=rows.filter(function(r){return r.shoot&&r.ok;}).length;
+  var noN=rows.filter(function(r){return !r.shoot;}).length;
+  var earliest=rows.reduce(function(a,r){ return (!a||_ssDiff(a,r.earliestShoot)>0)?r.earliestShoot:a; },'');
+  var esc2=esc;
+  // 브랜드별 묶기
+  var byB={}; rows.forEach(function(r){ var b=r.bid||'_'; (byB[b]=byB[b]||[]).push(r); });
+  var bids=Object.keys(byB);
+  var H='<div class="ss-wrap">';
+  H+='<div class="ss-top"><h2>샘플 스케줄표</h2><span class="ss-sub">촬영일은 아이템마다 · 걸리는 날수는 아래에서 직접 고칩니다</span></div>';
+  // 목표일 일괄
+  H+='<div class="ss-card ss-goalbar">'
+    +'<label>촬영 예정일 <span>(빈 칸 일괄)</span></label>'
+    +'<input type="date" id="ss-goal" value="'+esc2(goal)+'">'
+    +'<button class="ss-btn" onclick="ssFillEmpty()">빈 칸에 넣기</button>'
+    +'<span class="ss-sp"></span>'
+    +'<button class="ss-btn b" onclick="ssToggleLead()">'+(window._ssLeadOpen?'걸리는 날수 접기':'걸리는 날수 설정')+'</button>'
+    +'</div>';
+  // 판정 배너
+  if(bad.length){
+    H+='<div class="ss-vd"><div class="h">이 날짜로는 일정이 안 나옵니다</div><div class="b">'
+      +'<b>'+bad.length+'건</b>이 오늘부터 계산해도 늦습니다. 가장 빠른 촬영 가능일 <b>'+esc2(_ssMD(earliest))+'</b>'
+      +'<div class="s">'+bad.slice(0,6).map(function(r){return esc2((r.s.name||r.it.name||'')+' ('+r.stage+')');}).join(' · ')+(bad.length>6?(' 외 '+(bad.length-6)+'건'):'')+'</div>'
+      +'</div></div>';
+  }else if(rows.length){
+    H+='<div class="ss-vd good"><div class="h">일정 가능</div><div class="b">촬영일이 잡힌 '+okN+'건 모두 일정이 나옵니다.'+(noN?(' 촬영일 미정 '+noN+'건.'):'')+'</div></div>';
+  }
+  // 걸리는 날수
+  if(window._ssLeadOpen){
+    var bidFirst=bids[0]||'';
+    var L=ssLead(bidFirst==='_'?'':bidFirst);
+    H+='<div class="ss-card ss-days"><div class="ss-dh">걸리는 날수 (브랜드마다 따로 저장)</div><div class="ss-drow">';
+    SS_LEAD_LBL.forEach(function(p){
+      H+='<span class="ss-dc"><b>'+esc2(p[1])+'</b><input type="number" min="0" value="'+L[p[0]]+'" onchange="ssSetLead(\''+esc2(bidFirst==='_'?'':bidFirst)+'\',\''+p[0]+'\',this.value)"><i>일</i></span>';
+    });
+    H+='</div><div class="ss-dn">투입한 날부터 전달까지 최소 '+(L.patDone+L.patSam+L.samDone+L.samDeliv)+'일. 원부자재가 안 들어온 건은 입고된 날부터 시작됩니다.</div></div>';
+  }
+  // 통계
+  H+='<div class="ss-stats">'
+    +'<span class="ss-st"><b>'+rows.length+'</b>전체</span>'
+    +'<span class="ss-st warn"><b>'+bad.length+'</b>일정 안 나옴</span>'
+    +'<span class="ss-st"><b>'+okN+'</b>가능</span>'
+    +'<span class="ss-st"><b>'+noN+'</b>촬영일 미정</span>'
+    +'</div>';
+  if(!rows.length){ H+='<div class="ss-empty">샘플이 없어요. 샘플 발주 탭에서 먼저 추가해주세요.</div></div>'; el.innerHTML=H; return; }
+  // 브랜드별 표
+  bids.forEach(function(b){
+    var list=byB[b], bn=(b==='_')?'브랜드 미지정':((typeof getBrandName==='function')?getBrandName(b):b);
+    var badN=list.filter(function(r){return r.shoot&&!r.ok;}).length;
+    H+='<div class="ss-card"><div class="ss-bhd"><b>'+esc2(bn)+'</b><span class="ss-cnt">'+list.length+'건'+(badN?(' · 안 나옴 '+badN):'')+'</span><span class="ss-sp"></span>'
+      +'<button class="ss-btn b" onclick="ssCopyText(\''+esc2(b)+'\')">텍스트 복사</button>'
+      +'<button class="ss-btn g" onclick="ssSaveImage(\''+esc2(b)+'\')">이미지 저장</button></div>';
+    H+='<div class="ss-tw"><table class="ss-tbl"><tr>'
+      +'<th class="l">아이템</th><th>지금 단계</th><th>패턴</th><th>샘플</th><th>전달</th><th>촬영일 / 샘플 예정</th><th>판정</th></tr>';
+    // 카테고리 묶기
+    var byC={}; list.forEach(function(r){ var c=(r.it.category||'기타'); (byC[c]=byC[c]||[]).push(r); });
+    Object.keys(byC).forEach(function(cat){
+      H+='<tr class="ss-cat"><td colspan="7">'+esc2(cat)+'</td></tr>';
+      byC[cat].forEach(function(r){
+        var nm=r.s.name||r.it.name||'(이름없음)';
+        var cls=(r.shoot&&!r.ok)?' class="bad"':'';
+        H+='<tr'+cls+'><td class="l"><div class="ss-nm">'+esc2(nm)+'</div></td>'
+          +'<td><span class="ss-stg">'+esc2(r.stage)+'</span></td>'
+          +'<td class="ss-d">'+esc2(_ssMD(r.patS))+' → '+esc2(_ssMD(r.patE))+'</td>'
+          +'<td class="ss-d">'+esc2(_ssMD(r.samS))+' → '+esc2(_ssMD(r.samE))+'</td>'
+          +'<td class="ss-d">'+esc2(_ssMD(r.deliv))+'</td>'
+          +'<td><input type="date" class="ss-sd'+((r.shoot&&!r.ok)?' bad':(r.shoot?'':' empty'))+'" value="'+esc2(r.shoot)+'" onchange="ssSetShoot(\''+esc2(r.s.id)+'\',this.value)">'
+          +(r.noShoot?('<div class="ss-sn">샘플 '+esc2(_ssMD(r.deliv))+' 예정</div>'):((!r.ok)?('<div class="ss-sn bad">'+esc2(_ssMD(r.earliestShoot))+'부터 가능</div>'):''))
+          +'</td>'
+          +'<td>'+(r.noShoot?'<span class="ss-v na">촬영일 미정</span>':(r.ok?'<span class="ss-v ok">가능</span>':'<span class="ss-v no">안 나옴</span>'))+'</td></tr>';
+      });
+    });
+    H+='</table></div></div>';
+  });
+  H+='</div>';
+  el.innerHTML=H;
+}
+/* 거래처 전달 텍스트 — 컨펌일·아이콘 없이, 이름 옆에 단계+전달 가능일 */
+function ssBuildText(bid){
+  var rows=(typeof getSampleOrders==='function'?getSampleOrders():[])
+    .filter(function(s){return s&&(s.name||s.itemId);})
+    .map(function(s){ var c=ssCalc(s); c.s=s; return c; })
+    .filter(function(r){ return !bid||bid==='_'?!r.bid:(r.bid===bid); });
+  if(!rows.length)return '';
+  var bn=(bid&&bid!=='_'&&typeof getBrandName==='function')?getBrandName(bid):'진행 현황';
+  var today=(typeof todayISO==='function')?todayISO():'';
+  var L=rows[0].L;
+  var okL=rows.filter(function(r){return r.shoot&&r.ok;});
+  var noL=rows.filter(function(r){return r.shoot&&!r.ok;});
+  var undL=rows.filter(function(r){return !r.shoot;});
+  var shootMain=(function(){var m={},best='',n=0;rows.forEach(function(r){if(!r.shoot)return;m[r.shoot]=(m[r.shoot]||0)+1;if(m[r.shoot]>n){n=m[r.shoot];best=r.shoot;}});return best;})();
+  var earliest=rows.reduce(function(a,r){ return (!a||_ssDiff(a,r.earliestShoot)>0)?r.earliestShoot:a; },'');
+  var T=bn+' — 진행 현황 ('+_ssMD(today)+' 기준)';
+  if(shootMain)T+='\n촬영 예정일 '+_ssMD(shootMain);
+  T+='\n';
+  if(okL.length)T+='\n[ 촬영 가능 · '+okL.length+'건 ]\n'+okL.map(function(r){
+      var nm=r.s.name||r.it.name||''; return nm+((r.shoot!==shootMain)?('('+_ssMD(r.shoot)+')'):''); }).join(' · ')+'\n';
+  if(noL.length)T+='\n[ 촬영 불가 · '+noL.length+'건 — 가장 빠른 가능일 '+_ssMD(earliest)+' ]\n'
+      +noL.map(function(r){ return (r.s.name||r.it.name||'')+' ('+r.stage+', 전달 '+_ssMD(r.deliv)+' 예정)'; }).join('\n')+'\n';
+  if(undL.length)T+='\n[ 촬영일 미정 · '+undL.length+'건 ]\n'
+      +undL.map(function(r){ return (r.s.name||r.it.name||'')+' (전달 '+_ssMD(r.deliv)+' 예정)'; }).join('\n')+'\n';
+  T+='\n[ 샘플 소요 기간 안내 ]\n'
+   +'패턴 투입 → 패턴 완료   '+L.patDone+'일\n'
+   +'패턴 완료 → 샘플 투입   '+L.patSam+'일\n'
+   +'샘플 투입 → 샘플 완성   '+L.samDone+'일\n'
+   +'샘플 완성 → 전달        '+L.samDeliv+'일\n'
+   +'──────────────────\n'
+   +'투입한 날부터 전달까지 최소 '+(L.patDone+L.patSam+L.samDone+L.samDeliv)+'일이 걸립니다.\n'
+   +'원부자재가 아직 안 들어온 건은 입고된 날부터 시작됩니다.\n';
+  // 카테고리별 상세
+  var byC={}; rows.forEach(function(r){ var c=(r.it.category||'기타'); (byC[c]=byC[c]||[]).push(r); });
+  Object.keys(byC).forEach(function(cat){
+    T+='\n\n'+cat+'\n';
+    byC[cat].forEach(function(r){
+      var nm=r.s.name||r.it.name||'';
+      var done=(r.stage==='전달완료'||r.stage==='컨펌완료');
+      T+='\n* '+nm+' ('+r.stage+', 전달 '+_ssMD(r.deliv)+(done?' 전달':' 예정')+')'
+        +(r.shoot&&r.shoot!==shootMain?(' — 촬영 '+_ssMD(r.shoot)):'')
+        +'\n   패턴 '+_ssMD(r.patS)+' → '+_ssMD(r.patE)+' ('+L.patDone+'일) · 샘플 '+_ssMD(r.samS)+' → '+_ssMD(r.samE)+' ('+L.samDone+'일) · 전달 '+_ssMD(r.deliv);
+      if(r.shoot&&!r.ok)T+='\n   ※ 촬영 '+_ssMD(r.shoot)+' 불가 — 가능일 '+_ssMD(r.earliestShoot);
+    });
+  });
+  return T;
+}
+function ssCopyText(bid){
+  var t=ssBuildText(bid); if(!t){showToast('보낼 내용이 없어요');return;}
+  var done=function(){showToast('텍스트 복사됨 — 카톡에 붙여넣기 하세요',3500);};
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(done).catch(function(){_qeCopyFallback(t,done);});
+  else _qeCopyFallback(t,done);
+}
+function ssSaveImage(bid){
+  var el=document.getElementById('ssched-body'); if(!el)return;
+  showToast('이미지 만드는 중…',1500);
+  var go=function(){
+    html2canvas(el,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){
+      var bn=(bid&&bid!=='_'&&typeof getBrandName==='function')?getBrandName(bid):'전체';
+      return fpfSaveFile(c.toDataURL('image/png'),'샘플스케줄표_'+bn+'_'+(typeof todayISO==='function'?todayISO():'')+'.png',{label:'이미지 저장됨'});
+    }).catch(function(){ showToast('이미지 저장 실패',3000); });
+  };
+  if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){showToast('라이브러리 로드 실패');};document.head.appendChild(s);}else go();
+}
+
 function renderBoardPane(){
   // 샘플 진행보드: 생산 대시보드 스타일 테이블
   var brands=getBrands();
