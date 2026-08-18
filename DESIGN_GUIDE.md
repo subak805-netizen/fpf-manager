@@ -692,3 +692,10 @@
   ⚠️ `colTR`의 careLabel 갈래에서 `labelNames`를 읽되 **`labelName`은 덮지 않는다**(메인라벨과 다른 점 —
      케어라벨의 labelName은 부자재 규격명이라 성격이 다르다).
   ⚠️ `buildCareLabelDB`가 브랜드 등록 이름도 자동완성에 합친다.
+
+## 2026-08-18u — 그래이딩도 회차로
+
+- `그래이딩`도 패턴·샘플과 똑같이 `_feeBlock('grading',…)`. `it.gradingFees` + 합계는 `it.gradingCost`에 자동 반영
+  (원가·분석 코드는 여전히 `gradingCost`만 읽는다 — 손대지 않았다).
+- ＋ 물음줄에 「그래이딩 N차」 추가, 1회비 탭의 그래이딩 칸도 여러 줄 지원.
+- `saveItemForm` 방어 목록에 `grading` 포함(폼 한 칸이 2차·3차를 덮지 않게).
