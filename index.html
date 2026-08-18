@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260818z">
+<link rel="stylesheet" href="css/main.css?v=20260819a">
 </head>
 <body>
 
@@ -4013,7 +4013,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-18z';
+var APP_BUILD=/*BUILD*/'2026-08-19a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5307,7 +5307,7 @@ function switchTab(t){
     else if(t==='ledger')renderTrimLedger();
     else if(t==='courier')renderCourierLedger();
     else if(t==='cinv')renderCiTab();
-    else if(t==='sccm')renderSampleComment();
+    else if(t==='sccm'){ try{scPasteInit();}catch(e){} renderSampleComment(); }
     else if(t==='oncefee')renderOnceFee();
     else if(t==='material')renderMaterial();
   }catch(err){
@@ -30449,7 +30449,7 @@ function ofSaveImage(){
    자료: it.smpRounds = [{n, date, pics:{front,back,lining,detail}, cms:[{k,t,d,fix}]}]
    ⚠️ 읽기(_scRounds)는 자료를 만들지 않는다 — 화면 그릴 때 저장하면 열어만 봐도 '고침'으로 찍힌다. */
 var SC_PICS=[['front','앞'],['back','뒤'],['lining','안감'],['detail','디테일']];
-var SC_KINDS=['봉제','원단','부자재','치수','디자인','기타'];
+var SC_KINDS=['봉제','패턴','원단','부자재','치수','디자인','기타'];
 function _scRounds(it){ var a=it&&it.smpRounds; return Array.isArray(a)?a:[]; }
 function _scCms(it){ var out=[]; _scRounds(it).forEach(function(r){ (r&&Array.isArray(r.cms)?r.cms:[]).forEach(function(c){ out.push(c); }); }); return out; }
 function _scFixN(it){ return _scCms(it).filter(function(c){return c&&c.fix;}).length; }
@@ -30517,8 +30517,7 @@ function _scSetPic(id,ri,key,url){
   a[ri]=r; _scWrite(it,a); renderSampleComment();
 }
 function scDelImage(id,ri,key){ _scSetPic(id,ri,key,''); }
-function scOnFile(inp){
-  var f=inp.files&&inp.files[0]; var ctx=window._scUp; window._scUp=null;
+function _scPutFile(f,ctx){
   if(!f||!ctx)return;
   if(typeof tpCompress!=='function'){ showToast('이미지 처리 불가'); return; }
   showToast('사진 넣는 중…',1500);
@@ -30530,6 +30529,37 @@ function scOnFile(inp){
         .catch(function(){ put(r.dataUrl); showToast('사진 넣음 (이 기기에만 — 인터넷 되면 다시 올려주세요)',4500); });
     }else{ put(r.dataUrl); showToast('사진 넣음 (이 기기에만)',4000); }
   }).catch(function(){ showToast('사진 처리 실패',3000); });
+}
+function scOnFile(inp){
+  var f=inp.files&&inp.files[0]; var ctx=window._scUp; window._scUp=null;
+  _scPutFile(f,ctx);
+}
+/* 끌어다 놓기 */
+function scDragOver(ev,el){ ev.preventDefault(); ev.stopPropagation(); if(el&&el.classList)el.classList.add('drag'); }
+function scDragOut(ev,el){ if(el&&el.classList)el.classList.remove('drag'); }
+function scDropImage(ev,id,ri,key){
+  ev.preventDefault(); ev.stopPropagation();
+  var el=ev.currentTarget; if(el&&el.classList)el.classList.remove('drag');
+  var f=ev.dataTransfer&&ev.dataTransfer.files&&ev.dataTransfer.files[0];
+  if(!f){ showToast('이미지 파일을 끌어다 놓아주세요'); return; }
+  _scPutFile(f,{id:id,ri:ri,key:key});
+}
+/* 붙여넣기(Ctrl+V) — 마우스를 올려둔 칸에 넣는다 */
+function scPicHover(id,ri,key){ window._scPasteAt=(id?{id:id,ri:ri,key:key}:null); }
+function scPasteInit(){
+  if(window._scPasteOn)return; window._scPasteOn=true;
+  document.addEventListener('paste',function(ev){
+    var pane=document.getElementById('pane-sccm');
+    if(!pane||pane.style.display==='none')return;
+    var at=window._scPasteAt; if(!at)return;
+    var items=(ev.clipboardData&&ev.clipboardData.items)||[];
+    for(var i=0;i<items.length;i++){
+      if(items[i].type&&items[i].type.indexOf('image')===0){
+        var f=items[i].getAsFile();
+        if(f){ ev.preventDefault(); _scPutFile(f,at); return; }
+      }
+    }
+  });
 }
 /* 화면 */
 function scSet(k,v){ window._sc=window._sc||{}; window._sc[k]=v; renderSampleComment(); }
@@ -30574,9 +30604,14 @@ function _scRows(){
 }
 function _scMD(iso){ if(!iso)return ''; var p=String(iso).split('-'); return p.length===3?((+p[1])+'/'+(+p[2])):iso; }
 function _scPic(id,ri,key,lbl,url){
-  return '<div class="sc-pic" onclick="scPickImage(\''+esc(id)+'\','+ri+',\''+key+'\')"><span class="sc-tag">'+esc(lbl)+'</span>'
-    +(url?('<img src="'+esc(url)+'" alt=""><button type="button" class="sc-px" onclick="event.stopPropagation();scDelImage(\''+esc(id)+'\','+ri+',\''+key+'\')">×</button>')
-         :'<span class="sc-add">＋ 사진</span>')+'</div>';
+  var a="'"+esc(id)+"',"+ri+",'"+key+"'";
+  return '<div class="sc-pic" title="클릭 · 끌어다 놓기 · 붙여넣기(Ctrl+V)"'
+    +' onclick="scPickImage('+a+')"'
+    +' ondragover="scDragOver(event,this)" ondragleave="scDragOut(event,this)" ondrop="scDropImage(event,'+a+')"'
+    +' onmouseenter="scPicHover('+a+')" onmouseleave="scPicHover(\'\')">'
+    +'<span class="sc-tag">'+esc(lbl)+'</span>'
+    +(url?('<img src="'+esc(url)+'" alt=""><button type="button" class="sc-px" onclick="event.stopPropagation();scDelImage('+a+')">×</button>')
+         :'<span class="sc-add">＋ 사진<br><i>끌어다 놓기 · 붙여넣기</i></span>')+'</div>';
 }
 function _scCmHTML(id,ri,ci,c){
   return '<div class="sc-cm'+(c.fix?' fix':'')+'"><span class="sc-k">'+esc(c.k||'')+'</span>'
