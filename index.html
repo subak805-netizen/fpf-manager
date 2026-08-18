@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260818a">
+<link rel="stylesheet" href="css/main.css?v=20260818b">
 </head>
 <body>
 
@@ -3886,7 +3886,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-18a';
+var APP_BUILD=/*BUILD*/'2026-08-18b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7988,23 +7988,55 @@ function sortSeasonsDesc(arr){return (arr||[]).slice().sort(function(a,b){var ka
 
 /* ===== 시즌 드롭다운 (연도/SS·FW/세부 + ＋직접입력) =====
    f-ss(hidden)에 결합값 저장 → 기존 read/저장 로직 그대로 호환 */
+/* 시즌 세부(봄·여름·가을·겨울 + 내가 추가한 1차·2차 …) — 2026-08-18
+   ⚠️ 4계절은 그대로 둔다. 이미 「26FW 겨울」처럼 들어간 아이템이 있어서
+      목록에서 빼면 그 아이템을 수정만 해도 시즌이 조용히 바뀐다.
+   내가 만든 세부는 S.refData.seasonSubs 에 쌓인다. */
+var SEASON_SUB_BASE=['봄','여름','가을','겨울'];
+function _ssnSubs(extra){
+  S.refData=S.refData||{};
+  if(!Array.isArray(S.refData.seasonSubs))S.refData.seasonSubs=[];
+  var out=[],seen={};
+  SEASON_SUB_BASE.concat(S.refData.seasonSubs).concat([extra||'']).forEach(function(v){
+    v=(''+(v||'')).trim(); if(!v||seen[v])return; seen[v]=1; out.push(v);
+  });
+  return out;
+}
+function _ssnSubOpts(psub){
+  return '<option value="">세부 없음</option>'
+    +_ssnSubs(psub).map(function(s){return '<option'+(s===psub?' selected':'')+'>'+esc(s)+'</option>';}).join('')
+    +'<option value="__add">＋ 세부 추가…</option>';
+}
+function seasonAddSub(){
+  var sel=document.getElementById('f-ss-sub'); if(!sel)return;
+  var v=prompt('세부를 적어주세요 (예: 1차, 2차, 봄)');
+  v=(''+(v||'')).trim();
+  if(!v){ sel.value=(sel.getAttribute('data-prev')||''); seasonSync(); return; }
+  if(v.length>8||/\s/.test(v)){ showToast('세부는 띄어쓰기 없이 8자까지 적어주세요',3500); sel.value=(sel.getAttribute('data-prev')||''); seasonSync(); return; }
+  S.refData=S.refData||{};
+  if(!Array.isArray(S.refData.seasonSubs))S.refData.seasonSubs=[];
+  if(SEASON_SUB_BASE.indexOf(v)<0&&S.refData.seasonSubs.indexOf(v)<0)S.refData.seasonSubs.push(v);
+  try{saveData();}catch(e){}
+  sel.innerHTML=_ssnSubOpts(v); sel.value=v;
+  seasonSync();
+}
 function seasonControlHTML(val){
   val=(''+(val||'')).trim();
   var Y=new Date().getFullYear()%100;
-  var m=val.match(/^(\d{2})(SS|FW)(?:\s*(봄|여름|가을|겨울))?$/i);
+  var m=val.match(/^(\d{2})(SS|FW)(?:\s*(\S{1,8}))?$/i);
   var pyr=Y, phalf='FW', psub='', free=false, freeVal='';
   if(m){pyr=+m[1];phalf=m[2].toUpperCase();psub=m[3]||'';}
   else if(val){free=true;freeVal=val;}
   var years=[];for(var i=Y-1;i<=Y+2;i++)years.push(i);
   if(years.indexOf(pyr)<0)years.unshift(pyr);
   var yrOpts=years.map(function(y){return '<option value="'+y+'"'+(y===pyr?' selected':'')+'>20'+(y<10?'0'+y:y)+'년 ('+y+')</option>';}).join('');
-  var subOpts='<option value="">세부 없음</option>'+['봄','여름','가을','겨울'].map(function(s){return '<option'+(s===psub?' selected':'')+'>'+s+'</option>';}).join('');
+  var subOpts=_ssnSubOpts(psub);
   var combined=val||(pyr+phalf);
   return ''+
    '<div style="display:flex;gap:6px;align-items:center">'+
      '<select id="f-ss-yr" onchange="seasonSync()" style="flex:1.1">'+yrOpts+'</select>'+
      '<select id="f-ss-half" onchange="seasonSync()" style="flex:1.1"><option value="SS"'+(phalf==='SS'?' selected':'')+'>SS (봄·여름)</option><option value="FW"'+(phalf==='FW'?' selected':'')+'>FW (가을·겨울)</option></select>'+
-     '<select id="f-ss-sub" onchange="seasonSync()" style="flex:1.1">'+subOpts+'</select>'+
+     '<select id="f-ss-sub" data-prev="'+esc(psub)+'" onchange="seasonSync()" style="flex:1.1">'+subOpts+'</select>'+
      '<button type="button" class="btn s" onclick="seasonToggleFree()" title="목록에 없는 시즌 직접 입력" style="flex:0 0 auto;font-weight:800">＋</button>'+
    '</div>'+
    '<div class="muted" style="font-size:11px;margin-top:5px">선택된 시즌: <b id="f-ss-pv">'+esc(combined)+'</b></div>'+
@@ -8019,6 +8051,8 @@ function seasonSync(){
     v=free.value.trim();
   }else{
     var yr=document.getElementById('f-ss-yr'),half=document.getElementById('f-ss-half'),sub=document.getElementById('f-ss-sub');
+    if(sub&&sub.value==='__add'){ seasonAddSub(); return; }
+    if(sub)sub.setAttribute('data-prev',sub.value||'');
     v=(yr?yr.value:'')+(half?half.value:'');
     if(sub&&sub.value)v+=' '+sub.value;
   }
@@ -8039,11 +8073,14 @@ function seasonRestore(val){
   val=(''+(val||'')).trim();
   var yr=document.getElementById('f-ss-yr'),half=document.getElementById('f-ss-half'),sub=document.getElementById('f-ss-sub'),wrap=document.getElementById('f-ss-freewrap'),free=document.getElementById('f-ss-free');
   if(!yr||!half||!sub)return;
-  var m=val.match(/^(\d{2})(SS|FW)(?:\s*(봄|여름|가을|겨울))?$/i);
+  var m=val.match(/^(\d{2})(SS|FW)(?:\s*(\S{1,8}))?$/i);
   if(m){
     var y=+m[1];
     if(!Array.prototype.some.call(yr.options,function(o){return +o.value===y;})){var o=document.createElement('option');o.value=y;o.textContent='20'+(y<10?'0'+y:y)+'년 ('+y+')';yr.insertBefore(o,yr.firstChild);}
+    /* 목록에 없는 세부(옛 값이든 다른 기기에서 만든 것이든)도 그대로 살린다 */
+    if(m[3]&&!Array.prototype.some.call(sub.options,function(o){return o.value===m[3];}))sub.innerHTML=_ssnSubOpts(m[3]);
     yr.value=y;half.value=m[2].toUpperCase();sub.value=m[3]||'';
+    sub.setAttribute('data-prev',m[3]||'');
     if(wrap)wrap.style.display='none';if(free)free.value='';
   }else if(val){
     if(wrap)wrap.style.display='';if(free)free.value=val;
@@ -29037,15 +29074,21 @@ function computeItemStatus(item){
 }
 
 function sbSetView(mode){window._sbView=(window._sbView===mode)?'all':mode;renderBoardPane();}
-/* ===== 샘플 스케줄표 (2026-08-18) ==========================================
-   목적 ①전체 흐름을 표로 ②거래처가 무리한 촬영일을 요구할 때 「일정 안 나옴 + 가능일」로 막기.
-   ⚠️ 촬영일은 **아이템(샘플)마다 따로** 잡는다(s.shootDate). 위쪽 목표일 칸은 '빈 칸 일괄 채우기'용.
-   ⚠️ 걸리는 날수는 사용자가 앱에서 직접 고친다 — S.refData.sampleLead[브랜드id|'_'].
-   ⚠️ 예정일은 전부 계산값이다. 단계별 '실제 끝난 날'을 적는 칸은 아직 없다(다음 단계). */
+/* ===== 샘플 스케줄표 — 2단계 (2026-08-18) ==================================
+   목적 ①전체 흐름을 표로 ②거래처가 무리한 촬영일을 요구할 때 「일정 안 나옴 + 가능일」로 막기
+        ③단계별 **실제로 끝난 날**을 눌러 굳히고, 그 날 기준으로 뒤를 다시 계산.
+   ⚠️ 촬영일은 아이템(샘플)마다 따로. 걸리는 날수는 S.refData.sampleLead[브랜드id|'_'].
+   ⚠️ 줄은 두 종류다 — 샘플 발주(s:아이디) / 샘플 발주 아직 안 한 아이템(i:아이템id, 「미발주」).
+      기록은 각자 제 자리에 저장한다: 샘플=s.ssAct·s.shootDate·s.ssOff / 아이템=it.ssAct·it.ssShoot·it.ssOff.
+   ⚠️ 메인·리오더로 넘어간 아이템도 **자동으로 숨기지 않는다** — 「메인」 표시만 붙이고 사용자가 체크해서 뺀다.
+      (자동으로 숨기면 왜 사라졌는지 알 수 없고 표에서 되돌릴 수도 없다) */
 var SS_LEAD_DEF={matPat:3,patDone:2,patSam:1,samDone:4,samDeliv:1,delivConf:2,confFix:7,fixPrep:3,prepShoot:2};
 var SS_LEAD_LBL=[['matPat','원부자재→패턴투입'],['patDone','패턴투입→완료'],['patSam','패턴완료→샘플투입'],
   ['samDone','샘플투입→완료'],['samDeliv','샘플완료→전달'],['delivConf','전달→컨펌'],
   ['confFix','컨펌→수정·재샘플'],['fixPrep','수정→촬영준비'],['prepShoot','촬영준비→촬영']];
+/* 굳힐 수 있는 자리 6군데 — [키, 이름, 다음 자리까지 걸리는 날수] */
+var SS_NODES=[['matIn','원부자재 입고','matPat'],['patIn','패턴 투입','patDone'],['patOut','패턴 완료','patSam'],
+  ['samIn','샘플 투입','samDone'],['samOut','샘플 완료','samDeliv'],['deliv','전달','delivConf']];
 function ssLead(bid){
   S.refData=S.refData||{};
   if(!S.refData.sampleLead||typeof S.refData.sampleLead!=='object')S.refData.sampleLead={};
@@ -29059,8 +29102,7 @@ function ssSetLead(bid,key,val){
   var v=Math.max(0,+val||0); S.refData.sampleLead[k][key]=v;
   saveData(); renderSampleSchedule();
 }
-/* ⚠️ toISOString()을 쓰면 안 된다 — 한국 자정을 UTC로 바꾸면서 **하루가 밀린다**(검사에서 실제로 잡힘).
-   내 시간대 기준으로 직접 문자열을 만든다. */
+/* ⚠️ toISOString()을 쓰면 안 된다 — 한국 자정을 UTC로 바꾸면서 하루가 밀린다(검사에서 실제로 잡힘). */
 function _ssAdd(iso,d){
   if(!iso)return '';
   var t=new Date(iso+'T00:00:00'); if(isNaN(t))return '';
@@ -29068,11 +29110,54 @@ function _ssAdd(iso,d){
   var p=function(n){return String(n).padStart(2,'0');};
   return t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate());
 }
+function _ssToday(){ return (typeof todayISO==='function')?todayISO():_ssAdd(new Date().getFullYear()+'-01-01',0); }
 function _ssMD(iso){ if(!iso)return ''; var p=String(iso).split('-'); return p.length===3?((+p[1])+'/'+(+p[2])):iso; }
 function _ssDiff(a,b){ if(!a||!b)return 0; return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000); }
-/* 지금 단계 — 있는 자료(status·checklist)로만 판단 */
-function ssStage(s){
-  var c=s.checklist||{};
+
+/* ---- 줄 만들기 ---- */
+function _ssPhase(it){
+  try{ return (typeof deriveItemBadge==='function'&&it&&it.id)?deriveItemBadge(it).phase:'sample'; }catch(e){ return 'sample'; }
+}
+function _ssRows(){
+  var out=[], used={};
+  var samples=(typeof getSampleOrders==='function')?getSampleOrders():[];
+  samples.forEach(function(s){
+    if(!s||!(s.name||s.itemId))return;
+    if(s.itemId)used[s.itemId]=1;
+    var it=(s.itemId&&S.items[s.itemId])||{};
+    out.push({key:'s:'+s.id,kind:'s',s:s,it:it,nm:s.name||it.name||'(이름없음)',
+      bid:s.brandId||it.brandId||'',cat:it.category||'기타',ph:_ssPhase(it),un:false});
+  });
+  /* 샘플 단계인데 아직 샘플 발주를 안 한 아이템 = 「미발주」 */
+  Object.keys(S.items||{}).forEach(function(id){
+    var it=S.items[id]; if(!it||used[id])return;
+    var b; try{ b=deriveItemBadge(it); }catch(e){ return; }
+    if(!b||b.phase!=='sample'||b.stage!=='none')return;
+    out.push({key:'i:'+id,kind:'i',s:null,it:it,nm:it.name||'(이름없음)',
+      bid:it.brandId||'',cat:it.category||'기타',ph:'sample',un:true});
+  });
+  return out;
+}
+function _ssTgt(r){ return (r.kind==='s')?r.s:r.it; }
+function _ssGetShoot(r){ var t=_ssTgt(r); return (r.kind==='s'?(t.shootDate||''):(t.ssShoot||'')); }
+function _ssSetShootV(r,v){ var t=_ssTgt(r); if(r.kind==='s')t.shootDate=v||''; else { if(v)t.ssShoot=v; else delete t.ssShoot; } }
+function _ssGetAct(r){ var o=_ssTgt(r).ssAct; return (o&&typeof o==='object')?o:{}; }
+function _ssSetActV(r,k,v){ var t=_ssTgt(r); if(!t.ssAct||typeof t.ssAct!=='object')t.ssAct={}; if(v)t.ssAct[k]=v; else delete t.ssAct[k]; }
+function _ssGetOff(r){ return !!_ssTgt(r).ssOff; }
+function _ssSetOffV(r,v){ var t=_ssTgt(r); if(v)t.ssOff=true; else delete t.ssOff; }
+function _ssFind(key){ var a=_ssRows(); for(var i=0;i<a.length;i++)if(a[i].key===key)return a[i]; return null; }
+
+/* ---- 지금 단계 ---- */
+function ssStage(r){
+  var a=_ssGetAct(r);
+  if(a.deliv)return '전달완료';
+  if(a.samOut)return '샘플 완료';
+  if(a.samIn)return '샘플중';
+  if(a.patOut)return '패턴 완료';
+  if(a.patIn)return '패턴중';
+  if(a.matIn)return '패턴 대기';
+  if(r.kind==='i')return '미발주';
+  var s=r.s||{}, c=s.checklist||{};
   if(s.status==='confirmed')return '컨펌완료';
   if(s.status==='received')return '전달완료';
   if(s.status==='sentToFactory')return '샘플중';
@@ -29080,159 +29165,228 @@ function ssStage(s){
   if(!c.fabric||!c.trim)return '원부자재 대기';
   return '패턴 대기';
 }
-/* 남은 단계 소요일 — 지금 단계 기준으로 전달까지 / 촬영까지 */
+/* 굳힌 기록이 하나도 없을 때만 쓰는 '지금 단계 → 남은 날수' */
 function _ssRemain(stage,L){
   var toDeliv;
   switch(stage){
     case '컨펌완료': case '전달완료': toDeliv=0; break;
+    case '샘플 완료': toDeliv=L.samDeliv; break;
     case '샘플중':   toDeliv=L.samDone+L.samDeliv; break;
-    case '패턴중':   toDeliv=L.patDone+L.patSam+L.samDone+L.samDeliv; break;
-    case '패턴 대기': toDeliv=L.patDone+L.patSam+L.samDone+L.samDeliv; break;
-    default:         toDeliv=L.matPat+L.patDone+L.patSam+L.samDone+L.samDeliv; break; // 원부자재 대기
+    case '패턴 완료': toDeliv=L.patSam+L.samDone+L.samDeliv; break;
+    case '패턴중': case '패턴 대기': toDeliv=L.patDone+L.patSam+L.samDone+L.samDeliv; break;
+    default:         toDeliv=L.matPat+L.patDone+L.patSam+L.samDone+L.samDeliv; break;
   }
   return {deliv:toDeliv, shoot:toDeliv+L.delivConf+L.confFix+L.fixPrep+L.prepShoot};
 }
-/* 한 건 계산 */
-function ssCalc(s){
-  var it=S.items[s.itemId]||{};
-  var bid=s.brandId||it.brandId||'';
-  var L=ssLead(bid), stage=ssStage(s), rem=_ssRemain(stage,L);
-  var today=(typeof todayISO==='function')?todayISO():new Date().toISOString().slice(0,10);
-  var shoot=s.shootDate||'';
-  var patS,patE,samS,samE,deliv;
-  if(shoot){ // 촬영일에서 거꾸로
-    var prep=_ssAdd(shoot,-L.prepShoot), fixD=_ssAdd(prep,-L.fixPrep), conf=_ssAdd(fixD,-L.confFix);
-    deliv=_ssAdd(conf,-L.delivConf);
-    samE=_ssAdd(deliv,-L.samDeliv); samS=_ssAdd(samE,-L.samDone);
-    patE=_ssAdd(samS,-L.patSam);    patS=_ssAdd(patE,-L.patDone);
-  }else{ // 오늘부터 앞으로 (언제 샘플 나오는지)
-    patS=today; patE=_ssAdd(patS,L.patDone); samS=_ssAdd(patE,L.patSam);
-    samE=_ssAdd(samS,L.samDone); deliv=_ssAdd(samE,L.samDeliv);
+/* 한 줄 계산 — 마지막으로 굳힌 날을 기준점 삼아 뒤는 앞으로, 앞은 거꾸로 채운다 */
+function ssCalc(r){
+  var L=ssLead(r.bid), a=_ssGetAct(r), stage=ssStage(r), today=_ssToday();
+  var plan={}, anchorI=-1, anchorD='', late=false, i,k,m,v;
+  for(i=0;i<SS_NODES.length;i++){ if(a[SS_NODES[i][0]]){anchorI=i;anchorD=a[SS_NODES[i][0]];} }
+  if(anchorI<0){
+    var rem=_ssRemain(stage,L);
+    plan.deliv=_ssAdd(today,rem.deliv);
+    plan.samOut=_ssAdd(plan.deliv,-L.samDeliv);
+    plan.samIn=_ssAdd(plan.samOut,-L.samDone);
+    plan.patOut=_ssAdd(plan.samIn,-L.patSam);
+    plan.patIn=_ssAdd(plan.patOut,-L.patDone);
+    plan.matIn=_ssAdd(plan.patIn,-L.matPat);
+  }else{
+    plan[SS_NODES[anchorI][0]]=anchorD;
+    for(k=anchorI+1;k<SS_NODES.length;k++){
+      v=_ssAdd(plan[SS_NODES[k-1][0]],L[SS_NODES[k-1][2]]);
+      if(_ssDiff(today,v)<0){v=today;late=true;}   /* 이미 지난 예정일은 오늘로 밀고 「지연」 */
+      plan[SS_NODES[k][0]]=v;
+    }
+    for(m=anchorI-1;m>=0;m--){ plan[SS_NODES[m][0]]=a[SS_NODES[m][0]]||_ssAdd(plan[SS_NODES[m+1][0]],-L[SS_NODES[m][2]]); }
   }
-  var earliestDeliv=_ssAdd(today,rem.deliv), earliestShoot=_ssAdd(today,rem.shoot);
-  var ok=true;
-  if(shoot)ok=_ssDiff(earliestShoot,shoot)>=0;   // 촬영일이 가능일보다 빠르면 불가
-  return {it:it,bid:bid,L:L,stage:stage,shoot:shoot,patS:patS,patE:patE,samS:samS,samE:samE,
-          deliv:(shoot?deliv:earliestDeliv),earliestShoot:earliestShoot,ok:ok,noShoot:!shoot};
+  var earliestShoot=_ssAdd(plan.deliv,L.delivConf+L.confFix+L.fixPrep+L.prepShoot);
+  var shoot=_ssGetShoot(r);
+  var ok=shoot?(_ssDiff(earliestShoot,shoot)>=0):true;
+  return {r:r,it:r.it,bid:r.bid,L:L,plan:plan,stage:stage,shoot:shoot,deliv:plan.deliv,
+          earliestShoot:earliestShoot,ok:ok,noShoot:!shoot,late:late,act:a};
 }
-function ssSetShoot(id,v){
-  var arr=getSampleOrders(), s=arr.filter(function(x){return x&&x.id===id;})[0]; if(!s)return;
-  s.shootDate=v||''; saveData(); renderSampleSchedule();
+
+/* ---- 손대기 ---- */
+function ssSetShoot(key,v){ var r=_ssFind(key); if(!r)return; _ssSetShootV(r,v); saveData(); renderSampleSchedule(); }
+function ssSetAct(key,node,v){
+  var r=_ssFind(key); if(!r)return;
+  _ssSetActV(r,node,v||''); saveData(); ssClosePop(); renderSampleSchedule();
 }
-function ssFillEmpty(){
-  var v=(document.getElementById('ss-goal')||{}).value||''; if(!v){showToast('촬영 예정일을 먼저 넣어주세요');return;}
-  var n=0; getSampleOrders().forEach(function(s){ if(s&&!s.shootDate){ s.shootDate=v; n++; } });
-  saveData(); renderSampleSchedule(); showToast(n?('빈 칸 '+n+'건에 '+_ssMD(v)+' 넣었어요'):'빈 칸이 없어요');
+function ssSetOff(key,v){
+  var r=_ssFind(key); if(!r)return;
+  _ssSetOffV(r,v); if(!v)window._ssShowOff=true; saveData(); renderSampleSchedule();
 }
+function ssSelOne(key,v){ window._ssSel=window._ssSel||{}; if(v)window._ssSel[key]=1; else delete window._ssSel[key]; renderSampleSchedule(); }
+function ssSelAll(v){ window._ssSel={}; if(v)_ssRows().forEach(function(r){ if(!_ssGetOff(r))window._ssSel[r.key]=1; }); renderSampleSchedule(); }
+function ssSelMain(){
+  window._ssSel=window._ssSel||{};
+  _ssRows().forEach(function(r){ if(!_ssGetOff(r)&&(r.ph==='main'||r.ph==='reorder'))window._ssSel[r.key]=1; });
+  renderSampleSchedule();
+}
+function ssSelClear(){ window._ssSel={}; renderSampleSchedule(); }
+function ssDropSel(){
+  var sel=window._ssSel||{}, n=0;
+  _ssRows().forEach(function(r){ if(sel[r.key]&&!_ssGetOff(r)){ _ssSetOffV(r,true); n++; } });
+  window._ssSel={}; if(n)window._ssShowOff=true;
+  saveData(); renderSampleSchedule();
+  showToast(n?(n+'건 뺐어요 — 맨 아래 「뺀 것」에서 되돌릴 수 있어요'):'고른 것이 없어요',4000);
+}
+function ssToggleOff(){ window._ssShowOff=!window._ssShowOff; renderSampleSchedule(); }
 function ssToggleLead(){ window._ssLeadOpen=!window._ssLeadOpen; renderSampleSchedule(); }
-/* 화면 그리기 */
+/* 굳히기 쪽지 */
+function ssClosePop(){ var a=document.getElementById('ss-pop'),b=document.getElementById('ss-pop-bk'); if(a)a.remove(); if(b)b.remove(); }
+function ssPop(ev,key,node){
+  try{ev.stopPropagation();}catch(e){}
+  ssClosePop();
+  var r=_ssFind(key); if(!r)return;
+  var lbl=''; SS_NODES.forEach(function(n){ if(n[0]===node)lbl=n[1]; });
+  var cur=_ssGetAct(r)[node]||'', today=_ssToday();
+  var bk=document.createElement('div'); bk.id='ss-pop-bk'; bk.className='ss-pop-bk'; bk.onclick=ssClosePop;
+  document.body.appendChild(bk);
+  var d=document.createElement('div'); d.id='ss-pop'; d.className='ss-pop';
+  d.innerHTML='<div class="t">'+esc(r.nm)+' — '+esc(lbl)+'</div>'
+    +'<button class="y" onclick="ssSetAct(\''+esc(key)+'\',\''+node+'\',\''+today+'\')">오늘로 기록 ('+_ssMD(today)+')</button>'
+    +'<input type="date" value="'+esc(cur)+'" onchange="ssSetAct(\''+esc(key)+'\',\''+node+'\',this.value)">'
+    +(cur?('<button class="d" onclick="ssSetAct(\''+esc(key)+'\',\''+node+'\',\'\')">기록 지우기</button>'):'');
+  document.body.appendChild(d);
+  try{
+    var t=ev.target.getBoundingClientRect(), w=d.offsetWidth||200, h=d.offsetHeight||160;
+    d.style.left=Math.max(8,Math.min(window.innerWidth-w-8,t.left))+'px';
+    d.style.top=((t.bottom+h+8>window.innerHeight)?Math.max(8,t.top-h-6):(t.bottom+6))+'px';
+  }catch(e){ d.style.left='20px'; d.style.top='80px'; }
+}
+function _ssDtBtn(c,node){
+  var a=c.act[node]||'', v=a||c.plan[node]||'';
+  var pushed=(!a&&c.late&&v===_ssToday());
+  return '<button type="button" class="ss-dt'+(a?' on':'')+(pushed?' late':'')+'" onclick="ssPop(event,\''+esc(c.r.key)+'\',\''+node+'\')">'
+    +esc(_ssMD(v)||'—')+'</button>'+(pushed?'<span class="ss-lt">지연</span>':'');
+}
+
+/* ---- 화면 ---- */
 function renderSampleSchedule(){
   var el=document.getElementById('ssched-body'); if(!el)return;
-  var samples=(typeof getSampleOrders==='function')?getSampleOrders():[];
-  samples=samples.filter(function(s){return s&&(s.name||s.itemId);});
-  var goal=(document.getElementById('ss-goal')||{}).value||window._ssGoal||'';
-  var rows=samples.map(function(s){ var c=ssCalc(s); c.s=s; return c; });
-  var bad=rows.filter(function(r){return r.shoot&&!r.ok;});
-  var okN=rows.filter(function(r){return r.shoot&&r.ok;}).length;
-  var noN=rows.filter(function(r){return !r.shoot;}).length;
-  var earliest=rows.reduce(function(a,r){ return (!a||_ssDiff(a,r.earliestShoot)>0)?r.earliestShoot:a; },'');
-  var esc2=esc;
-  // 브랜드별 묶기
-  var byB={}; rows.forEach(function(r){ var b=r.bid||'_'; (byB[b]=byB[b]||[]).push(r); });
+  var all=_ssRows();
+  var live=all.filter(function(r){return !_ssGetOff(r);});
+  var offs=all.filter(function(r){return _ssGetOff(r);});
+  var sel=window._ssSel||{};
+  var rows=live.map(ssCalc);
+  var bad=rows.filter(function(c){return c.shoot&&!c.ok;});
+  var okN=rows.filter(function(c){return c.shoot&&c.ok;}).length;
+  var noN=rows.filter(function(c){return !c.shoot;}).length;
+  var unN=live.filter(function(r){return r.un;}).length;
+  var mainN=live.filter(function(r){return r.ph==='main'||r.ph==='reorder';}).length;
+  var selN=live.filter(function(r){return sel[r.key];}).length;
+  var earliest=rows.reduce(function(a,c){ return (!a||_ssDiff(a,c.earliestShoot)>0)?c.earliestShoot:a; },'');
+  var byB={}; rows.forEach(function(c){ var b=c.bid||'_'; (byB[b]=byB[b]||[]).push(c); });
   var bids=Object.keys(byB);
   var H='<div class="ss-wrap">';
-  H+='<div class="ss-top"><h2>샘플 스케줄표</h2><span class="ss-sub">촬영일은 아이템마다 · 걸리는 날수는 아래에서 직접 고칩니다</span></div>';
-  // 목표일 일괄
+  H+='<div class="ss-top"><h2>샘플 스케줄표</h2><span class="ss-sub">촬영일은 표에서 아이템마다 · 걸리는 날수는 아래에서 직접 고칩니다</span></div>';
   H+='<div class="ss-card ss-goalbar">'
-    +'<label>촬영 예정일 <span>(빈 칸 일괄)</span></label>'
-    +'<input type="date" id="ss-goal" value="'+esc2(goal)+'">'
-    +'<button class="ss-btn" onclick="ssFillEmpty()">빈 칸에 넣기</button>'
+    +(selN?('<button class="ss-btn r" onclick="ssDropSel()">선택한 '+selN+'건 빼기</button><button class="ss-btn" onclick="ssSelClear()">선택 해제</button>')
+          :'<label>줄 앞 네모를 체크하면 여러 건을 한꺼번에 뺄 수 있습니다</label>')
+    +(mainN?('<button class="ss-btn" onclick="ssSelMain()">메인 '+mainN+'건 체크</button>'):'')
     +'<span class="ss-sp"></span>'
     +'<button class="ss-btn b" onclick="ssToggleLead()">'+(window._ssLeadOpen?'걸리는 날수 접기':'걸리는 날수 설정')+'</button>'
+    +(offs.length?('<button class="ss-btn" onclick="ssToggleOff()">'+(window._ssShowOff?'뺀 것 접기':('뺀 것 '+offs.length+'건 보기'))+'</button>'):'')
     +'</div>';
-  // 판정 배너
   if(bad.length){
     H+='<div class="ss-vd"><div class="h">이 날짜로는 일정이 안 나옵니다</div><div class="b">'
-      +'<b>'+bad.length+'건</b>이 오늘부터 계산해도 늦습니다. 가장 빠른 촬영 가능일 <b>'+esc2(_ssMD(earliest))+'</b>'
-      +'<div class="s">'+bad.slice(0,6).map(function(r){return esc2((r.s.name||r.it.name||'')+' ('+r.stage+')');}).join(' · ')+(bad.length>6?(' 외 '+(bad.length-6)+'건'):'')+'</div>'
+      +'<b>'+bad.length+'건</b>이 오늘부터 계산해도 늦습니다. 가장 빠른 촬영 가능일 <b>'+esc(_ssMD(earliest))+'</b>'
+      +'<div class="s">'+bad.slice(0,6).map(function(c){return esc(c.r.nm+' ('+c.stage+')');}).join(' · ')+(bad.length>6?(' 외 '+(bad.length-6)+'건'):'')+'</div>'
       +'</div></div>';
   }else if(rows.length){
     H+='<div class="ss-vd good"><div class="h">일정 가능</div><div class="b">촬영일이 잡힌 '+okN+'건 모두 일정이 나옵니다.'+(noN?(' 촬영일 미정 '+noN+'건.'):'')+'</div></div>';
   }
-  // 걸리는 날수
   if(window._ssLeadOpen){
     var bidFirst=bids[0]||'';
-    var L=ssLead(bidFirst==='_'?'':bidFirst);
+    var LL=ssLead(bidFirst==='_'?'':bidFirst);
     H+='<div class="ss-card ss-days"><div class="ss-dh">걸리는 날수 (브랜드마다 따로 저장)</div><div class="ss-drow">';
     SS_LEAD_LBL.forEach(function(p){
-      H+='<span class="ss-dc"><b>'+esc2(p[1])+'</b><input type="number" min="0" value="'+L[p[0]]+'" onchange="ssSetLead(\''+esc2(bidFirst==='_'?'':bidFirst)+'\',\''+p[0]+'\',this.value)"><i>일</i></span>';
+      H+='<span class="ss-dc"><b>'+esc(p[1])+'</b><input type="number" min="0" value="'+LL[p[0]]+'" onchange="ssSetLead(\''+esc(bidFirst==='_'?'':bidFirst)+'\',\''+p[0]+'\',this.value)"><i>일</i></span>';
     });
-    H+='</div><div class="ss-dn">투입한 날부터 전달까지 최소 '+(L.patDone+L.patSam+L.samDone+L.samDeliv)+'일. 원부자재가 안 들어온 건은 입고된 날부터 시작됩니다.</div></div>';
+    H+='</div><div class="ss-dn">투입한 날부터 전달까지 최소 '+(LL.patDone+LL.patSam+LL.samDone+LL.samDeliv)+'일. 원부자재가 안 들어온 건은 입고된 날부터 시작됩니다.</div></div>';
   }
-  // 통계
   H+='<div class="ss-stats">'
-    +'<span class="ss-st"><b>'+rows.length+'</b>전체</span>'
+    +'<span class="ss-st"><b>'+live.length+'</b>전체</span>'
     +'<span class="ss-st warn"><b>'+bad.length+'</b>일정 안 나옴</span>'
     +'<span class="ss-st"><b>'+okN+'</b>가능</span>'
     +'<span class="ss-st"><b>'+noN+'</b>촬영일 미정</span>'
+    +(unN?('<span class="ss-st"><b>'+unN+'</b>미발주</span>'):'')
+    +(offs.length?('<span class="ss-st"><b>'+offs.length+'</b>뺀 것</span>'):'')
     +'</div>';
-  if(!rows.length){ H+='<div class="ss-empty">샘플이 없어요. 샘플 발주 탭에서 먼저 추가해주세요.</div></div>'; el.innerHTML=H; return; }
-  // 브랜드별 표
+  H+='<div class="ss-lg"><i><span class="sw p">8/20</span> 예정 (계산값 — 누르면 기록)</i>'
+    +'<i><span class="sw a">8/20</span> 실제로 끝난 날</i><i>기록하면 뒷 단계가 그 날부터 다시 계산됩니다</i></div>';
+  if(!live.length&&!offs.length){ H+='<div class="ss-empty">샘플이 없어요. 샘플 발주 탭에서 먼저 추가해주세요.</div></div>'; el.innerHTML=H; return; }
   bids.forEach(function(b){
     var list=byB[b], bn=(b==='_')?'브랜드 미지정':((typeof getBrandName==='function')?getBrandName(b):b);
-    var badN=list.filter(function(r){return r.shoot&&!r.ok;}).length;
-    H+='<div class="ss-card"><div class="ss-bhd"><b>'+esc2(bn)+'</b><span class="ss-cnt">'+list.length+'건'+(badN?(' · 안 나옴 '+badN):'')+'</span><span class="ss-sp"></span>'
-      +'<button class="ss-btn b" onclick="ssCopyText(\''+esc2(b)+'\')">텍스트 복사</button>'
-      +'<button class="ss-btn g" onclick="ssSaveImage(\''+esc2(b)+'\')">이미지 저장</button></div>';
+    var badN=list.filter(function(c){return c.shoot&&!c.ok;}).length;
+    H+='<div class="ss-card"><div class="ss-bhd"><b>'+esc(bn)+'</b><span class="ss-cnt">'+list.length+'건'+(badN?(' · 안 나옴 '+badN):'')+'</span><span class="ss-sp"></span>'
+      +'<button class="ss-btn b" onclick="ssCopyText(\''+esc(b)+'\')">텍스트 복사</button>'
+      +'<button class="ss-btn g" onclick="ssSaveImage(\''+esc(b)+'\')">이미지 저장</button></div>';
     H+='<div class="ss-tw"><table class="ss-tbl"><tr>'
-      +'<th class="l">아이템</th><th>지금 단계</th><th>패턴</th><th>샘플</th><th>전달</th><th>촬영일 / 샘플 예정</th><th>판정</th></tr>';
-    // 카테고리 묶기
-    var byC={}; list.forEach(function(r){ var c=(r.it.category||'기타'); (byC[c]=byC[c]||[]).push(r); });
+      +'<th class="c"><input type="checkbox" onchange="ssSelAll(this.checked)"></th>'
+      +'<th class="l">아이템</th><th>지금 단계</th><th>자재</th><th>패턴 투입 → 완료</th><th>샘플 투입 → 완료</th>'
+      +'<th>전달 예정</th><th>촬영일</th><th>판정</th></tr>';
+    var byC={}; list.forEach(function(c){ var k=(c.r.cat||'기타'); (byC[k]=byC[k]||[]).push(c); });
     Object.keys(byC).forEach(function(cat){
-      H+='<tr class="ss-cat"><td colspan="7">'+esc2(cat)+'</td></tr>';
-      byC[cat].forEach(function(r){
-        var nm=r.s.name||r.it.name||'(이름없음)';
-        var cls=(r.shoot&&!r.ok)?' class="bad"':'';
-        H+='<tr'+cls+'><td class="l"><div class="ss-nm">'+esc2(nm)+'</div></td>'
-          +'<td><span class="ss-stg">'+esc2(r.stage)+'</span></td>'
-          +'<td class="ss-d">'+esc2(_ssMD(r.patS))+' → '+esc2(_ssMD(r.patE))+'</td>'
-          +'<td class="ss-d">'+esc2(_ssMD(r.samS))+' → '+esc2(_ssMD(r.samE))+'</td>'
-          +'<td class="ss-d">'+esc2(_ssMD(r.deliv))+'</td>'
-          +'<td><input type="date" class="ss-sd'+((r.shoot&&!r.ok)?' bad':(r.shoot?'':' empty'))+'" value="'+esc2(r.shoot)+'" onchange="ssSetShoot(\''+esc2(r.s.id)+'\',this.value)">'
-          +(r.noShoot?('<div class="ss-sn">샘플 '+esc2(_ssMD(r.deliv))+' 예정</div>'):((!r.ok)?('<div class="ss-sn bad">'+esc2(_ssMD(r.earliestShoot))+'부터 가능</div>'):''))
-          +'</td>'
-          +'<td>'+(r.noShoot?'<span class="ss-v na">촬영일 미정</span>':(r.ok?'<span class="ss-v ok">가능</span>':'<span class="ss-v no">안 나옴</span>'))+'</td></tr>';
+      H+='<tr class="ss-cat"><td colspan="9">'+esc(cat)+'</td></tr>';
+      byC[cat].forEach(function(c){
+        var r=c.r, cls=(c.shoot&&!c.ok)?' class="bad"':'';
+        H+='<tr'+cls+'>'
+          +'<td class="c"><input type="checkbox"'+(sel[r.key]?' checked':'')+' onchange="ssSelOne(\''+esc(r.key)+'\',this.checked)"></td>'
+          +'<td class="l"><span class="ss-nm">'+esc(r.nm)+'</span>'
+            +((r.ph==='main'||r.ph==='reorder')?'<span class="ss-mn">메인</span>':'')
+            +'<button class="ss-x" onclick="ssSetOff(\''+esc(r.key)+'\',1)">빼기</button></td>'
+          +'<td><span class="ss-stg'+((r.un&&c.stage==='미발주')?' un':'')+'">'+esc(c.stage)+'</span></td>'
+          +'<td>'+_ssDtBtn(c,'matIn')+'</td>'
+          +'<td>'+_ssDtBtn(c,'patIn')+'<span class="ss-arw">→</span>'+_ssDtBtn(c,'patOut')+'</td>'
+          +'<td>'+_ssDtBtn(c,'samIn')+'<span class="ss-arw">→</span>'+_ssDtBtn(c,'samOut')+'</td>'
+          +'<td>'+_ssDtBtn(c,'deliv')+'</td>'
+          +'<td><input type="date" class="ss-sd'+((c.shoot&&!c.ok)?' bad':(c.shoot?'':' empty'))+'" value="'+esc(c.shoot)+'" onchange="ssSetShoot(\''+esc(r.key)+'\',this.value)">'
+            +((c.shoot&&!c.ok)?('<div class="ss-sn bad">'+esc(_ssMD(c.earliestShoot))+'부터 가능</div>'):'')+'</td>'
+          +'<td>'+(c.noShoot?'<span class="ss-v na">촬영일 미정</span>':(c.ok?'<span class="ss-v ok">가능</span>':'<span class="ss-v no">안 나옴</span>'))+'</td></tr>';
       });
     });
     H+='</table></div></div>';
   });
+  if(window._ssShowOff&&offs.length){
+    H+='<div class="ss-card"><div class="ss-bhd"><b>뺀 것</b><span class="ss-cnt">'+offs.length+'건 · 표와 거래처 전달 텍스트에 안 나옵니다</span></div>';
+    H+='<div class="ss-tw"><table class="ss-tbl">';
+    offs.forEach(function(r){
+      H+='<tr class="off"><td class="l"><span class="ss-nm">'+esc(r.nm)+'</span>'
+        +((r.ph==='main'||r.ph==='reorder')?'<span class="ss-mn">메인</span>':'')
+        +(r.un?'<span class="ss-mn un">미발주</span>':'')
+        +'<button class="ss-back" onclick="ssSetOff(\''+esc(r.key)+'\',0)">되돌리기</button></td></tr>';
+    });
+    H+='</table></div></div>';
+  }
   H+='</div>';
   el.innerHTML=H;
 }
 /* 거래처 전달 텍스트 — 컨펌일·아이콘 없이, 이름 옆에 단계+전달 가능일 */
 function ssBuildText(bid){
-  var rows=(typeof getSampleOrders==='function'?getSampleOrders():[])
-    .filter(function(s){return s&&(s.name||s.itemId);})
-    .map(function(s){ var c=ssCalc(s); c.s=s; return c; })
-    .filter(function(r){ return !bid||bid==='_'?!r.bid:(r.bid===bid); });
+  var rows=_ssRows().filter(function(r){ return !_ssGetOff(r); })
+    .filter(function(r){ return (!bid||bid==='_')?!r.bid:(r.bid===bid); })
+    .map(ssCalc);
   if(!rows.length)return '';
   var bn=(bid&&bid!=='_'&&typeof getBrandName==='function')?getBrandName(bid):'진행 현황';
-  var today=(typeof todayISO==='function')?todayISO():'';
+  var today=_ssToday();
   var L=rows[0].L;
-  var okL=rows.filter(function(r){return r.shoot&&r.ok;});
-  var noL=rows.filter(function(r){return r.shoot&&!r.ok;});
-  var undL=rows.filter(function(r){return !r.shoot;});
-  var shootMain=(function(){var m={},best='',n=0;rows.forEach(function(r){if(!r.shoot)return;m[r.shoot]=(m[r.shoot]||0)+1;if(m[r.shoot]>n){n=m[r.shoot];best=r.shoot;}});return best;})();
-  var earliest=rows.reduce(function(a,r){ return (!a||_ssDiff(a,r.earliestShoot)>0)?r.earliestShoot:a; },'');
+  var okL=rows.filter(function(c){return c.shoot&&c.ok;});
+  var noL=rows.filter(function(c){return c.shoot&&!c.ok;});
+  var undL=rows.filter(function(c){return !c.shoot;});
+  var shootMain=(function(){var m={},best='',n=0;rows.forEach(function(c){if(!c.shoot)return;m[c.shoot]=(m[c.shoot]||0)+1;if(m[c.shoot]>n){n=m[c.shoot];best=c.shoot;}});return best;})();
+  var earliest=rows.reduce(function(a,c){ return (!a||_ssDiff(a,c.earliestShoot)>0)?c.earliestShoot:a; },'');
   var T=bn+' — 진행 현황 ('+_ssMD(today)+' 기준)';
   if(shootMain)T+='\n촬영 예정일 '+_ssMD(shootMain);
   T+='\n';
-  if(okL.length)T+='\n[ 촬영 가능 · '+okL.length+'건 ]\n'+okL.map(function(r){
-      var nm=r.s.name||r.it.name||''; return nm+((r.shoot!==shootMain)?('('+_ssMD(r.shoot)+')'):''); }).join(' · ')+'\n';
+  if(okL.length)T+='\n[ 촬영 가능 · '+okL.length+'건 ]\n'+okL.map(function(c){
+      return c.r.nm+((c.shoot!==shootMain)?('('+_ssMD(c.shoot)+')'):''); }).join(' · ')+'\n';
   if(noL.length)T+='\n[ 촬영 불가 · '+noL.length+'건 — 가장 빠른 가능일 '+_ssMD(earliest)+' ]\n'
-      +noL.map(function(r){ return (r.s.name||r.it.name||'')+' ('+r.stage+', 전달 '+_ssMD(r.deliv)+' 예정)'; }).join('\n')+'\n';
+      +noL.map(function(c){ return c.r.nm+' ('+c.stage+', 전달 '+_ssMD(c.deliv)+' 예정)'; }).join('\n')+'\n';
   if(undL.length)T+='\n[ 촬영일 미정 · '+undL.length+'건 ]\n'
-      +undL.map(function(r){ return (r.s.name||r.it.name||'')+' (전달 '+_ssMD(r.deliv)+' 예정)'; }).join('\n')+'\n';
+      +undL.map(function(c){ return c.r.nm+' (전달 '+_ssMD(c.deliv)+' 예정)'; }).join('\n')+'\n';
   T+='\n[ 샘플 소요 기간 안내 ]\n'
    +'패턴 투입 → 패턴 완료   '+L.patDone+'일\n'
    +'패턴 완료 → 샘플 투입   '+L.patSam+'일\n'
@@ -29241,17 +29395,18 @@ function ssBuildText(bid){
    +'──────────────────\n'
    +'투입한 날부터 전달까지 최소 '+(L.patDone+L.patSam+L.samDone+L.samDeliv)+'일이 걸립니다.\n'
    +'원부자재가 아직 안 들어온 건은 입고된 날부터 시작됩니다.\n';
-  // 카테고리별 상세
-  var byC={}; rows.forEach(function(r){ var c=(r.it.category||'기타'); (byC[c]=byC[c]||[]).push(r); });
+  var byC={}; rows.forEach(function(c){ var k=(c.r.cat||'기타'); (byC[k]=byC[k]||[]).push(c); });
   Object.keys(byC).forEach(function(cat){
     T+='\n\n'+cat+'\n';
-    byC[cat].forEach(function(r){
-      var nm=r.s.name||r.it.name||'';
-      var done=(r.stage==='전달완료'||r.stage==='컨펌완료');
-      T+='\n* '+nm+' ('+r.stage+', 전달 '+_ssMD(r.deliv)+(done?' 전달':' 예정')+')'
-        +(r.shoot&&r.shoot!==shootMain?(' — 촬영 '+_ssMD(r.shoot)):'')
-        +'\n   패턴 '+_ssMD(r.patS)+' → '+_ssMD(r.patE)+' ('+L.patDone+'일) · 샘플 '+_ssMD(r.samS)+' → '+_ssMD(r.samE)+' ('+L.samDone+'일) · 전달 '+_ssMD(r.deliv);
-      if(r.shoot&&!r.ok)T+='\n   ※ 촬영 '+_ssMD(r.shoot)+' 불가 — 가능일 '+_ssMD(r.earliestShoot);
+    byC[cat].forEach(function(c){
+      var done=(c.stage==='전달완료'||c.stage==='컨펌완료');
+      var mk=function(node,v){ return _ssMD(v)+(c.act[node]?'':''); };
+      T+='\n* '+c.r.nm+' ('+c.stage+', 전달 '+_ssMD(c.deliv)+(done?' 전달':' 예정')+')'
+        +(c.shoot&&c.shoot!==shootMain?(' — 촬영 '+_ssMD(c.shoot)):'')
+        +'\n   패턴 '+mk('patIn',c.plan.patIn)+' → '+mk('patOut',c.plan.patOut)+' ('+L.patDone+'일)'
+        +' · 샘플 '+mk('samIn',c.plan.samIn)+' → '+mk('samOut',c.plan.samOut)+' ('+L.samDone+'일)'
+        +' · 전달 '+_ssMD(c.deliv);
+      if(c.shoot&&!c.ok)T+='\n   ※ 촬영 '+_ssMD(c.shoot)+' 불가 — 가능일 '+_ssMD(c.earliestShoot);
     });
   });
   return T;
@@ -29268,7 +29423,7 @@ function ssSaveImage(bid){
   var go=function(){
     html2canvas(el,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){
       var bn=(bid&&bid!=='_'&&typeof getBrandName==='function')?getBrandName(bid):'전체';
-      return fpfSaveFile(c.toDataURL('image/png'),'샘플스케줄표_'+bn+'_'+(typeof todayISO==='function'?todayISO():'')+'.png',{label:'이미지 저장됨'});
+      return fpfSaveFile(c.toDataURL('image/png'),'샘플스케줄표_'+bn+'_'+_ssToday()+'.png',{label:'이미지 저장됨'});
     }).catch(function(){ showToast('이미지 저장 실패',3000); });
   };
   if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){showToast('라이브러리 로드 실패');};document.head.appendChild(s);}else go();
