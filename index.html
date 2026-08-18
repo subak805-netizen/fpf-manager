@@ -4011,7 +4011,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-18r';
+var APP_BUILD=/*BUILD*/'2026-08-18s';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -35201,9 +35201,26 @@ function tpSwatchAttachHTML(qb){ if(!qb||!qb.colors||!qb.colors.length)return '<
     String(c||'').split(/[\/\u00b7*,]/).forEach(function(t){ push(t.trim()); });
     try{ (_it&&_it.fabrics||[]).forEach(function(f){ (f&&f.colorLinks||[]).forEach(function(l){ if(l&&l.itemColor===c&&l.fabricColor){ push(l.fabricColor); String(l.fabricColor).split(/[\/\u00b7*,]/).forEach(function(t){ push(t.trim()); }); } }); }); }catch(e){}
     return out; };
-  var _swFind=function(prefix,c){ var cands=_swCands(c), i; for(i=0;i<cands.length;i++){ var u=tpGet('images.'+prefix+cands[i],''); if(u)return {slot:prefix+cands[i],u:u}; } return {slot:prefix+_swKeyOf(c),u:''}; };
-  var swRow=cols.map(function(c){
-    var _fA=_swFind('sw_',c), _fB=_swFind('swB_',c), _fBtn=_swFind('swBtn_',c);
+  /* 컬러별 슬롯 배정(접두사별 1회): ①정확히 같은 키 ②후보(토큰·링크) 정확 일치 ③남은 옛 키들과 토큰 겹침/포함 점수(곤=곤 2점, 보라⊂연보라 1점)로
+     높은 순 배정(키 하나는 한 컬러만), 동점이면 순서(몇 번째 컬러↔몇 번째 키)가 가까운 쪽. 점수 0이면 미배정(빈칸). */
+  var _swTokens=function(x){ return String(x||'').split(/[\/\u00b7*,_]/).map(function(t){return t.trim();}).filter(Boolean); };
+  var _swAssign=function(prefix){
+    var imgs=(_it&&_it.techpack&&_it.techpack.images)||{};
+    var pool=Object.keys(imgs).filter(function(k){ return k.indexOf(prefix)===0&&imgs[k]; }).map(function(k){ return k.slice(prefix.length); });
+    var used={}, out={};
+    cols.forEach(function(c,ci){ var k=_swKeyOf(c); if(pool.indexOf(k)>=0&&!used[k]){ out[ci]=k; used[k]=1; } });
+    cols.forEach(function(c,ci){ if(out[ci]!==undefined)return; var cands=_swCands(c),i; for(i=0;i<cands.length;i++){ if(pool.indexOf(cands[i])>=0&&!used[cands[i]]){ out[ci]=cands[i]; used[cands[i]]=1; break; } } });
+    var pairs=[];
+    cols.forEach(function(c,ci){ if(out[ci]!==undefined)return; var ct=_swTokens(c); _swCands(c).forEach(function(x){ _swTokens(x).forEach(function(t){ if(ct.indexOf(t)<0)ct.push(t); }); });
+      pool.forEach(function(k,ki){ if(used[k])return; var kt=_swTokens(k), sc=0; ct.forEach(function(a){ kt.forEach(function(b){ if(a===b)sc+=2; else if(a.length>=2&&b.length>=2&&(a.indexOf(b)>=0||b.indexOf(a)>=0))sc+=1; }); }); if(sc>0)pairs.push({ci:ci,k:k,sc:sc,dist:Math.abs(ci-ki)}); }); });
+    pairs.sort(function(a,b){ return (b.sc-a.sc)||(a.dist-b.dist); });
+    pairs.forEach(function(pr){ if(out[pr.ci]!==undefined||used[pr.k])return; out[pr.ci]=pr.k; used[pr.k]=1; });
+    return out;
+  };
+  var _asgA=_swAssign('sw_'), _asgB=_swAssign('swB_'), _asgBtn=_swAssign('swBtn_');
+  var _swFind=function(prefix,asg,c,ci){ var k=(asg[ci]!==undefined)?asg[ci]:_swKeyOf(c); return {slot:prefix+k,u:tpGet('images.'+prefix+k,'')}; };
+  var swRow=cols.map(function(c,ci){
+    var _fA=_swFind('sw_',_asgA,c,ci), _fB=_swFind('swB_',_asgB,c,ci), _fBtn=_swFind('swBtn_',_asgBtn,c,ci);
     var slotA=_fA.slot, slotB=_fB.slot, slotBtn=_fBtn.slot;
     var uA=_fA.u, uB=_fB.u, uBtn=_fBtn.u;
     var inner=_swBox('body',slotA,uA,_labB);
@@ -35759,7 +35776,22 @@ function tpRender(){
         cells.push('<td>'+_izLabel(slot,bimg,lab)+'</td>');
       });
     }
-    if(_hasCare){ cells.push('<td>'+_izLabel('labelCare',tpSelectedLabelImg(it,'care'),_lblNm(cares[0],'케어라벨'))+'</td>'); }
+    /* 케어라벨도 메인라벨과 **똑같이** 이름으로 찾아온다(신고 2026-08-18: 「케어라벨 30」·「케어라벨 15」를 나눠 썼는데
+       늘 같은 사진만 나왔다). 예전엔 브랜드 케어라벨 목록의 **첫 사진**을 무조건 가져왔다.
+       ⚠️ 이름으로 못 찾으면 첫 칸만 예전 폴백을 그대로 둔다 — 케어라벨 이름을 안 골라둔 아이템이 갑자기 빈칸이 되지 않게. */
+    if(_hasCare){
+      var _cents=[];
+      cares.forEach(function(t){ _mainNames(t).forEach(function(nm){ _cents.push({t:t,nm:nm}); }); });
+      if(!_cents.length)_cents=[{t:cares[0],nm:''}];
+      _cents.forEach(function(e,i){
+        var slot=i===0?'labelCare':('labelCare'+(i+1));
+        var bimg=e.nm?tpBrandLabelImgByName(it,e.nm):'';
+        if(!bimg&&i===0)bimg=tpSelectedLabelImg(it,'care');
+        var lab=e.nm||_lblNm(e.t,'케어라벨');
+        if(_cents.length>1&&e.t&&e.t.part)lab+=' '+e.t.part;
+        cells.push('<td>'+_izLabel(slot,bimg,lab)+'</td>');
+      });
+    }
     if(!cells.length)return ''; // 라벨 설정 하나도 없으면 표 자체 생략
     return '<table class="tpeq"><tr>'+cells.join('')+'</tr></table>';
   };
