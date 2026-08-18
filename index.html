@@ -3917,7 +3917,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-18f';
+var APP_BUILD=/*BUILD*/'2026-08-18g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -34721,7 +34721,7 @@ function tpSpecHTML(it){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE']
     sizes.forEach(function(s){h+='<td>'+tpGradeCell('sew.spec.'+i+'.v.'+s,'f',s)+'</td>';});
     h+='<td class="tp-editonly" style="white-space:nowrap">'+tpRowMoveBtns('sew.spec',i,arr.length)+'<button type="button" class="tp-rx" onclick="tpDelRow(\'sew.spec\','+i+')" title="삭제">×</button></td></tr>'; });
   return h+'</table><div class="tp-editonly" style="font-size:9px;color:#9aa0a8;padding:2px 4px">패턴 S·M 넣으면 편차·L 자동, 완성도 패턴 편차대로 자동</div>'; }
-function tpSpecSecHTML(it){ return '<div class="sec">치수 (패턴·편차·완성) cm<span class="tp-editonly" style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'shirt\')">셔츠</button><button class="gbtn" onclick="tpSpecPreset(\'raglan\')">레글런</button><button class="gbtn" onclick="tpSpecPreset(\'pants\')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\')">스커트</button><button class="gbtn" onclick="tpSpecAdd()">＋부위</button></span></div>'+tpSpecHTML(it)+tpEmbSpecLinkHTML(it); }
+function tpSpecSecHTML(it){ return '<div class="sec">치수 (패턴·편차·완성) cm<span class="tp-editonly" style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'shirt\')">셔츠</button><button class="gbtn" onclick="tpSpecPreset(\'raglan\')">레글런</button><button class="gbtn" onclick="tpSpecPreset(\'pants\')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\')">스커트</button><button class="gbtn" onclick="tpSpecAdd()">＋부위</button><button class="gbtn" onclick="tpSpecPick()" title="다른 아이템의 치수를 사이즈 골라서 가져오기">불러오기</button></span></div>'+tpSpecHTML(it)+tpEmbSpecLinkHTML(it); }
 // 자수 위치·크기 → 치수 표 밑에 자동 붙는 읽기전용 블록 (자수 데이터 있을 때만)
 function tpEmbSpecLinkHTML(it){ var d=(it&&it.techpack)||{}; var emb=d.emb||{};
   var rows=Array.isArray(emb.posRows)?emb.posRows:null;
@@ -34739,6 +34739,207 @@ function tpEmbSpecLinkHTML(it){ var d=(it&&it.techpack)||{}; var emb=d.emb||{};
     h+='<td>'+tpEsc(r.tol||'')+'</td><td><span class="tp-seamtag '+(so?'out':'in')+'">'+(so?'시접빼고':'시접포함')+'</span></td></tr>';
   });
   return h+'</table>'; }
+
+/* ===== 작지: 엔터로 아래 칸 이동 · 다른 아이템에서 도식화/치수 가져오기 (2026-08-18) =====
+   ⚠️ 가져오기는 전부 **복사본**이다. 원본 아이템을 나중에 고쳐도 가져다 쓴 쪽은 안 바뀐다.
+      도식화는 그림 파일을 이 아이템 것으로 새로 올린다(업로드 안 되면 주소 복사로 물러남 —
+      작지 그림은 바꿀 때 옛 파일을 지우지 않고 새 파일을 올리는 구조라 그것도 안전하다). */
+/* 치수 표에서 엔터 = 아래 칸, Shift+엔터 = 위 칸 */
+function tpSpecKeyInit(){
+  if(window._tpSpecKeyOn)return; window._tpSpecKeyOn=true;
+  document.addEventListener('keydown',function(ev){
+    if(ev.key!=='Enter'&&ev.keyCode!==13)return;
+    var el=ev.target; if(!el||el.tagName!=='INPUT')return;
+    var tbl=el.closest?el.closest('table.tp-spec'):null; if(!tbl)return;
+    var td=el.closest('td'), tr=el.closest('tr'); if(!td||!tr)return;
+    ev.preventDefault();
+    var ci=Array.prototype.indexOf.call(tr.children,td);
+    var rows=Array.prototype.filter.call(tbl.rows,function(r){ return r.querySelector('input'); });
+    var ri=rows.indexOf(tr); if(ri<0)return;
+    var step=ev.shiftKey?-1:1;
+    for(var k=ri+step;k>=0&&k<rows.length;k+=step){
+      var c=rows[k].children[ci], inp=c&&c.querySelector('input');
+      if(inp){ inp.focus(); try{inp.select();}catch(e){} return; }
+    }
+    el.blur();
+  },true);
+}
+/* 도식화가 들어 있는 다른 아이템 목록 */
+function _tpSketchItems(){
+  var out=[];
+  Object.keys(S.items||{}).forEach(function(id){
+    if(id===_tpItemId)return;
+    var it=S.items[id]; if(!it)return;
+    var d=it.techpack||{}, im=d.images||{};
+    var u=im.sewSketch||im.cutSketch||'';
+    if(!u)return;
+    out.push({id:id,name:it.name||'',code:it.code||'',png:u,season:it.season||''});
+  });
+  return out.sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||''),'ko'); });
+}
+/* 치수가 들어 있는 다른 아이템 목록 */
+function _tpSpecItems(){
+  var out=[];
+  Object.keys(S.items||{}).forEach(function(id){
+    if(id===_tpItemId)return;
+    var it=S.items[id]; if(!it)return;
+    var sp=(it.techpack&&it.techpack.sew&&it.techpack.sew.spec)||[];
+    if(!Array.isArray(sp)||!sp.length)return;
+    var any=sp.some(function(r){
+      if(!r)return false;
+      var p=r.pat||{},v=r.v||{},k;
+      for(k in p){ if(String(p[k]||'').trim())return true; }
+      for(k in v){ if(String(v[k]||'').trim())return true; }
+      return false;
+    });
+    if(!any)return;
+    out.push({id:id,name:it.name||'',code:it.code||'',sizes:(it.sizes&&it.sizes.length)?it.sizes:['FREE'],rows:sp.length,season:it.season||''});
+  });
+  return out.sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||''),'ko'); });
+}
+function _tpOvl(id,inner,w){
+  var o=document.getElementById(id); if(o)o.remove();
+  var ov=document.createElement('div'); ov.id=id;
+  ov.style.cssText='position:fixed;inset:0;z-index:100060;background:rgba(20,18,16,.45);display:flex;align-items:center;justify-content:center;padding:20px;font-family:Pretendard,sans-serif';
+  ov.innerHTML='<div style="background:#fff;border-radius:16px;width:'+(w||640)+'px;max-width:96vw;max-height:86vh;display:flex;flex-direction:column;overflow:hidden">'+inner+'</div>';
+  document.body.appendChild(ov); return ov;
+}
+function tpCloseOvl(id){ var x=document.getElementById(id); if(x)x.remove(); }
+
+/* ---- 다른 아이템 도식화 가져오기 ---- */
+function tpSketchPick(slot){
+  window._tpSkSlot=slot||'sewSketch';
+  var list=_tpSketchItems(); window._tpSkList=list;
+  _tpOvl('tp-sk-pick',
+    '<div style="padding:15px 18px;border-bottom:1px solid #e7e3dc;display:flex;align-items:center;gap:10px"><div style="font-size:15px;font-weight:600;flex:1">다른 아이템 도식화 가져오기</div>'
+    +'<button onclick="tpCloseOvl(\'tp-sk-pick\')" style="height:34px;padding:0 12px;border:1px solid #e7e3dc;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit">닫기</button></div>'
+    +'<div style="padding:10px 18px 0;font-size:11.5px;color:#6b6760">가져오면 <b>복사본</b>이 됩니다 — 원본 아이템을 나중에 고쳐도 여기 도식화는 안 바뀝니다.</div>'
+    +'<div style="padding:12px 18px 0"><input id="tp-sk-q" oninput="tpSketchFilter()" placeholder="품명·품번 검색" autocomplete="off" style="width:100%;height:38px;padding:0 13px;border:1px solid #e7e3dc;border-radius:9px;font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+    +'<div id="tp-sk-grid" style="padding:16px 18px;overflow:auto;display:flex;flex-wrap:wrap;gap:13px"></div>');
+  tpSketchFilter();
+  setTimeout(function(){ var q=document.getElementById('tp-sk-q'); if(q)q.focus(); },50);
+}
+function tpSketchFilter(){
+  var el=document.getElementById('tp-sk-q'); var q=el?(el.value||'').trim().toLowerCase():'';
+  var lib=window._tpSkList||[];
+  var list=q?lib.filter(function(p){return ((p.name||'')+' '+(p.code||'')+' '+(p.season||'')).toLowerCase().indexOf(q)>=0;}):lib;
+  var grid=document.getElementById('tp-sk-grid'); if(!grid)return;
+  /* 그림만 보여준다 — 품명·품번은 안 띄운다(사용자 요청). 검색은 이름·품번으로 되고, 마우스 올리면 이름이 뜬다. */
+  grid.innerHTML=list.length?list.map(function(p){
+    return '<div onclick="tpSketchTake(\''+p.id+'\')" title="'+tpEsc((p.name||'')+(p.code?(' · '+p.code):''))+'" style="border:1px solid #e7e3dc;border-radius:11px;overflow:hidden;cursor:pointer;width:168px;height:150px;background:#fbfaf8;display:flex;align-items:center;justify-content:center">'
+      +'<img src="'+tpEsc(p.png)+'" style="max-width:100%;max-height:100%;object-fit:contain"></div>';
+  }).join('') : '<div style="color:#a6a199;padding:30px;text-align:center;width:100%">'+(q?'검색 결과가 없어요.':'도식화가 들어 있는 다른 아이템이 없어요.')+'</div>';
+}
+function tpSketchTake(id){
+  var p=(window._tpSkList||[]).filter(function(x){return x.id===id;})[0];
+  var slot=window._tpSkSlot||'sewSketch';
+  tpCloseOvl('tp-sk-pick');
+  if(!p||!p.png){ if(typeof showToast==='function')showToast('그림이 없어요'); return; }
+  var fin=function(url){ tpSet('images.'+slot,url); tpRender(); if(typeof showToast==='function')showToast('도식화 가져옴 — 복사본이라 원본을 고쳐도 안 바뀝니다',4000); };
+  var justCopy=function(){ fin(p.png); };
+  /* 내 아이템 것으로 **새로 올린다** — 원본과 완전히 갈라놓기 위해서 */
+  try{
+    if(!(window.fbStorage&&window.fbUser&&_tpItemId)){ justCopy(); return; }
+    var up=function(blob){ tpUpload(blob,_tpItemId,slot,true).then(fin).catch(justCopy); };
+    if(/^data:/.test(p.png)){ up(_dataUrlToBlob(p.png)); return; }
+    fetch(p.png).then(function(r){ if(!r.ok)throw 0; return r.blob(); }).then(up).catch(justCopy);
+  }catch(e){ justCopy(); }
+}
+
+/* ---- 다른 아이템 치수 가져오기 (사이즈 골라서) ---- */
+function tpSpecPick(){
+  var list=_tpSpecItems(); window._tpSpList=list;
+  _tpOvl('tp-sp-pick',
+    '<div style="padding:15px 18px;border-bottom:1px solid #e7e3dc;display:flex;align-items:center;gap:10px"><div style="font-size:15px;font-weight:600;flex:1">다른 아이템 치수 가져오기</div>'
+    +'<button onclick="tpCloseOvl(\'tp-sp-pick\')" style="height:34px;padding:0 12px;border:1px solid #e7e3dc;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit">닫기</button></div>'
+    +'<div style="padding:12px 18px 0"><input id="tp-sp-q" oninput="tpSpecFilter()" placeholder="품명·품번 검색" autocomplete="off" style="width:100%;height:38px;padding:0 13px;border:1px solid #e7e3dc;border-radius:9px;font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+    +'<div id="tp-sp-list" style="padding:14px 18px;overflow:auto"></div>',560);
+  tpSpecFilter();
+  setTimeout(function(){ var q=document.getElementById('tp-sp-q'); if(q)q.focus(); },50);
+}
+function tpSpecFilter(){
+  var el=document.getElementById('tp-sp-q'); var q=el?(el.value||'').trim().toLowerCase():'';
+  var lib=window._tpSpList||[];
+  var list=q?lib.filter(function(p){return ((p.name||'')+' '+(p.code||'')+' '+(p.season||'')).toLowerCase().indexOf(q)>=0;}):lib;
+  var box=document.getElementById('tp-sp-list'); if(!box)return;
+  box.innerHTML=list.length?list.map(function(p){
+    return '<div onclick="tpSpecOpts(\''+p.id+'\')" style="border:1px solid #e7e3dc;border-radius:10px;padding:10px 13px;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px">'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+tpEsc(p.name)+'</div>'
+      +'<div style="font-size:11px;color:#6b6760">'+tpEsc(p.code||'')+(p.season?(' · '+tpEsc(p.season)):'')+' · 부위 '+p.rows+'개</div></div>'
+      +'<div style="font-size:11px;color:#185FA5;font-weight:600;white-space:nowrap">'+tpEsc(p.sizes.join(' / '))+'</div></div>';
+  }).join('') : '<div style="color:#a6a199;padding:30px;text-align:center">'+(q?'검색 결과가 없어요.':'치수가 들어 있는 다른 아이템이 없어요.')+'</div>';
+}
+function tpSpecOpts(id){
+  var src=S.items[id]; if(!src){ if(typeof showToast==='function')showToast('아이템을 찾을 수 없어요'); return; }
+  var me=tpItem(); if(!me)return;
+  var sSizes=(src.sizes&&src.sizes.length)?src.sizes:['FREE'];
+  var mSizes=(me.sizes&&me.sizes.length)?me.sizes:['FREE'];
+  window._tpSpSrc=id;
+  var opt=function(a){ return a.map(function(s){return '<option value="'+tpEsc(s)+'">'+tpEsc(s)+'</option>';}).join(''); };
+  _tpOvl('tp-sp-opt',
+    '<div style="padding:15px 18px;border-bottom:1px solid #e7e3dc;display:flex;align-items:center;gap:10px"><div style="font-size:15px;font-weight:600;flex:1">'+tpEsc(src.name||'')+' 치수 가져오기</div>'
+    +'<button onclick="tpCloseOvl(\'tp-sp-opt\')" style="height:34px;padding:0 12px;border:1px solid #e7e3dc;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit">닫기</button></div>'
+    +'<div style="padding:16px 18px;overflow:auto">'
+      +'<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:14px">'
+        +'<span style="font-size:12.5px;font-weight:600">가져올 사이즈</span>'
+        +'<select id="tp-sp-from" style="height:36px;padding:0 9px;border:1px solid #e7e3dc;border-radius:8px;font-family:inherit;font-size:13px">'+opt(sSizes)+'</select>'
+        +'<span style="color:#a6a199">→</span>'
+        +'<span style="font-size:12.5px;font-weight:600">넣을 사이즈</span>'
+        +'<select id="tp-sp-to" style="height:36px;padding:0 9px;border:1px solid #e7e3dc;border-radius:8px;font-family:inherit;font-size:13px">'+opt(mSizes)+'</select>'
+      +'</div>'
+      +'<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:13px">'
+        +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="tp-sp-pat" checked>패턴</label>'
+        +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="tp-sp-fin" checked>완성</label>'
+        +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="tp-sp-grd">편차</label>'
+      +'</div>'
+      +'<div style="border-top:1px solid #efece6;padding-top:12px;font-size:13px">'
+        +'<label style="display:flex;align-items:flex-start;gap:7px;cursor:pointer;margin-bottom:8px"><input type="radio" name="tpspm" id="tp-sp-m1" checked style="margin-top:3px"><span><b>통째로 바꾸기</b><br><span style="font-size:11.5px;color:#6b6760">측정부위 목록까지 원본과 똑같이 만듭니다. <b style="color:#b45309">지금 표에 적힌 치수는 지워집니다.</b></span></span></label>'
+        +'<label style="display:flex;align-items:flex-start;gap:7px;cursor:pointer"><input type="radio" name="tpspm" id="tp-sp-m2" style="margin-top:3px"><span><b>빈 칸만 채우기</b><br><span style="font-size:11.5px;color:#6b6760">지금 있는 측정부위 중 이름이 같은 것의 <b>빈 칸만</b> 채웁니다. 적어둔 값은 안 건드립니다.</span></span></label>'
+      +'</div>'
+      +'<button onclick="tpSpecTake()" style="margin-top:16px;width:100%;height:42px;border:none;border-radius:10px;background:#185FA5;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">가져오기</button>'
+      +'<div style="margin-top:10px;font-size:11.5px;color:#6b6760">가져온 뒤에는 복사본이라 원본 아이템을 고쳐도 여기 치수는 안 바뀝니다.</div>'
+    +'</div>',520);
+}
+function tpSpecTake(){
+  var src=S.items[window._tpSpSrc]; if(!src)return;
+  var from=(document.getElementById('tp-sp-from')||{}).value||'';
+  var to=(document.getElementById('tp-sp-to')||{}).value||'';
+  var doPat=!!(document.getElementById('tp-sp-pat')||{}).checked;
+  var doFin=!!(document.getElementById('tp-sp-fin')||{}).checked;
+  var doGrd=!!(document.getElementById('tp-sp-grd')||{}).checked;
+  var whole=!!(document.getElementById('tp-sp-m1')||{}).checked;
+  if(!doPat&&!doFin&&!doGrd){ if(typeof showToast==='function')showToast('패턴·완성·편차 중 하나는 골라주세요'); return; }
+  var sp=(src.techpack&&src.techpack.sew&&src.techpack.sew.spec)||[];
+  var cur=tpGet('sew.spec',[]); if(!Array.isArray(cur))cur=[];
+  var val=function(o,k){ return (o&&o[k]!=null)?String(o[k]):''; };
+  var n=0;
+  if(whole){
+    if(cur.length&&!confirm('지금 표에 적힌 치수가 지워지고 「'+(src.name||'')+'」 것으로 바뀝니다. 계속할까요?'))return;
+    var out=sp.map(function(r){
+      r=r||{};
+      var nr={part:r.part||''};
+      if(doPat){ var pv=val(r.pat,from); if(pv){ nr.pat={}; nr.pat[to]=pv; n++; } }
+      if(doFin){ var fv=val(r.v,from);   if(fv){ nr.v={};   nr.v[to]=fv;   n++; } }
+      if(doGrd&&r.grade)nr.grade=r.grade;
+      return nr;
+    });
+    tpSet('sew.spec',out);
+  }else{
+    var by={}; sp.forEach(function(r){ if(r&&r.part)by[String(r.part).trim()]=r; });
+    var out2=cur.map(function(r){
+      r=r||{}; var s=by[String(r.part||'').trim()]; if(!s)return r;
+      var nr=JSON.parse(JSON.stringify(r));
+      if(doPat){ var pv=val(s.pat,from); if(pv&&!String((nr.pat||{})[to]||'').trim()){ nr.pat=nr.pat||{}; nr.pat[to]=pv; n++; } }
+      if(doFin){ var fv=val(s.v,from);   if(fv&&!String((nr.v||{})[to]||'').trim()){   nr.v=nr.v||{};   nr.v[to]=fv;   n++; } }
+      if(doGrd&&s.grade&&!String(nr.grade||'').trim()){ nr.grade=s.grade; n++; }
+      return nr;
+    });
+    tpSet('sew.spec',out2);
+  }
+  tpCloseOvl('tp-sp-opt'); tpCloseOvl('tp-sp-pick'); tpRender();
+  if(typeof showToast==='function')showToast(n?('치수 '+n+'칸 가져왔어요 ('+from+' → '+to+')'):'가져올 값이 없어요 — 사이즈를 확인해주세요',4500);
+}
+
 function tpSpecAdd(){ var a=tpGet('sew.spec',[]); if(!Array.isArray(a))a=[]; a=a.slice(); a.push({}); tpSet('sew.spec',a); tpRender(); }
 function tpSpecPreset(t){
   var PANTS=['오비단면','힙단면','허벅지단면','앞시리 오비O','뒷시리 오비O','밑단단면','와끼총장','인심'];
@@ -34941,7 +35142,8 @@ function tpRender(){
   // 메뉴는 여기서 안 그림 — tpSheetMenuEl()이 body 직속으로 만든다(폰에서 탭바에 잘리던 문제)
   var addBtn=isPromo?'':'<div class="tab tp-addtab" onclick="tpToggleSheetMenu(event)" style="position:relative;font-weight:800;padding-left:20px;padding-right:20px">＋</div>';
   var tabs='<div class="tabs">'+(isPromo?(T('cs','지시서')+T('pack','완성')+T('pack2','포장')+T('insp','검품')):(T('sew','지시서')+T('spat','샘플·패턴')+T('grd','그레이딩')+T('pack','완성')+T('pack2','포장')+T('insp','검품')))+designTabs+T('smp','샘플 사진')+addBtn+'</div>';
-  var _sk=function(ph){var u=tpGet('images.sewSketch','');return '<div class="sketch" onclick="tpPickImage(\'sewSketch\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\'sewSketch\')">×</button>'):('＋ '+tpEsc(ph)))+'<button class="tp-loadbtn" onclick="event.stopPropagation();dosikPick(\'sewSketch\')" title="도식화 탭에서 불러오기" style="position:absolute;left:6px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">불러오기</button></div>';};
+  var _sk=function(ph){var u=tpGet('images.sewSketch','');return '<div class="sketch" onclick="tpPickImage(\'sewSketch\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\'sewSketch\')">×</button>'):('＋ '+tpEsc(ph)))+'<button class="tp-loadbtn" onclick="event.stopPropagation();dosikPick(\'sewSketch\')" title="도식화 탭에서 불러오기" style="position:absolute;left:6px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">불러오기</button>'
+    +'<button class="tp-loadbtn" onclick="event.stopPropagation();tpSketchPick(\'sewSketch\')" title="다른 아이템 작지에서 가져오기 (복사본)" style="position:absolute;left:78px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">다른 아이템</button></div>';};
   var _iz=function(slot,ph){var u=tpGet('images.'+slot,'');return '<div class="iz" onclick="tpPickImage(\''+slot+'\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'+tpUpBadge(slot)):('＋ '+tpEsc(ph)))+'</div>';};
   // 라벨 사진칸 — 아이템 개별 업로드 없으면 선택한 브랜드 라벨 사진 자동표시(브랜드 뱃지)
   // 라벨 사진 — 이름(메인라벨/케어라벨)을 스와치 몸판처럼 흰 알약으로 사진 위에 표시. own 사진이면 ×삭제도
@@ -35233,7 +35435,7 @@ function tpOpen(id){ var it=S.items&&S.items[id]; if(!it){ if(typeof showToast==
   var _bn=(tpBrandName(it)||'').toString();
   if(/아루드|arude/i.test(_bn))_tpOrient='portrait';
   else if(/프루토|fruto|리틀|그로브|grove/i.test(_bn))_tpOrient='landscape';
-  tpInitDefaults(); tpEnsureFileInput(); tpRender(); tpOrient(_tpOrient||'portrait'); var m=document.getElementById('tp-modal'); m.style.display='block'; m.scrollTop=0; document.body.style.overflow='hidden'; requestAnimationFrame(function(){ try{tpFit();}catch(e){} }); }
+  tpInitDefaults(); tpEnsureFileInput(); tpSpecKeyInit(); tpRender(); tpOrient(_tpOrient||'portrait'); var m=document.getElementById('tp-modal'); m.style.display='block'; m.scrollTop=0; document.body.style.overflow='hidden'; requestAnimationFrame(function(){ try{tpFit();}catch(e){} }); }
 function tpClose(){ try{tpSaveFlush();}catch(e){} try{tpCloseSheetMenu();}catch(e){} document.getElementById('tp-modal').style.display='none'; document.body.style.overflow=''; }
 function tpSaveNow(){ try{saveData();}catch(e){} if(typeof showToast==='function')showToast('작업지시서 저장됨'); }
 </script>
