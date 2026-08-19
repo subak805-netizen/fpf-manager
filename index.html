@@ -4013,7 +4013,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19c';
+var APP_BUILD=/*BUILD*/'2026-08-19d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -12435,12 +12435,33 @@ document.addEventListener('input',function(e){
   clearTimeout(window._tsumT);window._tsumT=setTimeout(function(){try{colTR();renderTrimSummary();}catch(err){}},350);
 },true);
 // 단가장에 등록된 부자재: 규격·단위·단가 잠금(단가장에서만 수정) + 거래처 줄 → 글자 한 줄
-var _TRIM_PB_LOCK_FIELDS=['size','zipperSize','zipperLength','buttonSize','snapSize','biasSpec','yardsPerRoll','unitPrice','rollUnit','packUnit','unit'];
+var _TRIM_PB_LOCK_FIELDS=['size','zipperSize','zipperLength','buttonSize','snapSize','biasSpec','yardsPerRoll','unitPrice','rollUnit','packUnit'];
+// 단가장 자재 객체 찾기 (_pbHasTrim과 같은 순서: 키 정확일치 → 이름만)
+function _pbFindTrimMat(sup,t){
+  var pb=S.priceBook&&S.priceBook[sup];if(!pb||!pb.materials||!t||!t.name)return null;
+  var mats=pb.materials,isTrim=function(m){return !!m&&m.type!=='fabric';};
+  var c=[pbKey(t.name,t.color||'',t.size||''),pbKey(t.name,t.color||''),t.name];
+  for(var i=0;i<c.length;i++)if(isTrim(mats[c[i]]))return mats[c[i]];
+  var want=String(t.name).trim().toLowerCase(),found=null;
+  Object.keys(mats).some(function(k){var m=mats[k];if(!isTrim(m))return false;var nm=m.name||pbDecodeKey(k)[0]||'';if(String(nm).trim().toLowerCase()===want){found=m;return true;}return false;});
+  return found;
+}
+// 단가장에 그 칸의 값이 "있을 때만" 잠근다 — 새로 만든 자재(단가·규격 비어 있음)는 카드에서 채우고, 저장하면 saveToPB가 단가장에 넣어줌 (2026-08-19 신고: 15mm placeholder가 박힌 값처럼 보임·단가 0 잠김)
+function _pbFieldHasVal(m,f){
+  if(!m)return false;
+  if(f==='unitPrice')return +m.unitPrice>0;
+  if(f==='yardsPerRoll')return +m.yardsPerRoll>0;
+  if(f==='size')return !!String(m.size||'').trim();
+  if(f==='zipperSize'||f==='buttonSize'||f==='snapSize')return !!String(m[f]||m.size||'').trim();
+  if(f==='zipperLength'||f==='biasSpec'||f==='rollUnit'||f==='packUnit')return !!String(m[f]||'').trim();
+  return false;
+}
 function _lockTrimPbFields(){
   var root=document.getElementById('trim-rows');if(!root)return;
   root.querySelectorAll('[id^=tr-]').forEach(function(row){
     var i=+row.id.replace('tr-','');var t=formTrims[i];if(!t)return;
     var reg=!!(t.supplier&&t.name&&_pbHasTrim(t.supplier,t));
+    var mat=reg?_pbFindTrimMat(t.supplier,t):null;
     row.classList.toggle('tcd-pb',reg);
     var supIn=row.querySelector('[data-f=supplier]');
     var supRow=supIn?supIn.closest('.tcd-frow'):null;
@@ -12455,12 +12476,15 @@ function _lockTrimPbFields(){
     _TRIM_PB_LOCK_FIELDS.forEach(function(f){
       row.querySelectorAll('[data-f='+f+']').forEach(function(el){
         if(el.type==='hidden')return;
-        if(el.tagName==='SELECT'){el.classList.toggle('tcd-ro',reg);if(reg)el.setAttribute('tabindex','-1');else el.removeAttribute('tabindex');}
-        else{el.readOnly=reg;el.classList.toggle('tcd-ro',reg);}
+        var lock=reg&&_pbFieldHasVal(mat,f); // 단가장에 값 있는 칸만
+        if(el.tagName==='SELECT'){el.classList.toggle('tcd-ro',lock);if(lock)el.setAttribute('tabindex','-1');else el.removeAttribute('tabindex');}
+        else{el.readOnly=lock;el.classList.toggle('tcd-ro',lock);
+          if(lock){if(!el.getAttribute('data-ph0'))el.setAttribute('data-ph0',el.placeholder||'');el.placeholder='';} // 잠긴 칸에 placeholder(15mm 등)가 값처럼 보이지 않게
+          else if(el.getAttribute('data-ph0')!=null){el.placeholder=el.getAttribute('data-ph0');}}
         if(f==='unitPrice'){
           var link=el.parentNode&&el.parentNode.querySelector('.tcd-pblink');
-          if(reg&&!link){link=document.createElement('a');link.className='tcd-pblink';link.textContent='단가장에서 수정';link.title='단가장 새 창에서 고치면 아이템에 자동 반영';link.onclick=function(ev){ev.preventDefault();openBookWindow('trim');};el.parentNode.appendChild(link);}
-          else if(!reg&&link)link.remove();
+          if(lock&&!link){link=document.createElement('a');link.className='tcd-pblink';link.textContent='단가장에서 수정';link.title='단가장 새 창에서 고치면 아이템에 자동 반영';link.onclick=function(ev){ev.preventDefault();openBookWindow('trim');};el.parentNode.appendChild(link);}
+          else if(!lock&&link)link.remove();
         }
       });
     });
