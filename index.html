@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260819d">
+<link rel="stylesheet" href="css/main.css?v=20260819e">
 </head>
 <body>
 
@@ -4013,7 +4013,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19d';
+var APP_BUILD=/*BUILD*/'2026-08-19e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7570,6 +7570,226 @@ function pbSetCat(si,cat){
   });
   _pbApplyFilter(si);
 }
+
+/* ===== 부자재 단가장 = 표 하나 (2026-08-19) ==============================
+   사용자 결정: 「카드 말고 표. 한눈에 들어와야 한다」 + 「거래처부터 찾는 방식은 그대로」.
+   열은 사용자가 쓰던 시트 그대로: 유형·품명·규격(숫자+단위)·단위·묶음·개당단가·묶음단가·세트·갱신.
+   ⚠️ 색상·네고가 열은 뺐다(사용자 결정). **자료는 안 지운다** — 색상은 품목 키에 그대로 남아 있고
+      네고가(negoPrice)도 값은 남는다. 화면에서만 안 보인다.
+   ⚠️ 새로 만든 칸은 딱 둘 — `packPrice`(묶음단가 직접값)·`setItems`(세트 구성).
+      나머지는 있던 칸을 그대로 쓴다: 유형=category / 묶음=yardsPerRoll / 규격=size / 단위=orderType.
+   ⚠️ 세트가 있으면 **구성 합계를 unitPrice 에 써 넣는다** — 원가·발주는 지금도 unitPrice 를 읽으므로
+      돈 계산 코드를 하나도 안 건드리고 맞는다(1회비 회차와 같은 방식).
+   ⚠️ 원단 단가장(_scope==='fabric')은 손대지 않았다. */
+var PB_UNITS=[['count','ea'],['yard','Y'],['roll','롤'],['thread','실'],['zipper','지퍼'],['button','단추']];
+function _pbSplitSpec(sz){
+  var s=String(sz==null?'':sz).trim();
+  var m=s.match(/^([\d.]+)\s*(.*)$/);
+  return m?{n:m[1],u:(m[2]||'').trim()}:{n:'',u:s};
+}
+function _pbJoinSpec(n,u){ n=String(n||'').trim(); u=String(u||'').trim(); return (n&&u)?(n+u):(n||u); }
+function _pbMat(sup,key){ var pb=S.priceBook[sup]; return (pb&&pb.materials&&pb.materials[key])||null; }
+function pbSetSpecPart(encSup,encKey,which,val){
+  var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
+  var m=_pbMat(sup,key); if(!m)return;
+  var cur=_pbSplitSpec(m.size);
+  if(which==='n')cur.n=val; else cur.u=val;
+  m.size=_pbJoinSpec(cur.n,cur.u);
+  savePB(); renderBookList();
+}
+function pbSetPack(encSup,encKey,val){
+  var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
+  m.yardsPerRoll=(val===''||val==null)?'':(+val||0); savePB(); renderBookList();
+}
+function pbSetPackPrice(encSup,encKey,val){
+  var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
+  if(val===''||val==null)delete m.packPrice; else m.packPrice=+val||0;
+  savePB(); renderBookList();
+}
+/* ---- 세트 ---- */
+function _pbSet(m){ return Array.isArray(m&&m.setItems)?m.setItems:[]; }
+function _pbSetSum(m){ return _pbSet(m).reduce(function(a,x){ return a+(+((x||{}).p)||0); },0); }
+function _pbSetSync(encSup,encKey){
+  /* 구성 합계를 개당 단가로 — 기존 updatePBPrice 를 그대로 써서 이력·아이템 전파가 같이 돈다 */
+  var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
+  if(!_pbSet(m).length)return;
+  var sum=_pbSetSum(m);
+  if((+m.unitPrice||0)!==sum)updatePBPrice(encSup,encKey,'unit',sum); else savePB();
+}
+function pbSetAdd(encSup,encKey){
+  var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
+  var a=_pbSet(m).slice();
+  var nm=String.fromCharCode(65+a.length);
+  a.push({n:nm,nm:'',p:0});
+  m.setItems=a; savePB(); _pbSetSync(encSup,encKey); renderBookList();
+}
+function pbSetDel(encSup,encKey,i){
+  var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
+  var a=_pbSet(m).slice(); if(i<0||i>=a.length)return;
+  a.splice(i,1); m.setItems=a; if(!a.length)delete m.setItems;
+  savePB(); _pbSetSync(encSup,encKey); renderBookList();
+}
+function pbSetField(encSup,encKey,i,f,val){
+  var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
+  var a=_pbSet(m).slice(); if(!a[i])return;
+  a[i]=Object.assign({},a[i]); a[i][f]=(f==='p')?(+val||0):String(val||'');
+  m.setItems=a; savePB();
+  if(f==='p')_pbSetSync(encSup,encKey);
+  renderBookList();
+}
+/* ---- 단가 변동(늘었나 줄었나) ---- */
+function _pbDelta(m){
+  var lg=Array.isArray(m&&m.priceLog)?m.priceLog:[];
+  for(var i=lg.length-1;i>=0;i--){
+    var e=lg[i]; if(!e)continue;
+    if(String(e.f||'').indexOf('매장')===0)return (+e.to||0)-(+e.from||0);
+  }
+  return 0;
+}
+function _pbDaysOld(m){
+  var d=m&&m.lastUpdated; if(!d)return null;
+  var t=new Date(d+'T00:00:00'); if(isNaN(t))return null;
+  return Math.round((new Date((typeof todayISO==='function'?todayISO():'')+'T00:00:00')-t)/86400000);
+}
+/* ---- 거르개 ---- */
+function pbTrimSet(k,v){ window._pbT=window._pbT||{}; window._pbT[k]=v; renderBookList(); }
+function _pbTState(){
+  var o=window._pbT||(window._pbT={});
+  if(o.sup===undefined)o.sup=''; if(o.cat===undefined)o.cat='';
+  if(o.q===undefined)o.q=''; if(o.old===undefined)o.old=false;
+  return o;
+}
+function pbToggleSupInfo(encSup){
+  var s=decodeURIComponent(encSup);
+  window._pbSupOpen=(window._pbSupOpen===s)?null:s;
+  renderBookList();
+}
+/* ---- 표 ---- */
+function renderPbTrimTable(lst,sups){
+  var o=_pbTState(), q=String(o.q||'').toLowerCase().trim();
+  var cats={}, rows=[], nOld=0, nAll=0;
+  sups.forEach(function(s){
+    var pb=S.priceBook[s]||{}, mats=pb.materials||{};
+    Object.keys(mats).forEach(function(k){
+      var m=mats[k]; if(!m||m.type==='fabric')return;
+      var c=(m.category||'').trim(); if(c)cats[c]=1;
+    });
+  });
+  var H='<div class="pbt-bar">'
+    +'<input type="text" class="pbt-in" placeholder="품명·규격 검색" value="'+esc(o.q)+'" oninput="pbTrimSet(\'q\',this.value)">'
+    +'<select onchange="pbTrimSet(\'sup\',this.value)"><option value="">전체 거래처</option>'
+      +sups.map(function(s){return '<option value="'+esc(s)+'"'+(s===o.sup?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
+    +'<select onchange="pbTrimSet(\'cat\',this.value)"><option value="">전체 유형</option>'
+      +Object.keys(cats).sort(function(a,b){return a.localeCompare(b,'ko');}).map(function(c){return '<option'+(c===o.cat?' selected':'')+'>'+esc(c)+'</option>';}).join('')
+      +'<option value="__none"'+(o.cat==='__none'?' selected':'')+'>미분류</option></select>'
+    +'<label class="pbt-ck"><input type="checkbox"'+(o.old?' checked':'')+' onchange="pbTrimSet(\'old\',this.checked)">90일 지난 것만</label>'
+    +'<span class="pbt-sp"></span><span class="pbt-cnt" id="pbt-cnt"></span></div>';
+  H+='<div class="pbt-wrap"><table class="pbt"><thead><tr>'
+    +'<th style="width:86px">유형</th><th style="width:150px">품명</th>'
+    +'<th style="width:112px">규격</th><th style="width:74px">단위</th>'
+    +'<th class="n" style="width:74px">묶음</th><th class="n" style="width:96px">개당 단가</th>'
+    +'<th class="n" style="width:108px">묶음단가</th><th style="width:150px">세트</th>'
+    +'<th style="width:124px">갱신</th><th style="width:118px"></th></tr></thead><tbody>';
+  var body='';
+  sups.forEach(function(s){
+    if(o.sup&&s!==o.sup)return;
+    var pb=S.priceBook[s]||{}, mats=pb.materials||{};
+    var list=Object.keys(mats).filter(function(k){
+      var m=mats[k]; if(!m||m.type==='fabric')return false;
+      var c=(m.category||'').trim();
+      if(o.cat==='__none'){ if(c)return false; } else if(o.cat&&c!==o.cat)return false;
+      if(o.old){ var d=_pbDaysOld(m); if(d==null||d<90)return false; }
+      if(q){
+        var nm=(m.name||pbDecodeKey(k)[0]||'')+' '+(m.size||'')+' '+c+' '+(m.color||'');
+        if(nm.toLowerCase().indexOf(q)<0)return false;
+      }
+      return true;
+    }).sort(function(a,b){
+      var ma=mats[a],mb=mats[b];
+      var ca=(ma.category||'힣'),cb=(mb.category||'힣');
+      if(ca!==cb)return ca.localeCompare(cb,'ko');
+      return String(ma.name||'').localeCompare(String(mb.name||''),'ko');
+    });
+    if(!list.length)return;
+    nAll+=list.length;
+    var loc=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');
+    var open=(window._pbSupOpen===s);
+    body+='<tr class="pbt-sup" onclick="pbToggleSupInfo(\''+encodeURIComponent(s)+'\')"><td colspan="10">'
+      +esc(s)+'<span class="m">'+esc(loc)+' · '+list.length+'건</span>'
+      +'<span class="pbt-more">'+(open?'정보 접기 ▴':'정보 ▾')+'</span></td></tr>';
+    if(open){
+      body+='<tr class="pbt-info"><td colspan="10">'
+        +'<span class="pbt-il">건물</span><input value="'+esc(pb.building||'')+'" onchange="getPB(\''+esc(s)+'\').building=this.value;savePB()">'
+        +'<span class="pbt-il">층</span><input style="width:60px" value="'+esc(pb.floor||'')+'" onchange="getPB(\''+esc(s)+'\').floor=this.value;savePB()">'
+        +'<span class="pbt-il">호수</span><input style="width:90px" value="'+esc(pb.room||'')+'" onchange="getPB(\''+esc(s)+'\').room=this.value;savePB()">'
+        +'<span class="pbt-il">전화</span><input style="width:120px" value="'+esc(pb.phone||'')+'" onchange="getPB(\''+esc(s)+'\').phone=this.value;savePB()">'
+        +'<span class="pbt-il">메모</span><input style="flex:1;min-width:140px" value="'+esc(pb.memo||'')+'" onchange="getPB(\''+esc(s)+'\').memo=this.value;savePB()">'
+        +'</td></tr>';
+    }
+    list.forEach(function(k){
+      var m=mats[k], es=encodeURIComponent(s), ek=encodeURIComponent(k);
+      var nm=m.name||pbDecodeKey(k)[0]||'', cl=m.color||pbDecodeKey(k)[1]||'';
+      var sp=_pbSplitSpec(m.size);
+      var set=_pbSet(m), hasSet=set.length>0;
+      var pack=(m.yardsPerRoll!=null&&m.yardsPerRoll!=='')?+m.yardsPerRoll:'';
+      var each=+m.unitPrice||0;
+      var pp=(m.packPrice!=null&&m.packPrice!=='')?+m.packPrice:null;
+      var autoPP=(pp==null&&pack&&each)?(pack*each):null;
+      var d=_pbDaysOld(m), old=(d!=null&&d>=90);
+      var dl=_pbDelta(m);
+      var setOpen=(window._pbSetOpen===s+'|'+k);
+      body+='<tr class="pbt-r'+(old?' old':'')+'">'
+        +'<td><select class="pbt-sel" onchange="setPbMatCategory(\''+es+'\',\''+ek+'\',this.value)"><option value=""'+(!m.category?' selected':'')+'>미분류</option>'
+          +getTrimCategories().map(function(c){return '<option value="'+esc(c)+'"'+(m.category===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')
+          +'<option value="__new">＋ 새 유형…</option></select></td>'
+        +'<td><input class="pbt-nm" value="'+esc(nm)+'" onchange="renamePBMaterial(\''+es+'\',\''+ek+'\',this.value,\'name\')">'
+          +(cl?('<span class="pbt-cl">'+esc(cl)+'</span>'):'')+'</td>'
+        +'<td class="pbt-spec"><input class="pbt-n" value="'+esc(sp.n)+'" placeholder="15" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'n\',this.value)">'
+          +'<input class="pbt-u" list="dl-pbunit" value="'+esc(sp.u)+'" placeholder="mm" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'u\',this.value)"></td>'
+        +'<td><select class="pbt-sel" onchange="updatePBOrderType(\''+es+'\',\''+ek+'\',this.value)">'
+          +PB_UNITS.map(function(u){return '<option value="'+u[0]+'"'+(((m.orderType||'count')===u[0])?' selected':'')+'>'+u[1]+'</option>';}).join('')+'</select></td>'
+        +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+(pack===''?'':pack)+'" placeholder="—" onchange="pbSetPack(\''+es+'\',\''+ek+'\',this.value)"></td>'
+        +'<td class="n">'+(hasSet
+            ? ('<span class="pbt-auto">'+num(each)+'</span><span class="pbt-at">구성합</span>')
+            : ('<input class="pbt-num" type="number" min="0" value="'+(each||'')+'" placeholder="—" onchange="updatePBPrice(\''+es+'\',\''+ek+'\',\'unit\',+this.value)">'))+'</td>'
+        +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+(pp!=null?pp:'')+'" placeholder="'+(autoPP!=null?num(autoPP):'—')+'" onchange="pbSetPackPrice(\''+es+'\',\''+ek+'\',this.value)">'
+          +(autoPP!=null?'<span class="pbt-at">자동</span>':'')+'</td>'
+        +'<td>'+(hasSet
+            ? ('<span class="pbt-setc">'+set.map(function(x){return '<span>'+esc(x.n||'')+'</span>';}).join('')+'</span>'
+               +'<button type="button" class="pbt-exp" onclick="window._pbSetOpen=(window._pbSetOpen===\''+esc(s)+'|'+esc(k)+'\'?null:\''+esc(s)+'|'+esc(k)+'\');renderBookList()">구성 '+(setOpen?'▴':'▾')+'</button>')
+            : ('<button type="button" class="pbt-exp" onclick="pbSetAdd(\''+es+'\',\''+ek+'\')">＋ 세트</button>'))+'</td>'
+        +'<td class="pbt-up">'+esc(m.lastUpdated||'')
+          +(dl?('<span class="pbt-dl '+(dl>0?'up':'dn')+'">'+(dl>0?'▲':'▼')+num(Math.abs(dl))+'</span>'):'')
+          +(old?('<span class="pbt-old">'+d+'일</span>'):'')+'</td>'
+        +'<td class="pbt-act">'
+          +((m.priceLog&&m.priceLog.length)?('<button type="button" onclick="pbShowPriceLog(\''+es+'\',\''+ek+'\')">이력</button>'):'')
+          +'<button type="button" onclick="showPBUsage(\''+es+'\',\''+ek+'\')">쓰는 곳</button>'
+          +'<button type="button" onclick="openPbDetail(\''+es+'\',\''+ek+'\')">상세</button>'
+          +'<button type="button" class="d" onclick="deletePbMaterial(\''+es+'\',\''+ek+'\')">삭제</button></td>'
+        +'</tr>';
+      if(hasSet&&setOpen){
+        set.forEach(function(x,i){
+          body+='<tr class="pbt-set"><td></td><td class="pbt-sn">└ <b>'+esc(x.n||'')+'</b>'
+            +'<input class="pbt-nm" value="'+esc(x.nm||'')+'" placeholder="품명" onchange="pbSetField(\''+es+'\',\''+ek+'\','+i+',\'nm\',this.value)"></td>'
+            +'<td></td><td></td><td class="n">—</td>'
+            +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+((+x.p||0)||'')+'" placeholder="0" onchange="pbSetField(\''+es+'\',\''+ek+'\','+i+',\'p\',this.value)"></td>'
+            +'<td class="n">—</td><td></td><td></td>'
+            +'<td class="pbt-act"><button type="button" class="d" onclick="pbSetDel(\''+es+'\',\''+ek+'\','+i+')">이 구성 지우기</button></td></tr>';
+        });
+        body+='<tr class="pbt-set"><td></td><td class="pbt-sn">└ 세트 합계</td><td></td><td></td><td class="n">—</td>'
+          +'<td class="n"><b>'+num(_pbSetSum(m))+'</b></td><td class="n">—</td><td></td><td></td>'
+          +'<td class="pbt-act"><button type="button" onclick="pbSetAdd(\''+es+'\',\''+ek+'\')">＋ 구성 추가</button></td></tr>';
+      }
+      if(old)nOld++;
+    });
+  });
+  H+=(body||'<tr><td colspan="10" class="pbt-none">해당하는 부자재가 없어요.</td></tr>')+'</tbody></table></div>';
+  H+='<datalist id="dl-pbunit"><option value="mm"><option value="cm"><option value="인치"><option value="호"><option value="수"><option value="Y"></datalist>';
+  lst.innerHTML=H;
+  var c=document.getElementById('pbt-cnt');
+  if(c)c.innerHTML='품목 <b>'+nAll+'</b>'+(nOld?(' · <span class="pbt-oldc">90일 지남 '+nOld+'</span>'):'');
+}
+
 function renderBookList(){
   const lst=document.getElementById('book-list');if(!lst)return;
   window._pbCat={};window._pbQ={}; // 종류필터·검색은 재렌더 시 초기화(인덱스 기준이라)
@@ -7586,6 +7806,8 @@ function renderBookList(){
   const cnt=document.getElementById('book-count');if(cnt)cnt.textContent=qBook?(sups.length+'/'+scopeSups.length):(scopeSups.length+'곳');
   if(!scopeSups.length){lst.innerHTML='<div class="empty">'+(_scope==='trim'?'부자재처가 없어요 — 아래 「+ 거래처 직접 추가」 또는 아이템에서 자동 등록':'원단처가 없어요')+'</div>';return;}
   if(!sups.length){lst.innerHTML='<div class="empty">검색 결과가 없습니다</div>';return;}
+  /* 부자재 단가장은 카드 대신 표 하나 (2026-08-19 사용자 결정). 원단은 예전 그대로. */
+  if(_scope==='trim'){ renderPbTrimTable(lst,scopeSups); return; }
   let _prevBld=null,_prevFlr=null;
   lst.innerHTML=(_scope==='trim'?'<style>#book-list .pb-trim-tbl{display:block;width:100%}#book-list .pb-trim-tbl thead{display:none}#book-list .pb-trim-tbl tbody{display:block}#book-list .pb-trim-tbl tr{display:block}#book-list .pb-trim-tbl tr:not(.pb-grp){border:2px solid var(--ink,#0B0A05);background:#fff;box-shadow:2px 2px 0 rgba(11,10,5,.1);margin-bottom:9px;padding:5px 2px}#book-list .pb-trim-tbl tr.pb-grp{margin:14px 0 5px}#book-list .pb-trim-tbl td{display:flex!important;align-items:center;gap:8px;border:none!important;padding:4px 10px!important;background:transparent!important;text-align:left!important;white-space:normal!important;width:auto!important}#book-list .pb-trim-tbl td::before{flex:0 0 50px;font-size:10px;color:#9aa1ab;font-weight:800}#book-list .pb-trim-tbl td:nth-child(1)::before{content:"품목"}#book-list .pb-trim-tbl td:nth-child(2){display:none!important}#book-list .pb-trim-tbl td:nth-child(3)::before{content:"유형"}#book-list .pb-trim-tbl td:nth-child(4)::before{content:"종류"}#book-list .pb-trim-tbl td:nth-child(5)::before{content:"크기"}#book-list .pb-trim-tbl td:nth-child(6)::before{content:"롤당y"}#book-list .pb-trim-tbl td:nth-child(7){display:none!important}#book-list .pb-trim-tbl td:nth-child(8)::before{content:"매장가"}#book-list .pb-trim-tbl td:nth-child(9)::before{content:"네고가"}#book-list .pb-trim-tbl td:nth-child(10)::before{content:"갱신"}#book-list .pb-trim-tbl td:nth-child(8),#book-list .pb-trim-tbl td:nth-child(9){display:inline-flex!important;width:47%!important}#book-list .pb-trim-tbl td:nth-child(10){padding-top:2px!important}#book-list .pb-trim-tbl td:nth-child(11){flex-wrap:wrap;gap:5px;justify-content:flex-end}#book-list .pb-trim-tbl td:nth-child(11)::before{content:""}#book-list .pb-trim-tbl td[colspan]{display:block!important;font-weight:800;color:#92580b;background:#fdf6e3!important;padding:5px 10px!important}#book-list .pb-trim-tbl td[colspan]::before{content:""}#book-list .pb-trim-tbl td:nth-child(1) input{font-weight:800!important;font-size:13px!important;width:100%!important}</style>':'')+sups.map((s,si)=>{const pb=S.priceBook[s];const mats=Object.entries(pb.materials||{}).sort((a,b)=>((a[1].name||pbDecodeKey(a[0])[0]||'')).localeCompare(b[1].name||pbDecodeKey(b[0])[0]||''));const isOpen=window._bookOpen&&window._bookOpen[s];const locStr=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');const memoStr=(pb.memo||'').trim();const _bld=_normBuilding(pb.building||'');const _flr=_effectiveFloor(pb);const _knd=_pbSupKind(pb);const _kndTag=_knd==='fabric'?'<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:5px;background:#dbeafe;color:#1e40af">원단처</span>':_knd==='trim'?'<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:5px;background:#fef3c7;color:#92580b">부자재처</span>':_knd==='both'?'<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:5px;background:#e9d5ff;color:#6b21a8">원단·부자재</span>':'';const _phone=(pb.phone||'').trim();const _kakao=(pb.kakaoId||'').trim();const _cBits=[];if(_phone)_cBits.push(`<a href="tel:${esc(_phone)}" onclick="event.stopPropagation()" style="color:#1d4ed8;font-weight:600;text-decoration:none"><span style="color:#9aa0a8;font-weight:400;font-size:10px">전화 </span>${esc(_phone)}</a>`);if(_kakao)_cBits.push(`<span><span style="color:#9aa0a8;font-size:10px">카톡 </span>${esc(_kakao)}</span>`);const _contactLine=_cBits.length?`<div style="display:flex;flex-wrap:wrap;gap:4px 14px;padding:0 2px 9px;font-size:12px;color:#475569">${_cBits.join('')}</div>`:'';let _grpHd='';if(!qBook){if(_bld!==_prevBld){_prevBld=_bld;_prevFlr=null;_grpHd=_bld?`<div style="font-weight:700;font-size:11px;color:#475569;margin:${si?'16px':'0'} 0 5px;padding:4px 10px;background:#f1f5f9;border-radius:6px;border-left:3px solid #94a3b8">${esc(_bld)}</div>`:'';}if(_flr&&_flr!==_prevFlr){_prevFlr=_flr;_grpHd+=`<div style="font-size:10px;font-weight:600;color:#64748b;margin:4px 0 3px;padding:2px 14px;border-left:2px solid #cbd5e1">└ ${esc(_flr)}층</div>`;}}return _grpHd+`
   <div class="card" style="margin-bottom:10px;overflow-x:hidden;">
