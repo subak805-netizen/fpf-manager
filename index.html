@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260819h">
+<link rel="stylesheet" href="css/main.css?v=20260819j">
 </head>
 <body>
 
@@ -4013,7 +4013,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19i';
+var APP_BUILD=/*BUILD*/'2026-08-19j';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -24360,7 +24360,27 @@ function tlBatchSaveImg(gi){
   if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){showToast('라이브러리 로드 실패');};document.head.appendChild(s);}else go();
 }
 /* 아이템별 카드 HTML */
+/* 이 아이템·이 발주일만 부가세 빼기 (현금결제) — 결제관리 payToggleVat 와 같은 뜻 */
+/* ⚠️ 새 컬렉션(S.trimLedgerVatOff)을 만들면 저장·동기화 15군데에 다 등록해야 해서
+   이미 등록돼 있는 trimLedgerOvr 안에 예약키('__vat@…')로 얹는다. 줄 키와 겹칠 수 없다. */
+function _tlVatKey(k,d){ return '__vat@'+k+'@'+d; }
+function _tlVatOff(k,d){
+  var sel=window._tlSup||''; var m=(S.trimLedgerOvr||{})[sel]||{};
+  return !!(m[_tlVatKey(k,d)]&&m[_tlVatKey(k,d)].vatOff);
+}
+function tlToggleVat(k,d){
+  var sel=window._tlSup; if(!sel)return;
+  if(!S.trimLedgerOvr)S.trimLedgerOvr={};
+  if(!S.trimLedgerOvr[sel])S.trimLedgerOvr[sel]={};
+  var kk=_tlVatKey(k,d);
+  if(S.trimLedgerOvr[sel][kk]&&S.trimLedgerOvr[sel][kk].vatOff)delete S.trimLedgerOvr[sel][kk];
+  else S.trimLedgerOvr[sel][kk]={vatOff:1};
+  saveData(); renderTrimLedger();   /* saveData 안에서 _entStampChanges 가 돈다 */
+}
 function _tlCardsHTML(rows){
+  /* 결제관리 카드와 **완전히 같은 모양**: 아이템 카드 안에 서브카드(ip-fc).
+     공장 카드의 서브카드가 「공정별 공장」이라면, 부자재는 **발주일(회차)**이 그 자리다.
+     ⚠️ 줄별 수량·단가 수정과 줄별 결제 체크는 **그대로 살린다** — 없애면 기존 기능이 사라진다. */
   var g={},order=[];
   rows.forEach(function(r){
     var k=(r.brand||'')+'|'+(r.itemName||'(기타·직접추가)');
@@ -24370,36 +24390,124 @@ function _tlCardsHTML(rows){
   var m=_tlSelMap();
   var H='';
   order.forEach(function(k){
-    var gr=g[k], sup=0; gr.forEach(function(r){ sup+=(+r.amount||0); });
-    var vat=Math.round(sup*(TL_VAT/100));
+    var gr=g[k], sup=0, allPaid=true;
+    gr.forEach(function(r){ sup+=(+r.amount||0); if(!r.paid)allPaid=false; });
+    var vat=0;   /* 발주일마다 VAT 빼기가 다를 수 있어 아래에서 합산 */
     var parts=k.split('|'), br=parts[0], nm=parts.slice(1).join('|');
     var isSel=!!m[k], ek=encodeURIComponent(k);
-    /* 발주일별로 묶어 준다 — 같은 품명이 여러 날 깔리면 언제 것인지 안 보인다 */
+    /* 발주일별 서브카드 */
     var byD={},od=[];
     gr.forEach(function(r){ var d=r.date||'-'; if(!byD[d]){byD[d]=[];od.push(d);} byD[d].push(r); });
     od.sort();
-    var tb='';
+    var fcs='';
     od.forEach(function(d){
-      var dr=byD[d], ds=0; dr.forEach(function(r){ ds+=(+r.amount||0); });
+      var dr=byD[d], ds=0, dPaid=true;
+      dr.forEach(function(r){ ds+=(+r.amount||0); if(!r.paid)dPaid=false; });
+      var dOff=_tlVatOff(k,d);
+      var dvat=dOff?0:Math.round(ds*(TL_VAT/100));
+      vat+=dvat;
       var dl=/^\d{4}-\d{2}-\d{2}$/.test(d)?(d.slice(5).replace('-','/')):d;
-      tb+='<tr class="tl-grph"><td class="l" colspan="8">'+esc(dl)+' 발주 <span class="tl-gsub">· '+dr.length+'건 · '+num(ds)+'원</span></td></tr>';
-      dr.forEach(function(r){ tb+=_tlRowHTML(r); });
+      var lns='';
+      dr.forEach(function(r){
+        var _k=esc(r.key).replace(/'/g,"\\'");
+        lns+='<div class="ln tl-fln'+(r.paid?' paid':'')+'">'
+          +'<span class="tl-flnm">'+esc(r.name||'')+(r.spec?('<i>'+esc(r.spec)+'</i>'):'')+(r.src==='man'?'<span class="tl-tag man">수동</span>':'')+'</span>'
+          +'<span class="v tl-flv">'
+            +'<input type="number" inputmode="numeric" class="tl-qin" value="'+(r.qty||'')+'" onchange="tlSetOvr(\''+_k+'\',\'qty\',this.value)">'
+            +'<em>×</em>'
+            +'<input type="number" inputmode="numeric" class="tl-qin" value="'+(r.price||'')+'" onchange="tlSetOvr(\''+_k+'\',\'price\',this.value)">'
+            +'<b'+(r.ovr?' style="color:#b45309"':'')+'>'+num(r.amount)+'원</b>'
+            +(r.ovr?'<button class="tl-del" title="원래 계산값으로" onclick="tlClearOvr(\''+_k+'\')">↺</button>':'')
+            +'<span class="tl-paychk'+(r.paid?' on':'')+'" title="이 줄만 결제" data-k="'+esc(r.key)+'" onclick="tlTogglePaid(this.dataset.k)">'+(r.paid?'✓':'')+'</span>'
+          +'</span></div>';
+      });
+      fcs+='<div class="ip-fc'+(dPaid?' paid':'')+'">'
+        +'<div class="role">'+esc(dl)+' 발주</div>'
+        +'<div class="nm">'+dr.length+'건</div>'
+        +lns
+        +'<div class="am"><span class="l">청구</span><div class="right"><span class="amt">'+num(ds)+'원</span>'
+          +'<span class="vat">'+(dOff?'부가세 없음 (현금)':('VAT포함 '+num(ds+dvat)+'원'))+'</span></div></div>'
+        +'<button type="button" class="ip-vatbtn'+(dOff?' off':'')+'" data-d="'+esc(d)+'" data-k="'+esc(k)+'" title="이 아이템·이 발주일만 부가세를 빼거나 다시 붙여요 (현금결제용)" onclick="tlToggleVat(this.dataset.k,this.dataset.d)">'+(dOff?'VAT 다시 붙이기 (10%)':'VAT 빼기 (현금결제)')+'</button>'
+        +'<div class="acts">'
+          +'<button data-d="'+esc(d)+'" data-k="'+esc(k)+'" onclick="tlDayReceipt(this.dataset.k,this.dataset.d)">명세서</button>'
+          +'<button class="'+(dPaid?'done':'primary')+'" data-d="'+esc(d)+'" data-k="'+esc(k)+'" onclick="tlPayDay(this.dataset.k,this.dataset.d)">'+(dPaid?'✓ 완료':'결제완료')+'</button>'
+        +'</div></div>';
     });
-    H+='<div class="ip-card'+(isSel?' selected':'')+'">'
+    H+='<div class="ip-card'+(allPaid?' allpaid':(isSel?' selected':''))+'">'
       +'<div class="ip-head">'
         +'<div class="ip-chk"><input type="checkbox"'+(isSel?' checked':'')+' onclick="tlToggleSel(\''+ek+'\')"></div>'
-        +'<div class="ip-info"><div class="ip-title">'+(br?('<span style="color:#9ca3af;font-weight:600;font-size:12px;margin-right:6px">'+esc(br)+'</span>'):'')+esc(nm)+'</div>'
-          +'<div class="ip-line">'+gr.length+'건 · 공급가 '+num(sup)+'원 · VAT '+num(vat)+'원</div></div>'
-        +'<div class="ip-summary"><div class="lbl">미결제 합계</div><div class="amt">'+num(sup+vat)+'원</div></div>'
+        +'<div class="ip-info"><div class="ip-title">'
+          +(br?('<span class="brand">'+esc(br)+'</span>'):'')+'<span>'+esc(nm)+'</span></div>'
+          +od.map(function(d){
+              var dr=byD[d], ds=0; dr.forEach(function(r){ ds+=(+r.amount||0); });
+              var dl=/^\d{4}-\d{2}-\d{2}$/.test(d)?(d.slice(5).replace('-','/')):d;
+              return '<div class="ip-line">＊ 발주일 <b>'+esc(dl)+'</b> / '+dr.length+'건 · '+num(ds)+'원</div>';
+            }).join('')
+        +'</div>'
+        +'<div class="ip-summary"><div class="lbl">'+(allPaid?'결제 완료':'미결제 합계')+'</div><div class="amt">'+num(sup+vat)+'원</div></div>'
       +'</div>'
-      +'<div class="tl-wrap" style="padding:0 14px 10px"><table class="tl-tbl"><thead><tr>'
-        +'<th class="l">발주일</th><th class="l">품명</th><th class="l">제품명</th><th class="l">규격</th>'
-        +'<th>수량</th><th>단가</th><th>금액</th><th>결제</th></tr></thead><tbody>'+tb+'</tbody></table></div>'
-      +'<div style="padding:9px 14px;border-top:1px solid #eef0f4;display:flex;align-items:center;gap:8px;justify-content:flex-end">'
-        +'<button class="btn s ok" style="font-weight:700" onclick="tlPayItem(\''+ek+'\')">✓ 이 아이템 결제완료</button></div>'
+      +'<div class="ip-fcs"><div class="ip-fcgrid">'+fcs+'</div></div>'
+      +(allPaid
+        ? '<div style="padding:8px 14px;border-top:1px solid #eef0f4;text-align:right"><span style="font-size:11px;color:#059669;font-weight:700">결제 전부 완료</span></div>'
+        : '<div style="padding:9px 14px;border-top:1px solid #eef0f4;display:flex;align-items:center;gap:8px;justify-content:flex-end">'
+          +'<button class="btn s ok" style="font-weight:700" onclick="tlPayItem(\''+ek+'\')">✓ 이 아이템 전부 결제완료</button></div>')
       +'</div>';
   });
   return H;
+}
+/* 발주일 하나만 결제완료 */
+function tlPayDay(k,d){
+  var sel=window._tlSup; if(!sel)return;
+  var sc=_tlScope();
+  var rows=sc.rows.filter(function(r){ return ((r.brand||'')+'|'+(r.itemName||'(기타·직접추가)'))===k && (r.date||'-')===d; });
+  if(!rows.length)return;
+  var unpaid=rows.filter(function(r){return !r.paid;});
+  if(!S.trimLedgerPaid)S.trimLedgerPaid={};
+  if(!S.trimLedgerPaid[sel])S.trimLedgerPaid[sel]={};
+  if(!unpaid.length){
+    if(!confirm('이 발주일을 다시 미결제로 되돌릴까요?'))return;
+    rows.forEach(function(r){ delete S.trimLedgerPaid[sel][r.key]; });
+  }else{
+    var t=(typeof todayISO==='function'?todayISO():'');
+    unpaid.forEach(function(r){ S.trimLedgerPaid[sel][r.key]=t; });
+  }
+  saveData(); renderTrimLedger();
+}
+/* 발주일 하나만 명세서 */
+function tlDayReceipt(k,d){
+  var sel=window._tlSup; if(!sel)return;
+  var sc=_tlScope();
+  var rows=sc.rows.filter(function(r){ return ((r.brand||'')+'|'+(r.itemName||'(기타·직접추가)'))===k && (r.date||'-')===d; });
+  if(!rows.length){ showToast('내역이 없어요'); return; }
+  var parts=String(k).split('|');
+  _tlSheetModal(sel,parts[0]||'',rows,'발주일 '+d,_tlVatOff(k,d));
+}
+/* 명세서 한 장 (통합·개별 공용) */
+function _tlSheetModal(sel,brand,rows,sub,noVat){
+  var sup=0; rows.forEach(function(r){ sup+=(+r.amount||0); });
+  var vat=noVat?0:Math.round(sup*(TL_VAT/100));
+  var tr='';
+  rows.forEach(function(r){
+    tr+='<tr><td style="border:1px solid #ccc;padding:4px 6px">'+esc(r.date||'')+'</td>'
+      +'<td style="border:1px solid #ccc;padding:4px 6px">'+esc(r.name||'')+'</td>'
+      +'<td style="border:1px solid #ccc;padding:4px 6px">'+esc(r.itemName||'')+'</td>'
+      +'<td style="border:1px solid #ccc;padding:4px 6px">'+esc(r.spec||'')+'</td>'
+      +'<td style="border:1px solid #ccc;padding:4px 6px;text-align:right">'+num(r.qty||0)+'</td>'
+      +'<td style="border:1px solid #ccc;padding:4px 6px;text-align:right">'+num(r.price||0)+'</td>'
+      +'<td style="border:1px solid #ccc;padding:4px 6px;text-align:right">'+num(r.amount||0)+'</td></tr>';
+  });
+  var body='<div class="tlb-sheet" id="tlb-sheet-0" style="background:#fff;padding:16px;border:1px solid #ddd">'
+    +'<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px"><b style="font-size:16px">거래명세서</b>'
+    +'<span style="font-size:12px;color:#666">'+esc(sel)+(brand?(' · '+esc(brand)):'')+(sub?(' · '+esc(sub)):'')+'</span>'
+    +'<span style="margin-left:auto;font-size:12px;color:#666">'+esc((typeof todayISO==='function'?todayISO():''))+'</span></div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr style="background:#f3f4f6">'
+    +'<th style="border:1px solid #ccc;padding:4px 6px">발주일</th><th style="border:1px solid #ccc;padding:4px 6px">품명</th>'
+    +'<th style="border:1px solid #ccc;padding:4px 6px">제품명</th><th style="border:1px solid #ccc;padding:4px 6px">규격</th>'
+    +'<th style="border:1px solid #ccc;padding:4px 6px">수량</th><th style="border:1px solid #ccc;padding:4px 6px">단가</th>'
+    +'<th style="border:1px solid #ccc;padding:4px 6px">금액</th></tr></thead><tbody>'+tr+'</tbody></table>'
+    +'<div style="text-align:right;margin-top:8px;font-size:13px">공급가 <b>'+num(sup)+'</b>원 · VAT <b>'+num(vat)+'</b>원 · 합계 <b style="font-size:15px">'+num(sup+vat)+'</b>원</div>'
+    +'<div style="text-align:right;margin-top:8px"><button class="btn s" onclick="tlBatchSaveImg(0)">이미지 저장</button></div></div>';
+  showGenericModal('거래명세서',body,900);
 }
 
 function renderTrimLedger(){
@@ -24413,7 +24521,7 @@ function renderTrimLedger(){
   }
   var sel=window._tlSup;if(!sel||sups.indexOf(sel)<0)sel=sups[0];window._tlSup=sel;
   if(window._tlPayView==null)window._tlPayView='unpaid';
-  if(window._tlView==null)window._tlView='date';
+  if(window._tlView==null)window._tlView='item';   /* 카드가 기본 (사용자 요청) */
   if(window._tlPeriod==null)window._tlPeriod='m';
   var _md=false;(S.trimLedger[sel]||[]).forEach(function(r){if(!r.id){r.id='tl_'+uid();_md=true;}});if(_md){try{saveData();}catch(e){}}
 
@@ -24464,11 +24572,9 @@ function renderTrimLedger(){
   html+='<div class="tl-ctl"><label>결제상태</label>'
     +'<div class="tl-seg big"><button class="'+(!paidV?'on':'')+'" onclick="window._tlPayView=\'unpaid\';renderTrimLedger();">미결제</button>'
     +'<button class="'+(paidV?'on':'')+'" onclick="window._tlPayView=\'paid\';renderTrimLedger();">결제완료</button></div>';
-  if(!paidV){
-    html+='<span style="width:10px;display:inline-block"></span><label>정렬</label>'
-      +'<div class="tl-seg"><button class="'+(window._tlView==='date'?'on':'')+'" onclick="window._tlView=\'date\';renderTrimLedger();">날짜순</button>'
-      +'<button class="'+(window._tlView==='item'?'on':'')+'" onclick="window._tlView=\'item\';renderTrimLedger();">아이템별</button></div>';
-  }
+  html+='<span style="width:10px;display:inline-block"></span><label>보기</label>'
+    +'<div class="tl-seg"><button class="'+(window._tlView==='item'?'on':'')+'" onclick="window._tlView=\'item\';renderTrimLedger();">아이템 카드</button>'
+    +'<button class="'+(window._tlView==='date'?'on':'')+'" onclick="window._tlView=\'date\';renderTrimLedger();">날짜순 표</button></div>';
   html+='</div></div>';
 
   html+='<div class="tl-metrics">'
@@ -24491,8 +24597,8 @@ function renderTrimLedger(){
     +'<input class="tl-f-price" type="number" id="tl-m-price" placeholder="단가" inputmode="numeric">'
     +'<select class="tl-f-brand" id="tl-m-brand">'+brandList.map(function(b){return '<option value="'+esc(b)+'"'+(b===bsel?' selected':'')+'>'+esc(b)+'</option>';}).join('')+'<option value="">공통</option></select>'
     +'<button class="tl-btn pri" onclick="tlAddManual()">추가</button></div>';
-  if(window._tlView==='item'&&!paidV){
-    var _selN=Object.keys(_tlSelMap()).filter(function(k){return window._tlSel[k];}).length;
+  if(window._tlView==='item'){
+    var _selN=paidV?0:Object.keys(_tlSelMap()).filter(function(k){return window._tlSel[k];}).length;
     if(_selN){
       html+='<div style="position:sticky;top:8px;z-index:10;display:flex;gap:10px;align-items:center;padding:12px 16px;margin-bottom:12px;background:#1f2937;color:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.15)">'
         +'<div style="font-size:13px;font-weight:600">'+_selN+'개 선택됨</div>'
@@ -24500,7 +24606,7 @@ function renderTrimLedger(){
         +'<button onclick="tlClearSel()" style="margin-left:auto;padding:7px 14px;border-radius:7px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:12px;font-weight:600;cursor:pointer">선택 해제</button>'
         +'<button onclick="tlBatchReceipt()" style="padding:7px 16px;border-radius:7px;border:none;background:#fff;color:#111827;font-size:13px;font-weight:700;cursor:pointer">통합 명세서 만들기</button></div>';
     }
-    html+=(rows.length?_tlCardsHTML(rows):'<div class="tl-empty">이 기간 미결제 내역이 없어요.</div>');
+    html+=(rows.length?_tlCardsHTML(rows):'<div class="tl-empty">'+(paidV?'아직 결제완료한 내역이 없어요.':'이 기간 미결제 내역이 없어요.')+'</div>');
   }else{
     html+='<div class="tl-wrap"><table class="tl-tbl"><thead><tr>'
       +'<th class="l">발주일</th><th class="l">품명</th><th class="l">제품명</th><th class="l">규격</th>'
