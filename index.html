@@ -4022,7 +4022,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19q';
+var APP_BUILD=/*BUILD*/'2026-08-19r';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -24148,10 +24148,18 @@ function _tlLine(m){
 // 전체 오더 순회 → 거래처별 자동집계 (발주일 기준)
 function trimLedgerAuto(){
   var bySup={};
+  window._tlCalcFail=[];
   Object.keys(S.orders||{}).forEach(function(oid){
     var o=S.orders[oid];if(!o||!o.orderItems||!o.orderItems.length)return;
     var dISO=(typeof createdToISO==='function'?createdToISO(o.createdAt):'')||toISO(o.createdAt)||'';
-    var sups;try{sups=calcSups(o.orderItems);}catch(e){console.warn('[원장] calcSups 실패',oid,e);return;}
+    var sups;try{sups=calcSups(o.orderItems);}catch(e){
+      /* 조용히 return 하면 그 오더의 부자재 줄이 통째로 사라진다 — 어디서 깨졌는지 남긴다 (2026-08-19 진단) */
+      console.warn('[원장] calcSups 실패',oid,e);
+      window._tlCalcFail=window._tlCalcFail||[];
+      if(!window._tlCalcFail.some(function(x){return x.oid===oid;}))
+        window._tlCalcFail.push({oid:oid,name:(o.name||''),msg:(e&&e.message)||String(e)});
+      return;
+    }
     var _mergedTc={}; // 단가에 합산된 개당 가공비 → 아래 가공 줄 생성에서 스킵(중복 방지)
     /* 조건부 '기준 이하' 정액을 「한번에」(모든 컬러 합쳐 1회)로 처리하기 위한 사전 집계 (2026-07-28)
        자재 줄은 컬러별로 쪼개져 있어서, 그대로 두면 색마다 정액이 붙음(3색=13,000×3).
@@ -24289,18 +24297,23 @@ function _tlScope(){
   if(bsel&&bl.indexOf(bsel)<0)bsel='';   // 없어진 브랜드를 고르고 있었으면 전체로
   window._tlBrand=bsel;
   var rng=_tlRange();
-  var rows=all.filter(function(r){
+  /* 기간+브랜드까지만 건 줄들 — 거래처 칩에 「이 기간에 몇 건인지」를 같이 보여주려고 따로 센다 */
+  var preSup=all.filter(function(r){
     if(bsel===TL_NOBRAND){ if(r.brand)return false; }
     else if(bsel&&r.brand!==bsel)return false;
     if(rng.from&&r.date&&r.date<rng.from)return false;
     if(rng.to&&r.date&&r.date>rng.to)return false;
     return true;
   });
+  var supCnt={};preSup.forEach(function(r){var s=r.sup||'';supCnt[s]=(supCnt[s]||0)+1;});
+  var ssel=window._tlSupFlt||'';
+  var rows=preSup.filter(function(r){ return !ssel||r.sup===ssel; });
   rows.sort(function(a,b){var d=_cmpDateFn(a.date,b.date);if(d!==0)return d;
     var s=String(a.sup||'').localeCompare(String(b.sup||''),'ko'); if(s!==0)return s;
     return (a.src==='auto'?-1:1)-(b.src==='auto'?-1:1);});
   var sa=0,sp=0;rows.forEach(function(r){sa+=r.amount;if(r.paid)sp+=r.amount;});
   out.rows=rows;out.brandList=bl;out.bsel=bsel;out.from=rng.from;out.to=rng.to;out.supplyAll=sa;out.supplyPaid=sp;
+  out.supCnt=supCnt;out.ssel=ssel;
   return out;
 }
 // 표 한 줄 (발주일|품명|제품명|규격|수량|단가|금액|결제)
@@ -24592,7 +24605,7 @@ function renderTrimLedger(){
   var _md=false;Object.keys(S.trimLedger||{}).forEach(function(_s){(S.trimLedger[_s]||[]).forEach(function(r){if(!r.id){r.id='tl_'+uid();_md=true;}});});if(_md){try{saveData();}catch(e){}}
 
   var sc=_tlScope();
-  var bsel=sc.bsel, brandList=sc.brandList;
+  var bsel=sc.bsel, brandList=sc.brandList, ssel=sc.ssel||'', supCnt=sc.supCnt||{};
   var supplyAll=sc.supplyAll, supplyPaid=sc.supplyPaid, supplyDue=supplyAll-supplyPaid;
   var vat=Math.round(supplyAll*(TL_VAT/100)), grand=supplyAll+vat;
   var paidTot=Math.round(supplyPaid*(1+TL_VAT/100)), dueTot=Math.round(supplyDue*(1+TL_VAT/100));
@@ -24624,7 +24637,13 @@ function renderTrimLedger(){
     +'<span class="tl-br-lbl">브랜드</span>'
     +'<button class="tl-br'+(bsel?'':' on')+'" onclick="window._tlBrand=\'\';renderTrimLedger();">전체</button>'
     +brandList.map(function(b){return '<button class="tl-br'+(bsel===b?' on':'')+'" onclick="window._tlBrand=\''+esc(b).replace(/'/g,"\\'")+'\';renderTrimLedger();">'+esc(b)+'</button>';}).join('')
-    +'<span class="tl-meta">거래처 '+sups.length+'곳</span></div>';
+    +'<span class="tl-meta"><button class="tl-btn" style="padding:4px 10px;font-size:11.5px" onclick="tlWhyMissing()" title="찾는 내역이 안 보일 때 눌러보세요">안 뜨는 이유</button></span></div>';
+  /* 거래처 = 전체로 모아 보기 / 업체별로 골라 보기 둘 다 (숫자는 이 기간·이 브랜드 기준 건수) */
+  html+='<div class="tl-ctl"><label>거래처</label>'
+    +'<button class="tl-br'+(ssel?'':' on')+'" onclick="window._tlSupFlt=\'\';renderTrimLedger();">전체</button>'
+    +sups.map(function(s){var n=supCnt[s]||0;
+      return '<button class="tl-br'+(ssel===s?' on':'')+(n?'':' zero')+'" onclick="window._tlSupFlt=\''+esc(s).replace(/'/g,"\\'")+'\';renderTrimLedger();">'+esc(s)+' <b>'+n+'</b></button>';}).join('')
+    +'</div>';
   html+='<div class="tl-ctl"><label>기간</label>'
     +_tlPresetBtn('m','이번 달')+_tlPresetBtn('l','지난 달')+_tlPresetBtn('a','전체')
     +'<input class="tl-date" type="date" value="'+esc(rng.from||'')+'" onchange="tlSetDate(\'from\',this.value)">'
@@ -24646,7 +24665,7 @@ function renderTrimLedger(){
     +_tlMetric('미결제',num(dueTot),'due')+'</div>';
 
   html+='<div class="tl-card">'
-    +'<div class="tl-card-h"><h3>'+esc(bsel||'전체 브랜드')+' 부자재 원장 · '+(paidV?'결제완료':'미결제')+'</h3><span class="tl-spc"></span>'
+    +'<div class="tl-card-h"><h3>'+esc(ssel||'전체 거래처')+' › '+esc(bsel||'전체 브랜드')+' 부자재 원장 · '+(paidV?'결제완료':'미결제')+'</h3><span class="tl-spc"></span>'
     +'<button class="tl-btn" onclick="tlPasteOpen()" title="카톡으로 보낸 발주서 텍스트를 붙여넣으면 원장 줄로 자동 등록">발주서 붙여넣기</button>'
     +'<button class="tl-btn" onclick="tlToggleForm()">＋ 수동 추가</button>'
     +'<button class="tl-btn pri" onclick="tlSaveImage()">명세서 저장</button></div>';
@@ -24684,6 +24703,79 @@ function renderTrimLedger(){
     +'<div class="tl-fl due"><span>미결제 (미수)</span><b>'+num(dueTot)+'원</b></div></div>';
   html+='</div>';
   box.innerHTML=html;
+}
+/* ===== 「안 뜨는 이유」 — 찾는 내역이 안 보일 때 무엇이 걸러냈는지 사실대로 보여준다 (2026-08-19)
+   ⚠️ 원장 줄은 저장된 기록이 아니라 오더에서 **매번 새로 계산**하고(=trimLedgerAuto→calcSups),
+      날짜는 **오더 만든 날(o.createdAt)** 이다. 그래서 아이템의 부자재처를 바꾸면 지난달 줄도 따라 옮겨간다.
+      이 진단은 그 사실을 화면에 그대로 펼쳐 보여주는 게 목적이다. */
+function tlWhyMissing(){
+  var autoAll={};try{autoAll=trimLedgerAuto()||{};}catch(e){autoAll={};}
+  var all=[];
+  _tlSupList().forEach(function(s){
+    (autoAll[s]||[]).forEach(function(r){var o=Object.assign({},r);o.sup=s;all.push(o);});
+    (S.trimLedger[s]||[]).forEach(function(r){all.push({sup:s,date:r.date||'',name:r.name||'',brand:r.brand||'',itemName:r.item||r.itemName||'',amount:((+r.qty||0)*(+r.price||0))||(+r.price||0),src:'man',key:'m|'+(r.id||'')});});
+  });
+  var rng=_tlRange(), bsel=window._tlBrand||'', ssel=window._tlSupFlt||'', paidV=(window._tlPayView==='paid');
+  var H='<div style="padding:16px 18px;font-size:13px;line-height:1.75;max-height:70vh;overflow:auto">';
+  H+='<div style="font-weight:800;font-size:14px;margin-bottom:6px">지금 걸려 있는 거르개</div>'
+    +'<div style="background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:10px 12px;margin-bottom:14px">'
+    +'기간 <b>'+esc(rng.from||'처음')+' ~ '+esc(rng.to||'끝')+'</b>'
+    +' · 브랜드 <b>'+esc(bsel||'전체')+'</b>'
+    +' · 거래처 <b>'+esc(ssel||'전체')+'</b>'
+    +' · 결제상태 <b>'+(paidV?'결제완료':'미결제')+'</b></div>';
+
+  /* 거래처 × 월 표 — 거르개 무시하고 「원래 몇 건 있는지」 */
+  var byM={},mset={},sset={};
+  all.forEach(function(r){
+    var m=(r.date||'').slice(0,7)||'(날짜없음)';
+    mset[m]=1;sset[r.sup]=1;
+    var k=r.sup+'|'+m; if(!byM[k])byM[k]={n:0,amt:0}; byM[k].n++; byM[k].amt+=(+r.amount||0);
+  });
+  var ms=Object.keys(mset).sort(), ss=Object.keys(sset).sort(function(a,b){return a.localeCompare(b,'ko');});
+  H+='<div style="font-weight:800;font-size:14px;margin-bottom:6px">거래처 × 월 — 원장에 실제로 잡히는 건수 <span style="font-weight:400;color:#6b7280;font-size:11.5px">(거르개 무시)</span></div>';
+  if(!ms.length){ H+='<div style="color:#6b7280;margin-bottom:14px">잡히는 줄이 하나도 없어요.</div>'; }
+  else{
+    H+='<div style="overflow:auto;margin-bottom:14px"><table style="border-collapse:collapse;font-size:12px;white-space:nowrap">'
+      +'<tr><th style="border:1px solid #e5e7eb;padding:4px 8px;background:#f8f9fa;text-align:left">거래처</th>'
+      +ms.map(function(m){return '<th style="border:1px solid #e5e7eb;padding:4px 8px;background:#f8f9fa">'+esc(m)+'</th>';}).join('')+'</tr>';
+    ss.forEach(function(s){
+      H+='<tr><td style="border:1px solid #e5e7eb;padding:4px 8px;font-weight:700">'+esc(s)+'</td>'
+        +ms.map(function(m){var c=byM[s+'|'+m];
+          return '<td style="border:1px solid #e5e7eb;padding:4px 8px;text-align:right;'+(c?'':'color:#c9ced6')+'">'+(c?(c.n+'건<br><span style="font-size:10.5px;color:#6b7280">'+num(c.amt)+'</span>'):'-')+'</td>';}).join('')+'</tr>';
+    });
+    H+='</table></div>';
+  }
+
+  /* 이 기간에서 무엇이 몇 줄을 걸러냈는지 */
+  var inRange=all.filter(function(r){
+    if(rng.from&&r.date&&r.date<rng.from)return false;
+    if(rng.to&&r.date&&r.date>rng.to)return false; return true;});
+  var byBrand={};inRange.forEach(function(r){var b=r.brand||TL_NOBRAND;byBrand[b]=(byBrand[b]||0)+1;});
+  var bySup={};inRange.forEach(function(r){bySup[r.sup]=(bySup[r.sup]||0)+1;});
+  H+='<div style="font-weight:800;font-size:14px;margin-bottom:6px">이 기간('+esc(rng.from||'처음')+'~'+esc(rng.to||'끝')+') 안에서</div>'
+    +'<div style="background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:10px 12px;margin-bottom:14px">'
+    +'모두 <b>'+inRange.length+'건</b><br>'
+    +'브랜드별 — '+(Object.keys(byBrand).length?Object.keys(byBrand).sort().map(function(b){return esc(b)+' '+byBrand[b]+'건';}).join(' · '):'없음')+'<br>'
+    +'거래처별 — '+(Object.keys(bySup).length?Object.keys(bySup).sort().map(function(s){return esc(s)+' '+bySup[s]+'건';}).join(' · '):'없음')
+    +'</div>';
+
+  /* 계산이 깨져서 통째로 빠진 오더 */
+  var cf=window._tlCalcFail||[];
+  if(cf.length){
+    H+='<div style="font-weight:800;font-size:14px;margin-bottom:6px;color:#b91c1c">계산이 깨져서 통째로 빠진 오더 '+cf.length+'건</div>'
+      +'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;margin-bottom:14px">'
+      +cf.map(function(x){return '• '+esc(x.name||x.oid)+' <span style="color:#991b1b;font-size:11.5px">'+esc(x.msg)+'</span>';}).join('<br>')
+      +'<div style="margin-top:6px;font-size:11.5px;color:#991b1b">이 오더의 부자재는 원장에 아예 안 올라와요. 알려주시면 고칠게요.</div></div>';
+  }
+
+  H+='<div style="font-weight:800;font-size:14px;margin-bottom:6px">그래도 안 보이면</div>'
+    +'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;color:#92400e;font-size:12.5px;line-height:1.8">'
+    +'① 이 원장은 <b>저장된 기록이 아니라 오더에서 매번 새로 계산</b>해요. 아이템의 <b>부자재처를 바꾸면 지난달 줄도 그 거래처로 옮겨갑니다.</b> 위 표에서 다른 거래처 칸에 그 건수가 있는지 봐주세요.<br>'
+    +'② 줄의 날짜는 <b>오더를 만든 날</b>이에요 (발주서 보낸 날이 아니라). 7월에 보냈어도 오더를 6월에 만들었으면 6월에 잡혀요.<br>'
+    +'③ 결제완료로 표시했으면 「결제완료」 쪽에 있어요.<br>'
+    +'④ 아이템에서 그 <b>부자재를 지우면 옛 오더 줄도 같이 사라져요.</b>'
+    +'</div></div>';
+  showGenericModal('안 뜨는 이유 — 부자재 원장',H,760);
 }
 function _tlMetric(l,v,cls){return '<div class="tl-metric '+(cls||'')+'"><span class="ml">'+l+'</span><span class="mv">'+v+'</span></div>';}
 function tlToggleForm(){var f=document.getElementById('tl-form');if(f)f.classList.toggle('open');}
@@ -24877,6 +24969,9 @@ function _tlEnsureStyle(){
   +'.tl-bdg{display:inline-block;font-size:10px;font-weight:700;padding:0 5px;border-radius:8px;background:var(--bbg);color:var(--blue);border:1px solid var(--blue)}'
   +'.tl-brandnote{font-size:12px;color:var(--blue);background:var(--bbg);border:1px solid var(--blue);border-radius:var(--r);padding:7px 10px;margin-bottom:8px;line-height:1.5}'
   +'.tl-f-brand{width:130px}.tl-f-sup{width:140px;font-weight:700}'
+  +'.tl-br b{font-weight:800;color:#111;margin-left:2px}'
+  +'.tl-br.on b{color:#fff}'
+  +'.tl-br.zero{opacity:.45}.tl-br.zero b{color:#9ca3af}'
   +'.tl-tbl td.tl-sup{color:#4b5563;font-size:12px;white-space:nowrap;font-weight:600}'
   +'.tl-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0}'
   +'.tl-metric{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 8px;text-align:center;min-height:60px;display:flex;flex-direction:column;justify-content:center;gap:3px}'
