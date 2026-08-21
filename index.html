@@ -4022,7 +4022,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19p';
+var APP_BUILD=/*BUILD*/'2026-08-19q';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -24243,76 +24243,105 @@ function _tlRange(){var pp=window._tlPeriod;if(pp==='l')return _tlMonthRange(-1)
 // 날짜 한쪽만 바꿔도 다른 쪽(특히 프리셋에서 넘어온 시작일)이 안 사라지게
 function tlSetDate(which,val){var rng=_tlRange();window._tlFrom=(which==='from')?val:(window._tlFrom||rng.from||'');window._tlTo=(which==='to')?val:(window._tlTo||rng.to||'');window._tlPeriod='c';renderTrimLedger();}
 // 현재 거래처의 행(자동+수동) → 브랜드+기간 필터 + 결제완료 표시 + 합계
+/* ⚠️ 2026-08-19: **부자재집으로 안 나눈다**(사용자 요청 "결제관리처럼 브랜드만").
+      거래처 전부를 한 화면에 모으고, 줄마다 r.sup 으로 어느 거래처인지 들고 다닌다.
+      결제·오버라이드 저장 자리는 예전 그대로 거래처별 맵(S.trimLedgerPaid[거래처][키])이라
+      줄 단위 함수는 sup 을 인자로 받아야 한다. */
+var TL_NOBRAND='(브랜드 없음)';
+function _tlSupList(){
+  /* 예전 드롭다운과 같은 기준을 쓴다(tlSupList: 브랜드명은 부자재집이 아니므로 제외) —
+     안 그러면 브랜드가 갑자기 거래처처럼 원장에 끼어든다. */
+  try{ if(typeof tlSupList==='function')return tlSupList(); }catch(e){}
+  var m={};
+  try{ Object.keys(trimLedgerAuto()||{}).forEach(function(s){ if(s)m[s]=1; }); }catch(e){}
+  Object.keys(S.trimLedger||{}).forEach(function(s){ if(s)m[s]=1; });
+  return Object.keys(m).sort(function(a,b){return a.localeCompare(b,'ko');});
+}
 function _tlScope(){
-  var sel=window._tlSup;var out={sel:sel,rows:[],brandList:[],bsel:'',from:'',to:'',supplyAll:0,supplyPaid:0};
-  if(!sel)return out;
+  var out={sel:'',rows:[],brandList:[],bsel:'',from:'',to:'',supplyAll:0,supplyPaid:0};
   if(!S.trimLedgerPaid)S.trimLedgerPaid={};
-  var auto=(trimLedgerAuto()[sel]||[]).map(function(r){return Object.assign({},r);});
-  var manual=(S.trimLedger[sel]||[]).map(function(r){return {id:r.id,date:r.date||'',name:r.name||'',spec:r.spec||'',qty:(+r.qty||0),unit:r.unit||'건',price:(+r.price||0),amount:((+r.qty||0)*(+r.price||0))||(+r.price||0),brand:r.brand||'',itemName:r.item||r.itemName||'',src:'man',key:'m|'+(r.id||'')};});
-  var all=auto.concat(manual);
-  var paidMap=S.trimLedgerPaid[sel]||{};all.forEach(function(r){r.paid=!!paidMap[r.key];});
-  // 원장 전용 수정값(수량·단가 오버라이드) — 발주서·원가 불변, 결제 금액만 재계산 (2026-07-10)
-  var ovrMap=(S.trimLedgerOvr&&S.trimLedgerOvr[sel])||{};
-  all.forEach(function(r){
-    var ov=ovrMap[r.key];if(!ov)return;
-    if(ov.qty!=null)r.qty=+ov.qty;
-    if(ov.price!=null)r.price=+ov.price;
-    r.amount=Math.round((+r.qty||0)*(+r.price||0));
-    r.ovr=true;
+  var autoAll={}; try{ autoAll=trimLedgerAuto()||{}; }catch(e){ autoAll={}; }
+  var all=[];
+  _tlSupList().forEach(function(sel){
+    var auto=(autoAll[sel]||[]).map(function(r){var o=Object.assign({},r);o.sup=sel;return o;});
+    var manual=(S.trimLedger[sel]||[]).map(function(r){return {sup:sel,id:r.id,date:r.date||'',name:r.name||'',spec:r.spec||'',qty:(+r.qty||0),unit:r.unit||'건',price:(+r.price||0),amount:((+r.qty||0)*(+r.price||0))||(+r.price||0),brand:r.brand||'',itemName:r.item||r.itemName||'',src:'man',key:'m|'+(r.id||'')};});
+    var mine=auto.concat(manual);
+    var paidMap=S.trimLedgerPaid[sel]||{};mine.forEach(function(r){r.paid=!!paidMap[r.key];});
+    // 원장 전용 수정값(수량·단가 오버라이드) — 발주서·원가 불변, 결제 금액만 재계산 (2026-07-10)
+    var ovrMap=(S.trimLedgerOvr&&S.trimLedgerOvr[sel])||{};
+    mine.forEach(function(r){
+      var ov=ovrMap[r.key];if(!ov)return;
+      if(ov.qty!=null)r.qty=+ov.qty;
+      if(ov.price!=null)r.price=+ov.price;
+      r.amount=Math.round((+r.qty||0)*(+r.price||0));
+      r.ovr=true;
+    });
+    all=all.concat(mine);
   });
-  var bset={};all.forEach(function(r){if(r.brand)bset[r.brand]=1;});
+  /* ⚠️ 예전엔 브랜드 칩이 자동으로 **첫 브랜드에 고정**돼서, 브랜드가 안 걸린 줄(가공비·수동 줄 등)이
+        아예 화면에서 사라졌다 (신고 2026-08-19 "패션포인트 7월 결제가 사라졌어").
+        → 기본은 「전체」, 브랜드 없는 줄이 있으면 「브랜드 없음」 칩도 만들어 반드시 닿을 수 있게 한다. */
+  var bset={},hasNoBrand=false;
+  all.forEach(function(r){ if(r.brand)bset[r.brand]=1; else hasNoBrand=true; });
   var bl=Object.keys(bset).sort(function(x,y){return x.localeCompare(y,'ko');});
-  var bsel=window._tlBrand;if(bl.length){if(!bsel||bl.indexOf(bsel)<0)bsel=bl[0];}else bsel='';
+  if(hasNoBrand)bl.push(TL_NOBRAND);
+  var bsel=window._tlBrand||'';
+  if(bsel&&bl.indexOf(bsel)<0)bsel='';   // 없어진 브랜드를 고르고 있었으면 전체로
   window._tlBrand=bsel;
   var rng=_tlRange();
   var rows=all.filter(function(r){
-    if(bsel&&r.brand!==bsel)return false;
+    if(bsel===TL_NOBRAND){ if(r.brand)return false; }
+    else if(bsel&&r.brand!==bsel)return false;
     if(rng.from&&r.date&&r.date<rng.from)return false;
     if(rng.to&&r.date&&r.date>rng.to)return false;
     return true;
   });
-  rows.sort(function(a,b){var d=_cmpDateFn(a.date,b.date);if(d!==0)return d;return (a.src==='auto'?-1:1)-(b.src==='auto'?-1:1);});
+  rows.sort(function(a,b){var d=_cmpDateFn(a.date,b.date);if(d!==0)return d;
+    var s=String(a.sup||'').localeCompare(String(b.sup||''),'ko'); if(s!==0)return s;
+    return (a.src==='auto'?-1:1)-(b.src==='auto'?-1:1);});
   var sa=0,sp=0;rows.forEach(function(r){sa+=r.amount;if(r.paid)sp+=r.amount;});
   out.rows=rows;out.brandList=bl;out.bsel=bsel;out.from=rng.from;out.to=rng.to;out.supplyAll=sa;out.supplyPaid=sp;
   return out;
 }
 // 표 한 줄 (발주일|품명|제품명|규격|수량|단가|금액|결제)
 function _tlRowHTML(r){
-  var sel=window._tlSup;
+  var sel=r.sup||'';
+  var _s=esc(sel).replace(/'/g,"\\'");
   var dlabel=r.date?esc(r.date.slice(5).replace('-','/')):'-';
   var manTag=r.src==='man'?'<span class="tl-tag man">수동</span>':'';
-  var del=(r.src==='man')?'<button class="tl-del" title="삭제" onclick="tlDelManual(\''+esc(sel).replace(/'/g,"\\'")+'\',\''+esc(r.id||'').replace(/'/g,"\\'")+'\')">✕</button>':'';
+  var del=(r.src==='man')?'<button class="tl-del" title="삭제" onclick="tlDelManual(\''+_s+'\',\''+esc(r.id||'').replace(/'/g,"\\'")+'\')">✕</button>':'';
   return '<tr class="'+(r.paid?'tl-paid-row':'')+'">'
     +'<td class="l tl-d" data-l="발주일">'+dlabel+'</td>'
+    +'<td class="l tl-sup" data-l="거래처">'+esc(sel)+'</td>'
     +'<td class="l tl-nm" data-l="품명">'+esc(r.name)+manTag+'</td>'
     +'<td class="l tl-it" data-l="제품명">'+(r.itemName?esc(r.itemName):'-')+'</td>'
     +'<td class="l tl-sp" data-l="규격">'+(r.spec?esc(r.spec):'-')+'</td>'
     +(function(){var _k=esc(r.key).replace(/'/g,"\\'");
-      return '<td class="tl-n" data-l="수량"><input type="number" inputmode="numeric" class="tl-qin" value="'+(r.qty||'')+'" onchange="tlSetOvr(\''+_k+'\',\'qty\',this.value)">'+esc(r.unit||'')+'</td>'
-      +'<td class="tl-n" data-l="단가"><input type="number" inputmode="numeric" class="tl-qin" value="'+(r.price||'')+'"'+(r.procInc?' title="'+esc(r.procInc)+' 포함 단가"':'')+' onchange="tlSetOvr(\''+_k+'\',\'price\',this.value)">'
+      return '<td class="tl-n" data-l="수량"><input type="number" inputmode="numeric" class="tl-qin" value="'+(r.qty||'')+'" onchange="tlSetOvr(\''+_s+'\',\''+_k+'\',\'qty\',this.value)">'+esc(r.unit||'')+'</td>'
+      +'<td class="tl-n" data-l="단가"><input type="number" inputmode="numeric" class="tl-qin" value="'+(r.price||'')+'"'+(r.procInc?' title="'+esc(r.procInc)+' 포함 단가"':'')+' onchange="tlSetOvr(\''+_s+'\',\''+_k+'\',\'price\',this.value)">'
       +(r.procInc?'<span class="tl-tag" title="'+esc(r.procInc)+' 개당 가공비가 단가에 합산됨" style="background:#fef3c7;color:#854d0e">가공포함</span>':'')
-      +(r.ovr?'<button class="tl-del" title="원래 계산값으로 되돌리기" onclick="tlClearOvr(\''+_k+'\')">↺</button>':'')+'</td>';})()
+      +(r.ovr?'<button class="tl-del" title="원래 계산값으로 되돌리기" onclick="tlClearOvr(\''+_s+'\',\''+_k+'\')">↺</button>':'')+'</td>';})()
     +'<td class="tl-n tl-amt" data-l="금액"><span class="tl-prw"'+(r.ovr?' style="color:#b45309" title="수정된 수량·단가로 계산됨"':'')+'>'+num(r.amount)+'<span>원</span></span></td>'
-    +'<td class="tl-pay" data-l="결제"><span class="tl-paychk'+(r.paid?' on':'')+'" data-k="'+esc(r.key)+'" onclick="tlTogglePaid(this.dataset.k)">'+(r.paid?'✓':'')+'</span>'+del+'</td>'
+    +'<td class="tl-pay" data-l="결제"><span class="tl-paychk'+(r.paid?' on':'')+'" data-s="'+esc(sel)+'" data-k="'+esc(r.key)+'" onclick="tlTogglePaid(this.dataset.s,this.dataset.k)">'+(r.paid?'✓':'')+'</span>'+del+'</td>'
     +'</tr>';
 }
 function _tlPresetBtn(p,label){var on=(window._tlPeriod||'m')===p;return '<button class="tl-preset'+(on?' on':'')+'" onclick="window._tlPeriod=\''+p+'\';renderTrimLedger();">'+label+'</button>';}
 // 원장 수량·단가 수동 수정 (원장 전용 오버라이드 — 발주서·원가 불변)
-function tlSetOvr(key,f,v){
-  var sel=window._tlSup;if(!sel||!key)return;
+function tlSetOvr(sel,key,f,v){
+  if(!sel||!key)return;
   if(!S.trimLedgerOvr)S.trimLedgerOvr={};if(!S.trimLedgerOvr[sel])S.trimLedgerOvr[sel]={};
   var o=S.trimLedgerOvr[sel][key]||(S.trimLedgerOvr[sel][key]={});
   if(v===''||v==null||isNaN(+v)){delete o[f];}else{o[f]=+v;}
   if(o.qty==null&&o.price==null)delete S.trimLedgerOvr[sel][key];
   saveData();renderTrimLedger();
 }
-function tlClearOvr(key){
-  var sel=window._tlSup;if(!sel||!key)return;
+function tlClearOvr(sel,key){
+  if(!sel||!key)return;
   if(S.trimLedgerOvr&&S.trimLedgerOvr[sel]){delete S.trimLedgerOvr[sel][key];saveData();}
   renderTrimLedger();
 }
-function tlTogglePaid(key){
-  var sel=window._tlSup;if(!sel||!key)return;
+function tlTogglePaid(sel,key){
+  if(!sel||!key)return;
   if(!S.trimLedgerPaid)S.trimLedgerPaid={};if(!S.trimLedgerPaid[sel])S.trimLedgerPaid[sel]={};
   if(S.trimLedgerPaid[sel][key])delete S.trimLedgerPaid[sel][key];
   else S.trimLedgerPaid[sel][key]=(typeof todayISO==='function'?todayISO():today());
@@ -24324,14 +24353,17 @@ function tlTogglePaid(key){
    ⚠️ 카드 모양은 결제관리의 클래스(ip-card/ip-head/…)를 **그대로 재사용**한다 — 새 스타일을 만들면 두 화면이 달라진다.
    ⚠️ 「날짜순」 보기와 「결제완료」 보기는 예전 표 그대로 둔다. 카드로 바뀌는 건 **아이템별 보기**뿐.
    ⚠️ 통합 명세서는 **거래처 × 브랜드**로 묶는다(사용자 결정). */
+/* 카드 묶음 키 = 거래처 |~| 브랜드 |~| 아이템 (예전엔 브랜드|아이템) */
+function _tlGKey(r){ return (r.sup||'')+'|~|'+(r.brand||'')+'|~|'+(r.itemName||'(기타·직접추가)'); }
+function _tlGParse(k){ var a=String(k).split('|~|'); return {sup:a[0]||'',brand:a[1]||'',item:a.slice(2).join('|~|')}; }
 function _tlSelMap(){ if(!window._tlSel||typeof window._tlSel!=='object')window._tlSel={}; return window._tlSel; }
 function tlToggleSel(k){ var m=_tlSelMap(); k=decodeURIComponent(k); if(m[k])delete m[k]; else m[k]=1; renderTrimLedger(); }
 function tlClearSel(){ window._tlSel={}; renderTrimLedger(); }
 function tlPayItem(k){
-  var sel=window._tlSup; if(!sel)return;
   k=decodeURIComponent(k);
+  var sel=_tlGParse(k).sup; if(!sel)return;
   var sc=_tlScope();
-  var rows=sc.rows.filter(function(r){ return ((r.brand||'')+'|'+(r.itemName||'(기타·직접추가)'))===k && !r.paid; });
+  var rows=sc.rows.filter(function(r){ return _tlGKey(r)===k && !r.paid; });
   if(!rows.length){ showToast('이미 다 결제완료예요'); return; }
   if(!confirm(rows.length+'건을 결제완료로 표시할까요?'))return;
   if(!S.trimLedgerPaid)S.trimLedgerPaid={};
@@ -24343,17 +24375,17 @@ function tlPayItem(k){
 }
 /* 통합 명세서 — 고른 아이템을 거래처 × 브랜드로 묶어 한 장씩 */
 function tlBatchReceipt(){
-  var sel=window._tlSup; if(!sel)return;
   var m=_tlSelMap(), keys=Object.keys(m).filter(function(k){return m[k];});
   if(!keys.length){ showToast('아이템을 먼저 고르세요'); return; }
   var sc=_tlScope();
-  var rows=sc.rows.filter(function(r){ return keys.indexOf((r.brand||'')+'|'+(r.itemName||'(기타·직접추가)'))>=0; });
+  var rows=sc.rows.filter(function(r){ return keys.indexOf(_tlGKey(r))>=0; });
   if(!rows.length){ showToast('내역이 없어요'); return; }
+  /* 명세서는 거래처마다 따로 나가야 하므로 **거래처 × 브랜드**로 묶는다 */
   var g={},order=[];
-  rows.forEach(function(r){ var b=r.brand||'(브랜드 없음)'; if(!g[b]){g[b]=[];order.push(b);} g[b].push(r); });
-  var pb=(S.priceBook||{})[sel]||{};
+  rows.forEach(function(r){ var b=(r.sup||'')+'|~|'+(r.brand||'(브랜드 없음)'); if(!g[b]){g[b]=[];order.push(b);} g[b].push(r); });
   var body='';
-  order.forEach(function(b,gi){
+  order.forEach(function(bk,gi){
+    var _p=_tlGParse(bk), sel=_p.sup, b=_p.brand;
     var gr=g[b], sup=0; gr.forEach(function(r){ sup+=(+r.amount||0); });
     var vat=Math.round(sup*(TL_VAT/100));
     var tr='';
@@ -24387,7 +24419,7 @@ function tlBatchSaveImg(gi){
   showToast('이미지 만드는 중…',1500);
   var go=function(){
     html2canvas(el,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){
-      return fpfSaveFile(c.toDataURL('image/png'),'부자재명세서_'+(window._tlSup||'')+'_'+((typeof todayISO==='function')?todayISO():'')+'.png',{label:'이미지 저장됨'});
+      return fpfSaveFile(c.toDataURL('image/png'),'부자재명세서_'+(window._tlBrand||'전체')+'_'+((typeof todayISO==='function')?todayISO():'')+'.png',{label:'이미지 저장됨'});
     }).catch(function(){ showToast('이미지 저장 실패',3000); });
   };
   if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){showToast('라이브러리 로드 실패');};document.head.appendChild(s);}else go();
@@ -24398,11 +24430,11 @@ function tlBatchSaveImg(gi){
    이미 등록돼 있는 trimLedgerOvr 안에 예약키('__vat@…')로 얹는다. 줄 키와 겹칠 수 없다. */
 function _tlVatKey(k,d){ return '__vat@'+k+'@'+d; }
 function _tlVatOff(k,d){
-  var sel=window._tlSup||''; var m=(S.trimLedgerOvr||{})[sel]||{};
+  var sel=_tlGParse(k).sup||''; var m=(S.trimLedgerOvr||{})[sel]||{};
   return !!(m[_tlVatKey(k,d)]&&m[_tlVatKey(k,d)].vatOff);
 }
 function tlToggleVat(k,d){
-  var sel=window._tlSup; if(!sel)return;
+  var sel=_tlGParse(k).sup; if(!sel)return;
   if(!S.trimLedgerOvr)S.trimLedgerOvr={};
   if(!S.trimLedgerOvr[sel])S.trimLedgerOvr[sel]={};
   var kk=_tlVatKey(k,d);
@@ -24416,7 +24448,7 @@ function _tlCardsHTML(rows){
      ⚠️ 줄별 수량·단가 수정과 줄별 결제 체크는 **그대로 살린다** — 없애면 기존 기능이 사라진다. */
   var g={},order=[];
   rows.forEach(function(r){
-    var k=(r.brand||'')+'|'+(r.itemName||'(기타·직접추가)');
+    var k=_tlGKey(r);
     if(!g[k]){g[k]=[];order.push(k);}
     g[k].push(r);
   });
@@ -24426,7 +24458,7 @@ function _tlCardsHTML(rows){
     var gr=g[k], sup=0, allPaid=true;
     gr.forEach(function(r){ sup+=(+r.amount||0); if(!r.paid)allPaid=false; });
     var vat=0;   /* 발주일마다 VAT 빼기가 다를 수 있어 아래에서 합산 */
-    var parts=k.split('|'), br=parts[0], nm=parts.slice(1).join('|');
+    var _pk=_tlGParse(k), gsup=_pk.sup, br=_pk.brand, nm=_pk.item;
     var isSel=!!m[k], ek=encodeURIComponent(k);
     /* 발주일별 서브카드 */
     var byD={},od=[];
@@ -24442,22 +24474,22 @@ function _tlCardsHTML(rows){
       var dl=/^\d{4}-\d{2}-\d{2}$/.test(d)?(d.slice(5).replace('-','/')):d;
       var lns='';
       dr.forEach(function(r){
-        var _k=esc(r.key).replace(/'/g,"\\'");
+        var _k=esc(r.key).replace(/'/g,"\\'"), _s=esc(r.sup||'').replace(/'/g,"\\'");
         lns+='<div class="ln tl-fln'+(r.paid?' paid':'')+'">'
           +'<span class="tl-flnm">'+esc(r.name||'')+(r.spec?('<i>'+esc(r.spec)+'</i>'):'')+(r.src==='man'?'<span class="tl-tag man">수동</span>':'')+'</span>'
           +'<span class="v tl-flv">'
-            +'<input type="number" inputmode="numeric" class="tl-qin" value="'+(r.qty||'')+'" onchange="tlSetOvr(\''+_k+'\',\'qty\',this.value)">'
+            +'<input type="number" inputmode="numeric" class="tl-qin" value="'+(r.qty||'')+'" onchange="tlSetOvr(\''+_s+'\',\''+_k+'\',\'qty\',this.value)">'
             +'<em>×</em>'
-            +'<input type="number" inputmode="numeric" class="tl-qin" value="'+(r.price||'')+'" onchange="tlSetOvr(\''+_k+'\',\'price\',this.value)">'
+            +'<input type="number" inputmode="numeric" class="tl-qin" value="'+(r.price||'')+'" onchange="tlSetOvr(\''+_s+'\',\''+_k+'\',\'price\',this.value)">'
             +'<b'+(r.ovr?' style="color:#b45309"':'')+'>'+num(r.amount)+'원</b>'
-            +(r.ovr?'<button class="tl-del" title="원래 계산값으로" onclick="tlClearOvr(\''+_k+'\')">↺</button>':'')
-            +'<span class="tl-paychk'+(r.paid?' on':'')+'" title="이 줄만 결제" data-k="'+esc(r.key)+'" onclick="tlTogglePaid(this.dataset.k)">'+(r.paid?'✓':'')+'</span>'
+            +(r.ovr?'<button class="tl-del" title="원래 계산값으로" onclick="tlClearOvr(\''+_s+'\',\''+_k+'\')">↺</button>':'')
+            +'<span class="tl-paychk'+(r.paid?' on':'')+'" title="이 줄만 결제" data-s="'+esc(r.sup||'')+'" data-k="'+esc(r.key)+'" onclick="tlTogglePaid(this.dataset.s,this.dataset.k)">'+(r.paid?'✓':'')+'</span>'
           +'</span></div>';
       });
       /* 결제관리는 role=공정 / nm=공장이름. 부자재는 role=발주일 / nm=**거래처(부자재집) 이름** */
       fcs+='<div class="ip-fc'+(dPaid?' paid':'')+'">'
         +'<div class="role">'+esc(dl)+' 발주 · '+dr.length+'건</div>'
-        +'<div class="nm">'+esc(window._tlSup||'')+'</div>'
+        +'<div class="nm">'+esc(gsup)+'</div>'
         +lns
         +'<div class="am"><span class="l">청구</span><div class="right"><span class="amt">'+num(ds)+'원</span>'
           +'<span class="vat">'+(dOff?'부가세 없음 (현금)':('VAT포함 '+num(ds+dvat)+'원'))+'</span></div></div>'
@@ -24471,7 +24503,7 @@ function _tlCardsHTML(rows){
       +'<div class="ip-head">'
         +'<div class="ip-chk"><input type="checkbox"'+(isSel?' checked':'')+' onclick="tlToggleSel(\''+ek+'\')"></div>'
         +'<div class="ip-info"><div class="ip-title">'
-          +'<span class="brand tl-supbadge">'+esc(window._tlSup||'')+'</span>'
+          +'<span class="brand tl-supbadge">'+esc(gsup)+'</span>'
           +(br?('<span class="brand">'+esc(br)+'</span>'):'')+'<span>'+esc(nm)+'</span></div>'
           +od.map(function(d){
               var dr=byD[d], ds=0; dr.forEach(function(r){ ds+=(+r.amount||0); });
@@ -24492,9 +24524,9 @@ function _tlCardsHTML(rows){
 }
 /* 발주일 하나만 결제완료 */
 function tlPayDay(k,d){
-  var sel=window._tlSup; if(!sel)return;
+  var sel=_tlGParse(k).sup; if(!sel)return;
   var sc=_tlScope();
-  var rows=sc.rows.filter(function(r){ return ((r.brand||'')+'|'+(r.itemName||'(기타·직접추가)'))===k && (r.date||'-')===d; });
+  var rows=sc.rows.filter(function(r){ return _tlGKey(r)===k && (r.date||'-')===d; });
   if(!rows.length)return;
   var unpaid=rows.filter(function(r){return !r.paid;});
   if(!S.trimLedgerPaid)S.trimLedgerPaid={};
@@ -24510,12 +24542,11 @@ function tlPayDay(k,d){
 }
 /* 발주일 하나만 명세서 */
 function tlDayReceipt(k,d){
-  var sel=window._tlSup; if(!sel)return;
+  var _p=_tlGParse(k), sel=_p.sup; if(!sel)return;
   var sc=_tlScope();
-  var rows=sc.rows.filter(function(r){ return ((r.brand||'')+'|'+(r.itemName||'(기타·직접추가)'))===k && (r.date||'-')===d; });
+  var rows=sc.rows.filter(function(r){ return _tlGKey(r)===k && (r.date||'-')===d; });
   if(!rows.length){ showToast('내역이 없어요'); return; }
-  var parts=String(k).split('|');
-  _tlSheetModal(sel,parts[0]||'',rows,'발주일 '+d,_tlVatOff(k,d));
+  _tlSheetModal(sel,_p.brand||'',rows,'발주일 '+d,_tlVatOff(k,d));
 }
 /* 명세서 한 장 (통합·개별 공용) */
 function _tlSheetModal(sel,brand,rows,sub,noVat){
@@ -24558,7 +24589,7 @@ function renderTrimLedger(){
   if(window._tlPayView==null)window._tlPayView='unpaid';
   if(window._tlView==null)window._tlView='item';   /* 카드가 기본 (사용자 요청) */
   if(window._tlPeriod==null)window._tlPeriod='m';
-  var _md=false;(S.trimLedger[sel]||[]).forEach(function(r){if(!r.id){r.id='tl_'+uid();_md=true;}});if(_md){try{saveData();}catch(e){}}
+  var _md=false;Object.keys(S.trimLedger||{}).forEach(function(_s){(S.trimLedger[_s]||[]).forEach(function(r){if(!r.id){r.id='tl_'+uid();_md=true;}});});if(_md){try{saveData();}catch(e){}}
 
   var sc=_tlScope();
   var bsel=sc.bsel, brandList=sc.brandList;
@@ -24571,13 +24602,13 @@ function renderTrimLedger(){
   var bodyHtml='';
   if(!rows.length){
     var msg=paidV?'아직 결제완료한 내역이 없어요.':'이 기간 미결제 내역이 없어요.';
-    bodyHtml='<tr><td class="l" colspan="8" style="padding:24px;text-align:center;color:var(--t3)">'+msg+'</td></tr>';
+    bodyHtml='<tr><td class="l" colspan="9" style="padding:24px;text-align:center;color:var(--t3)">'+msg+'</td></tr>';
   }else if(paidV){
     var mg={},mo=[];rows.forEach(function(r){var k=(r.date||'').slice(0,7)||'기타';if(!mg[k]){mg[k]=[];mo.push(k);}mg[k].push(r);});
     mo.sort();
     mo.forEach(function(k){var gr=mg[k],gs=0;gr.forEach(function(r){gs+=r.amount;});
       var lbl=/^\d{4}-\d{2}$/.test(k)?(k.slice(0,4)+'년 '+(+k.slice(5,7))+'월'):k;
-      bodyHtml+='<tr class="tl-grph"><td class="l" colspan="8">'+lbl+' <span class="tl-gsub">· '+gr.length+'건 · 결제 '+num(Math.round(gs*(1+TL_VAT/100)))+'원</span></td></tr>';
+      bodyHtml+='<tr class="tl-grph"><td class="l" colspan="9">'+lbl+' <span class="tl-gsub">· '+gr.length+'건 · 결제 '+num(Math.round(gs*(1+TL_VAT/100)))+'원</span></td></tr>';
       gr.forEach(function(r){bodyHtml+=_tlRowHTML(r);});});
   }else if(window._tlView==='item'){
     /* 아이템별은 표 대신 **카드** (결제관리와 같은 모양) — 아래에서 cardsHtml 로 갈아끼운다 */
@@ -24585,20 +24616,15 @@ function renderTrimLedger(){
     rows.forEach(function(r){bodyHtml+=_tlRowHTML(r);});
   }
 
-  var pb=(S.priceBook||{})[sel]||{};
-  var meta=[];if(pb.phone)meta.push(''+esc(pb.phone));if(pb.bank)meta.push(''+esc(pb.bank));
   var rng=_tlRange();
 
   var html='';
+  /* 부자재집 고르는 칸은 없앴다 — 거래처 전부를 한 화면에, 나누는 건 브랜드만 (결제관리처럼) */
   html+='<div class="tl-topcard"><div class="tl-top">'
-    +'<label>부자재집</label>'
-    +'<select class="tl-supsel" onchange="window._tlSup=this.value;window._tlBrand=\'\';renderTrimLedger();">'
-    +sups.map(function(s){return '<option value="'+esc(s)+'"'+(s===sel?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>';
-  if(brandList.length){
-    html+='<span class="tl-br-lbl" style="margin-left:8px">브랜드</span>'
-      +brandList.map(function(b){return '<button class="tl-br'+(bsel===b?' on':'')+'" onclick="window._tlBrand=\''+esc(b).replace(/'/g,"\\'")+'\';renderTrimLedger();">'+esc(b)+'</button>';}).join('');
-  }
-  html+='<div class="tl-meta">'+(meta.join('<br>')||'')+'</div></div>';
+    +'<span class="tl-br-lbl">브랜드</span>'
+    +'<button class="tl-br'+(bsel?'':' on')+'" onclick="window._tlBrand=\'\';renderTrimLedger();">전체</button>'
+    +brandList.map(function(b){return '<button class="tl-br'+(bsel===b?' on':'')+'" onclick="window._tlBrand=\''+esc(b).replace(/'/g,"\\'")+'\';renderTrimLedger();">'+esc(b)+'</button>';}).join('')
+    +'<span class="tl-meta">거래처 '+sups.length+'곳</span></div>';
   html+='<div class="tl-ctl"><label>기간</label>'
     +_tlPresetBtn('m','이번 달')+_tlPresetBtn('l','지난 달')+_tlPresetBtn('a','전체')
     +'<input class="tl-date" type="date" value="'+esc(rng.from||'')+'" onchange="tlSetDate(\'from\',this.value)">'
@@ -24620,11 +24646,13 @@ function renderTrimLedger(){
     +_tlMetric('미결제',num(dueTot),'due')+'</div>';
 
   html+='<div class="tl-card">'
-    +'<div class="tl-card-h"><h3>'+esc(sel)+(bsel?' › '+esc(bsel):'')+' 원장 · '+(paidV?'결제완료':'미결제')+'</h3><span class="tl-spc"></span>'
+    +'<div class="tl-card-h"><h3>'+esc(bsel||'전체 브랜드')+' 부자재 원장 · '+(paidV?'결제완료':'미결제')+'</h3><span class="tl-spc"></span>'
     +'<button class="tl-btn" onclick="tlPasteOpen()" title="카톡으로 보낸 발주서 텍스트를 붙여넣으면 원장 줄로 자동 등록">발주서 붙여넣기</button>'
     +'<button class="tl-btn" onclick="tlToggleForm()">＋ 수동 추가</button>'
     +'<button class="tl-btn pri" onclick="tlSaveImage()">명세서 저장</button></div>';
   html+='<div class="tl-form" id="tl-form">'
+    +'<select class="tl-f-sup" id="tl-m-sup" title="어느 거래처 원장에 넣을지">'
+    +sups.map(function(s){return '<option value="'+esc(s)+'"'+(s===sel?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
     +'<input class="tl-f-date" type="date" id="tl-m-date">'
     +'<input class="tl-f-name" id="tl-m-name" placeholder="품명 (예: 퀵 택배비)">'
     +'<input class="tl-f-spec" id="tl-m-spec" placeholder="규격">'
@@ -24644,7 +24672,7 @@ function renderTrimLedger(){
     html+=(rows.length?('<div class="tl-cards">'+_tlCardsHTML(rows)+'</div>'):'<div class="tl-empty">'+(paidV?'아직 결제완료한 내역이 없어요.':'이 기간 미결제 내역이 없어요.')+'</div>');
   }else{
     html+='<div class="tl-wrap"><table class="tl-tbl"><thead><tr>'
-      +'<th class="l">발주일</th><th class="l">품명</th><th class="l">제품명</th><th class="l">규격</th>'
+      +'<th class="l">발주일</th><th class="l">거래처</th><th class="l">품명</th><th class="l">제품명</th><th class="l">규격</th>'
       +'<th>수량</th><th>단가</th><th>금액</th><th>결제</th></tr></thead>'
       +'<tbody>'+bodyHtml+'</tbody></table></div>';
   }
@@ -24701,8 +24729,10 @@ function tlParsePO(text){
   });
 }
 function tlPasteOpen(){
-  var sel=window._tlSup;
-  if(!sel){showToast('거래처를 먼저 선택하세요');return;}
+  var _se=document.getElementById('tl-m-sup');
+  var sel=(_se&&_se.value)||window._tlSup;
+  if(!sel){showToast('「＋ 수동 추가」를 열어 거래처를 먼저 고르세요');return;}
+  window._tlSup=sel;
   window._tlPasteRows=null;
   showGenericModal('발주서 붙여넣기 — '+sel,
     '<div style="font-size:11.5px;color:var(--t2);line-height:1.6;margin-bottom:8px">카톡으로 보낸 발주서 텍스트를 그대로 붙여넣으세요. 상호·품명·<b>#컬러 - N개</b> 줄을 읽어서 이 거래처 원장에 줄로 넣어요. 단가는 단가장에서 자동, 없으면 미리보기에서 직접 입력.</div>'
@@ -24753,7 +24783,10 @@ function tlPasteCommit(){
   showToast(rows.length+'줄 원장에 추가됨'+(rows.some(function(r){return !(+r.price>0);})?' — 단가 0인 줄은 표에서 입력하세요':''));
 }
 function tlAddManual(){
-  var sel=window._tlSup;if(!sel)return;
+  var _se=document.getElementById('tl-m-sup');
+  var sel=(_se&&_se.value)||window._tlSup;
+  if(!sel){alert('거래처를 고르세요');return;}
+  window._tlSup=sel;
   var name=(document.getElementById('tl-m-name').value||'').trim();
   if(!name){alert('품명을 입력하세요');return;}
   var qty=+document.getElementById('tl-m-qty').value||0;
@@ -24843,7 +24876,8 @@ function _tlEnsureStyle(){
   +'.tl-sub{font-size:11px;color:var(--t3);font-weight:500;margin-top:2px;white-space:normal}'
   +'.tl-bdg{display:inline-block;font-size:10px;font-weight:700;padding:0 5px;border-radius:8px;background:var(--bbg);color:var(--blue);border:1px solid var(--blue)}'
   +'.tl-brandnote{font-size:12px;color:var(--blue);background:var(--bbg);border:1px solid var(--blue);border-radius:var(--r);padding:7px 10px;margin-bottom:8px;line-height:1.5}'
-  +'.tl-f-brand{width:130px}'
+  +'.tl-f-brand{width:130px}.tl-f-sup{width:140px;font-weight:700}'
+  +'.tl-tbl td.tl-sup{color:#4b5563;font-size:12px;white-space:nowrap;font-weight:600}'
   +'.tl-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0}'
   +'.tl-metric{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 8px;text-align:center;min-height:60px;display:flex;flex-direction:column;justify-content:center;gap:3px}'
   +'.tl-metric .ml{font-size:11px;color:var(--t2);white-space:nowrap}.tl-metric .mv{font-size:16px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}'
