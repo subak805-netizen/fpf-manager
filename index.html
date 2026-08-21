@@ -4022,7 +4022,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19n';
+var APP_BUILD=/*BUILD*/'2026-08-19p';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -14656,7 +14656,7 @@ function syncOrderMaterialsFromItems(orderId, opts){
   var freshSups=calcSups(order.orderItems||[]);
   var currentSups=order.suppliers||{};
   
-  var result={added:[], removed:[], newSuppliers:[], paidRemovals:[]};
+  var result={added:[], removed:[], newSuppliers:[], paidRemovals:[], frozenQty:[]};
   
   // 2) 각 fresh supplier에 대해 현재와 비교
   Object.keys(freshSups).forEach(function(sn){
@@ -14700,12 +14700,26 @@ function syncOrderMaterialsFromItems(orderId, opts){
           }
           result.added.push({supplier:sn,material:m});
         }else{
-          // 양쪽에 있음 — 단가/수량 유지 (단, 수량이 바뀌었으면 갱신)
+          // 양쪽에 있음
           var curMat=curKeys[matKey(m)];
-          // 단가는 유지. 수량 관련 필드는 최신으로
-          ['totalYards','totalKg','calc'].forEach(function(field){
-            if(m[field]!==undefined)curMat[field]=m[field];
-          });
+          /* ⚠️ 발송된 발주서는 **실제로 보낸 종이**라 수량을 절대 안 건드린다 (2026-08-19 신고).
+                예전엔 isSent 상관없이 totalYards/totalKg/calc 를 최신으로 덮어써서,
+                「요척 0.71로 발주 → 발송완료 → 아이템 요척 0.77로 수정」 하면
+                이미 보낸 발주서 본문이 142y → 154y 로 바뀌어 버렸다.
+                (카드 배지 「발송 · 고정」 설명과도 어긋났다.)
+                더 필요하면 「추가발주」로 나가는 게 원칙. */
+          if(isSent){
+            var _chg=['totalYards','totalKg'].some(function(f){
+              return m[f]!==undefined && (+m[f]||0)!==(+curMat[f]||0);
+            });
+            if(_chg)result.frozenQty.push({supplier:sn,material:curMat,
+              was:(+curMat.totalYards||+curMat.totalKg||0), now:(+m.totalYards||+m.totalKg||0)});
+          }else{
+            // 단가는 유지. 수량 관련 필드는 최신으로
+            ['totalYards','totalKg','calc'].forEach(function(field){
+              if(m[field]!==undefined)curMat[field]=m[field];
+            });
+          }
         }
       });
       
@@ -14814,17 +14828,19 @@ function notifyOrdersAffectedByItemChange(itemId, itemName){
   setTimeout(function(){
     var msg='"'+itemName+'"을(를) 사용하는 진행 중 발주가 '+orders.length+'건 있어요.\n\n변경 사항을 그 발주들에도 반영할까요?\n\n[확인] 모든 발주에 동기화\n[취소] 나중에 직접 동기화';
     if(confirm(msg)){
-      var totalAdded=0,totalRemoved=0,totalNewSup=0,paidIssues=[];
+      var totalAdded=0,totalRemoved=0,totalNewSup=0,totalFrozen=0,paidIssues=[];
       orders.forEach(function(o){
         var r=syncOrderMaterialsFromItems(o.id,{silent:true});
         totalAdded+=r.added.length;
         totalRemoved+=r.removed.length;
         totalNewSup+=r.newSuppliers.length;
+        totalFrozen+=(r.frozenQty||[]).length;
         if(r.paidRemovals.length>0)paidIssues.push({order:o,removals:r.paidRemovals});
       });
       render();
       var resultMsg='동기화 완료!\n\n• 추가된 자재: '+totalAdded+'건\n• 삭제된 자재: '+totalRemoved+'건';
       if(totalNewSup>0)resultMsg+='\n• 추가 발주 supplier: '+totalNewSup+'건';
+      if(totalFrozen>0)resultMsg+='\n• 이미 발송한 발주서 '+totalFrozen+'건은 수량을 그대로 뒀어요 (보낸 종이와 맞추려고). 더 필요하면 추가발주로 보내주세요.';
       if(paidIssues.length>0){
         resultMsg+='\n\n다음 자재는 이미 발주됐어요 (반품 검토 필요):';
         paidIssues.forEach(function(pi){
@@ -16467,6 +16483,13 @@ function syncOrderFromUI(oid){
   msg+='• 추가된 자재: '+r.added.length+'건\n';
   msg+='• 삭제된 자재: '+r.removed.length+'건\n';
   if(r.newSuppliers.length>0)msg+='• 새 거래처: '+r.newSuppliers.join(', ')+'\n';
+  if(r.frozenQty&&r.frozenQty.length>0){
+    msg+='\n이미 발송한 발주서라 **수량을 그대로 뒀어요** (보낸 종이와 어긋나지 않게):\n';
+    r.frozenQty.forEach(function(p){
+      msg+='• '+p.supplier+' - '+p.material.name+' : 발주서 '+p.was+' 유지 (지금 계산은 '+p.now+')\n';
+    });
+    msg+='더 필요하면 「추가발주」로 보내주세요.\n';
+  }
   if(r.paidRemovals.length>0){
     msg+='\n다음 자재는 이미 발주 진행됐어요:\n';
     r.paidRemovals.forEach(function(p){
@@ -18081,7 +18104,8 @@ function _propagateEffectiveRatioRaw(orderId,itemId){
     // o.suppliers의 같은 아이템 자재들에 대해 totalYards/calc만 갱신 (사용자 입력 필드는 보존)
     for(var sn in fresh){
       if(!o.suppliers[sn])continue; // 새 supplier는 추가 안 함 (sync 함수가 따로 있음)
-      if(o.suppliers[sn].status==='sent')continue; // ★발송분 동결 — 도미노 갱신에서 제외
+      var _st=o.suppliers[sn].status;
+      if(_st==='sent'||_st==='shipped'||_st==='arrived')continue; // ★발송·출고·입고분 동결 — 도미노 갱신에서 제외
       var freshMats=(fresh[sn]&&fresh[sn].materials)||[];
       var curMats=(o.suppliers[sn]&&o.suppliers[sn].materials)||[];
       freshMats.forEach(function(fm){

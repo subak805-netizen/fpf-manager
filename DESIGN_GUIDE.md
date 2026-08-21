@@ -887,3 +887,15 @@
 - 치수 함수는 전부 경로를 인자로 받게 바뀜: `tpSpecHTML(it,base)` · `tpSpecSecHTML(it,base)` · `tpSpecAdd(base)` · `tpSpecPreset(t,base)` · `tpSpecPick(base)`(→`window._tpSpBase`). **기본값은 예전 그대로 `sew.spec`**.
 - 도식화는 `_skSlot(slot,ph)`로 분리(`_sk`는 sewSketch 별칭 유지).
 - 검증: `/tmp/fpf-preview/spat.html` (mkharness_spat.py) — 실제 함수로 46개 검사 전부 통과.
+
+## 2026-08-19p — [버그] 발송한 발주서 수량이 요척 바꾸면 따라 바뀌던 것
+- 신고: 「요척 0.71로 발주 → 발송완료 → 아이템 요척 0.77로 수정」 했더니 **이미 보낸 발주서 본문이 142y → 154y** 로 바뀜.
+  카드 배지는 「발송 · 고정 (아이템·오더수량·요척 바꿔도 이 발주서는 안 변함)」이라 설명과도 어긋났다.
+- 원인: `syncOrderMaterialsFromItems`의 「양쪽에 있음」 갈래가 **isSent 상관없이**
+  `['totalYards','totalKg','calc']`를 최신값으로 덮어쓰고 있었다. (추가·삭제만 isSent를 봤다)
+- 고침: 발송(sent/shipped/arrived)이면 수량을 안 건드리고, 바뀐 게 있으면 `result.frozenQty`에 담아
+  동기화 알림에 「이미 발송한 발주서라 수량을 그대로 뒀어요 (더 필요하면 추가발주로)」로 알려준다.
+- 곁가지: `_propagateEffectiveRatioRaw`의 동결 조건이 `'sent'`만 봤는데 `shipped`·`arrived`도 포함하게 맞춤.
+- ⚠️ **수량을 쓰는 곳은 딱 두 군데**뿐이다 — 이 sync 의 field 루프와 `_propagateEffectiveRatioRaw`. 새로 만들면 둘 다 동결 조건을 넣을 것.
+- 검증: `/tmp/fpf-preview/freeze.html` (mkharness_freeze.py) — 실제 sync 함수로 12개 검사 통과
+  (발송분 유지 · 미발송분 갱신 · 반복 동기화 · 발송취소하면 다시 따라감 · 입고완료도 동결).
