@@ -4013,7 +4013,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19h';
+var APP_BUILD=/*BUILD*/'2026-08-19i';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -24285,6 +24285,123 @@ function tlTogglePaid(key){
   else S.trimLedgerPaid[sel][key]=(typeof todayISO==='function'?todayISO():today());
   saveData();renderTrimLedger();
 }
+
+/* ===== 부자재 결제체크 — 아이템별 카드 (2026-08-19) ======================
+   사용자 요청: 「공장 결제관리처럼 아이템별로 나누고, 선택해서 통합명세서」.
+   ⚠️ 카드 모양은 결제관리의 클래스(ip-card/ip-head/…)를 **그대로 재사용**한다 — 새 스타일을 만들면 두 화면이 달라진다.
+   ⚠️ 「날짜순」 보기와 「결제완료」 보기는 예전 표 그대로 둔다. 카드로 바뀌는 건 **아이템별 보기**뿐.
+   ⚠️ 통합 명세서는 **거래처 × 브랜드**로 묶는다(사용자 결정). */
+function _tlSelMap(){ if(!window._tlSel||typeof window._tlSel!=='object')window._tlSel={}; return window._tlSel; }
+function tlToggleSel(k){ var m=_tlSelMap(); k=decodeURIComponent(k); if(m[k])delete m[k]; else m[k]=1; renderTrimLedger(); }
+function tlClearSel(){ window._tlSel={}; renderTrimLedger(); }
+function tlPayItem(k){
+  var sel=window._tlSup; if(!sel)return;
+  k=decodeURIComponent(k);
+  var sc=_tlScope();
+  var rows=sc.rows.filter(function(r){ return ((r.brand||'')+'|'+(r.itemName||'(기타·직접추가)'))===k && !r.paid; });
+  if(!rows.length){ showToast('이미 다 결제완료예요'); return; }
+  if(!confirm(rows.length+'건을 결제완료로 표시할까요?'))return;
+  if(!S.trimLedgerPaid)S.trimLedgerPaid={};
+  if(!S.trimLedgerPaid[sel])S.trimLedgerPaid[sel]={};
+  var d=(typeof todayISO==='function'?todayISO():'');
+  rows.forEach(function(r){ S.trimLedgerPaid[sel][r.key]=d; });
+  saveData(); renderTrimLedger();
+  showToast(rows.length+'건 결제완료');
+}
+/* 통합 명세서 — 고른 아이템을 거래처 × 브랜드로 묶어 한 장씩 */
+function tlBatchReceipt(){
+  var sel=window._tlSup; if(!sel)return;
+  var m=_tlSelMap(), keys=Object.keys(m).filter(function(k){return m[k];});
+  if(!keys.length){ showToast('아이템을 먼저 고르세요'); return; }
+  var sc=_tlScope();
+  var rows=sc.rows.filter(function(r){ return keys.indexOf((r.brand||'')+'|'+(r.itemName||'(기타·직접추가)'))>=0; });
+  if(!rows.length){ showToast('내역이 없어요'); return; }
+  var g={},order=[];
+  rows.forEach(function(r){ var b=r.brand||'(브랜드 없음)'; if(!g[b]){g[b]=[];order.push(b);} g[b].push(r); });
+  var pb=(S.priceBook||{})[sel]||{};
+  var body='';
+  order.forEach(function(b,gi){
+    var gr=g[b], sup=0; gr.forEach(function(r){ sup+=(+r.amount||0); });
+    var vat=Math.round(sup*(TL_VAT/100));
+    var tr='';
+    gr.forEach(function(r){
+      tr+='<tr><td style="border:1px solid #ccc;padding:4px 6px">'+esc(r.date||'')+'</td>'
+        +'<td style="border:1px solid #ccc;padding:4px 6px">'+esc(r.name||'')+'</td>'
+        +'<td style="border:1px solid #ccc;padding:4px 6px">'+esc(r.itemName||'')+'</td>'
+        +'<td style="border:1px solid #ccc;padding:4px 6px">'+esc(r.spec||'')+'</td>'
+        +'<td style="border:1px solid #ccc;padding:4px 6px;text-align:right">'+num(r.qty||0)+'</td>'
+        +'<td style="border:1px solid #ccc;padding:4px 6px;text-align:right">'+num(r.price||0)+'</td>'
+        +'<td style="border:1px solid #ccc;padding:4px 6px;text-align:right">'+num(r.amount||0)+'</td></tr>';
+    });
+    body+='<div class="tlb-sheet" id="tlb-sheet-'+gi+'" style="background:#fff;padding:16px;border:1px solid #ddd;margin-bottom:14px">'
+      +'<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px"><b style="font-size:16px">거래명세서</b>'
+      +'<span style="font-size:12px;color:#666">'+esc(sel)+' · '+esc(b)+'</span>'
+      +'<span style="margin-left:auto;font-size:12px;color:#666">'+esc((typeof todayISO==='function'?todayISO():''))+'</span></div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr style="background:#f3f4f6">'
+      +'<th style="border:1px solid #ccc;padding:4px 6px">발주일</th><th style="border:1px solid #ccc;padding:4px 6px">품명</th>'
+      +'<th style="border:1px solid #ccc;padding:4px 6px">제품명</th><th style="border:1px solid #ccc;padding:4px 6px">규격</th>'
+      +'<th style="border:1px solid #ccc;padding:4px 6px">수량</th><th style="border:1px solid #ccc;padding:4px 6px">단가</th>'
+      +'<th style="border:1px solid #ccc;padding:4px 6px">금액</th></tr></thead><tbody>'+tr+'</tbody></table>'
+      +'<div style="text-align:right;margin-top:8px;font-size:13px">공급가 <b>'+num(sup)+'</b>원 · VAT <b>'+num(vat)+'</b>원 · '
+      +'합계 <b style="font-size:15px">'+num(sup+vat)+'</b>원</div>'
+      +'<div style="text-align:right;margin-top:8px"><button class="btn s" onclick="tlBatchSaveImg('+gi+')">이미지 저장</button></div>'
+      +'</div>';
+  });
+  showGenericModal('통합 명세서 ('+order.length+'장)',body,900);
+}
+function tlBatchSaveImg(gi){
+  var el=document.getElementById('tlb-sheet-'+gi); if(!el)return;
+  showToast('이미지 만드는 중…',1500);
+  var go=function(){
+    html2canvas(el,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){
+      return fpfSaveFile(c.toDataURL('image/png'),'부자재명세서_'+(window._tlSup||'')+'_'+((typeof todayISO==='function')?todayISO():'')+'.png',{label:'이미지 저장됨'});
+    }).catch(function(){ showToast('이미지 저장 실패',3000); });
+  };
+  if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){showToast('라이브러리 로드 실패');};document.head.appendChild(s);}else go();
+}
+/* 아이템별 카드 HTML */
+function _tlCardsHTML(rows){
+  var g={},order=[];
+  rows.forEach(function(r){
+    var k=(r.brand||'')+'|'+(r.itemName||'(기타·직접추가)');
+    if(!g[k]){g[k]=[];order.push(k);}
+    g[k].push(r);
+  });
+  var m=_tlSelMap();
+  var H='';
+  order.forEach(function(k){
+    var gr=g[k], sup=0; gr.forEach(function(r){ sup+=(+r.amount||0); });
+    var vat=Math.round(sup*(TL_VAT/100));
+    var parts=k.split('|'), br=parts[0], nm=parts.slice(1).join('|');
+    var isSel=!!m[k], ek=encodeURIComponent(k);
+    /* 발주일별로 묶어 준다 — 같은 품명이 여러 날 깔리면 언제 것인지 안 보인다 */
+    var byD={},od=[];
+    gr.forEach(function(r){ var d=r.date||'-'; if(!byD[d]){byD[d]=[];od.push(d);} byD[d].push(r); });
+    od.sort();
+    var tb='';
+    od.forEach(function(d){
+      var dr=byD[d], ds=0; dr.forEach(function(r){ ds+=(+r.amount||0); });
+      var dl=/^\d{4}-\d{2}-\d{2}$/.test(d)?(d.slice(5).replace('-','/')):d;
+      tb+='<tr class="tl-grph"><td class="l" colspan="8">'+esc(dl)+' 발주 <span class="tl-gsub">· '+dr.length+'건 · '+num(ds)+'원</span></td></tr>';
+      dr.forEach(function(r){ tb+=_tlRowHTML(r); });
+    });
+    H+='<div class="ip-card'+(isSel?' selected':'')+'">'
+      +'<div class="ip-head">'
+        +'<div class="ip-chk"><input type="checkbox"'+(isSel?' checked':'')+' onclick="tlToggleSel(\''+ek+'\')"></div>'
+        +'<div class="ip-info"><div class="ip-title">'+(br?('<span style="color:#9ca3af;font-weight:600;font-size:12px;margin-right:6px">'+esc(br)+'</span>'):'')+esc(nm)+'</div>'
+          +'<div class="ip-line">'+gr.length+'건 · 공급가 '+num(sup)+'원 · VAT '+num(vat)+'원</div></div>'
+        +'<div class="ip-summary"><div class="lbl">미결제 합계</div><div class="amt">'+num(sup+vat)+'원</div></div>'
+      +'</div>'
+      +'<div class="tl-wrap" style="padding:0 14px 10px"><table class="tl-tbl"><thead><tr>'
+        +'<th class="l">발주일</th><th class="l">품명</th><th class="l">제품명</th><th class="l">규격</th>'
+        +'<th>수량</th><th>단가</th><th>금액</th><th>결제</th></tr></thead><tbody>'+tb+'</tbody></table></div>'
+      +'<div style="padding:9px 14px;border-top:1px solid #eef0f4;display:flex;align-items:center;gap:8px;justify-content:flex-end">'
+        +'<button class="btn s ok" style="font-weight:700" onclick="tlPayItem(\''+ek+'\')">✓ 이 아이템 결제완료</button></div>'
+      +'</div>';
+  });
+  return H;
+}
+
 function renderTrimLedger(){
   var box=document.getElementById('ledger-body')||document.getElementById('pay-content');if(!box)return;
   if(!S.trimLedger)S.trimLedger={};if(!S.trimLedgerOvr)S.trimLedgerOvr={};if(!S.trimLedgerPaid)S.trimLedgerPaid={};
@@ -24320,10 +24437,7 @@ function renderTrimLedger(){
       bodyHtml+='<tr class="tl-grph"><td class="l" colspan="8">'+lbl+' <span class="tl-gsub">· '+gr.length+'건 · 결제 '+num(Math.round(gs*(1+TL_VAT/100)))+'원</span></td></tr>';
       gr.forEach(function(r){bodyHtml+=_tlRowHTML(r);});});
   }else if(window._tlView==='item'){
-    var groups={},order=[];rows.forEach(function(r){var k=r.itemName||'(기타·직접추가)';if(!groups[k]){groups[k]=[];order.push(k);}groups[k].push(r);});
-    order.forEach(function(k){var gr=groups[k],gs=0;gr.forEach(function(r){gs+=r.amount;});
-      bodyHtml+='<tr class="tl-grph"><td class="l" colspan="8">'+esc(k)+' <span class="tl-gsub">· '+gr.length+'건 · 공급가 '+num(gs)+'원</span></td></tr>';
-      gr.forEach(function(r){bodyHtml+=_tlRowHTML(r);});});
+    /* 아이템별은 표 대신 **카드** (결제관리와 같은 모양) — 아래에서 cardsHtml 로 갈아끼운다 */
   }else{
     rows.forEach(function(r){bodyHtml+=_tlRowHTML(r);});
   }
@@ -24377,10 +24491,22 @@ function renderTrimLedger(){
     +'<input class="tl-f-price" type="number" id="tl-m-price" placeholder="단가" inputmode="numeric">'
     +'<select class="tl-f-brand" id="tl-m-brand">'+brandList.map(function(b){return '<option value="'+esc(b)+'"'+(b===bsel?' selected':'')+'>'+esc(b)+'</option>';}).join('')+'<option value="">공통</option></select>'
     +'<button class="tl-btn pri" onclick="tlAddManual()">추가</button></div>';
-  html+='<div class="tl-wrap"><table class="tl-tbl"><thead><tr>'
-    +'<th class="l">발주일</th><th class="l">품명</th><th class="l">제품명</th><th class="l">규격</th>'
-    +'<th>수량</th><th>단가</th><th>금액</th><th>결제</th></tr></thead>'
-    +'<tbody>'+bodyHtml+'</tbody></table></div>';
+  if(window._tlView==='item'&&!paidV){
+    var _selN=Object.keys(_tlSelMap()).filter(function(k){return window._tlSel[k];}).length;
+    if(_selN){
+      html+='<div style="position:sticky;top:8px;z-index:10;display:flex;gap:10px;align-items:center;padding:12px 16px;margin-bottom:12px;background:#1f2937;color:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.15)">'
+        +'<div style="font-size:13px;font-weight:600">'+_selN+'개 선택됨</div>'
+        +'<div style="font-size:11px;color:#9ca3af">같은 거래처 × 같은 브랜드는 합쳐서 통합 명세서가 생성돼요</div>'
+        +'<button onclick="tlClearSel()" style="margin-left:auto;padding:7px 14px;border-radius:7px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:12px;font-weight:600;cursor:pointer">선택 해제</button>'
+        +'<button onclick="tlBatchReceipt()" style="padding:7px 16px;border-radius:7px;border:none;background:#fff;color:#111827;font-size:13px;font-weight:700;cursor:pointer">통합 명세서 만들기</button></div>';
+    }
+    html+=(rows.length?_tlCardsHTML(rows):'<div class="tl-empty">이 기간 미결제 내역이 없어요.</div>');
+  }else{
+    html+='<div class="tl-wrap"><table class="tl-tbl"><thead><tr>'
+      +'<th class="l">발주일</th><th class="l">품명</th><th class="l">제품명</th><th class="l">규격</th>'
+      +'<th>수량</th><th>단가</th><th>금액</th><th>결제</th></tr></thead>'
+      +'<tbody>'+bodyHtml+'</tbody></table></div>';
+  }
   html+='<div class="tl-foot">'
     +'<div class="tl-fl"><span>공급가액 합계</span><b>'+num(supplyAll)+'원</b></div>'
     +'<div class="tl-fl"><span>부가세 ('+TL_VAT+'%)</span><b>'+num(vat)+'원</b></div>'
