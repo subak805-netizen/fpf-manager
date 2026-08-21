@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260819f">
+<link rel="stylesheet" href="css/main.css?v=20260819h">
 </head>
 <body>
 
@@ -4013,7 +4013,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-19f';
+var APP_BUILD=/*BUILD*/'2026-08-19h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7655,17 +7655,23 @@ function _pbDaysOld(m){
 /* ⚠️ 표로 바꾸면서 「＋ 새 품목 추가」가 통째로 빠져 있었다(신고 2026-08-19).
    거래처 띠의 「＋ 품목」으로 되살린다. 만드는 규칙은 기존 pbSaveNewMat 과 똑같다. */
 function pbTrimAddMat(encSup){
+  /* 창(prompt) 대신 **표 맨 아래에 빈 줄 하나**를 만들고 품명 칸에 커서를 둔다(사용자 요청).
+     키에 이름이 들어가는 구조라 빈 이름은 못 쓴다 → 「새 품목」·「새 품목 2」…로 만들고 바로 고쳐 쓰게 한다. */
   var s=decodeURIComponent(encSup);
-  var nm=(prompt('새 부자재 품명 (예: 스냅, 4공 단추)')||'').trim();
-  if(!nm)return;
   var pb=getPB(s); if(!pb)return;
+  var base='새 품목', nm=base, n=2;
+  while(pb.materials[pbKey(nm,'','')]){ nm=base+' '+n; n++; if(n>200)break; }
   var key=pbKey(nm,'','');
-  if(pb.materials[key]){ showToast('이미 있는 품목이에요'); return; }
   pb.materials[key]={type:'trim',name:nm,color:'',size:'',unitPrice:0,orderType:'count',lastUpdated:(typeof todayISO==='function'?todayISO():'')};
   savePB();
-  window._pbSupOpen=s;
-  showToast(nm+' 추가됨 — 유형·규격·단가를 적어주세요',3500);
+  window._pbNewRow=s+'|'+key;
   renderBookList();
+  setTimeout(function(){
+    try{
+      var el=document.querySelector('#book-list input[data-newrow="1"]');
+      if(el){ el.focus(); el.select(); el.scrollIntoView({block:'center'}); }
+    }catch(e){}
+  },40);
 }
 function pbTrimSet(k,v){ window._pbT=window._pbT||{}; window._pbT[k]=v; renderBookList(); }
 function _pbTState(){
@@ -7700,8 +7706,8 @@ function renderPbTrimTable(lst,sups){
     +'<label class="pbt-ck"><input type="checkbox"'+(o.old?' checked':'')+' onchange="pbTrimSet(\'old\',this.checked)">90일 지난 것만</label>'
     +'<span class="pbt-sp"></span><span class="pbt-cnt" id="pbt-cnt"></span></div>';
   H+='<div class="pbt-wrap"><table class="pbt"><thead><tr>'
-    +'<th style="width:86px">유형</th><th style="width:150px">품명</th>'
-    +'<th style="width:112px">규격</th><th style="width:74px">단위</th>'
+    +'<th style="width:112px">유형</th><th style="width:210px">품명</th>'
+    +'<th style="width:120px">규격</th><th style="width:96px">단위</th>'
     +'<th class="n" style="width:74px">묶음</th><th class="n" style="width:96px">개당 단가</th>'
     +'<th class="n" style="width:108px">묶음단가</th><th style="width:150px">세트</th>'
     +'<th style="width:124px">갱신</th><th style="width:118px"></th></tr></thead><tbody>';
@@ -7729,21 +7735,33 @@ function renderPbTrimTable(lst,sups){
     nAll+=list.length;
     var loc=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');
     var open=(window._pbSupOpen===s);
-    body+='<tr class="pbt-sup" onclick="pbToggleSupInfo(\''+encodeURIComponent(s)+'\')"><td colspan="10">'
-      +esc(s)+'<span class="m">'+esc(loc)+' · '+list.length+'건</span>'
+    /* ⚠️ 버튼을 float 로 오른쪽에 붙이면 표가 가로로 넓어 **화면 밖으로 잘린다**(신고).
+          이름 바로 옆에 나란히 둔다. */
+    body+='<tr class="pbt-sup"><td colspan="10"><div class="pbt-supbar"><span class="pbt-supn" onclick="pbToggleSupInfo(\''+encodeURIComponent(s)+'\')">'
+      +esc(s)+'<span class="m">'+esc(loc)+' · '+list.length+'건</span></span>'
       +'<button type="button" class="pbt-add" onclick="event.stopPropagation();pbTrimAddMat(\''+encodeURIComponent(s)+'\')">＋ 품목</button>'
-      +'<span class="pbt-more">'+(open?'정보 접기 ▴':'정보 ▾')+'</span></td></tr>';
+      +'<button type="button" class="pbt-add gh" onclick="event.stopPropagation();pbToggleSupInfo(\''+encodeURIComponent(s)+'\')">'+(open?'정보 접기 ▴':'정보 ▾')+'</button>'
+      +'</div></td></tr>';
     if(open){
-      body+='<tr class="pbt-info"><td colspan="10">'
-        +'<span class="pbt-il">건물</span><input value="'+esc(pb.building||'')+'" onchange="getPB(\''+esc(s)+'\').building=this.value;savePB()">'
-        +'<span class="pbt-il">층</span><input style="width:60px" value="'+esc(pb.floor||'')+'" onchange="getPB(\''+esc(s)+'\').floor=this.value;savePB()">'
-        +'<span class="pbt-il">호수</span><input style="width:90px" value="'+esc(pb.room||'')+'" onchange="getPB(\''+esc(s)+'\').room=this.value;savePB()">'
-        +'<span class="pbt-il">전화</span><input style="width:120px" value="'+esc(pb.phone||'')+'" onchange="getPB(\''+esc(s)+'\').phone=this.value;savePB()">'
-        +'<span class="pbt-il">메모</span><input style="flex:1;min-width:140px" value="'+esc(pb.memo||'')+'" onchange="getPB(\''+esc(s)+'\').memo=this.value;savePB()">'
-        +'</td></tr>';
+      /* 한 줄로 가로 길게 — td 에 flex 를 주면 colspan 폭이 깨져 세로로 접힌다(신고) */
+      body+='<tr class="pbt-info"><td colspan="10"><div class="pbt-inf">'
+        +'<span class="pbt-il">건물</span><input style="width:110px" value="'+esc(pb.building||'')+'" onchange="getPB(\''+esc(s)+'\').building=this.value;savePB()">'
+        +'<span class="pbt-il">층</span><input style="width:64px" value="'+esc(pb.floor||'')+'" onchange="getPB(\''+esc(s)+'\').floor=this.value;savePB()">'
+        +'<span class="pbt-il">호수</span><input style="width:96px" value="'+esc(pb.room||'')+'" onchange="getPB(\''+esc(s)+'\').room=this.value;savePB()">'
+        +'<span class="pbt-il">전화</span><input style="width:130px" value="'+esc(pb.phone||'')+'" onchange="getPB(\''+esc(s)+'\').phone=this.value;savePB()">'
+        +'<span class="pbt-il">메모</span><input style="flex:1;min-width:200px" value="'+esc(pb.memo||'')+'" onchange="getPB(\''+esc(s)+'\').memo=this.value;savePB()">'
+        +'</div></td></tr>';
     }
+    var _prevCat=null;
     list.forEach(function(k){
       var m=mats[k], es=encodeURIComponent(s), ek=encodeURIComponent(k);
+      /* 유형이 바뀌면 대분류 띠 한 줄 (사용자 요청) */
+      var _cg=(m.category||'').trim()||'미분류';
+      if(_cg!==_prevCat){
+        _prevCat=_cg;
+        var _cn=list.filter(function(kk){ return ((mats[kk].category||'').trim()||'미분류')===_cg; }).length;
+        body+='<tr class="pbt-cat"><td colspan="10">'+esc(_cg)+'<span class="n">'+_cn+'</span></td></tr>';
+      }
       var nm=m.name||pbDecodeKey(k)[0]||'', cl=m.color||pbDecodeKey(k)[1]||'';
       var sp=_pbSplitSpec(m.size);
       var set=_pbSet(m), hasSet=set.length>0;
@@ -7754,12 +7772,13 @@ function renderPbTrimTable(lst,sups){
       var d=_pbDaysOld(m), old=(d!=null&&d>=90);
       var dl=_pbDelta(m);
       var setOpen=(window._pbSetOpen===s+'|'+k);
+      var isNew=(window._pbNewRow===s+'|'+k);
       body+='<tr class="pbt-r'+(old?' old':'')+'">'
         +'<td><select class="pbt-sel" onchange="setPbMatCategory(\''+es+'\',\''+ek+'\',this.value)"><option value=""'+(!m.category?' selected':'')+'>미분류</option>'
           +getTrimCategories().map(function(c){return '<option value="'+esc(c)+'"'+(m.category===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')
           +'<option value="__new">＋ 새 유형…</option></select></td>'
         /* 색상은 화면에서 뺀다(사용자 요청) — 자료(품목 키)는 그대로 둔다 */
-        +'<td><input class="pbt-nm" value="'+esc(nm)+'" onchange="renamePBMaterial(\''+es+'\',\''+ek+'\',this.value,\'name\')"></td>'
+        +'<td><input class="pbt-nm'+(isNew?' new':'')+'"'+(isNew?' data-newrow="1"':'')+' value="'+esc(nm)+'" onchange="renamePBMaterial(\''+es+'\',\''+ek+'\',this.value,\'name\')"></td>'
         +'<td class="pbt-spec"><input class="pbt-n" value="'+esc(sp.n)+'" placeholder="15" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'n\',this.value)">'
           +'<input class="pbt-u" list="dl-pbunit" value="'+esc(sp.u)+'" placeholder="mm" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'u\',this.value)"></td>'
         +'<td><select class="pbt-sel" onchange="updatePBOrderType(\''+es+'\',\''+ek+'\',this.value)">'
