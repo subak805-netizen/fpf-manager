@@ -874,3 +874,16 @@
 - 값: 테두리 `1px #e5e7eb`, 라운드 8~12px, 그림자 없음, 선택된 칩·세그 `#1f2937`, 결제상태 켜짐 `#047857`.
 - `.tl-date{width:138px;flex:0 0 auto}` — 날짜칸이 한 줄 통째로 늘어나던 것 고정.
 - 검증용 미리보기: `/tmp/fpf-preview/tltop.html` (mkharness_tltop.py, 윗바+카드+합계를 실제 함수로 렌더)
+
+## 2026-08-19n — 샘플·패턴 지시서 회차 (1차/2차/3차…)
+- 「샘플·패턴」 탭이 회차만큼 생긴다. `d.spatRounds=['spat','spat2',…]`, 최대 5차. 1개일 땐 이름 그대로 「샘플·패턴」.
+- **회차 = 완전히 따로 노는 지시서 한 장** (사용자 확정 "안 엮이게 해줘")
+  · 도식화 `images.{k}Sketch` · 치수 `{k}.spec` · 지시문·전달일·견본·워싱·패턴실·업체명 `{k}.*`
+  · 지시서 탭(`sew.spec`/`sewSketch`)과 **안 엮임**. 옛 아이템은 처음 열 때 1회 복사(보이는 건 안 바뀜).
+- **원·부자재는 「회차 만들 때 굳히기」**: 아이템에 살아 있는 자료라 회차에 못 넣는다.
+  `＋ 회차`를 누르면 **직전 회차를 그 순간 스냅샷**(`{k}.mat={at,fabrics,trims}`)으로 굳히고, 새 회차는 안 굳혀 최신을 본다.
+  회차 막대에 「지금 걸로 굳히기 / 다시 굳히기 / 최신 따라가기」.
+- ⚠️ **회차를 지워도 키 이름은 다시 안 매긴다**(spat2 지워도 spat3은 그대로). 다시 매기면 남은 회차 내용이 통째로 밀린다. 번호는 화면에서만 순서대로.
+- 치수 함수는 전부 경로를 인자로 받게 바뀜: `tpSpecHTML(it,base)` · `tpSpecSecHTML(it,base)` · `tpSpecAdd(base)` · `tpSpecPreset(t,base)` · `tpSpecPick(base)`(→`window._tpSpBase`). **기본값은 예전 그대로 `sew.spec`**.
+- 도식화는 `_skSlot(slot,ph)`로 분리(`_sk`는 sewSketch 별칭 유지).
+- 검증: `/tmp/fpf-preview/spat.html` (mkharness_spat.py) — 실제 함수로 46개 검사 전부 통과.
