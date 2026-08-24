@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260819k">
+<link rel="stylesheet" href="css/main.css?v=20260824a">
 </head>
 <body>
 
@@ -4025,7 +4025,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-21a';
+var APP_BUILD=/*BUILD*/'2026-08-24a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -31180,13 +31180,15 @@ function scAddRound(id){
   var a=_scRounds(it).slice();
   var mx=0; a.forEach(function(r){ if(+r.n>mx)mx=+r.n; });
   a.unshift({n:mx+1,date:(typeof todayISO==='function'?todayISO():''),pics:{},patMemo:'',smpMemo:''});
-  _scWrite(it,a); window._scOpen=id; renderSampleComment();
+  _scWrite(it,a); window._scOpen=id; window._scR=0; renderSampleComment();   /* 새 회차가 맨 앞이라 0 */
 }
 function scDelRound(id,ri){
   var it=S.items[id]; if(!it)return;
   var a=_scRounds(it).slice(); if(!a[ri])return;
   if(!confirm((a[ri].n||'')+'차 샘플을 지울까요? 사진과 코멘트도 같이 없어집니다.'))return;
-  a.splice(ri,1); _scWrite(it,a); renderSampleComment();
+  a.splice(ri,1); _scWrite(it,a);
+  window._scR=Math.max(0,Math.min((window._scR||0),a.length-1));
+  renderSampleComment();
 }
 function scSetRoundDate(id,ri,v){
   var it=S.items[id]; if(!it)return;
@@ -31419,7 +31421,8 @@ function _scState(){
   if(o.fixOnly===undefined)o.fixOnly=false;
   return o;
 }
-function scToggleOpen(id){ window._scOpen=(window._scOpen===id)?null:id; renderSampleComment(); }
+/* 리스트에서 줄을 누르면 **고른다**(예전엔 토글이라 다시 누르면 상세가 통째로 사라졌다) */
+function scToggleOpen(id){ window._scOpen=id; window._scR=0; renderSampleComment(); }
 /* 아이템 카드 「진행」 버튼 → 이 탭으로 와서 그 카드만 펼친다 */
 function scOpenItem(id){
   /* ⚠️ 회차가 하나도 없는 아이템은 목록에 안 뜬다(_scRows가 거른다) → 「진행」을 눌러도 적을 데가 없었다(신고).
@@ -31428,11 +31431,176 @@ function scOpenItem(id){
   if(_it&&!_scRounds(_it).length){
     _scWrite(_it,[{n:1,date:(typeof todayISO==='function'?todayISO():''),pics:{},patMemo:'',smpMemo:''}]);
   }
-  window._scOpen=id;
+  window._scOpen=id; window._scR=0;
   window._sc=window._sc||{}; window._sc.fixOnly=false; window._sc.season=''; window._sc.brand='';
   if(typeof switchTab==='function')switchTab('sccm');
   setTimeout(function(){ try{ var el=document.getElementById('sc-card-'+id); if(el)el.scrollIntoView({block:'center'}); }catch(e){} },80);
 }
+/* ===== 샘플확인서 (2026-08-24) =====================================
+   사용자 요청: 「샘플확인서를 샘플 코멘트 탭에 넣고, 오더관리처럼 리스트→상세로」.
+   ⚠️ A4 맞춤은 **작지(tpFit/tpScreenFit)와 같은 2단 방식**을 그대로 쓴다 — 새로 만들지 않는다.
+      1단계 scFitContent(): 내용이 종이보다 길면 **내용만** 축소 → 종이 밖으로 안 넘침
+      2단계 scFitScreen():  종이 전체를 화면 남은 가로·세로에 맞춰 축소 → 스크롤 없이 한 장
+      인쇄·이미지 저장 때는 2단계를 끈다(원본 A4 유지).
+   ⚠️ 회차 자료는 기존 그대로(rr.pics/patMemo/smpMemo/hands/done/date). 여기 붙는 새 칸만 추가:
+      rr.size = [{part,pat,give,meas}]  ·  rr.labor(공임 직접입력, 비우면 아이템 공임 자동)
+   ⚠️ 작지 「샘플·패턴」 회차(spatRounds)와는 **따로**다. 써보고 나중에 묶기로 함. */
+function _scSize(rr){ return Array.isArray(rr&&rr.size)?rr.size:[]; }
+/* 부위 목록·패턴·지시 = 작지 치수표(sew.spec)에서 자동으로 가져온다(복사본) */
+function _scSizeAuto(it){
+  var sp=(it&&it.techpack&&it.techpack.sew&&it.techpack.sew.spec)||[];
+  var sizes=(it&&it.sizes&&it.sizes.length)?it.sizes:['FREE'];
+  var sz=sizes[0];
+  var out=[];
+  sp.forEach(function(r){
+    if(!r)return;
+    var part=String(r.part||'').trim(); if(!part)return;
+    out.push({part:part,pat:String((r.pat||{})[sz]||''),give:String((r.v||{})[sz]||''),meas:''});
+  });
+  return out;
+}
+function _scSizeRows(it,rr){
+  var a=_scSize(rr);
+  if(a.length)return a;
+  return _scSizeAuto(it);   // 아직 아무것도 안 적었으면 작지 치수를 보여준다(저장은 손댈 때)
+}
+function _scSizeWrite(id,ri,arr){
+  var it=S.items[id]; if(!it)return;
+  var a=_scRounds(it).slice(); var rr=a[ri]; if(!rr)return;
+  rr.size=arr; _scWrite(it,a);
+}
+function scSetSize(id,ri,i,k,v){
+  var it=S.items[id]; if(!it)return;
+  var a=_scRounds(it), rr=a[ri]; if(!rr)return;
+  var rows=_scSizeRows(it,rr).map(function(r){return {part:r.part,pat:r.pat,give:r.give,meas:r.meas};});
+  if(!rows[i])rows[i]={part:'',pat:'',give:'',meas:''};
+  rows[i][k]=v;
+  _scSizeWrite(id,ri,rows);
+  var el=document.getElementById('sc-diff-'+ri+'-'+i);
+  if(el){ var t=_scDiff(rows[i]); el.textContent=t.txt; el.className='sc-df '+t.cls; }
+}
+function _scDiff(r){
+  var g=parseFloat(r&&r.give), m=parseFloat(r&&r.meas);
+  if(!r||r.give===''||r.meas===''||isNaN(g)||isNaN(m))return {txt:'',cls:''};
+  var d=Math.round((m-g)*100)/100;
+  return {txt:(d>0?'+':'')+d, cls:(d>0?'plus':(d<0?'minus':'zero'))};
+}
+function scSizeAdd(id,ri){
+  var it=S.items[id]; if(!it)return;
+  var rr=_scRounds(it)[ri]; if(!rr)return;
+  var rows=_scSizeRows(it,rr).map(function(r){return {part:r.part,pat:r.pat,give:r.give,meas:r.meas};});
+  rows.push({part:'',pat:'',give:'',meas:''});
+  _scSizeWrite(id,ri,rows); renderSampleComment();
+}
+function scSizeDel(id,ri,i){
+  var it=S.items[id]; if(!it)return;
+  var rr=_scRounds(it)[ri]; if(!rr)return;
+  var rows=_scSizeRows(it,rr).filter(function(_,x){return x!==i;});
+  _scSizeWrite(id,ri,rows); renderSampleComment();
+}
+/* 작지 치수를 다시 끌어와 덮기 */
+function scSizeReload(id,ri){
+  var it=S.items[id]; if(!it)return;
+  var a=_scSizeAuto(it);
+  if(!a.length){ showToast('작지 「치수」에 적힌 게 없어요'); return; }
+  if(!confirm('작지 치수로 다시 채울까요? 여기 적은 실측은 지워져요.'))return;
+  _scSizeWrite(id,ri,a); renderSampleComment();
+}
+function scSetLabor(id,ri,v){
+  var it=S.items[id]; if(!it)return;
+  var a=_scRounds(it).slice(), rr=a[ri]; if(!rr)return;
+  rr.labor=v; _scWrite(it,a);
+}
+function _scLabor(it,rr){
+  if(rr&&rr.labor!=null&&String(rr.labor).trim()!=='')return String(rr.labor);
+  var sizes=(it&&it.sizes&&it.sizes.length)?it.sizes:[''];
+  var v=(typeof laborRate==='function')?laborRate(it,sizes[0]):(+((it||{}).laborCost)||0);
+  return v>0?num(v):'';
+}
+/* 원단만 (부자재 제외) — 작지 「원·부자재」와 같은 모양 */
+function _scFabHTML(it){
+  var fs=(it&&it.fabrics)||[];
+  if(!fs.length)return '<div class="sc-a4-mat"><div class="n2" style="color:#9aa3ad">아이템에 등록된 원단이 없어요</div></div>';
+  return fs.map(function(f){
+    var l2=[];
+    if(f.composition)l2.push(esc(String(f.composition).replace(/\n/g,' ')));
+    if(f.width)l2.push(esc(f.width)+'"');
+    if(f.consumption)l2.push('요척 <b>'+esc(f.consumption)+'</b>');
+    var cls=[];
+    (f.colorLinks||[]).forEach(function(l){ var n=l.fabricColor||l.colorName; if(n&&cls.indexOf(n)<0)cls.push(n); });
+    if(!cls.length&&f.color)cls.push(f.color);
+    return '<div class="sc-a4-mat"><div class="n1">'+esc(f.part||'')+(f.part?' / ':'')+esc(f.name||'')
+      +(f.supplier?(' <em>('+esc(f.supplier)+')</em>'):'')+'</div>'
+      +(l2.length?('<div class="n2">'+l2.join(' · ')+'</div>'):'')
+      +(cls.length?('<div class="n2">#'+esc(cls.join(', '))+'</div>'):'')+'</div>';
+  }).join('');
+}
+/* ── A4 맞춤 (작지와 같은 2단) ── */
+function scFitContent(){
+  var f=document.querySelector('#sc-a4 .sc-a4-fit'); if(!f)return 1;
+  f.style.transform=''; f.style.width='100%';
+  var ch=f.clientHeight, sh=f.scrollHeight;
+  if(sh>ch+2){ var sc=ch/sh; if(sc>0&&sc<1){ f.style.transform='scale('+sc+')'; f.style.width=(100/sc)+'%'; return sc; } }
+  return 1;
+}
+/* 종이 전체를 화면 남은 자리에 맞춰 축소 (작지 tpScreenFit 과 같은 식)
+   ⚠️ 함정 두 개를 겪고 고친 자리다 —
+     ① 종이가 화면 아래쪽에 있으면 «남은 높이»가 거의 0 → 종이가 점처럼 찌그러졌다.
+        → 위 여백은 최대 200px까지만 빼고, 그래도 좁으면 창 높이 기준으로 되돌린다.
+     ② 폭·높이를 0으로 보고하는 화면(임베드·자동화)이 있다 → **못 재면 축소를 아예 안 한다**.
+        (억지로 줄이면 종이가 사라져 버린다)
+   tW/tH 는 시험용 — 평소엔 안 넘긴다. */
+function scFitScreen(tW,tH){
+  var wrap=document.getElementById('sc-a4wrap'), a=document.getElementById('sc-a4');
+  if(!wrap||!a)return 1;
+  a.style.transform='';
+  if(document.body.classList.contains('sc-printing')||window._scCapturing){ wrap.style.height=''; return 1; }
+  wrap.style.height='';   /* 먼저 풀어야 top·폭을 제대로 잰다 */
+  var pw=a.offsetWidth, ph=a.offsetHeight;
+  if(!(pw>0&&ph>0))return 1;
+  var vh=(tH!=null)?tH:(document.documentElement.clientHeight||window.innerHeight||0);
+  var aw=(tW!=null)?tW:(wrap.clientWidth||0);
+  var sW=(aw>=120)?(aw/pw):1;                       // 폭을 못 재면 가로 제한 없음
+  var sH=1;
+  if(vh>=200){
+    var off=Math.max(0,Math.min(wrap.getBoundingClientRect().top,200));
+    var availH=vh-off-20;
+    if(availH<240)availH=vh-40;                     // 아래쪽에 있어도 안 찌그러지게
+    if(availH>=120)sH=availH/ph;
+  }
+  var s=Math.min(1,sW,sH); s=Math.floor(s*1000)/1000;
+  if(!(s>0)||s>1)s=1;
+  if(s<0.35)s=0.35;                                 // 너무 작아 글씨가 안 보이는 건 막는다
+  if(s<1){ a.style.transform='scale('+s+')'; wrap.style.height=Math.ceil(ph*s)+'px'; }
+  else wrap.style.height=ph+'px';
+  return s;
+}
+function scFit(){ scFitContent(); scFitScreen(); }
+window.addEventListener('resize',function(){ if(window._scRsz)clearTimeout(window._scRsz);
+  window._scRsz=setTimeout(function(){ if(document.getElementById('sc-a4'))scFit(); },150); });
+/* 확인서 인쇄 — 종이만 나가게 */
+function scPrint(){
+  document.body.classList.add('sc-printing'); scFit();
+  var clean=function(){ document.body.classList.remove('sc-printing'); window.removeEventListener('afterprint',clean); scFit(); };
+  window.addEventListener('afterprint',clean);
+  setTimeout(function(){ try{window.print();}catch(e){clean();} },120);
+}
+/* 확인서 한 장만 이미지로 (전체 화면 캡처인 scSaveImage 와 별개) */
+function scSaveSheet(){
+  var el=document.getElementById('sc-a4'); if(!el)return;
+  showToast('이미지 만드는 중…',1500);
+  window._scCapturing=true; scFit();
+  var done=function(){ window._scCapturing=false; scFit(); };
+  var go=function(){
+    html2canvas(el,{backgroundColor:'#ffffff',scale:2,useCORS:true}).then(function(c){
+      done();
+      var it=S.items[window._scOpen]||{};
+      return fpfSaveFile(c.toDataURL('image/png'),'샘플확인서_'+((it.name||'')+'_'+((typeof todayISO==='function')?todayISO():''))+'.png',{label:'이미지 저장됨'});
+    }).catch(function(){ done(); showToast('이미지 저장 실패',3000); });
+  };
+  if(typeof html2canvas==='undefined'){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=go;s.onerror=function(){done();showToast('라이브러리 로드 실패');};document.head.appendChild(s);}else go();
+}
+function scPickRound(ri){ window._scR=ri; renderSampleComment(); }
 function _scRows(){
   var o=_scState(), out=[];
   Object.keys(S.items||{}).forEach(function(id){
@@ -31469,75 +31637,133 @@ function renderSampleComment(){
   Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; if(!it)return; if(it.season)seasons[it.season]=1; if(it.brandId)brands[it.brandId]=1; });
   var sList=Object.keys(seasons).sort(function(a,b){ return (typeof seasonKey==='function')?(seasonKey(b)-seasonKey(a)):a.localeCompare(b,'ko'); });
   var totCm=rows.reduce(function(s,r){return s+r.n;},0), totFix=rows.reduce(function(s,r){return s+r.fix;},0);
-  var H='<div class="sc-wrap">';
-  H+='<div class="sc-top"><h2>샘플 코멘트</h2><span class="sc-sub">미팅하면서 보는 화면 — 카드를 누르면 펼쳐집니다</span></div>';
-  H+='<div class="sc-bar">'
-    +'<select onchange="scSet(\'season\',this.value)"><option value="">전체 시즌</option>'
-      +sList.map(function(s){return '<option'+(s===o.season?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
-    +'<select onchange="scSet(\'brand\',this.value)"><option value="">전체 브랜드</option>'
-      +Object.keys(brands).map(function(b){return '<option value="'+esc(b)+'"'+(b===o.brand?' selected':'')+'>'+esc(getBrandName(b)||b)+'</option>';}).join('')+'</select>'
-    +'<select onchange="scSet(\'sort\',this.value)">'
-      +'<option value="recent"'+(o.sort==='recent'?' selected':'')+'>최근 순</option>'
-      +'<option value="fix"'+(o.sort==='fix'?' selected':'')+'>수정 많은 순</option>'
-      +'<option value="name"'+(o.sort==='name'?' selected':'')+'>이름 순</option></select>'
-    +'<label class="sc-only"><input type="checkbox"'+(o.fixOnly?' checked':'')+' onchange="scSet(\'fixOnly\',this.checked)">수정필요만</label>'
-    +'<span class="sc-sp"></span>'
-    +'<button class="sc-btn b" onclick="scCopyText(0)">텍스트 복사</button>'
-    +'<button class="sc-btn o" onclick="scCopyText(1)">공장용 복사</button>'
-    +'<button class="sc-btn g" onclick="scSaveImage()">이미지 저장</button>'
-    +'</div>';
-  H+='<div class="sc-stats"><span class="sc-st"><b>'+rows.length+'</b>아이템</span>'
-    +'<span class="sc-st"><b>'+totCm+'</b>적은 회차</span>'
-    +'<span class="sc-st warn"><b>'+totFix+'</b>수정필요</span></div>';
+
+  /* 고른 아이템 — 없거나 걸러져 사라졌으면 첫 줄 */
+  var sel=null;
+  rows.forEach(function(r){ if(r.id===window._scOpen)sel=r; });
+  if(!sel&&rows.length)sel=rows[0];
+  window._scOpen=sel?sel.id:null;
+
+  var H='<div class="sc-wrap2">';
+  /* ── 왼쪽 리스트 ── */
+  H+='<div class="sc-sl">'
+    +'<div class="sc-slbar">'
+      +'<select onchange="scSet(\'season\',this.value)"><option value="">전체 시즌</option>'
+        +sList.map(function(s){return '<option'+(s===o.season?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
+      +'<select onchange="scSet(\'brand\',this.value)"><option value="">전체 브랜드</option>'
+        +Object.keys(brands).map(function(b){return '<option value="'+esc(b)+'"'+(b===o.brand?' selected':'')+'>'+esc(getBrandName(b)||b)+'</option>';}).join('')+'</select>'
+      +'<select onchange="scSet(\'sort\',this.value)">'
+        +'<option value="recent"'+(o.sort==='recent'?' selected':'')+'>최근 순</option>'
+        +'<option value="fix"'+(o.sort==='fix'?' selected':'')+'>수정 많은 순</option>'
+        +'<option value="name"'+(o.sort==='name'?' selected':'')+'>이름 순</option></select>'
+      +'<label class="sc-only"><input type="checkbox"'+(o.fixOnly?' checked':'')+' onchange="scSet(\'fixOnly\',this.checked)">수정필요만</label>'
+    +'</div>'
+    +'<div class="sc-slstat"><span><b>'+rows.length+'</b>아이템</span><span><b>'+totCm+'</b>적은 회차</span>'
+      +'<span class="warn"><b>'+totFix+'</b>수정필요</span></div>'
+    +'<div class="sc-slist">';
   if(!rows.length){
-    H+='<div class="sc-empty">'+(o.fixOnly?'수정필요인 게 없어요. 위 「수정필요만」을 꺼보세요.':'아직 적어둔 샘플 코멘트가 없어요.')+'<br><span>아이템 목록에서 <b>「진행」</b> 버튼을 누르면 여기로 와서 사진과 코멘트를 적을 수 있어요.</span></div></div>';
-    el.innerHTML=H; return;
+    H+='<div class="sc-empty">'+(o.fixOnly?'수정필요인 게 없어요.<br><span>위 「수정필요만」을 꺼보세요.</span>':'아직 적어둔 샘플 코멘트가 없어요.<br><span>아이템 목록에서 「진행」을 눌러 시작하세요.</span>')+'</div>';
+  }else{
+    rows.forEach(function(r){
+      var r0=r.rs[0]||{};
+      H+='<div class="sc-row'+(r.id===window._scOpen?' on':'')+'" id="sc-card-'+esc(r.id)+'" onclick="scToggleOpen(\''+esc(r.id)+'\')">'
+        +'<div class="nm">'+esc(r.nm)+'</div>'
+        +'<div class="sub">'+esc(r.bn)+(r.cd?(' · '+esc(r.cd)):'')+'</div>'
+        +'<div class="rt"><span class="sc-chip rd">'+(r0.n||1)+'차 '+esc(_scMD(r0.date))+'</span>'
+        +(r.fix?('<span class="sc-chip fix">수정 '+r.fix+'</span>'):'<span class="sc-chip ok">확인됨</span>')
+        +'</div></div>';
+    });
   }
-  H+='<div class="sc-grid">';
-  rows.forEach(function(r){
-    var open=(window._scOpen===r.id), r0=r.rs[0]||{};
-    H+='<div class="sc-card'+(open?' open':'')+'" id="sc-card-'+esc(r.id)+'">';
-    H+='<div class="sc-h" onclick="scToggleOpen(\''+esc(r.id)+'\')"><b>'+esc(r.nm)+'</b>'
-      +'<span class="sc-br">'+esc(r.bn)+(r.cd?(' · '+esc(r.cd)):'')+'</span><span class="sc-sp"></span>'
-      +'<span class="sc-chip">'+(r0.n||1)+'차 '+esc(_scMD(r0.date))+'</span>'
-      +(r.fix?('<span class="sc-chip fix">수정 '+r.fix+'</span>'):'<span class="sc-chip ok">확인됨</span>')
-      +'<span class="sc-chip">'+(open?'접기 ▴':'펼치기 ▾')+'</span></div>';
-    if(!open){
-      var p=(r0.pics||{});
-      H+='<div class="sc-p2">'+_scPic(r.id,0,'front','앞',p.front)+_scPic(r.id,0,'back','뒤',p.back)+'</div>';
-      var pm=String(_scMemo(r0,'patMemo')).trim(), sm=String(_scMemo(r0,'smpMemo')).trim();
-      H+='<div class="sc-cms">';
-      if(pm)H+='<div class="sc-prev"><span class="sc-pl">패턴</span><span>'+esc(pm.length>90?(pm.slice(0,90)+'…'):pm)+'</span></div>';
-      if(sm)H+='<div class="sc-prev"><span class="sc-pl">샘플</span><span>'+esc(sm.length>90?(sm.slice(0,90)+'…'):sm)+'</span></div>';
-      if(!pm&&!sm)H+='<div class="sc-more">적은 내용 없음 — 눌러서 적기</div>';
-      H+='</div>';
+  H+='</div></div>';
+
+  /* ── 오른쪽 상세 (A4 확인서) ── */
+  H+='<div class="sc-dt">';
+  if(!sel){
+    H+='<div class="sc-empty">왼쪽에서 아이템을 골라주세요.</div>';
+  }else{
+    var it=sel.it, rs=sel.rs;
+    var ri=window._scR; if(!(ri>=0)||ri>=rs.length)ri=0; window._scR=ri;
+    var rr=rs[ri]||{};
+    var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE'];
+    var colors=(it.colors&&it.colors.length)?it.colors:[''];
+    var _id=esc(sel.id).replace(/'/g,"\\'");
+
+    /* 조작줄 — 종이 바깥(인쇄 안 됨) */
+    H+='<div class="sc-ctl"><span class="lb">회차</span>'
+      +rs.map(function(x,i){ return '<button class="sc-rtab'+(i===ri?' on':'')+'" onclick="scPickRound('+i+')">'+(x.n||i+1)+'차 '+esc(_scMD(x.date))+'</button>'; }).join('')
+      +'<button class="sc-rtab add" onclick="scAddRound(\''+_id+'\')">＋ 회차</button>'
+      +'<input type="date" class="sc-rd" value="'+esc(rr.date||'')+'" onchange="scSetRoundDate(\''+_id+'\','+ri+',this.value)">'
+      +'<button class="sc-stt '+(rr.done?'done':'fix')+'" onclick="scToggleRoundDone(\''+_id+'\','+ri+')" title="눌러서 바꾸기">'+(rr.done?'확인됨':'수정필요')+'</button>'
+      +'<span class="sc-sp"></span>'
+      +'<button class="sc-btn" onclick="scCopyText(0)">텍스트 복사</button>'
+      +'<button class="sc-btn o" onclick="scCopyText(1)">공장용 복사</button>'
+      +'<button class="sc-btn" onclick="scSaveSheet()">확인서 이미지</button>'
+      +'<button class="sc-btn g" onclick="scPrint()">A4 인쇄</button>'
+      +'<button class="sc-btn d" onclick="scDelRound(\''+_id+'\','+ri+')">회차 지우기</button>'
+      +'</div>';
+
+    /* A4 종이 */
+    H+='<div class="sc-a4wrap" id="sc-a4wrap"><div class="sc-a4" id="sc-a4">';
+    var _logo=(typeof tpBrandLogo==='function')?(tpBrandLogo(it)||''):'';
+    H+='<div class="sc-a4-h">'
+      +'<div class="lg">'+(_logo?('<img src="'+esc(_logo)+'" alt="">'):esc(sel.bn))+'</div>'
+      +'<div class="ti"><span class="pfx">샘플확인서</span><span class="rd">'+(rr.n||ri+1)+'차</span>'
+        +'<span class="nm">'+esc(sel.nm)+'</span><span class="sub">/ '+esc(sel.bn)+(sel.cd?(' · '+esc(sel.cd)):'')+'</span></div>'
+      +'<div class="wh"><div class="h">담당자</div><div>'+esc((it.techpack&&it.techpack.head&&it.techpack.head.manager)||'')+'</div>'
+        +'<div class="h">확인일</div><div>'+esc(rr.date||'')+'</div></div></div>';
+    H+='<table class="sc-a4-meta"><tr>'
+      +'<th style="width:50px">브랜드</th><td style="width:74px">'+esc(sel.bn)+'</td>'
+      +'<th style="width:42px">품명</th><td>'+esc(sel.nm)+'</td>'
+      +'<th style="width:42px">컬러</th><td style="width:76px">'+esc(colors.join(', '))+'</td>'
+      +'<th style="width:48px">사이즈</th><td style="width:56px">'+esc(sizes.join(', '))+'</td></tr></table>';
+
+    H+='<div class="sc-a4-fit">';
+    /* 코멘트 — 기존 패턴/샘플 두 칸 그대로 */
+    H+='<div class="sc-a4-sec">코멘트</div>'
+      +'<div class="sc-a4-cmt">'
+      +'<div class="c1"><span class="cl">패턴</span><textarea onfocus="scFocusFix(this)" placeholder="예: 다트 입체패턴으로, 입구 안쪽 미까시 2cm폭" onchange="scSetMemo(\''+_id+'\','+ri+',\'patMemo\',this.value)">'+esc(_scMemo(rr,'patMemo'))+'</textarea></div>'
+      +'<div class="c1"><span class="cl">샘플</span><textarea onfocus="scFocusFix(this)" placeholder="예: 후드 어깨선 봉제 틀어짐 — 다시 박아주세요" onchange="scSetMemo(\''+_id+'\','+ri+',\'smpMemo\',this.value)">'+esc(_scMemo(rr,'smpMemo'))+'</textarea></div>'
+      +'</div>';
+    /* 원단 */
+    H+='<div class="sc-a4-sec">원단 <span class="hint">아이템에서 자동 · 원단만</span></div>'+_scFabHTML(it);
+    /* 사이즈 체크리스트 */
+    var srows=_scSizeRows(it,rr);
+    H+='<div class="sc-a4-sec">사이즈 체크리스트 <span class="hint">차이 = 실측 − 지시 (자동)</span>'
+      +'<button class="sc-gb tp-editonly" onclick="scSizeReload(\''+_id+'\','+ri+')" title="작지 「치수」에서 다시 채우기">작지에서 불러오기</button></div>';
+    H+='<table class="sc-a4-sz"><tr><th style="width:32%">측정부위</th><th style="width:14%">패턴</th>'
+      +'<th style="width:16%">지시</th><th style="width:16%">실측</th><th style="width:14%">차이</th><th class="tp-editonly" style="width:24px"></th></tr>';
+    if(!srows.length){
+      H+='<tr><td colspan="6" style="padding:10px;color:#9aa3ad;font-size:12px">부위가 없어요 — 「＋ 부위 추가」 또는 「작지에서 불러오기」</td></tr>';
     }else{
-      r.rs.forEach(function(rr,ri){
-        H+='<div class="sc-rnd"><div class="sc-rh"><b>'+(rr.n||(ri+1))+'차 샘플</b>'
-          +'<input type="date" class="sc-rd" value="'+esc(rr.date||'')+'" onchange="scSetRoundDate(\''+esc(r.id)+'\','+ri+',this.value)">'
-          +'<button type="button" class="sc-stt '+(rr.done?'done':'fix')+'" onclick="scToggleRoundDone(\''+esc(r.id)+'\','+ri+')" title="눌러서 바꾸기">'+(rr.done?'확인됨':'수정필요')+'</button>'
-          +'<span class="sc-sp"></span><button type="button" class="sc-rx" onclick="scDelRound(\''+esc(r.id)+'\','+ri+')">회차 지우기</button></div>';
-        H+='<div class="sc-p4">'+SC_PICS.map(function(pk){ return _scPic(r.id,ri,pk[0],pk[1],(rr.pics||{})[pk[0]]); }).join('')+'</div>';
-        H+='<div class="sc-memo"><div class="sc-ml">패턴 코멘트</div>'
-          +'<textarea class="sc-ta" rows="4" onfocus="scFocusFix(this)" placeholder="예: 다트 입체패턴으로, 입구 안쪽 미까시 2cm폭" onchange="scSetMemo(\''+esc(r.id)+'\','+ri+',\'patMemo\',this.value)">'+esc(_scMemo(rr,'patMemo'))+'</textarea></div>';
-        H+='<div class="sc-memo"><div class="sc-ml">샘플 코멘트</div>'
-          +'<textarea class="sc-ta" rows="4" onfocus="scFocusFix(this)" placeholder="예: 후드 어깨선 봉제 틀어짐 — 다시 박아주세요" onchange="scSetMemo(\''+esc(r.id)+'\','+ri+',\'smpMemo\',this.value)">'+esc(_scMemo(rr,'smpMemo'))+'</textarea></div>';
-        var _hands=Array.isArray(rr.hands)?rr.hands:[];
-        H+='<div class="sc-hands"><div class="sc-hl">손글씨 · 표시</div><div class="sc-hrow">'
-          +_hands.map(function(u,hi){ return '<div class="sc-hand" onclick="scViewHand(\''+String(u).replace(/'/g,"\\'")+'\')"><img src="'+esc(u)+'" alt="">'
-            +'<button type="button" class="sc-hx" onclick="event.stopPropagation();scDelHand(\''+esc(r.id)+'\','+ri+','+hi+')">×</button></div>'; }).join('')
-          +'<button type="button" class="sc-hadd" onclick="scDrawOpen(\''+esc(r.id)+'\','+ri+',\'\')">＋ 손글씨</button>'
-          +'</div></div>';
-        H+='</div>';
+      srows.forEach(function(r,i){
+        var d=_scDiff(r);
+        H+='<tr><td class="rl"><input value="'+esc(r.part||'')+'" placeholder="측정부위" onchange="scSetSize(\''+_id+'\','+ri+','+i+',\'part\',this.value)"></td>'
+          +'<td><input value="'+esc(r.pat||'')+'" onchange="scSetSize(\''+_id+'\','+ri+','+i+',\'pat\',this.value)"></td>'
+          +'<td><input value="'+esc(r.give||'')+'" onchange="scSetSize(\''+_id+'\','+ri+','+i+',\'give\',this.value)"></td>'
+          +'<td><input value="'+esc(r.meas||'')+'" oninput="scSetSize(\''+_id+'\','+ri+','+i+',\'meas\',this.value)"></td>'
+          +'<td><span class="sc-df '+d.cls+'" id="sc-diff-'+ri+'-'+i+'">'+esc(d.txt)+'</span></td>'
+          +'<td class="tp-editonly"><button class="sc-rx" onclick="scSizeDel(\''+_id+'\','+ri+','+i+')">×</button></td></tr>';
       });
-      H+='<div class="sc-radd"><button type="button" class="sc-btn" onclick="scAddRound(\''+esc(r.id)+'\')">＋ 회차 추가 (다음 샘플)</button>'
-        +(r.rs.length?('<button type="button" class="sc-btn d" onclick="scDelRound(\''+esc(r.id)+'\',0)">－ '+((r.rs[0]||{}).n||1)+'차 지우기</button>'):'')
-        +'</div>';
     }
-    H+='</div>';
-  });
+    H+='<tr class="wt"><td class="rl">공임</td><td colspan="4"><input value="'+esc(_scLabor(it,rr))+'" placeholder="자동" onchange="scSetLabor(\''+_id+'\','+ri+',this.value)"></td><td class="tp-editonly"></td></tr>';
+    H+='</table>';
+    H+='<button class="sc-a4-add tp-editonly" onclick="scSizeAdd(\''+_id+'\','+ri+')">＋ 부위 추가</button>';
+    /* 사진 — 맨 밑, 남는 높이를 씀 */
+    H+='<div class="sc-a4-sec">사진 <span class="hint">클릭 · 끌어다 놓기 · 붙여넣기(Ctrl+V)</span></div>'
+      +'<div class="sc-a4-pics">'+SC_PICS.map(function(pk){ return _scPic(sel.id,ri,pk[0],pk[1],(rr.pics||{})[pk[0]]); }).join('')+'</div>';
+    H+='</div></div></div>';   /* fit / a4 / a4wrap */
+
+    /* 손글씨 — 종이 바깥(화면 전용) */
+    var _hands=Array.isArray(rr.hands)?rr.hands:[];
+    H+='<div class="sc-hands"><div class="sc-hl">손글씨 · 표시</div><div class="sc-hrow">'
+      +_hands.map(function(u,hi){ return '<div class="sc-hand" onclick="scViewHand(\''+String(u).replace(/'/g,"\\'")+'\')"><img src="'+esc(u)+'" alt="">'
+        +'<button type="button" class="sc-hx" onclick="event.stopPropagation();scDelHand(\''+_id+'\','+ri+','+hi+')">×</button></div>'; }).join('')
+      +'<button type="button" class="sc-hadd" onclick="scDrawOpen(\''+_id+'\','+ri+',\'\')">＋ 손글씨</button>'
+      +'</div></div>';
+  }
   H+='</div></div>';
   el.innerHTML=H;
+  if(document.getElementById('sc-a4'))setTimeout(scFit,0);
 }
 /* 텍스트 — factoryOnly면 「수정필요」만, 공장에 보낼 문장으로 */
 function scBuildText(factoryOnly){
