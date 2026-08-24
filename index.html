@@ -12737,6 +12737,11 @@ function _lockTrimPbFields(){
     var reg=!!(t.supplier&&t.name&&_pbHasTrim(t.supplier,t));
     var mat=reg?_pbFindTrimMat(t.supplier,t):null;
     row.classList.toggle('tcd-pb',reg);
+    // 레이스(컷) 체크도 자재 정체(단가장 소유) — 등록된 부자재는 못 바꿈
+    row.querySelectorAll('input[data-f-islace]').forEach(function(el){
+      el.disabled=reg;
+      var lb=el.closest('label');if(lb){lb.style.opacity=reg?'.45':'';lb.style.pointerEvents=reg?'none':'';lb.title=reg?'단가장에서 정하는 값이에요':'';}
+    });
     var supIn=row.querySelector('[data-f=supplier]');
     var supRow=supIn?supIn.closest('.tcd-frow'):null;
     if(supRow){
@@ -12791,6 +12796,7 @@ function _pbRefreshOpenTrims(){
   });
   try{colTR();}catch(e){}
   try{_lockTrimPbFields();renderTrimSummary();}catch(e){}
+  if(document.getElementById('trim-pick-list'))try{_renderTrimPick();}catch(e){} // 피커 열려 있으면 목록도 갱신(새로 등록한 자재 바로 보이게)
   if(changed){try{scheduleDraft();}catch(e){}if(typeof showToast==='function')showToast('단가장에서 고친 값 '+changed+'칸 다시 불러옴');}
 }
 window.addEventListener('focus',function(){if(window._pbWinWatch&&document.getElementById('trim-rows'))setTimeout(_pbRefreshOpenTrims,150);});
@@ -12809,10 +12815,6 @@ function _pbMatAddKey(m){
   if(['thread','zipper','button','snap','bias','careLabel','mainLabel','count'].indexOf(ot)>=0)return ot;
   return 'count';
 }
-var _TRIM_NEW_TYPES=[['count','개수'],['yardp','야드'],['roll','롤·절·레이스'],['thread','실'],['zipper','지퍼'],['button','단추'],['snap','스냅'],['buttonloop','단추고리·봉지'],['bias','바이어스재단']];
-function _trimPickSetNewKey(k){window._trimPickNewKey=k;var ot=({count:'count',yardp:'yard',roll:'roll',thread:'thread',zipper:'zipper',button:'button',snap:'snap',buttonloop:'yard',bias:'bias'})[k]||'count';window._trimPickOT=ot;
-  document.querySelectorAll('#trim-pick-add .tpk-chip').forEach(function(c){c.classList.toggle('on',c.getAttribute('data-k')===k);});
-  var nm=document.getElementById('trim-pick-new-nm');if(nm)nm.focus();}
 function openTrimPicker(rowId){
   var row=rowId?document.getElementById(rowId):null;
   if(rowId&&!row)return;
@@ -12850,8 +12852,8 @@ function _renderTrimPick(){
       var m=mats[k];if(!m||m.type==='fabric')return;
       var nm=m.name||pbDecodeKey(k)[0]||'';if(!nm)return;
       var cl=m.color||pbDecodeKey(k)[1]||'';var sz=(m.size||m.width||pbDecodeKey(k)[2]||'').toString().trim();
-      if(q&&_pbNorm(nm+sup+cl+sz).indexOf(q)<0)return;
-      all.push({sup:sup,k:k,nm:nm,cl:cl,sz:sz,price:m.unitPrice||m.pricePerKg||0,ot:m.orderType||'count'});
+      if(q&&_pbNorm(nm+sup+cl+sz+(m.category||'')).indexOf(q)<0)return;
+      all.push({sup:sup,k:k,nm:nm,cl:cl,sz:sz,price:m.unitPrice||m.pricePerKg||0,ot:m.orderType||'count',cat:(m.category||'').toString().trim()});
     });
   });
   all.sort(function(a,b){var am=(a.ot===ot?0:1),bm=(b.ot===ot?0:1);return (am-bm)||(a.nm<b.nm?-1:a.nm>b.nm?1:0);});
@@ -12859,7 +12861,7 @@ function _renderTrimPick(){
   else{list.innerHTML=all.slice(0,300).map(function(o){
     return '<div onclick="_trimPickApply(\''+encodeURIComponent(o.sup)+'\',\''+encodeURIComponent(o.k)+'\')" style="display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid #f3f5f7;cursor:pointer">'
       +'<span style="font-weight:700;font-size:13.5px">'+esc(o.nm)+'</span>'
-      +'<span style="font-size:10px;font-weight:800;color:#6d28d9;background:#ede9fe;padding:1px 6px;border-radius:5px">'+esc(_otLabel(o.ot))+'</span>'
+      +'<span style="font-size:10px;font-weight:800;color:#6d28d9;background:#ede9fe;padding:1px 6px;border-radius:5px">'+esc(o.cat||_otLabel(o.ot))+'</span>'
       +((o.cl||o.sz)?'<span style="font-size:11px;color:#8a929c">'+esc([o.cl,o.sz].filter(Boolean).join(' · '))+'</span>':'')
       +'<span style="font-size:11px;color:#64748b">'+esc(o.sup)+'</span>'
       +'<span style="margin-left:auto;font-weight:800;font-size:12.5px;color:'+(o.price>0?'#15803d':'#b91c1c')+'">'+num(o.price)+'원</span></div>';
@@ -12870,15 +12872,11 @@ function _renderTrimPick(){
     var curSup=r2?((r2.querySelector('[data-f=supplier]')||{}).value||'').trim():'';
     var defSup=(document.getElementById('f-defaultsup')||{}).value||'';
     var useSup=curSup||defSup||'';
-    var isNew=!!window._trimPickNew;
-    if(isNew&&!useSup)useSup=window._trimPickNewSup||'';
-    addbox.innerHTML='<div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:6px">'+(isNew?'찾는 게 없어요? 새 부자재 만들기 — <span style="font-weight:600;color:#6b7280">종류를 고르고 이름·단가를 적으면 단가장에 등록되고 카드가 열려요</span>':'여기 없으면 단가장에 새로 추가')+'</div>'
-      +(isNew?'<div class="tpk-chips">'+_TRIM_NEW_TYPES.map(function(x){return '<button type="button" class="tpk-chip'+(window._trimPickNewKey===x[0]?' on':'')+'" data-k="'+x[0]+'" onclick="_trimPickSetNewKey(\''+x[0]+'\')">'+x[1]+'</button>';}).join('')+'</div>':'')
-      +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
-      +'<input id="trim-pick-new-sup" placeholder="부자재처" value="'+esc(useSup)+'" style="flex:1;min-width:88px;padding:7px 9px;font-size:12.5px;border:1px solid #d8dde3;border-radius:7px">'
-      +'<input id="trim-pick-new-nm" placeholder="부자재명" style="flex:1.4;min-width:104px;padding:7px 9px;font-size:12.5px;border:1px solid #d8dde3;border-radius:7px" onkeydown="if(event.key===\'Enter\')_trimPickAddNew()">'
-      +'<input id="trim-pick-new-pr" type="number" min="0" placeholder="단가" style="width:74px;padding:7px 9px;font-size:12.5px;border:1px solid #d8dde3;border-radius:7px" onkeydown="if(event.key===\'Enter\')_trimPickAddNew()">'
-      +'<button class="btn p" onclick="_trimPickAddNew()" style="padding:7px 13px;font-size:12.5px">추가+선택</button></div>';
+    // 새 부자재 등록은 단가장에서만 (2026-08-19 사용자 확정: 피커의 「새 부자재 만들기」 삭제 — 분류·정보가 엉성하게 등록되던 문제)
+    addbox.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+      +'<span style="font-size:11.5px;font-weight:700;color:#475569">찾는 게 없어요? 새 부자재 등록은 단가장에서만 해요</span>'
+      +'<button class="btn s" type="button" onclick="openBookWindow(\'trim\')" style="font-size:11px;white-space:nowrap;background:#fffbeb;border-color:#fcd34d;color:#92400e">부자재 단가장 새 창</button>'
+      +'<span style="font-size:10.5px;color:#94a3b8">등록하고 이 창에 돌아오면 목록에 바로 떠요</span></div>';
   }
 }
 function _trimPickApply(encSup,encKey){
@@ -12904,21 +12902,6 @@ function _trimPickApply(encSup,encKey){
   closeTrimPicker();
   try{colTR();if(typeof _lockTrimPbFields==='function')_lockTrimPbFields();if(typeof renderTrimSummary==='function')renderTrimSummary();}catch(e){}
   if(typeof showToast==='function')showToast(nm+' 불러옴');
-}
-function _trimPickAddNew(){
-  var sup=((document.getElementById('trim-pick-new-sup')||{}).value||'').trim();
-  var nm=((document.getElementById('trim-pick-new-nm')||{}).value||'').trim();
-  var pr=+((document.getElementById('trim-pick-new-pr')||{}).value)||0;
-  if(!sup){showToast('부자재처를 입력하세요');return;}
-  if(!nm){showToast('부자재명을 입력하세요');return;}
-  if(window._trimPickNew&&!window._trimPickNewKey){showToast('종류를 먼저 고르세요 (개수·야드·롤…)');return;}
-  var ot=window._trimPickOT||'count';
-  var pb=getPB(sup);var key=pbKey(nm,'','');
-  if(!pb.materials[key]){var _nm={type:'trim',name:nm,color:'',size:'',unitPrice:pr,orderType:ot,lastUpdated:today()};
-    var _k=window._trimPickNew?window._trimPickNewKey:'';if(_k==='yardp')_nm.plainYard=true;else if(_k==='buttonloop')_nm.isButtonLoop=true; // 타입 자동 매핑용 플래그
-    pb.materials[key]=_nm;savePB();}
-  else if(pr>0&&!(pb.materials[key].unitPrice>0)){pb.materials[key].unitPrice=pr;savePB();}
-  _trimPickApply(encodeURIComponent(sup),encodeURIComponent(key));
 }
 // 단가장 배지 주입 — 새 카드(class="del")·옛 카드(btn s d g) 🗑 버튼 둘 다 대응
 function _injectPbBadge(html,badge,i){
