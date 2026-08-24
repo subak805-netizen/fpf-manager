@@ -4025,7 +4025,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-24c';
+var APP_BUILD=/*BUILD*/'2026-08-24d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5779,8 +5779,11 @@ function saveToPB(item){
     if(!f.supplier)continue;
     // 원단처(거래처) 동/호수 → 단가장 거래처 위치정보에 저장 (입력값 있을 때만, 빈칸은 기존값 보호)
     const pbSup=getPB(f.supplier);
-    if(f.building)pbSup.building=f.building;
-    if(f.floorRoom)pbSup.room=f.floorRoom; // floor(층)는 단가장에서 따로 관리 — 덮어쓰지 않음(보존)
+    /* ⚠️ 주소는 «거래처의 정보»다. 아이템 줄이 덮어쓰면 한 아이템의 실수가 그 거래처를 쓰는
+          모든 아이템·발주서 출고처로 번진다(신고 2026-08-24). → **비어 있을 때만** 채운다.
+          바꾸려면 단가장(거래처 카드)에서 직접 고친다. floor 는 원래부터 이 규칙이었다. */
+    if(f.building&&!pbSup.building)pbSup.building=f.building;
+    if(f.floorRoom&&!pbSup.room)pbSup.room=f.floorRoom;
     if(!f.name)continue;
     const _pbF=getPB(f.supplier);
     if(!_pbF.materials[f.name])continue; // 단가장 미등록 소재는 자동 생성 안 함 — 수동 등록 버튼 사용
@@ -5810,7 +5813,7 @@ function saveToPB(item){
   }
   for(const t of item.trims||[]){if(!t.supplier||!t.name)continue;
     // 부자재처(거래처) 동/호수 → 단가장 거래처 위치정보에 저장 (입력값 있을 때만)
-    const pbSupT=getPB(t.supplier);if(t.building)pbSupT.building=t.building;if(t.floorRoom)pbSupT.room=t.floorRoom;
+    const pbSupT=getPB(t.supplier);if(t.building&&!pbSupT.building)pbSupT.building=t.building;if(t.floorRoom&&!pbSupT.room)pbSupT.room=t.floorRoom;
     /* ★2026-08-14 단가장 중복 증식 수정.
        pbKey에는 사이즈가 들어간다. 예전엔 "이름만 맞으면 통과"시켜 놓고 저장은 t.size를 붙인 **새 키**로 해서,
        아이템마다 사이즈 글자가 조금만 달라도(44 / 44") 단가장에 항목이 계속 늘어났다.
@@ -5914,10 +5917,30 @@ function _wgFill(r,src,flash){ if(!r||!src)return;
     if(el&&!String(el.value).trim()&&p[1]){ el.value=p[1]; if(flash)flash(el); }
   });
 }
+/* 거래처가 바뀌었을 때 위치(시장·동·층·호수)를 그 거래처 걸로 갈아끼운다.
+   ⚠️ 새 거래처에 주소가 없으면 **비운다** — 옛 거래처 주소가 따라가면 단가장까지 오염된다. */
+function _fabPutLoc(r,sup,flash){
+  var pb=(sup&&S.priceBook[sup])||{};
+  var put=function(sel,val,dflt){
+    var el=r.querySelector('[data-f='+sel+']'); if(!el)return;
+    var v=val||dflt||'';
+    if(el.value!==v){ el.value=v; if(flash)flash(el); }
+  };
+  put('market',pb.market,'동대문시장');
+  put('building',pb.building,'');
+  put('floor',pb.floor,'');
+  put('floorRoom',pb.room,'');
+}
 function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.trim(); _pbWarnNewSupplier(sup);
   var flash=function(el){if(el){el.classList.add('autofill');setTimeout(function(){el.classList.remove('autofill');},1200);}};
-  // 원단처 위치(동/호수) 자동 — 거래처/단가장에 저장된 위치에서
-  if(sup&&S.priceBook[sup]){const pb=S.priceBook[sup];
+  /* ⚠️ 원단처를 «바꿨을 때» 옛 거래처의 동/층/호수가 그대로 남던 버그 (신고 2026-08-24:
+        「엠케이 → 비호로 바꿨더니 엠케이 호수가 비호 호수로 저장됨」).
+        빈 칸만 채우다 보니 옛 주소가 남았고, 그게 saveToPB 를 타고 **새 거래처의 주소를 덮어썼다**.
+        → 원단처가 바뀌면 위치는 새 거래처 걸로 **갈아끼운다. 새 거래처에 주소가 없으면 비운다.** */
+  var _afOldSup=(function(){ var i=(r.id||'').replace('fr-',''); var f=(typeof formFabrics!=='undefined'&&formFabrics[i])||null; return (f&&f.supplier)||''; })();
+  var _supChanged=(String(_afOldSup||'').trim()!==String(sup||''));
+  if(_supChanged)_fabPutLoc(r,sup,flash);
+  else if(sup&&S.priceBook[sup]){const pb=S.priceBook[sup];
     const mEl=r.querySelector('[data-f=market]');if(mEl&&(!mEl.value||mEl.value==='동대문시장')&&pb.market){mEl.value=pb.market;flash(mEl);}
     const bEl=r.querySelector('[data-f=building]');if(bEl&&!bEl.value&&pb.building){bEl.value=pb.building;flash(bEl);}
     const flEl=r.querySelector('[data-f=floor]');if(flEl&&!flEl.value&&pb.floor){flEl.value=pb.floor;flash(flEl);}
@@ -6143,6 +6166,8 @@ function setCompFromString(idx,compStr){
 }
 function autofillTrim(r){
   var _afTi=((r&&r.id)||'').replace('tr-',''); var _afOldName=(formTrims[_afTi]&&formTrims[_afTi].name)||''; // colTR 전 옛 이름 (헤더 갱신 판단)
+  var _afOldSupT=(formTrims[_afTi]&&formTrims[_afTi].supplier)||'';                                        // colTR 전 옛 부자재처
+  var _afSupChanged=(String(_afOldSupT).trim()!==String((r.querySelector('[data-f=supplier]')||{}).value||'').trim());
   try{colTR();}catch(e){} // 다른 행의 입력값이 재렌더로 날아가지 않게 먼저 저장
   var _afRerender=function(){setTimeout(function(){try{colTR();}catch(e){}if(typeof renderTrimRows==='function')renderTrimRows();},120);}; // 헤더(이름·단가·요척) 재렌더 — colTR로 현재 입력 보존 후
   const sup=r.querySelector('[data-f=supplier]')?.value?.trim(); _pbWarnNewSupplier(sup);
@@ -6162,7 +6187,9 @@ function autofillTrim(r){
     }
   }
   // 부자재처 위치(동/호수) 자동 — 부자재명 없어도 부자재처만 있으면 채움 (조기리턴 앞으로 이동)
-  if(sup){var _pbs=S.priceBook[sup];if(_pbs){var _mE=r.querySelector('[data-f=market]');if(_mE&&(!_mE.value||_mE.value==='동대문시장')&&_pbs.market)_mE.value=_pbs.market;var _bE=r.querySelector('[data-f=building]');if(_bE&&!_bE.value&&_pbs.building)_bE.value=_pbs.building;var _flE=r.querySelector('[data-f=floor]');if(_flE&&!_flE.value&&_pbs.floor)_flE.value=_pbs.floor;var _rE=r.querySelector('[data-f=floorRoom]');if(_rE&&!_rE.value&&_pbs.room)_rE.value=_pbs.room;}}
+  /* 부자재처도 원단과 같다 — 바꾸면 위치를 새 거래처 걸로 갈아끼운다(없으면 비움). 위 원단 주석 참고 */
+  if(_afSupChanged)_fabPutLoc(r,sup,null);
+  else if(sup){var _pbs=S.priceBook[sup];if(_pbs){var _mE=r.querySelector('[data-f=market]');if(_mE&&(!_mE.value||_mE.value==='동대문시장')&&_pbs.market)_mE.value=_pbs.market;var _bE=r.querySelector('[data-f=building]');if(_bE&&!_bE.value&&_pbs.building)_bE.value=_pbs.building;var _flE=r.querySelector('[data-f=floor]');if(_flE&&!_flE.value&&_pbs.floor)_flE.value=_pbs.floor;var _rE=r.querySelector('[data-f=floorRoom]');if(_rE&&!_rE.value&&_pbs.room)_rE.value=_pbs.room;}}
   if(!sup||!nm){if(_afNameChanged)_afRerender();return;}
   const mats=S.priceBook[sup]?.materials;
   var e=null;
