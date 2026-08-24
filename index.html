@@ -1377,7 +1377,7 @@ const PO_OPT_DEFS=[
   {key:'includeAddr',label:'출고처 주소까지 포함',text:'',cat:'addr'},
   {key:'includeFcName',label:'출고처 이름만 (주소 X)',text:'',cat:'addr'},
 ];
-const DEFAULT_PO_OPTS={nego:false,stockCheck:false,confirmShip:false,kcCert:false,vatReceipt:true,poConfirm:false,companyLabel:true,readyAll:false,todayFirst:false,delivery:false,quick:false,omudeLabel:true,moveMadePhoto:false,toInspection:false,includeFcName:true,includeAddr:false};
+const DEFAULT_PO_OPTS={showPrice:true,nego:false,stockCheck:false,confirmShip:false,kcCert:false,vatReceipt:true,poConfirm:false,companyLabel:true,readyAll:false,todayFirst:false,delivery:false,quick:false,omudeLabel:true,moveMadePhoto:false,toInspection:false,includeFcName:true,includeAddr:false};
 
 /* ===== STORAGE (Safari 호환 + 공유 데이터) ===== */
 let _memStore={};
@@ -4025,7 +4025,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-24b';
+var APP_BUILD=/*BUILD*/'2026-08-24c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -15077,10 +15077,44 @@ function _poTrimProcNotes(g){
   });
   return out;
 }
+/* ===== 발주서에 단가 표시 (2026-08-24) ==========================
+   사용자 요청: 「품명 밑줄에 @7,000, 네고가 알면 @7,000>6,500」.
+   ⚠️ 예전엔 일부러 숨겼던 값이다(코드에 「단가는 발주서에 표기하지 않음」 주석이 있었다).
+      켜지면 **모든 거래처 발주서에 단가가 찍힌다** — 「발주 내용 선택」의 `showPrice` 로 끌 수 있게 해뒀다(기본 켜짐).
+   ⚠️ 단가 0/빈값이면 줄을 아예 안 만든다(@0 이 나가면 안 된다).
+   ⚠️ 네고가(m.negotiatedPrice)는 오더의 「거래처 확인 — 협상단가」에 적은 값. */
+function _poPriceOf(m){
+  if(!m)return null;
+  var base=0, unit='';
+  if(m.type==='fabric'){
+    if(m.pricingUnit==='kg'){ base=+m.pricePerKg||0; unit='/kg'; }
+    else { base=+m.unitPrice||0; unit='/y'; }
+  }else{
+    base=+m.unitPrice||0;
+  }
+  var nego=(m.negotiatedPrice!==undefined&&m.negotiatedPrice!==''&&+m.negotiatedPrice>0)?+m.negotiatedPrice:0;
+  if(!(base>0)&&!(nego>0))return null;
+  if(!(base>0))base=nego;
+  return {base:base, nego:(nego>0&&nego!==base)?nego:0, unit:unit};
+}
+function _poAt(m){
+  var p=_poPriceOf(m); if(!p)return '';
+  return '@'+num(p.base)+(p.nego?('>'+num(p.nego)):'')+p.unit;
+}
+/* 여러 컬러가 한 품명 밑에 묶일 때 — 단가가 전부 같으면 한 줄, 다르면 '' (컬러 줄에 각각 붙인다) */
+function _poAtGroup(list){
+  if(!list||!list.length)return '';
+  var first=_poAt(list[0]);
+  if(!first)return '';
+  for(var i=1;i<list.length;i++){ if(_poAt(list[i])!==first)return ''; }
+  return first;
+}
+function _poShowPrice(sup){ var o=(sup&&sup.poOpts)||{}; return o.showPrice!==false; }
 function genPoText(order,sn){
   const sup=order.suppliers[sn];if(!sup)return'';
   const opts=sup.poOpts||{};
   const trimR5=opts.trimRound5||'none';
+  const showPrice=_poShowPrice(sup);   /* 「발주 내용 선택」의 단가 표시 */
   function r5(q){if(trimR5==='up')return Math.ceil(q/5)*5;if(trimR5==='down')return Math.floor(q/5)*5;return q;}
   const fc=sup.deliveryFcId&&S.factories[sup.deliveryFcId]?S.factories[sup.deliveryFcId]:null;
   const fabs=sup.materials.filter(m=>m.type==='fabric');
@@ -15145,8 +15179,10 @@ function genPoText(order,sn){
       if(fabAddNames.length)line+=' '+fabAddNames.join(' ');
       if(g.width)line+=` ${g.width}"`;
       if(g.composition)line+=' '+reorderComp(g.composition);
-      // 단가는 발주서에 표기하지 않음 (협상가/가산 모두 숨김)
       L.push(line);
+      // 단가 — 품명 바로 밑줄. 컬러마다 다르면 여기 말고 컬러 줄에 각각 붙인다
+      var _fAt=showPrice?_poAtGroup(g.colors):'';
+      if(_fAt)L.push(_fAt);
       // 같은 원단처 컬러(fabricColor)끼리 합쳐서 한 줄 — 예: #32번아이 - 60y (아이/레드, 아이/곤 사용)
       var _fcG={}, _fcO=[];
       g.colors.forEach(function(cl){
@@ -15168,6 +15204,7 @@ function genPoText(order,sn){
         if(grp.items.length)qtyLine+=' ('+grp.items.join(', ')+' 사용)';
         if(grp.ovr){var ov=parseFloat(grp.oy.toFixed(2));if(ov!==yv)qtyLine+=' ※실제발주(원래 '+ov+'y)';}
         else if(grp.kg)qtyLine+='('+parseFloat(grp.kg.toFixed(2))+'kg)';
+        if(showPrice&&!_fAt){ var _c1=g.colors.find(function(c){return (c.fabricColor||c.colorName||'')===fabClr;}); var _a1=_c1?_poAt(_c1):''; if(_a1)qtyLine+=' '+_a1; }
         L.push(qtyLine);
       });
       if(g.colors.length>1){const tot=parseFloat(g.colors.reduce((s,c)=>{const q=c.actualOrderedQty!==undefined&&c.actualOrderedQty!==''?+c.actualOrderedQty:c.totalYards;return s+q;},0).toFixed(2));L.push(`합계 ${tot}y`);}
@@ -15217,8 +15254,8 @@ function genPoText(order,sn){
         if(bg.fabricSource)bhdr+=bg.fabricSource+' ';
         bhdr+='바이어스재단';
         if(bg.biasSpec)bhdr+=' '+bg.biasSpec;
-        // 단가는 발주서에 표기하지 않음
         L.push(bhdr);
+        var _bAt=showPrice?_poAtGroup(bg.colors):''; if(_bAt)L.push(_bAt);
         let biasTot=0;
         // 같은 출력 컬러(colorName)끼리 합치기 — 아이템 컬러만 다르고 자재색 같으면 한 줄로 (수량은 합)
         var _bcm={},_bco=[];
@@ -15433,6 +15470,7 @@ function genPoText(order,sn){
         zhdr+=(z.name&&z.name!=='지퍼')?z.name:'지퍼';
         if(z.toothColor)zhdr+=' '+z.toothColor+'이빨';
         L.push(zhdr);
+        var _zpAt=showPrice?_poAtGroup(z.colors||[z]):''; if(_zpAt)L.push(_zpAt);
         // 슬라이더 정보
         if(z.sliderModel||z.sliderColor){
           let sl='슬라이더: ';
@@ -15518,9 +15556,8 @@ function genPoText(order,sn){
         if(b.buttonStyle)bhdr+=' '+b.buttonStyle;
         if(b.color)bhdr+=' ('+b.color+')';
         // 단가표시: 협상가 있을 때만
-        const bNego=b.colors?b.colors.reduce((p,c)=>p||(c.negotiatedPrice!==undefined&&+c.negotiatedPrice>0?+c.negotiatedPrice:0),0):(b.negotiatedPrice||0);
-        if(bNego>0)bhdr+=' '+num(bNego)+'원/개';
         L.push(bhdr);
+        var _btAt=showPrice?_poAtGroup(b.colors||[b]):''; if(_btAt)L.push(_btAt);
         // 로고 내용
         if(b.hasButtonLogo&&b.buttonLogoText){
           L.push(b.buttonLogoText);
@@ -15622,6 +15659,7 @@ function genPoText(order,sn){
         if(sg.snapSize)shdr+=sg.snapSize+' ';
         shdr+=(sg.name&&sg.name!=='스냅')?sg.name:'스냅';
         L.push(shdr);
+        var _snAt=showPrice?_poAtGroup(sg.colors||[sg]):''; if(_snAt)L.push(_snAt);
         // 면별 처리방법 — 면별 수량 + 염색 표시
         const sfData=Array.isArray(sg.snapFaces)&&sg.snapFaces.length?sg.snapFaces:[];
         const sfEnabled=sfData.filter(function(f){return f.enabled&&f.process;});
@@ -15691,6 +15729,7 @@ function genPoText(order,sn){
         else if(isJeolOrder&&jeolYards)_hdrS+=` (1절 ${jeolYards}y)`;
         else if(t.isButtonLoop&&+t.loopPerYard>0){const _lpu=t.packUnit||(t.calc&&t.calc.unit)||'봉';_hdrS+=` (1${_lpu} ${+t.loopPerYard}개)`;}
         L.push(_hdrS);
+        var _tAt1=showPrice?_poAt(t):''; if(_tAt1)L.push(_tAt1);
         if(_biasFold[g.name])_biasFold[g.name].forEach(function(sp){L.push('바이어스 재단'+(sp?' '+sp:''));});
         var _qtyS=isRoll?`${actQ}롤 (필요수량 ${t.calc?.ty||0}y)`:(t.calc?.isJeol?`${actQ}절 (필요수량 ${t.calc.originalNeed}y)`:`${actQ}${(t.calc?.unit||'개').replace(/yard|야드/,'y')}${trimLoopNeedTxt(t)}`);
         var _clS=g.color?('#'+g.color):'';
@@ -15707,6 +15746,7 @@ function genPoText(order,sn){
       }
       if(g.part)L.push('('+g.part+')');
       L.push(hdr);
+      var _tAtG=showPrice?_poAtGroup(g.colors):''; if(_tAtG)L.push(_tAtG);
       if(_biasFold[g.name])_biasFold[g.name].forEach(function(sp){L.push('바이어스 재단'+(sp?' '+sp:''));});
       // 컬러별 수량
       let totRolls=0,totQty=0;
@@ -15717,8 +15757,9 @@ function genPoText(order,sn){
         const _rawQ=hasMatOverride(t)?+t.actualOrderedQty:origQ;
         const actQ=(!isRoll&&!t.calc?.isYard&&!t.calc?.isJeol)?r5(_rawQ):_rawQ;
         const ovrTxt=hasMatOverride(t)?` ※실제(원래${origQ})`:'';
-        if(isRoll){ totRolls+=actQ; L.push(`${cl} - ${actQ}롤${_srcTxt} (필요수량 ${t.calc?.ty||0}y)${ovrTxt}`); }
-        else{ const unit=(t.calc?.unit||'개').replace(/yard|야드/,'y'); totQty+=actQ; L.push(`${cl} - ${actQ}${unit}${_srcTxt}${trimLoopNeedTxt(t)}${ovrTxt}`); }
+        const _ca=(showPrice&&!_tAtG)?(_poAt(t)?(' '+_poAt(t)):''):'';
+        if(isRoll){ totRolls+=actQ; L.push(`${cl} - ${actQ}롤${_srcTxt} (필요수량 ${t.calc?.ty||0}y)${ovrTxt}${_ca}`); }
+        else{ const unit=(t.calc?.unit||'개').replace(/yard|야드/,'y'); totQty+=actQ; L.push(`${cl} - ${actQ}${unit}${_srcTxt}${trimLoopNeedTxt(t)}${ovrTxt}${_ca}`); }
       };
       // 같은 출력 컬러(colorName)끼리 합쳐 한 줄로 — 롤·절·봉지(loop)·야드는 개별 유지(사양·필요수량 줄이 달라서), 개수·실 등만 컬러별 합산(수량 합)
       const emitTMerged=function(arr){
@@ -17787,6 +17828,7 @@ function poCardHTML(o,sn){
           <div class="po2-og"><div class="gl">요청사항</div><div class="po2-chips">${PO_OPT_DEFS.filter(d=>d.cat==='req').map(def=>`<button type="button" class="po2-chip${opts[def.key]?' on':''}" onclick="togglePoReqOpt('${o.id}','${sn}','${def.key}',${opts[def.key]?'false':'true'})">${def.label}</button>`).join('')}</div></div>
           <div class="po2-og"><div class="gl">출고</div><div class="po2-chips">${PO_OPT_DEFS.filter(d=>d.cat==='ship').map(def=>`<button type="button" class="po2-chip${opts[def.key]?' on':''}" onclick="togglePoReqOpt('${o.id}','${sn}','${def.key}',${opts[def.key]?'false':'true'})">${def.label}</button>`).join('')}</div></div>
           <div class="po2-og"><div class="gl">출고처</div><div class="po2-chips">${PO_OPT_DEFS.filter(d=>d.cat==='addr').map(def=>`<button type="button" class="po2-chip${opts[def.key]?' on':''}" onclick="togglePoAddrOpt('${o.id}','${sn}','${def.key}',${opts[def.key]?'false':'true'})">${def.label}</button>`).join('')}</div></div>
+          <div class="po2-og"><div class="gl">단가</div><div class="po2-chips"><button type="button" class="po2-chip${opts.showPrice!==false?' on':''}" onclick="togglePoShowPrice('${o.id}','${esc(sn)}')" title="품명 밑줄에 @단가를 적어요. 네고가를 알면 @정가>네고가">단가 표시</button></div></div>
           <div class="po2-tip">합포장·픽업 조율 땐 "이름만" (주소까지 보내면 거래처가 바로 발송할 수 있어요)</div>
         </div>
       </details>
@@ -17797,6 +17839,14 @@ function poCardHTML(o,sn){
     </div></div>`;
 }
 
+/* 발주서에 단가를 적을지 (거래처마다 따로). 옛 발주서는 값이 없어 «켜짐»으로 본다 */
+function togglePoShowPrice(oid,sn){
+  var o=poResolveOrder(oid); if(!o||!o.suppliers[sn])return;
+  var s=o.suppliers[sn]; if(!s.poOpts)s.poOpts={};
+  s.poOpts.showPrice=(s.poOpts.showPrice===false);
+  saveData();
+  if(typeof _renderOTabKeepScroll==='function')_renderOTabKeepScroll(); else if(typeof renderOTab==='function')renderOTab();
+}
 // 계산식 A안 — 자재 한 줄 클릭 시 그 자리에서 표 펼침/접힘
 function poCalcTog(el){var cm=el.closest&&el.closest('.po-cm');if(cm)cm.classList.toggle('open');}
 // 발주서(거래처) 삭제 — 잘못 생긴 추가발주 등을 직접 제거
@@ -36959,10 +37009,33 @@ function tpSpecHTML(it,base){ base=base||'sew.spec'; var sizes=(it.sizes&&it.siz
     sizes.forEach(function(s){h+='<td>'+tpGradeCell(base+'.'+i+'.v.'+s,'f',s)+'</td>';});
     h+='<td class="tp-editonly" style="white-space:nowrap">'+tpRowMoveBtns(base,i,arr.length)+'<button type="button" class="tp-rx" onclick="tpDelRow(\''+base+'\','+i+')" title="삭제">×</button></td></tr>'; });
   return h+'</table><div class="tp-editonly" style="font-size:9px;color:#9aa0a8;padding:2px 4px">패턴 S·M 넣으면 편차·L 자동, 완성도 패턴 편차대로 자동</div>'; }
+/* 시트 키 = 치수 경로 앞부분 (sew.spec→sew, spat2.spec→spat2). 자수 빼기를 시트마다 따로 기억하려고 쓴다 */
+function _tpSheetOf(base){ return String(base||'sew.spec').split('.')[0]; }
+function tpEmbOff(sheet){ var d=(tpItem()&&tpItem().techpack)||{}; return !!((d[sheet]||{}).embOff); }
+/* 「자수 위치·크기」를 이 지시서에서만 빼기 / 다시 넣기 (자수 탭 자료는 안 지운다) */
+function tpToggleEmbSpec(sheet){
+  var d=tpData(); if(!d)return;
+  var _preI=(typeof _entPre==='function')?_entPre('items',_tpItemId):null;
+  if(!d[sheet])d[sheet]={};
+  if(d[sheet].embOff)delete d[sheet].embOff; else d[sheet].embOff=1;
+  if(typeof _entMechAbsorb==='function'){try{_entMechAbsorb('items',_tpItemId,_preI);}catch(e){}}
+  try{saveData();}catch(e){} tpRender();
+}
 function tpSpecSecHTML(it,base){ base=base||'sew.spec'; var _b="'"+base+"'";
-  return '<div class="sec">치수 (패턴·편차·완성) cm<span class="tp-editonly" style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\','+_b+')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'shirt\','+_b+')">셔츠</button><button class="gbtn" onclick="tpSpecPreset(\'raglan\','+_b+')">레글런</button><button class="gbtn" onclick="tpSpecPreset(\'pants\','+_b+')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\','+_b+')">스커트</button><button class="gbtn" onclick="tpSpecAdd('+_b+')">＋부위</button><button class="gbtn" onclick="tpSpecPick('+_b+')" title="다른 아이템의 치수를 사이즈 골라서 가져오기">불러오기</button></span></div>'+tpSpecHTML(it,base)+tpEmbSpecLinkHTML(it); }
+  return '<div class="sec">치수 (패턴·편차·완성) cm<span class="tp-editonly" style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\','+_b+')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'shirt\','+_b+')">셔츠</button><button class="gbtn" onclick="tpSpecPreset(\'raglan\','+_b+')">레글런</button><button class="gbtn" onclick="tpSpecPreset(\'pants\','+_b+')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\','+_b+')">스커트</button><button class="gbtn" onclick="tpSpecAdd('+_b+')">＋부위</button><button class="gbtn" onclick="tpSpecPick('+_b+')" title="다른 아이템의 치수를 사이즈 골라서 가져오기">불러오기</button>'
+    +(_tpEmbHas(it)?('<button class="gbtn" onclick="tpToggleEmbSpec(\''+_tpSheetOf(base)+'\')" title="이 지시서에서만 자수 위치·크기 표를 빼요 (자수 탭 자료는 그대로)">'+(tpEmbOff(_tpSheetOf(base))?'자수 넣기':'자수 빼기')+'</button>'):'')
+    +'</span></div>'+tpSpecHTML(it,base)+tpEmbSpecLinkHTML(it,_tpSheetOf(base)); }
 // 자수 위치·크기 → 치수 표 밑에 자동 붙는 읽기전용 블록 (자수 데이터 있을 때만)
-function tpEmbSpecLinkHTML(it){ var d=(it&&it.techpack)||{}; var emb=d.emb||{};
+/* 자수 위치·크기에 값이 하나라도 있나 (버튼을 보일지 판단) */
+function _tpEmbHas(it){
+  var d=(it&&it.techpack)||{}, emb=d.emb||{};
+  var rows=Array.isArray(emb.posRows)?emb.posRows:null;
+  if(!rows){ var oP=emb.pos,oS=emb.size,tmp=[]; if(oP&&typeof oP==='object')tmp.push({vals:oP}); if(oS&&typeof oS==='object')tmp.push({vals:oS}); rows=tmp; }
+  var sizes=(it&&it.sizes&&it.sizes.length)?it.sizes:['FREE'];
+  return rows.some(function(r){ if(!r)return false; var v=r.vals||{}; return sizes.some(function(s){return v[s]!=null&&String(v[s]).trim();}); });
+}
+function tpEmbSpecLinkHTML(it,sheet){ var d=(it&&it.techpack)||{}; var emb=d.emb||{};
+  if(sheet&&(d[sheet]||{}).embOff)return '';   /* 이 지시서에서 뺐음 — 자수 탭 자료는 그대로 */
   var rows=Array.isArray(emb.posRows)?emb.posRows:null;
   if(!rows){ var oP=emb.pos,oS=emb.size,tmp=[]; if(oP&&typeof oP==='object')tmp.push({label:'자수 위치',seam:'out',tol:'',vals:oP}); if(oS&&typeof oS==='object')tmp.push({label:'자수 크기',seam:'out',tol:'',vals:oS}); rows=tmp; }
   var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE'];
