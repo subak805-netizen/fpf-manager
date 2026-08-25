@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260825g">
+<link rel="stylesheet" href="css/main.css?v=20260825h">
 </head>
 <body>
 
@@ -4030,7 +4030,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25g';
+var APP_BUILD=/*BUILD*/'2026-08-25h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -13797,6 +13797,35 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
         var _n={};for(var _os in _f.consumptionBySize){_n[sizeMap[_os]||_os]=_f.consumptionBySize[_os];}
         _f.consumptionBySize=_n;
       });
+      /* ⚠️ 작지(techpack) 치수·자수도 사이즈 «이름»을 키로 쓴다 — 여기서 같이 옮기지 않으면
+            사이즈를 바꾼 순간 적어둔 치수가 «사라진 것처럼» 보인다(신고 2026-08-25).
+            값이 지워지는 게 아니라 옛 이름 밑에 남아 화면이 못 찾는 것. 그래서 옮겨주면 되살아난다.
+            대상: sew.spec / spat*.spec / grd.spec 의 pat·v , 자수 posRows 의 vals */
+      try{
+        var _tp=item.techpack;
+        if(_tp&&sizesChanged){
+          var _mv=function(o){ if(!o||typeof o!=='object')return o;
+            var n={},moved=false;
+            for(var k in o){ var nk=sizeMap[k]||k; if(nk!==k)moved=true; if(o[k]!==undefined&&o[k]!=='')n[nk]=o[k]; }
+            return moved?n:o; };
+          var _specKeys=['sew','grd'].concat(Array.isArray(_tp.spatRounds)?_tp.spatRounds:(_tp.spat?['spat']:[]));
+          _specKeys.forEach(function(sk){
+            var sp=_tp[sk]&&_tp[sk].spec; if(!Array.isArray(sp))return;
+            sp.forEach(function(r){ if(!r)return; if(r.pat)r.pat=_mv(r.pat); if(r.v)r.v=_mv(r.v); });
+          });
+          ['emb','prt','wash','emb2','emb3','prt2','prt3'].forEach(function(dk){
+            var d2=_tp[dk]; if(!d2)return;
+            if(Array.isArray(d2.posRows))d2.posRows.forEach(function(r){ if(r&&r.vals)r.vals=_mv(r.vals); });
+            if(d2.pos)d2.pos=_mv(d2.pos);
+            if(d2.size)d2.size=_mv(d2.size);
+          });
+          /* 샘플확인서(샘플 코멘트)의 회차별 사이즈 표는 부위별 값이라 키가 아니지만,
+             «어느 사이즈에서 가져왔는지»(sizeSz)는 이름이므로 같이 옮긴다 */
+          (Array.isArray(item.smpRounds)?item.smpRounds:[]).forEach(function(rr){
+            if(rr&&rr.sizeSz&&sizeMap[rr.sizeSz])rr.sizeSz=sizeMap[rr.sizeSz];
+          });
+        }
+      }catch(e){ console.warn('[사이즈 이관] 작지 치수',e); }
       // 트림 sizeRates도 마이그레이션 (지퍼/단추 사이즈별 단가)
       if(sizesChanged){
         (item.trims||[]).forEach(function(t){
@@ -31662,7 +31691,7 @@ function scSizeReload(id,ri){
   var B='<div style="padding:14px 16px">'
     +'<div style="font-size:12.5px;color:#6b7280;line-height:1.7;margin-bottom:12px">'
       +'어느 지시서의 <b>어느 사이즈</b> 치수를 가져올까요? 칸의 숫자는 <b>값이 적힌 부위 수</b>예요.<br>'
-      +'<b style="color:#b45309">여기 적은 실측·차이는 지워집니다.</b></div>'
+      +'<b style="color:#166534">적어둔 실측은 그대로 둡니다</b> <span style="color:#8b95a1">(같은 측정부위 이름 기준)</span></div>'
     +'<div style="overflow:auto"><table style="border-collapse:collapse;font-size:12.5px;white-space:nowrap">'
     +'<tr><th style="border:1px solid #e5e7eb;padding:6px 10px;background:#f8f9fa;text-align:left">지시서</th>'
     + szs.map(function(z){return '<th style="border:1px solid #e5e7eb;padding:6px 12px;background:#f8f9fa">'+esc(z)+'</th>';}).join('')
@@ -31689,11 +31718,31 @@ function scSizeTake(id,ri,src,sz){
   var a=_scSizeAuto(it,src,sz);
   if(!a.length){ showToast('그 지시서엔 부위가 없어요'); return; }
   var arr=_scRounds(it).slice(), rr=arr[ri];
+  /* ⚠️ **적어둔 실측은 지키고** 패턴·지시만 갈아끼운다 (신고 2026-08-25: 불러올 때마다 실측이 사라짐).
+        같은 «측정부위 이름» 기준으로 옮긴다. 새 지시서에 없는 부위의 실측은 그 부위 줄과 함께 뒤에 남긴다. */
+  var keep={}, used={};
+  (_scSize(rr)||[]).forEach(function(r){
+    if(!r)return; var k=String(r.part||'').trim(); if(!k)return;
+    if(String(r.meas==null?'':r.meas).trim()!=='')keep[k]=r.meas;
+  });
+  var kept=0;
+  a.forEach(function(r){
+    var k=String(r.part||'').trim();
+    if(k&&keep[k]!==undefined){ r.meas=keep[k]; used[k]=1; kept++; }
+  });
+  /* 새 지시서엔 없지만 실측을 적어둔 부위는 버리지 않고 뒤에 붙인다 */
+  var orphan=0;
+  (_scSize(rr)||[]).forEach(function(r){
+    if(!r)return; var k=String(r.part||'').trim();
+    if(!k||used[k]||keep[k]===undefined)return;
+    a.push({part:r.part,pat:'',give:'',meas:r.meas}); used[k]=1; orphan++;
+  });
   if(rr){ rr.sizeSrc=src; rr.sizeSz=sz; rr.size=a; _scWrite(it,arr); }
   closeGenericModal();
   renderSampleComment();
   var n=a.filter(function(r){return String(r.pat||'').trim()||String(r.give||'').trim();}).length;
-  showToast(_scSrcLbl(it,src)+' · '+sz+' 치수로 채웠어요 (부위 '+a.length+'개'+(n?(', 값 '+n+'칸'):', 값은 비어 있어요')+')',4000);
+  showToast(_scSrcLbl(it,src)+' · '+sz+' 치수로 채웠어요 (부위 '+a.length+'개'+(n?(', 값 '+n+'칸'):', 값은 비어 있어요')+')'
+    +(kept?(' · 실측 '+kept+'칸 그대로 뒀어요'):'')+(orphan?(' · 없는 부위 '+orphan+'개는 아래에 남김'):''),5000);
 }
 function scSetLabor(id,ri,v){
   var it=S.items[id]; if(!it)return;
@@ -31769,18 +31818,16 @@ window.addEventListener('resize',function(){ if(window._scRsz)clearTimeout(windo
   window._scRsz=setTimeout(function(){ if(document.getElementById('sc-a4'))scFit(); },150); });
 /* 확인서 인쇄 — 종이만 나가게 */
 /* 확인서 인쇄 — 종이만 나가게.
-   ⚠️ 예전엔 `body.sc-printing>*{display:none}` 로 숨기고 `#pane-sccm` 만 되살렸는데,
-      **#pane-sccm 은 body 의 직속 자식이 아니라서** 그 위 조상이 display:none 이 되어 **빈 종이가 인쇄됐다**(신고 2026-08-25).
-      → 인쇄 동안 종이를 **body 직속** 상자(#sc-print-host)로 잠깐 옮긴다. 끝나면 제자리로. */
+/* 확인서 인쇄 — 종이만 나가게.
+   ⚠️ 함정 두 번 밟은 자리다:
+     ① `body.sc-printing>*{display:none}` — #pane-sccm 이 body 직속이 아니라 조상이 숨겨져 **빈 종이**가 나왔다.
+     ② 그래서 종이를 body 직속 상자로 «옮겼더니», CSS 가 전부 `#sccm-body ...` 로 묶여 있어서
+        **스타일이 통째로 떨어져** 표가 세로로 흐르고 2장이 됐다.
+   → 결론: **옮기지 않는다.** 제자리에 두고 나머지를 visibility 로 감춘다(조상이 hidden 이어도 자손은 visible 가능).
+      위치는 position:absolute 로 종이만 첫 장 왼쪽 위에 붙인다. */
 function scPrint(){
   var wrap=document.getElementById('sc-a4wrap');
   if(!wrap){ showToast('인쇄할 확인서가 없어요'); return; }
-  var host=document.getElementById('sc-print-host');
-  if(!host){ host=document.createElement('div'); host.id='sc-print-host'; document.body.appendChild(host); }
-  var ph=document.getElementById('sc-print-ph');
-  if(!ph){ ph=document.createElement('div'); ph.id='sc-print-ph'; }
-  wrap.parentNode.insertBefore(ph,wrap);
-  host.appendChild(wrap);
   document.body.classList.add('sc-printing');
   scFit();                                  /* sc-printing 이면 화면축소를 끄고 원본 A4 로 */
   var done=false;
@@ -31788,7 +31835,6 @@ function scPrint(){
     if(done)return; done=true;
     document.body.classList.remove('sc-printing');
     window.removeEventListener('afterprint',clean);
-    if(ph&&ph.parentNode){ ph.parentNode.insertBefore(wrap,ph); ph.parentNode.removeChild(ph); }
     scFit();
   };
   window.addEventListener('afterprint',clean);
@@ -31994,11 +32040,12 @@ function renderSampleComment(){
         +'<span class="nm">'+esc(sel.nm)+'</span><span class="sub">/ '+esc(sel.bn)+(sel.cd?(' · '+esc(sel.cd)):'')+'</span></div>'
       +'<div class="wh"><div class="h">담당자</div><div>'+esc((it.techpack&&it.techpack.head&&it.techpack.head.manager)||'')+'</div>'
         +'<div class="h">확인일</div><div>'+esc(rr.date||'')+'</div></div></div>';
+    /* 품명만 남는 폭을 쓰고(.grow) 나머지는 내용대로 — 사이즈가 잘리지 않게 */
     H+='<table class="sc-a4-meta"><tr>'
-      +'<th style="width:50px">브랜드</th><td style="width:74px">'+esc(sel.bn)+'</td>'
-      +'<th style="width:42px">품명</th><td>'+esc(sel.nm)+'</td>'
-      +'<th style="width:42px">컬러</th><td style="width:76px">'+esc(colors.join(', '))+'</td>'
-      +'<th style="width:48px">사이즈</th><td style="width:56px">'+esc(sizes.join(', '))+'</td></tr></table>';
+      +'<th>브랜드</th><td>'+esc(sel.bn)+'</td>'
+      +'<th>품명</th><td class="grow">'+esc(sel.nm)+'</td>'
+      +'<th>컬러</th><td>'+esc(colors.join(', '))+'</td>'
+      +'<th>사이즈</th><td>'+esc(sizes.join(', '))+'</td></tr></table>';
 
     H+='<div class="sc-a4-fit">';
     /* 코멘트 — 기존 패턴/샘플 두 칸 그대로 */
@@ -32034,8 +32081,11 @@ function renderSampleComment(){
     H+='</table>';
     H+='<button class="sc-a4-add tp-editonly" onclick="scSizeAdd(\''+_id+'\','+ri+')">＋ 부위 추가</button>';
     /* 사진 — 맨 밑, 남는 높이를 씀 */
+    /* 사진은 **앞·뒤 2칸**만 (사용자 요청 2026-08-25).
+       ⚠️ 안감·디테일 사진은 **지우지 않는다** — 이미 올려둔 게 있으면 그 칸도 이어서 보여줘 숨기지 않는다. */
+    var _pk2=SC_PICS.filter(function(pk,i){ return i<2 || String((rr.pics||{})[pk[0]]||'').trim(); });
     H+='<div class="sc-a4-sec">사진 <span class="hint">클릭 · 끌어다 놓기 · 붙여넣기(Ctrl+V)</span></div>'
-      +'<div class="sc-a4-pics">'+SC_PICS.map(function(pk){ return _scPic(sel.id,ri,pk[0],pk[1],(rr.pics||{})[pk[0]]); }).join('')+'</div>';
+      +'<div class="sc-a4-pics" data-n="'+_pk2.length+'">'+_pk2.map(function(pk){ return _scPic(sel.id,ri,pk[0],pk[1],(rr.pics||{})[pk[0]]); }).join('')+'</div>';
     H+='</div></div></div>';   /* fit / a4 / a4wrap */
 
     /* 손글씨 — 종이 바깥(화면 전용) */
@@ -37238,10 +37288,74 @@ function tpToggleEmbSpec(sheet){
   if(typeof _entMechAbsorb==='function'){try{_entMechAbsorb('items',_tpItemId,_preI);}catch(e){}}
   try{saveData();}catch(e){} tpRender();
 }
+/* 지금 사이즈 목록에 없는 «떠 있는» 치수 값 — 사이즈 이름을 바꿨는데 옮겨지지 않아 화면에서 사라진 것.
+   ⚠️ 값은 지워진 게 아니라 옛 이름 밑에 남아 있다. 여기서 찾아 되살릴 수 있게 한다. (2026-08-25) */
+function tpSpecOrphans(it,base){
+  var arr=tpGet(base||'sew.spec',[]); if(!Array.isArray(arr))return [];
+  var sizes=(it&&it.sizes&&it.sizes.length)?it.sizes:['FREE'];
+  var seen={},out=[];
+  arr.forEach(function(r){
+    if(!r)return;
+    ['pat','v'].forEach(function(kk){
+      var o=r[kk]; if(!o||typeof o!=='object')return;
+      for(var k in o){
+        if(sizes.indexOf(k)>=0)continue;
+        if(String(o[k]==null?'':o[k]).trim()==='')continue;
+        if(!seen[k]){seen[k]=0;out.push(k);}
+        seen[k]++;
+      }
+    });
+  });
+  return out.map(function(k){return {sz:k,n:seen[k]};});
+}
+/* 떠 있는 옛 사이즈 → 지금 사이즈로 옮기기 */
+function tpSpecAdopt(base,oldSz,newSz){
+  var arr=tpGet(base,[]); if(!Array.isArray(arr))return;
+  var n=0;
+  arr=arr.map(function(r){
+    if(!r)return r;
+    var nr=Object.assign({},r);
+    ['pat','v'].forEach(function(kk){
+      var o=nr[kk]; if(!o||typeof o!=='object')return;
+      var val=o[oldSz]; if(val==null||String(val).trim()==='')return;
+      var c=Object.assign({},o);
+      if(String(c[newSz]==null?'':c[newSz]).trim()===''){ c[newSz]=val; n++; }
+      delete c[oldSz];
+      nr[kk]=c;
+    });
+    return nr;
+  });
+  tpSet(base,arr); tpRender();
+  showToast(n?('「'+oldSz+'」에 있던 치수 '+n+'칸을 「'+newSz+'」로 옮겼어요'):'옮길 값이 없었어요',4000);
+}
+function tpSpecAdoptOpen(base,oldSz){
+  var it=tpItem(); if(!it)return;
+  var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE'];
+  var _b=String(base).replace(/'/g,"\\'"), _o=String(oldSz).replace(/'/g,"\\'");
+  var B='<div style="padding:14px 16px">'
+    +'<div style="font-size:12.5px;color:#6b7280;line-height:1.7;margin-bottom:12px">'
+    +'「<b>'+tpEsc(oldSz)+'</b>」에 적혀 있던 치수를 <b>어느 사이즈로</b> 옮길까요?<br>'
+    +'사이즈 이름을 바꾸면서 못 따라온 값이에요.</div>';
+  sizes.forEach(function(z){
+    B+='<button onclick="tpSpecAdopt(\''+_b+'\',\''+_o+'\',\''+String(z).replace(/'/g,"\\'")+'\')" '
+      +'style="display:block;width:100%;text-align:left;margin-bottom:6px;padding:11px 13px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:700">'
+      +tpEsc(z)+'</button>';
+  });
+  B+='</div>';
+  showGenericModal('떠 있는 치수 되살리기',B,380);
+}
 function tpSpecSecHTML(it,base){ base=base||'sew.spec'; var _b="'"+base+"'";
   return '<div class="sec">치수 (패턴·편차·완성) cm<span class="tp-editonly" style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\','+_b+')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'shirt\','+_b+')">셔츠</button><button class="gbtn" onclick="tpSpecPreset(\'raglan\','+_b+')">레글런</button><button class="gbtn" onclick="tpSpecPreset(\'pants\','+_b+')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\','+_b+')">스커트</button><button class="gbtn" onclick="tpSpecAdd('+_b+')">＋부위</button><button class="gbtn" onclick="tpSpecPick('+_b+')" title="다른 아이템의 치수를 사이즈 골라서 가져오기">불러오기</button>'
     +(_tpEmbHas(it)?('<button class="gbtn" onclick="tpToggleEmbSpec(\''+_tpSheetOf(base)+'\')" title="이 지시서에서만 자수 위치·크기 표를 빼요 (자수 탭 자료는 그대로)">'+(tpEmbOff(_tpSheetOf(base))?'자수 넣기':'자수 빼기')+'</button>'):'')
-    +'</span></div>'+tpSpecHTML(it,base)+tpEmbSpecLinkHTML(it,_tpSheetOf(base)); }
+    +'</span></div>'+tpSpecHTML(it,base)+_tpOrphanHTML(it,base)+tpEmbSpecLinkHTML(it,_tpSheetOf(base)); }
+function _tpOrphanHTML(it,base){
+  var os=tpSpecOrphans(it,base); if(!os.length)return '';
+  var _b=String(base).replace(/'/g,"\\'");
+  return '<div class="tp-editonly" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 8px;background:#fffbeb;border:1px solid #fde68a;font-size:10.5px;color:#92400e;line-height:1.5">'
+    +'<b>사이즈 이름을 바꾸면서 못 따라온 치수가 있어요</b>'
+    +os.map(function(o){ return '<button class="gbtn" style="background:#fff" onclick="tpSpecAdoptOpen(\''+_b+'\',\''+String(o.sz).replace(/'/g,"\\'")+'\')">'+tpEsc(o.sz)+' '+o.n+'칸 되살리기</button>'; }).join('')
+    +'</div>';
+}
 // 자수 위치·크기 → 치수 표 밑에 자동 붙는 읽기전용 블록 (자수 데이터 있을 때만)
 /* 자수 위치·크기에 값이 하나라도 있나 (버튼을 보일지 판단) */
 function _tpEmbHas(it){
