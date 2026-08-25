@@ -1106,3 +1106,15 @@
 - 메타 줄에 `table-layout:fixed` 를 걸었더니 폭 없는 「품명」이 남는 자리를 다 먹고 「사이즈」가 잘렸다 → **메타는 내용대로**, 품명만 `.grow`. (사이즈 표만 fixed 유지)
 - 「완성 → 지시」 연결은 원래부터 맞았다(`r.v` = 완성 → 확인서 「지시」). 값이 안 보였던 건 **첫 사이즈만 읽던 것**이 원인.
 - 검증: 치수·실측·되살리기 21개 + 인쇄 스타일 10개 + 인쇄 규칙 11개 확인.
+
+## 2026-08-25i — ★[자료손실] 아이템을 저장하면 샘플 코멘트가 통째로 사라지던 것
+- 신고: 「목도리 샘플 코멘트 어디갔어 / 없어졌어」.
+- **원인**: `saveItemForm` 은 폼 값으로 `item` 을 **새로 만든 뒤** 폼에 칸이 없는 것들만 `oldItem` 에서 되살린다.
+  그 보존 목록에 **`smpRounds`(샘플 코멘트: 회차·사진·코멘트·손글씨·사이즈표·실측)가 빠져 있었다.**
+  → 아이템을 한 번 수정·저장할 때마다 샘플 코멘트가 **통째로 날아갔다.**
+- 같은 구멍이 더 있었다: **`ideaData`(아이디어보드)**, **`ssAct`·`ssShoot`·`ssOff`·`ssDone`·`ssRound`·`ssHist`(샘플 스케줄표)**.
+  전부 보존 목록에 추가.
+- ⚠️ **폼 밖에서 아이템에 쌓는 자료는 반드시 이 보존 줄에 넣을 것.** 새 기능을 만들 때 제일 먼저 확인할 것.
+  (지금 지키는 것: techpack · smpRounds · ideaData · ss* · category · createdAt · startDate · kcCert/At ·
+   instrDone/At · gradingDone/At · photoReady/At · costSent/At · statusManual · hold · qc · kcColors · csQtyOvr · csPriceOvr · csLossMode/Pct)
+- 검증: 저장 로직의 보존 줄을 그대로 떼어 «폼 밖 자료가 살아남는지» 11개 확인(사진·코멘트·실측까지).
