@@ -1353,6 +1353,11 @@ function laborRate(it,size){
 function hasLaborBySize(it){var m=it&&it.laborBySize;if(!m)return false;for(var k in m){if(+m[k]>0)return true;}return false;}
 // 오더별 공장 스냅샷 — 오더 생성 시점의 공장을 오더에 얼려둠(아이템 공장을 나중에 바꿔도 옛 오더 결제/명세서 안 꼬임).
 // orderFc(o,it,fk): fcMap에 얼려둔 값 우선(빈값도 존중), 없으면(옛 오더) 아이템 현재값 폴백.
+/* 만드는 공장 = 봉제공장. **프로모션 아이템은 봉제공장이 비어 있고 프로모션공장이 그 자리**다.
+   ⚠️ 재단·봉제·출고 칸이 sewingFcId 만 봐서 프로모션 아이템은 「공장이 지정되지 않았어요」로 막혔다
+      (신고 2026-08-25: MNK 프로모션인데 출고 수량을 못 적음). 작지(tpRender)는 이미 promoFc||sewFc 였다.
+   ⚠️ 「만드는 공장」이 필요한 자리는 앞으로 전부 이 함수를 쓸 것 — it.sewingFcId 를 직접 읽지 말 것. */
+function makerFc(it){ return (it&&(it.sewingFcId||it.promotionFcId))||''; }
 function orderFc(o,it,fk){ if(o&&o.fcMap&&it&&o.fcMap[it.id]&&Object.prototype.hasOwnProperty.call(o.fcMap[it.id],fk))return o.fcMap[it.id][fk]||''; return it?(it[fk]||''):''; }
 function snapshotOrderFc(o){ if(!o||!o.orderItems)return; if(!o.fcMap)o.fcMap={}; o.orderItems.forEach(function(oi){ if(!oi||!oi.itemId)return; var it=S.items[oi.itemId]; if(!it)return; if(!o.fcMap[oi.itemId])o.fcMap[oi.itemId]={}; for(var i=0;i<COST_DEFS.length;i++){ var fk=COST_DEFS[i][2]; if(fk&&!Object.prototype.hasOwnProperty.call(o.fcMap[oi.itemId],fk))o.fcMap[oi.itemId][fk]=it[fk]||''; } }); }
 const PO_OPT_DEFS=[
@@ -2361,7 +2366,7 @@ function buildMorningBrief(){
     (o.orderItems||[]).forEach(function(oi){
       var it=S.items[oi.itemId]; if(!it)return;
       if(o.payArchivedItems&&o.payArchivedItems[it.id])return;
-      var sewFcId=it.sewingFcId||''; if(!sewFcId)return;
+      var sewFcId=makerFc(it); if(!sewFcId)return;   /* 프로모션 아이템도 잡히게 */
       var sch2=(o.factorySchedules||{})[sewFcId]; if(!sch2)return;
       var shipped=(sch2.shipments||[]).some(function(s){return s&&+s.qty>0&&(!s.itemId||s.itemId===oi.itemId);})||(+sch2.shippingQty>0);
       if(!shipped)return;
@@ -4025,7 +4030,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25d';
+var APP_BUILD=/*BUILD*/'2026-08-25e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -21078,7 +21083,7 @@ function pdShipQty(sch,itemId,isSingleOrder){
 // 진행 단계 배열 [{k,d}] — 진행바·트래커·정렬에서 공용 (한 곳에서만 정의해 진행률 표시와 정렬이 항상 일치)
 function pdRowStages(r){
   var it=r.it,o=r.o,fs=o.factorySchedules||{};
-  var fcSew=it.sewingFcId||'';
+  var fcSew=makerFc(it);
   var fcExt=it.embroideryFcId||it.printingFcId||it.washingFcId||'';
   var fcFin=it.finishingFcId||'';
   var fcInsp=it.inspectionFcId||'';
@@ -21172,7 +21177,7 @@ function renderProdDashRow(r){
     </div></div>`;
   };
   // 공정별 fcId
-  const fcSew=r.it.sewingFcId||'';
+  const fcSew=makerFc(r.it);
   const fcExt=r.it.embroideryFcId||r.it.printingFcId||r.it.washingFcId||'';
   const fcFin=r.it.finishingFcId||'';
   const fcInsp=r.it.inspectionFcId||'';

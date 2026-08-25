@@ -1028,3 +1028,15 @@
   삭제 쪽도 같이. 대표 `labelName` 은 작지 라벨 사진·발주서가 보는 값이라 케어라벨만 비어 있던 것도 같이 메워졌다.
 - 훑기: `<script>` 전체에서 «호출은 있는데 정의가 없는» render*/persist*/autofill*/col?R 함수를 프로그램으로 뒤졌고, `renderTrims` 하나뿐이었다(이제 0).
 - 검증: 실제 함수로 14개(고르기·단가 자동·중복·빈값·지우기·대표명 따라가기) 통과.
+
+## 2026-08-25e — [버그] 프로모션 아이템은 출고 수량을 못 적던 것
+- 신고: 「MNK 프로모션인데 출고 수량 적으려니까 **공장이 지정되지 않았다**고 나와」.
+- 원인: 생산 대시보드의 **재단·봉제·출고** 칸이 `fcSew = it.sewingFcId` 만 봤다.
+  프로모션 아이템은 봉제공장이 비어 있고 **`promotionFcId`** 가 그 자리다 → `fcId` 가 빈값 →
+  `pdOpenQtyModal` 이 「공장이 지정되지 않았어요」로 막음. (작지 `tpRender` 는 이미 `promoFc||sewFc` 로 쓰고 있었다)
+- 고침: **`makerFc(it)` = `sewingFcId || promotionFcId`** 를 공용 유틸(`orderFc` 옆)에 두고
+  대시보드 두 자리(`pdRowStages`, 행 렌더)와 결제 알림 한 자리에서 쓰게 했다. 봉제공장이 있으면 그게 우선.
+- ⚠️ 앞으로 **「만드는 공장」이 필요한 자리는 `makerFc(it)` 를 쓸 것. `it.sewingFcId` 를 직접 읽지 말 것.**
+  (`COST_DEFS` 에 `promotionCost/promotionFcId` 가 이미 있어 원가·결제는 따로 잡힌다)
+- 검증: `makerFc` 실제 함수로 5개(프로모션/일반/둘 다 없음/null/둘 다면 봉제 우선) 통과 +
+  재단·봉제·출고 셀이 모두 `fcSew`(=`makerFc`)를 받는지 코드로 확인.
