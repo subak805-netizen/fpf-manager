@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260825r">
+<link rel="stylesheet" href="css/main.css?v=20260825t">
 </head>
 <body>
 
@@ -427,6 +427,7 @@ tryInitFirebase();
         <div class="oc-tabs">
           <button class="oc-tab on" id="oc-tab-btn-qty" onclick="ocalcSwitchTab('qty')">수량 계산</button>
           <button class="oc-tab" id="oc-tab-btn-fab" onclick="ocalcSwitchTab('fab')">원단 배분</button>
+          <button class="oc-tab" id="oc-tab-btn-need" onclick="ocalcSwitchTab('need')">원단 필요량</button>
         </div>
         <div class="ocalc-bd" id="oc-tab-qty">
           <div class="field">
@@ -479,6 +480,24 @@ tryInitFirebase();
             <div id="fa-rem-detail"></div>
             <button class="go" id="fa-apply-btn" style="margin-top:10px;display:none" onclick="faApply()">계산 수량을 오더에 적용</button>
           </div>
+        </div>
+        <!-- 원단 필요량 — 「컬러당 N장 만들면 한 컬러에 몇 야드?」 (2026-08-25) -->
+        <div class="ocalc-bd" id="oc-tab-need" style="display:none">
+          <div class="field">
+            <label class="fl">아이템 <span class="sub">고르면 원단·요척 자동</span></label>
+            <input class="szinput" id="fn-search" list="fn-item-dl" placeholder="아이템명·품번 검색" autocomplete="off" oninput="fnResolveItem(event)" oncompositionstart="this._cmp=1" oncompositionend="this._cmp=0;fnResolveItem()">
+            <datalist id="fn-item-dl"></datalist>
+            <div id="fn-pick" style="font-family:var(--font-display);font-size:11px;color:var(--t2);margin-top:4px;min-height:14px">아이템을 고르세요</div>
+          </div>
+          <div class="field">
+            <label class="fl">컬러당 장수 <span class="sub">한 컬러에 몇 장 만드는지</span></label>
+            <input class="totinput" id="fn-pcs" type="number" inputmode="numeric" min="0" placeholder="0" oninput="fnRecalc()">
+          </div>
+          <div class="field">
+            <label class="fl">컬러 수 <span class="sub">아이템에서 자동 · 고쳐도 돼요</span></label>
+            <input class="totinput" id="fn-colors" type="number" inputmode="numeric" min="1" placeholder="1" oninput="fnRecalc()">
+          </div>
+          <div class="oc-result" id="fn-result"></div>
         </div>
       </div>
       <input id="o-search" placeholder="검색 (오더명·거래처)..." oninput="debounceSearch('orders',renderOrderPane)" style="margin-bottom:8px;font-size:16px;padding:7px 10px">
@@ -4038,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25s';
+var APP_BUILD=/*BUILD*/'2026-08-25t';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -14222,13 +14241,12 @@ function ocalcApplyTotal(t){document.getElementById('oc-total').value=t;ocalcCal
 /* ===== 원단 배분 탭 ===== */
 var faItems=[],faNid=1;
 function ocalcSwitchTab(t){
-  var q=document.getElementById('oc-tab-qty'),f=document.getElementById('oc-tab-fab');
-  if(q)q.style.display=t==='fab'?'none':'';
-  if(f)f.style.display=t==='fab'?'':'none';
-  var bq=document.getElementById('oc-tab-btn-qty'),bf=document.getElementById('oc-tab-btn-fab');
-  if(bq)bq.className='oc-tab'+(t==='qty'?' on':'');
-  if(bf)bf.className='oc-tab'+(t==='fab'?' on':'');
+  ['qty','fab','need'].forEach(function(k){
+    var pane=document.getElementById('oc-tab-'+k); if(pane)pane.style.display=(k===t)?'':'none';
+    var btn=document.getElementById('oc-tab-btn-'+k); if(btn)btn.className='oc-tab'+(k===t?' on':'');
+  });
   if(t==='fab'){faBuildItemList();faRecalc();}
+  if(t==='need'){fnBuildItemList();fnRecalc();}
 }
 function faBuildItemList(){
   var dl=document.getElementById('fa-item-dl');if(!dl)return;
@@ -14311,6 +14329,90 @@ function faRenderResult(id,r){
   el.innerHTML='<div class="rtot">마카 '+r.cnt+'회  &middot;  총 '+r.totalQty+'장</div>'
     +'<div class="rgrid">'+chips+'</div>'
     +'<div class="fa-used"><span class="info">사용 '+r.used+'yd</span><span class="fa-badge '+lc+'">잔여 '+r.left+'yd</span></div>';
+}
+/* ===== 원단 필요량 탭 (2026-08-25) ==========================================
+   「이 아이템, 한 컬러에 N장 만들면 원단 몇 야드 필요한가」
+   ⚠️ 요척은 **아이템 원단의 요척** 그대로. 사이즈별 요척이 적혀 있으면 **평균**을 쓴다
+      (사용자 결정: 장수는 총 장수 한 칸만 받는다 → 사이즈 비율을 모르므로 평균이 맞다).
+   ⚠️ 로스(여유)는 안 넣는다 — 여유는 발주서에서 따로 붙인다(사용자 결정). */
+var _fnItem=null;
+function fnBuildItemList(){
+  var dl=document.getElementById('fn-item-dl'); if(!dl)return;
+  /* 원단이 없는 아이템도 목록에 둔다 — 안 그러면 «검색해도 안 나온다»가 되어 더 헷갈린다.
+     고르면 「등록된 원단이 없어요」라고 알려준다. */
+  var items=Object.values(S.items||{}).filter(function(it){ return it&&(it.name||it.code); });
+  items.sort(function(a,b){ return String(a.code||'\uffff').localeCompare(String(b.code||'\uffff'),'ko',{numeric:true}); });
+  window._fnItemMap={};
+  dl.innerHTML=items.map(function(it){
+    var label=(it.code?it.code+' \u00b7 ':'')+it.name;
+    window._fnItemMap[label.toLowerCase()]=it.id;
+    if(it.name)window._fnItemMap[String(it.name).toLowerCase()]=it.id;
+    if(it.code)window._fnItemMap[String(it.code).toLowerCase()]=it.id;
+    return '<option value="'+esc(label)+'"></option>';
+  }).join('');
+}
+/* ⚠️ 한글 조합 중엔 아무것도 안 한다 (fa-search 와 같은 규칙 — 조합 끊기면 「ㅇㅗㄷㅓ」로 쳐진다) */
+function fnResolveItem(e){
+  var el=document.getElementById('fn-search'); if(!el)return;
+  if(el._cmp)return;
+  if(e&&e.isComposing)return;
+  var q=(el.value||'').trim().toLowerCase();
+  var map=window._fnItemMap||{};
+  var id=q?(map[q]||''):'';
+  if(!id&&q.length>=2){ var ids={}; Object.keys(map).forEach(function(k){ if(k.indexOf(q)>=0)ids[map[k]]=1; }); var u=Object.keys(ids); if(u.length===1)id=u[0]; }
+  if(!id){ if(!q)_fnItem=null; fnRecalc(); return; }
+  var it=S.items[id]; if(!it)return;
+  _fnItem=it;
+  el.value=(it.code?it.code+' \u00b7 ':'')+it.name;
+  var cl=document.getElementById('fn-colors');
+  if(cl&&!(+cl.value>0))cl.value=(it.colors&&it.colors.length)?it.colors.length:1;
+  fnRecalc();
+}
+/* 요척 하나 뽑기 — 사이즈별이 있으면 평균 */
+function _fnYo(f){
+  var bs=f&&f.consumptionBySize;
+  if(bs&&typeof bs==='object'){
+    var vs=Object.keys(bs).map(function(k){ return +bs[k]||0; }).filter(function(v){ return v>0; });
+    if(vs.length)return {v:vs.reduce(function(a,b){return a+b;},0)/vs.length, avg:vs.length>1};
+  }
+  return {v:+((f&&f.consumption)||0), avg:false};
+}
+function _fnN(v){ v=Math.round((+v||0)*100)/100; return (typeof num==='function')?num(v):String(v); }
+function fnRecalc(){
+  var box=document.getElementById('fn-result'); if(!box)return;
+  var pick=document.getElementById('fn-pick');
+  if(pick){
+    pick.innerHTML=_fnItem
+      ? ('<b>'+esc(_fnItem.name||'')+'</b>'+(_fnItem.code?(' \u00b7 '+esc(_fnItem.code)):'')
+         +' \u00b7 원단 '+((_fnItem.fabrics||[]).length)+'개'
+         +((_fnItem.colors&&_fnItem.colors.length)?(' \u00b7 컬러 '+_fnItem.colors.length+'개'):''))
+      : '아이템을 고르세요';
+  }
+  var pcs=+((document.getElementById('fn-pcs')||{}).value)||0;
+  var nc=+((document.getElementById('fn-colors')||{}).value)||0;
+  if(!_fnItem||!pcs){ box.className='oc-result'; box.innerHTML=''; return; }
+  var fabs=(_fnItem.fabrics||[]).filter(Boolean);
+  if(!fabs.length){ box.className='oc-result show'; box.innerHTML='<div class="hint bad">이 아이템엔 등록된 원단이 없어요</div>'; return; }
+  var one=0, rows='', noYo=0;
+  fabs.forEach(function(f){
+    var yo=_fnYo(f), y1=Math.round(pcs*yo.v*100)/100;
+    one+=y1; if(!yo.v)noYo++;
+    rows+='<div class="hint '+(yo.v?'clean':'adj')+'" style="margin-bottom:6px">'
+      +'<b>'+esc(f.name||'(이름없음)')+'</b>'
+      +(f.part?(' <span style="color:var(--t2)">/ '+esc(f.part)+'</span>'):'')
+      +(f.supplier?(' <span style="color:var(--t2)">('+esc(f.supplier)+')</span>'):'')
+      +'<br>'
+      +(yo.v
+        ? ('요척 '+_fnN(yo.v)+(yo.avg?' <b>평균</b>':'')+' × '+_fnN(pcs)+'장 = <b>'+_fnN(y1)+'</b> 야드')
+        : '요척이 안 적혀 있어요 — 아이템에서 요척을 넣어주세요')
+      +'</div>';
+  });
+  var all=nc>0?Math.round(one*nc*100)/100:0;
+  box.className='oc-result show';
+  box.innerHTML=rows
+    +'<div class="rtot">한 컬러 '+_fnN(pcs)+'장 = <b>'+_fnN(one)+' 야드</b></div>'
+    +(nc>1?('<div class="rtot" style="background:var(--neon-green);color:var(--ink)">전체 '+nc+'컬러 = <b>'+_fnN(all)+' 야드</b></div>'):'')
+    +(noYo?('<div class="hint adj">요척이 없는 원단 '+noYo+'개는 0으로 잡았어요</div>'):'');
 }
 function faRenderAll(){var el=document.getElementById('fa-list');if(el)el.innerHTML=faItems.map(faRenderCard).join('');}
 function faRenderCard(it){
