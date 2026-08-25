@@ -469,7 +469,7 @@ tryInitFirebase();
           </div>
           <div class="field">
             <label class="fl">아이템 추가 <span class="sub">검색해서 고르면 요척·사이즈 자동</span></label>
-            <input class="szinput" id="fa-search" list="fa-item-dl" placeholder="아이템명·품번 검색" autocomplete="off" oninput="faResolveItem()">
+            <input class="szinput" id="fa-search" list="fa-item-dl" placeholder="아이템명·품번 검색" autocomplete="off" oninput="faResolveItem(event)" oncompositionstart="this._cmp=1" oncompositionend="this._cmp=0;faResolveItem()">
             <datalist id="fa-item-dl"></datalist>
             <div id="fa-search-hint" style="font-family:var(--font-display);font-size:10px;color:var(--t2);margin-top:4px;min-height:13px"></div>
           </div>
@@ -4038,7 +4038,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25r';
+var APP_BUILD=/*BUILD*/'2026-08-25s';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -14243,16 +14243,24 @@ function faBuildItemList(){
     return '<option value="'+esc(label)+'"></option>';
   }).join('');
 }
-function faResolveItem(){
-  var q=(document.getElementById('fa-search').value||'').trim().toLowerCase();
+/* ⚠️ 한글 조합 중에는 **아무것도 하지 않는다**.
+      조합 중에 `input.value=''` 를 하거나 faRenderAll() 로 화면을 다시 그리면 조합이 끊겨
+      「오더」가 「ㅇㅗㄷㅓ」로 쳐진다(신고 2026-08-25 · 샘플 코멘트 검색칸과 같은 사고).
+   ⚠️ 한 글자로 «어쩌다 하나만 걸린» 것으로 자동 추가하지 않는다 — 다 치기도 전에 담겨 버린다.
+      정확히 같은 이름·품번이면 길이 상관없이 바로 담는다(목록에서 고른 경우). */
+function faResolveItem(e){
+  var el=document.getElementById('fa-search'); if(!el)return;
+  if(el._cmp)return;
+  if(e&&e.isComposing)return;
+  var q=(el.value||'').trim().toLowerCase();
   var map=window._faItemMap||{};var hint=document.getElementById('fa-search-hint');
   var id=q?(map[q]||''):'';
-  if(!id&&q){var ids={};Object.keys(map).forEach(function(k){if(k.indexOf(q)>=0)ids[map[k]]=1;});var u=Object.keys(ids);if(u.length===1)id=u[0];}
+  if(!id&&q.length>=2){var ids={};Object.keys(map).forEach(function(k){if(k.indexOf(q)>=0)ids[map[k]]=1;});var u=Object.keys(ids);if(u.length===1)id=u[0];}
   if(!id){if(hint)hint.textContent=q.length>1?'아이템 고르면 자동 추가돼요':'';return;}
   var it=S.items[id];if(!it){if(hint)hint.textContent='';return;}
   if(faItems.find(function(x){return x.srcId===id;})){if(hint)hint.textContent='이미 추가된 아이템이에요';return;}
   faAddItem(it);
-  document.getElementById('fa-search').value='';if(hint)hint.textContent='';
+  el.value='';if(hint)hint.textContent='';
 }
 function faAddItem(it){
   var sizes=(it.sizes&&it.sizes.length)?it.sizes:['F'];
