@@ -4025,7 +4025,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25b';
+var APP_BUILD=/*BUILD*/'2026-08-25c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -31746,8 +31746,21 @@ function scStartItem(id){
   window._sc=window._sc||{}; window._sc.q='';
   renderSampleComment();
 }
-function scSetQ(v){ window._sc=window._sc||{}; window._sc.q=String(v||''); renderSampleComment();
-  setTimeout(function(){ var el=document.getElementById('sc-q'); if(el){ el.focus(); try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){} } },0); }
+/* ⚠️ 검색은 **화면을 통째로 다시 그리면 안 된다**. 입력칸이 날아가면서 한글 조합이 깨져
+      「체크」가 「ㅊㅔㅋㅡ」로 쳐진다(신고 2026-08-25). → 입력칸은 그대로 두고 **목록만** 갈아끼운다. */
+function scSetQ(v){
+  window._sc=window._sc||{}; window._sc.q=String(v||'');
+  var box=document.getElementById('sc-slist');
+  if(!box){ renderSampleComment(); return; }
+  box.innerHTML=_scListHTML();
+  var st=document.getElementById('sc-stat');
+  if(st){ var rr=_scRows();
+    st.innerHTML='<span><b>'+rr.length+'</b>아이템</span><span><b>'+rr.reduce(function(s,r){return s+r.n;},0)+'</b>적은 회차</span>'
+      +'<span class="warn"><b>'+rr.reduce(function(s,r){return s+r.fix;},0)+'</b>수정필요</span>';
+  }
+}
+/* 「×」로 지울 때만 입력칸도 비운다 (조합 중이 아니라 안전) */
+function scClearQ(){ var el=document.getElementById('sc-q'); if(el)el.value=''; scSetQ(''); if(el)el.focus(); }
 function _scMD(iso){ if(!iso)return ''; var p=String(iso).split('-'); return p.length===3?((+p[1])+'/'+(+p[2])):iso; }
 function _scPic(id,ri,key,lbl,url){
   var a="'"+esc(id)+"',"+ri+",'"+key+"'";
@@ -31760,49 +31773,11 @@ function _scPic(id,ri,key,lbl,url){
           +'<button type="button" class="sc-pm" onclick="event.stopPropagation();scDrawOpen(\''+esc(id)+'\','+ri+',\''+String(url).replace(/'/g,"\\'")+'\')" title="이 사진 위에 펜슬로 표시">표시</button>')
          :'<span class="sc-add">＋ 사진<br><i>끌어다 놓기 · 붙여넣기</i></span>')+'</div>';
 }
-function renderSampleComment(){
-  var el=document.getElementById('sccm-body'); if(!el)return;
-  var o=_scState(), rows=_scRows();
-  var seasons={},brands={};
-  Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; if(!it)return; if(it.season)seasons[it.season]=1; if(it.brandId)brands[it.brandId]=1; });
-  var sList=Object.keys(seasons).sort(function(a,b){ return (typeof seasonKey==='function')?(seasonKey(b)-seasonKey(a)):a.localeCompare(b,'ko'); });
-  var totCm=rows.reduce(function(s,r){return s+r.n;},0), totFix=rows.reduce(function(s,r){return s+r.fix;},0);
-
-  /* 고른 아이템 — 없거나 걸러져 사라졌으면 첫 줄 */
-  var sel=null;
-  rows.forEach(function(r){ if(r.id===window._scOpen)sel=r; });
-  if(!sel&&rows.length)sel=rows[0];
-  window._scOpen=sel?sel.id:null;
-
-  var H='<div class="sc-wrap2">';
-  /* ── 왼쪽 리스트 ── */
-  var _chip=function(on,val,key,lbl){ return '<button class="sc-fc'+(on?' on':'')+'" onclick="scSet(\''+key+'\',\''+String(val).replace(/'/g,"\\'")+'\')">'+esc(lbl)+'</button>'; };
-  H+='<div class="sc-sl">'
-    +'<div class="sc-qbar">'
-      +'<input id="sc-q" class="sc-q" value="'+esc(o.q||'')+'" placeholder="아이템명 · 품번으로 찾기" oninput="scSetQ(this.value)">'
-      +(o.q?'<button class="sc-qx" onclick="scSetQ(\'\')" title="지우기">×</button>':'')
-    +'</div>'
-    +'<div class="sc-fbar">'
-      +'<span class="fl">시즌</span>'+_chip(!o.season,'','season','전체')
-        +sList.map(function(s){return _chip(s===o.season,s,'season',s);}).join('')
-    +'</div>'
-    +(Object.keys(brands).length>1?('<div class="sc-fbar">'
-      +'<span class="fl">브랜드</span>'+_chip(!o.brand,'','brand','전체')
-        +Object.keys(brands).map(function(b){return _chip(b===o.brand,b,'brand',getBrandName(b)||b);}).join('')
-    +'</div>'):'')
-    +'<div class="sc-fbar">'
-      +'<span class="fl">정렬</span>'
-      +_chip(o.sort==='recent','recent','sort','최근')
-      +_chip(o.sort==='fix','fix','sort','수정 많은')
-      +_chip(o.sort==='name','name','sort','이름')
-      +'<span class="sc-sp"></span>'
-      +'<button class="sc-fc'+(o.fixOnly?' on warn':'')+'" onclick="scSet(\'fixOnly\','+(o.fixOnly?'false':'true')+')">수정필요만</button>'
-    +'</div>'
-    +'<div class="sc-slstat"><span><b>'+rows.length+'</b>아이템</span><span><b>'+totCm+'</b>적은 회차</span>'
-      +'<span class="warn"><b>'+totFix+'</b>수정필요</span></div>'
-    +'<div class="sc-slist">';
+/* 왼쪽 목록 알맹이 — 검색할 때 **이것만** 갈아끼운다(입력칸을 안 건드려야 한글이 안 깨진다) */
+function _scListHTML(){
+  var o=_scState(), rows=_scRows(), H='';
   if(!rows.length){
-    H+='<div class="sc-empty">'+(o.fixOnly?'수정필요인 게 없어요.<br><span>위 「수정필요만」을 꺼보세요.</span>':'아직 적어둔 샘플 코멘트가 없어요.<br><span>아이템 목록에서 「진행」을 눌러 시작하세요.</span>')+'</div>';
+    H+='<div class="sc-empty">'+(o.q?('「'+esc(o.q)+'」로 찾은 게 없어요.'):(o.fixOnly?'수정필요인 게 없어요.<br><span>위 「수정필요만」을 꺼보세요.</span>':'아직 적어둔 샘플 코멘트가 없어요.<br><span>아래에서 아이템을 골라 시작하세요.</span>'))+'</div>';
   }else{
     rows.forEach(function(r){
       var r0=r.rs[0]||{};
@@ -31827,7 +31802,49 @@ function renderSampleComment(){
     });
     if(!o.q&&_cands.length>_show.length)H+='<div class="sc-newmore">더 있으면 위에서 이름·품번으로 찾아보세요</div>';
   }
-  H+='</div></div>';
+  return H;
+}
+function renderSampleComment(){
+  var el=document.getElementById('sccm-body'); if(!el)return;
+  var o=_scState(), rows=_scRows();
+  var seasons={},brands={};
+  Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; if(!it)return; if(it.season)seasons[it.season]=1; if(it.brandId)brands[it.brandId]=1; });
+  var sList=Object.keys(seasons).sort(function(a,b){ return (typeof seasonKey==='function')?(seasonKey(b)-seasonKey(a)):a.localeCompare(b,'ko'); });
+  var totCm=rows.reduce(function(s,r){return s+r.n;},0), totFix=rows.reduce(function(s,r){return s+r.fix;},0);
+
+  /* 고른 아이템 — 없거나 걸러져 사라졌으면 첫 줄 */
+  var sel=null;
+  rows.forEach(function(r){ if(r.id===window._scOpen)sel=r; });
+  if(!sel&&rows.length)sel=rows[0];
+  window._scOpen=sel?sel.id:null;
+
+  var H='<div class="sc-wrap2">';
+  /* ── 왼쪽 리스트 ── */
+  var _chip=function(on,val,key,lbl){ return '<button class="sc-fc'+(on?' on':'')+'" onclick="scSet(\''+key+'\',\''+String(val).replace(/'/g,"\\'")+'\')">'+esc(lbl)+'</button>'; };
+  H+='<div class="sc-sl">'
+    +'<div class="sc-qbar">'
+      +'<input id="sc-q" class="sc-q" value="'+esc(o.q||'')+'" placeholder="아이템명 · 품번으로 찾기" oninput="scSetQ(this.value)">'
+      +'<button class="sc-qx" onclick="scClearQ()" title="지우기">×</button>'
+    +'</div>'
+    +'<div class="sc-fbar">'
+      +'<span class="fl">시즌</span>'+_chip(!o.season,'','season','전체')
+        +sList.map(function(s){return _chip(s===o.season,s,'season',s);}).join('')
+    +'</div>'
+    +(Object.keys(brands).length>1?('<div class="sc-fbar">'
+      +'<span class="fl">브랜드</span>'+_chip(!o.brand,'','brand','전체')
+        +Object.keys(brands).map(function(b){return _chip(b===o.brand,b,'brand',getBrandName(b)||b);}).join('')
+    +'</div>'):'')
+    +'<div class="sc-fbar">'
+      +'<span class="fl">정렬</span>'
+      +_chip(o.sort==='recent','recent','sort','최근')
+      +_chip(o.sort==='fix','fix','sort','수정 많은')
+      +_chip(o.sort==='name','name','sort','이름')
+      +'<span class="sc-sp"></span>'
+      +'<button class="sc-fc'+(o.fixOnly?' on warn':'')+'" onclick="scSet(\'fixOnly\','+(o.fixOnly?'false':'true')+')">수정필요만</button>'
+    +'</div>'
+    +'<div class="sc-slstat" id="sc-stat"><span><b>'+rows.length+'</b>아이템</span><span><b>'+totCm+'</b>적은 회차</span>'
+      +'<span class="warn"><b>'+totFix+'</b>수정필요</span></div>'
+    +'<div class="sc-slist" id="sc-slist">'+_scListHTML()+'</div></div>';
 
   /* ── 오른쪽 상세 (A4 확인서) ── */
   H+='<div class="sc-dt">';
