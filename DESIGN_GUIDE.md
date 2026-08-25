@@ -1169,3 +1169,23 @@
 - **인쇄는 종이를 옮기지 않는다.** CSS 가 전부 `#sccm-body …` 로 묶여 있어 옮기면 스타일이 통째로 떨어진다. `_scPrintChain()` 로 조상 줄기만 남긴다.
 - **`.sc-a4-fit` 의 transform 은 인쇄에서도 지우지 않는다** — 내용이 종이보다 길 때 줄여주는 축소라, 지우면 잘려 나간다.
 - 코멘트 칸 저장 키는 `patMemo`(미팅전)·`smpMemo`(미팅후). 이름만 다르다.
+
+---
+
+## 2026-08-25q — 라벨 저장 사고 · 인쇄 재수정 · 줄 순서 드래그
+
+| 신고 | 진짜 원인 | 고침 |
+|---|---|---|
+| 「라벨 바꿨는데 껐다 켜면 도루묵」 「3번이나 다시했어」 | **`colTR()` 가 그 칸이 없는 카드에서 값을 지웠다.** 라벨 카드(`labelShell`)엔 `[data-f=name]`·`size`·`color` 입력칸이 없는데 `formTrims[i].name=g('name')\|\|''` 라 저장할 때마다 **빈 값으로 덮였다** | `if(g('name')!=null)` 처럼 **칸이 있을 때만** 덮어쓴다 (name·supplier·size·color·part) |
+| 「저장이 바로바로 안 돼」 | 라벨 칩 추가/삭제는 `persistTrimEdit` 를 부르는데 그건 미니멈 4개만 옮겼다 → 폼 「저장」 전엔 안 남음 | `persistTrimEdit` 가 `labelNames·labelName·midSize·labelPart·brandId·finishSel·unitPrice·name` 도 옮긴다 (⚠️ `undefined` 는 건너뛴다 — 덮으면 오히려 지워짐) |
+| 「작지에 반영도 안 되고」 | `tpLabelTableHTML` 이 `tpLabelName(t)`(=첫 칩 하나)만 썼다 | 고른 칩 **전부**(`labelNames`)를 줄로 |
+| 「프린트 아직 그대로」 (2장) | **`@page{margin:0}` 이 문제였다.** 크롬은 인쇄창의 「여백」 설정을 우선하고, `@page` 를 걸면 **맞춤 배율(자동 축소)이 꺼져** 200×287mm 종이가 인쇄영역(190×277mm)을 넘어 쪼개졌다. 작지는 `@page` 가 없어서 크롬이 알아서 줄여 한 장에 나왔던 것 | `@page` **삭제** + 종이는 작지 `.tp-wrap` 과 같은 규칙(`margin:0 auto;overflow:hidden;transform:none`) |
+| 「치수 순서 화살표 말고 끌어서」 | — | `tpRowMoveBtns` = 손잡이(⠿) 하나. `tpRowDragStart/Move/End`+`tpMoveRowTo`. 포인터 이벤트라 아이패드 손가락도 됨. **▲▼ 없앰**. 순서칸 폭 58→44px |
+| 「확인서에서 부위 추가하면 작지에도」 | — | `_scPushPartToSpecs` — `scSetSize(...,'part',…)` 때 **모든 회차**(sew·grd·spat*)에 부위 줄 추가. 값은 안 건드림 |
+| 코멘트 예시 글씨 없애기 / 글씨 2pt 키우기 | — | placeholder 제거, 12.5→14.5px |
+
+### ⚠️ 이 영역 손대기 전 필독
+- **`colTR()` 에서 `g('x')||''` 로 바로 덮지 말 것.** 부자재 카드는 종류마다 칸 구성이 달라서, 없는 칸을 덮으면 **저장할 때마다 값이 사라진다.** `!=null` 로 «칸이 있는지» 먼저 본다.
+- **샘플확인서 인쇄에 `@page` 를 넣지 말 것.** 넣는 순간 크롬 자동 축소가 꺼져 2장이 된다. 작지와 똑같이 두는 게 정답.
+- **줄 순서 드래그**는 `data-tp-path`/`data-tp-i` 를 단 손잡이를 기준으로 대상 줄을 찾는다. `tpRowMoveBtns` 를 쓰는 표는 전부 자동으로 드래그가 된다.
+- **`_scPushPartToSpecs` 는 «치수표가 이미 있는» 시트에만 넣는다.** 빈 시트에 한 줄만 만들면 작지가 기본 부위 목록 폴백을 잃는다.
