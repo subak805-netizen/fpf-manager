@@ -4030,7 +4030,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25e';
+var APP_BUILD=/*BUILD*/'2026-08-25f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -31553,9 +31553,25 @@ function scOpenItem(id){
       rr.size = [{part,pat,give,meas}]  ·  rr.labor(공임 직접입력, 비우면 아이템 공임 자동)
    ⚠️ 작지 「샘플·패턴」 회차(spatRounds)와는 **따로**다. 써보고 나중에 묶기로 함. */
 function _scSize(rr){ return Array.isArray(rr&&rr.size)?rr.size:[]; }
-/* 부위 목록·패턴·지시 = 작지 치수표(sew.spec)에서 자동으로 가져온다(복사본) */
-function _scSizeAuto(it){
-  var sp=(it&&it.techpack&&it.techpack.sew&&it.techpack.sew.spec)||[];
+/* 치수를 가져올 수 있는 지시서 목록 — 지시서(sew) + 샘플·패턴 회차들.
+   ⚠️ 작지는 치수가 시트마다 따로다(2026-08-19 「안 엮이게」 결정): sew.spec / spat.spec / spat2.spec …
+      그래서 확인서는 **어디서 가져올지 골라야** 한다. (그레이딩은 지시서와 같은 sew.spec 이라 따로 안 내놓는다) */
+function _scSpecSources(it){
+  var d=(it&&it.techpack)||{}, out=[];
+  var cnt=function(a){ return Array.isArray(a)?a.filter(function(r){return r&&String(r.part||'').trim();}).length:0; };
+  var c0=cnt(d.sew&&d.sew.spec); if(c0)out.push({k:'sew',lbl:'지시서',n:c0});
+  var rs=Array.isArray(d.spatRounds)?d.spatRounds:(d.spat?['spat']:[]);
+  rs.forEach(function(k,i){ var c=cnt(d[k]&&d[k].spec); if(c)out.push({k:k,lbl:'샘플·패턴 '+(i+1)+'차',n:c}); });
+  return out;
+}
+function _scSrcLbl(it,k){
+  var s=_scSpecSources(it).find(function(x){return x.k===k;});
+  return s?s.lbl:'지시서';
+}
+/* 부위 목록·패턴·지시 = 고른 지시서의 치수표에서 가져온다(복사본) */
+function _scSizeAuto(it,src){
+  var d=(it&&it.techpack)||{};
+  var sp=((d[src||'sew']||{}).spec)||(d.sew&&d.sew.spec)||[];
   var sizes=(it&&it.sizes&&it.sizes.length)?it.sizes:['FREE'];
   var sz=sizes[0];
   var out=[];
@@ -31569,7 +31585,10 @@ function _scSizeAuto(it){
 function _scSizeRows(it,rr){
   var a=_scSize(rr);
   if(a.length)return a;
-  return _scSizeAuto(it);   // 아직 아무것도 안 적었으면 작지 치수를 보여준다(저장은 손댈 때)
+  /* 아직 아무것도 안 적었으면 골라둔 지시서(없으면 첫 번째)의 치수를 보여준다. 저장은 손댈 때. */
+  var srcs=_scSpecSources(it);
+  var k=(rr&&rr.sizeSrc)||(srcs[0]&&srcs[0].k)||'sew';
+  return _scSizeAuto(it,k);
 }
 function _scSizeWrite(id,ri,arr){
   var it=S.items[id]; if(!it)return;
@@ -31605,13 +31624,38 @@ function scSizeDel(id,ri,i){
   var rows=_scSizeRows(it,rr).filter(function(_,x){return x!==i;});
   _scSizeWrite(id,ri,rows); renderSampleComment();
 }
-/* 작지 치수를 다시 끌어와 덮기 */
+/* 「불러오기」 — 어느 지시서에서 가져올지 고른다 */
 function scSizeReload(id,ri){
   var it=S.items[id]; if(!it)return;
-  var a=_scSizeAuto(it);
-  if(!a.length){ showToast('작지 「치수」에 적힌 게 없어요'); return; }
-  if(!confirm('작지 치수로 다시 채울까요? 여기 적은 실측은 지워져요.'))return;
-  _scSizeWrite(id,ri,a); renderSampleComment();
+  var srcs=_scSpecSources(it);
+  if(!srcs.length){ showToast('작지 「치수」에 적힌 게 없어요'); return; }
+  var rr=_scRounds(it)[ri]||{}, cur=rr.sizeSrc||'';
+  var _id=esc(id).replace(/'/g,"\\'");
+  var B='<div style="padding:14px 16px">'
+    +'<div style="font-size:12.5px;color:#6b7280;line-height:1.7;margin-bottom:12px">'
+      +'어느 지시서의 치수를 가져올까요?<br>'
+      +'<b style="color:#b45309">여기 적은 실측·차이는 지워집니다.</b></div>';
+  srcs.forEach(function(s){
+    B+='<button onclick="scSizeTake(\''+_id+'\','+ri+',\''+s.k+'\')" '
+      +'style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;margin-bottom:6px;padding:11px 13px;'
+      +'border:1px solid '+(s.k===cur?'#1f2937':'#d7dce2')+';background:'+(s.k===cur?'#f3f5f8':'#fff')+';border-radius:9px;cursor:pointer;font-family:inherit">'
+      +'<b style="font-size:13.5px">'+esc(s.lbl)+'</b>'
+      +'<span style="font-size:11.5px;color:#8b95a1">부위 '+s.n+'개</span>'
+      +(s.k===cur?'<span style="margin-left:auto;font-size:11px;font-weight:700;color:#1f2937">지금 이거</span>':'')
+      +'</button>';
+  });
+  B+='</div>';
+  showGenericModal('치수 불러오기',B,420);
+}
+function scSizeTake(id,ri,src){
+  var it=S.items[id]; if(!it)return;
+  var a=_scSizeAuto(it,src);
+  if(!a.length){ showToast('그 지시서엔 치수가 없어요'); return; }
+  var arr=_scRounds(it).slice(), rr=arr[ri];
+  if(rr){ rr.sizeSrc=src; rr.size=a; _scWrite(it,arr); }
+  closeGenericModal();
+  renderSampleComment();
+  showToast(_scSrcLbl(it,src)+' 치수로 채웠어요 ('+a.length+'부위)');
 }
 function scSetLabor(id,ri,v){
   var it=S.items[id]; if(!it)return;
@@ -31909,8 +31953,11 @@ function renderSampleComment(){
     H+='<div class="sc-a4-sec">원단 <span class="hint">아이템에서 자동 · 원단만</span></div>'+_scFabHTML(it);
     /* 사이즈 체크리스트 */
     var srows=_scSizeRows(it,rr);
-    H+='<div class="sc-a4-sec">사이즈 체크리스트 <span class="hint">차이 = 실측 − 지시 (자동)</span>'
-      +'<button class="sc-gb tp-editonly" onclick="scSizeReload(\''+_id+'\','+ri+')" title="작지 「치수」에서 다시 채우기">작지에서 불러오기</button></div>';
+    var _srcs=_scSpecSources(it);
+    var _srcK=rr.sizeSrc||(_srcs[0]&&_srcs[0].k)||'';
+    H+='<div class="sc-a4-sec">사이즈 체크리스트 <span class="hint">차이 = 실측 − 지시 (자동)'
+      +(_srcK&&srows.length?(' · '+esc(_scSrcLbl(it,_srcK))+'에서'):'')+'</span>'
+      +'<button class="sc-gb tp-editonly" onclick="scSizeReload(\''+_id+'\','+ri+')" title="어느 지시서의 치수를 가져올지 고릅니다">불러오기</button></div>';
     H+='<table class="sc-a4-sz"><tr><th style="width:32%">측정부위</th><th style="width:14%">패턴</th>'
       +'<th style="width:16%">지시</th><th style="width:16%">실측</th><th style="width:14%">차이</th><th class="tp-editonly" style="width:24px"></th></tr>';
     if(!srows.length){
