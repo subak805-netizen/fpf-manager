@@ -1118,3 +1118,11 @@
   (지금 지키는 것: techpack · smpRounds · ideaData · ss* · category · createdAt · startDate · kcCert/At ·
    instrDone/At · gradingDone/At · photoReady/At · costSent/At · statusManual · hold · qc · kcColors · csQtyOvr · csPriceOvr · csLossMode/Pct)
 - 검증: 저장 로직의 보존 줄을 그대로 떼어 «폼 밖 자료가 살아남는지» 11개 확인(사진·코멘트·실측까지).
+
+## 2026-08-25j — 샘플 코멘트 리스트: 「미작성」 상태 추가
+- 신고: 방금 만든 빈 회차가 초록 「확인됨」으로 뜸.
+- 원인: 칩이 **「수정필요(적었는데 확인 안 함)」가 0이면 무조건 확인됨** 이었다.
+  아무것도 안 적은 회차는 수정필요로 안 세니 0 → 확인됨으로 보였다.
+- 고침: `_scStateOf(it)` 로 **세 상태**를 가른다 — `fix`(수정 N·빨강) / `empty`(**미작성**·회색) / `ok`(확인됨·초록).
+  적은 것도 확인 표시도 없으면 «미작성». 안 적었어도 사용자가 「확인됨」을 직접 눌렀으면 그 뜻을 존중한다.
+- 검증: 실제 함수로 10가지(빈 회차·적고 미확인·적고 확인·안 적고 확인·여러 회차·회차 없음·옛 cms) 통과.
