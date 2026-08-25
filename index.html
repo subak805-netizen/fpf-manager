@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260824a">
+<link rel="stylesheet" href="css/main.css?v=20260825b">
 </head>
 <body>
 
@@ -4025,7 +4025,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-24d';
+var APP_BUILD=/*BUILD*/'2026-08-25b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -31514,6 +31514,7 @@ function _scState(){
   if(o.brand===undefined)o.brand='';
   if(o.sort===undefined)o.sort='recent';
   if(o.fixOnly===undefined)o.fixOnly=false;
+  if(o.q===undefined)o.q='';
   return o;
 }
 /* 리스트에서 줄을 누르면 **고른다**(예전엔 토글이라 다시 누르면 상세가 통째로 사라졌다) */
@@ -31705,6 +31706,7 @@ function _scRows(){
     var rs=_scRounds(it); if(!rs.length)return;
     var fx=_scFixN(it);
     if(o.fixOnly&&!fx)return;
+    if(o.q&&!_scMatch(it,o.q))return;
     out.push({it:it,id:id,nm:it.name||'(이름없음)',bn:(typeof getBrandName==='function'?getBrandName(it.brandId||''):'')||'브랜드 미지정',
       cd:it.code||'',rs:rs,fix:fx,n:_scCms(it).length,last:_scLastDate(it)});
   });
@@ -31713,6 +31715,39 @@ function _scRows(){
   else out.sort(function(a,b){ return String(b.last).localeCompare(String(a.last)) || a.nm.localeCompare(b.nm,'ko'); });
   return out;
 }
+/* 검색 — 아이템명·품번 (띄어쓰기·대소문자 무시) */
+function _scNorm(s){ return String(s==null?'':s).toLowerCase().replace(/\s+/g,''); }
+function _scMatch(it,q){
+  var n=_scNorm(q); if(!n)return true;
+  return _scNorm(it&&it.name).indexOf(n)>=0 || _scNorm(it&&it.code).indexOf(n)>=0;
+}
+/* 아직 회차가 하나도 없는 아이템 — 「샘플 코멘트 창에서 바로 만들기」용 */
+function _scNewCands(q){
+  var o=_scState(), out=[];
+  Object.keys(S.items||{}).forEach(function(id){
+    var it=S.items[id]; if(!it)return;
+    if(_scRounds(it).length)return;                 // 이미 있는 건 위 목록에 뜬다
+    if(o.season&&(it.season||'')!==o.season)return;
+    if(o.brand&&(it.brandId||'')!==o.brand)return;
+    if(q&&!_scMatch(it,q))return;
+    out.push({id:id,nm:it.name||'(이름없음)',cd:it.code||'',
+      bn:(typeof getBrandName==='function'?getBrandName(it.brandId||''):'')||'브랜드 미지정'});
+  });
+  out.sort(function(a,b){return a.nm.localeCompare(b.nm,'ko');});
+  return out;
+}
+/* 이 아이템으로 샘플 코멘트 시작 (1차 회차 만들고 바로 고름) */
+function scStartItem(id){
+  var it=S.items[id]; if(!it)return;
+  if(!_scRounds(it).length){
+    _scWrite(it,[{n:1,date:(typeof todayISO==='function'?todayISO():''),pics:{},patMemo:'',smpMemo:''}]);
+  }
+  window._scOpen=id; window._scR=0;
+  window._sc=window._sc||{}; window._sc.q='';
+  renderSampleComment();
+}
+function scSetQ(v){ window._sc=window._sc||{}; window._sc.q=String(v||''); renderSampleComment();
+  setTimeout(function(){ var el=document.getElementById('sc-q'); if(el){ el.focus(); try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){} } },0); }
 function _scMD(iso){ if(!iso)return ''; var p=String(iso).split('-'); return p.length===3?((+p[1])+'/'+(+p[2])):iso; }
 function _scPic(id,ri,key,lbl,url){
   var a="'"+esc(id)+"',"+ri+",'"+key+"'";
@@ -31741,17 +31776,27 @@ function renderSampleComment(){
 
   var H='<div class="sc-wrap2">';
   /* ── 왼쪽 리스트 ── */
+  var _chip=function(on,val,key,lbl){ return '<button class="sc-fc'+(on?' on':'')+'" onclick="scSet(\''+key+'\',\''+String(val).replace(/'/g,"\\'")+'\')">'+esc(lbl)+'</button>'; };
   H+='<div class="sc-sl">'
-    +'<div class="sc-slbar">'
-      +'<select onchange="scSet(\'season\',this.value)"><option value="">전체 시즌</option>'
-        +sList.map(function(s){return '<option'+(s===o.season?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
-      +'<select onchange="scSet(\'brand\',this.value)"><option value="">전체 브랜드</option>'
-        +Object.keys(brands).map(function(b){return '<option value="'+esc(b)+'"'+(b===o.brand?' selected':'')+'>'+esc(getBrandName(b)||b)+'</option>';}).join('')+'</select>'
-      +'<select onchange="scSet(\'sort\',this.value)">'
-        +'<option value="recent"'+(o.sort==='recent'?' selected':'')+'>최근 순</option>'
-        +'<option value="fix"'+(o.sort==='fix'?' selected':'')+'>수정 많은 순</option>'
-        +'<option value="name"'+(o.sort==='name'?' selected':'')+'>이름 순</option></select>'
-      +'<label class="sc-only"><input type="checkbox"'+(o.fixOnly?' checked':'')+' onchange="scSet(\'fixOnly\',this.checked)">수정필요만</label>'
+    +'<div class="sc-qbar">'
+      +'<input id="sc-q" class="sc-q" value="'+esc(o.q||'')+'" placeholder="아이템명 · 품번으로 찾기" oninput="scSetQ(this.value)">'
+      +(o.q?'<button class="sc-qx" onclick="scSetQ(\'\')" title="지우기">×</button>':'')
+    +'</div>'
+    +'<div class="sc-fbar">'
+      +'<span class="fl">시즌</span>'+_chip(!o.season,'','season','전체')
+        +sList.map(function(s){return _chip(s===o.season,s,'season',s);}).join('')
+    +'</div>'
+    +(Object.keys(brands).length>1?('<div class="sc-fbar">'
+      +'<span class="fl">브랜드</span>'+_chip(!o.brand,'','brand','전체')
+        +Object.keys(brands).map(function(b){return _chip(b===o.brand,b,'brand',getBrandName(b)||b);}).join('')
+    +'</div>'):'')
+    +'<div class="sc-fbar">'
+      +'<span class="fl">정렬</span>'
+      +_chip(o.sort==='recent','recent','sort','최근')
+      +_chip(o.sort==='fix','fix','sort','수정 많은')
+      +_chip(o.sort==='name','name','sort','이름')
+      +'<span class="sc-sp"></span>'
+      +'<button class="sc-fc'+(o.fixOnly?' on warn':'')+'" onclick="scSet(\'fixOnly\','+(o.fixOnly?'false':'true')+')">수정필요만</button>'
     +'</div>'
     +'<div class="sc-slstat"><span><b>'+rows.length+'</b>아이템</span><span><b>'+totCm+'</b>적은 회차</span>'
       +'<span class="warn"><b>'+totFix+'</b>수정필요</span></div>'
@@ -31768,6 +31813,19 @@ function renderSampleComment(){
         +(r.fix?('<span class="sc-chip fix">수정 '+r.fix+'</span>'):'<span class="sc-chip ok">확인됨</span>')
         +'</div></div>';
     });
+  }
+  /* 아직 코멘트가 없는 아이템 — 여기서 바로 시작 (예전엔 아이템 탭 「진행」을 눌러야만 만들어졌다) */
+  var _cands=_scNewCands(o.q);
+  if(_cands.length){
+    var _show=o.q?_cands:_cands.slice(0,8);
+    H+='<div class="sc-newh">여기서 바로 시작 <span>'+_cands.length+'개'+(o.q?'':(_cands.length>_show.length?(' 중 '+_show.length+'개'):''))+'</span></div>';
+    _show.forEach(function(c){
+      H+='<div class="sc-row new" onclick="scStartItem(\''+esc(c.id)+'\')">'
+        +'<div class="nm">'+esc(c.nm)+'</div>'
+        +'<div class="sub">'+esc(c.bn)+(c.cd?(' · '+esc(c.cd)):'')+'</div>'
+        +'<div class="rt"><span class="sc-chip add">＋ 시작</span></div></div>';
+    });
+    if(!o.q&&_cands.length>_show.length)H+='<div class="sc-newmore">더 있으면 위에서 이름·품번으로 찾아보세요</div>';
   }
   H+='</div></div>';
 
