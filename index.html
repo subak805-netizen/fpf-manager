@@ -6777,6 +6777,27 @@ function pbDetailSetPriceVal(encSup,encKey,ri,val){var sup=decodeURIComponent(en
    ------------------------------------------------------------------------ */
 var MT_STATUS={main:'양산 씀',sample:'샘플만 씀',sourced:'수배만 함',req:'스와치 요청중'};
 var MT_USES=['자켓','코트','셔츠','원피스','치마','바지','셋업','안감','공통'];
+/* 용도 목록 = 기본값 + 직접 추가분. refData(이미 동기화되는 맵)에 얹어 배선 추가 없이 안전하게 저장 */
+function getMtUses(){
+  S.refData=S.refData||{};
+  if(!Array.isArray(S.refData.matUses)||!S.refData.matUses.length)S.refData.matUses=MT_USES.slice();
+  return S.refData.matUses;
+}
+function mtAddUse(){
+  var v=(prompt('추가할 용도 (예: 점퍼, 모자, 가방)')||'').trim();
+  if(!v)return;
+  var list=getMtUses();
+  if(list.indexOf(v)>=0){ showToast('이미 있는 용도예요'); return; }
+  list.push(v); saveData(); renderMaterial(); if(window._mtCur)_mtReopen();
+  showToast('용도 「'+v+'」 추가됨');
+}
+function mtDelUse(u){
+  var list=getMtUses(),i=list.indexOf(u); if(i<0)return;
+  var used=_mtAll().filter(function(m){return _mtUses(m).indexOf(u)>=0;});
+  if(used.length){ showToast('「'+u+'」를 쓰는 소재가 '+used.length+'개 있어요 — 먼저 빼주세요'); return; }
+  if(!confirm('용도 「'+u+'」를 목록에서 지울까요?'))return;
+  list.splice(i,1); saveData(); renderMaterial(); if(window._mtCur)_mtReopen();
+}
 function _mtS(){ if(!window._mt)window._mt={kind:'all',view:'grid',q:'',use:[],status:[],sw:'',sup:[],sort:'recent'}; return window._mt; }
 function _mtKeyPB(sup,name){return 'pb:'+encodeURIComponent(sup)+'|'+encodeURIComponent(name);}
 function _mtParse(key){
@@ -6851,10 +6872,54 @@ function _mtSpecLine(m){
   if(m.rec&&m.rec.size)bits.push(m.rec.size);
   return bits.join(' · ');
 }
+/* 혼용률 약어 ↔ 이름. 'T 72 R 20 W 8'로 적어도 '울'·'울8'·'폴리'로 찾아지게 */
+var MT_FIBER=[
+  ['T','폴리','폴리에스터','폴리에스테르','테트론','POLY','PET'],
+  ['R','레이온','비스코스','RAYON'],
+  ['W','울','양모','모','WOOL'],
+  ['C','면','코튼','COTTON'],
+  ['N','나일론','폴리아미드','NYLON'],
+  ['L','린넨','리넨','마','LINEN'],
+  ['A','아크릴','ACRYL'],
+  ['SP','스판','스판덱스','폴리우레탄','PU','SPANDEX'],
+  ['CU','큐프라'],
+  ['SI','실크','견','SILK'],
+  ['MO','모달','MODAL'],
+  ['TE','텐셀','리오셀','TENCEL'],
+  ['CA','캐시미어','CASHMERE'],
+  ['AN','앙고라'],
+  ['AC','아세테이트'],
+  ['H','헴프','대마']
+];
+function _mtCompTokens(comp){
+  var raw=String(comp||''); if(!raw)return '';
+  var out=[raw],up=raw.toUpperCase();
+  MT_FIBER.forEach(function(g){
+    var hit=g.some(function(w){
+      var W=String(w).toUpperCase();
+      if(/^[A-Z]{1,2}$/.test(W))return new RegExp('(^|[^A-Z])'+W+'(?![A-Z])').test(up);
+      return up.indexOf(W)>=0;
+    });
+    if(hit)out.push(g.join(' '));
+  });
+  var m,re=/([A-Za-z]{1,2})\s*(\d{1,3})/g;                 // 'W 8' → 울8 / 양모8 …
+  while((m=re.exec(raw))){
+    var code=m[1].toUpperCase(),n=m[2];
+    MT_FIBER.forEach(function(g){ if(g[0]===code)g.forEach(function(w){ out.push(w+n); }); });
+  }
+  MT_FIBER.forEach(function(g){                              // '울 8' → W8 (반대 방향)
+    g.slice(1).forEach(function(w){
+      var r=new RegExp(w+'\\s*(\\d{1,3})','g'),mm;
+      while((mm=r.exec(raw)))out.push(g[0]+mm[1]);
+    });
+  });
+  return out.join(' ');
+}
+
 /* ── 검색·필터 ── */
 function _mtHay(m,usage){
   var r=m.rec||{},u=_mtUses(m);
-  return [m.name,m.sup,m.comp,m.loc,r.mSwLoc||'',MT_STATUS[_mtStatus(m,usage)],(r.tags||[]).join(' '),
+  return [m.name,m.sup,_mtCompTokens(m.comp),m.loc,r.mSwLoc||'',MT_STATUS[_mtStatus(m,usage)],(r.tags||[]).join(' '),
           u.join(' '),u.map(function(x){return x+'용';}).join(' '),
           (usage||[]).map(function(x){return x.name;}).join(' ')].join(' ').toLowerCase();
 }
@@ -6875,7 +6940,39 @@ function _mtPass(m,skip){
 function mtSetKind(k){_mtS().kind=k;renderMaterial();}
 function mtSetView(v){_mtS().view=v;renderMaterial();}
 function mtSetSort(v){_mtS().sort=v;renderMaterial();}
-function mtSearch(v){_mtS().q=v;clearTimeout(window._mtT);window._mtT=setTimeout(renderMaterial,150);}
+/* 검색은 화면 전체가 아니라 '결과·개수·필터'만 다시 그린다.
+   전체를 다시 그리면 검색 입력칸이 새로 만들어져 커서가 빠지고 한글 입력이 끊겼음(2026-08-15) */
+function mtSearch(v){_mtS().q=v;clearTimeout(window._mtT);window._mtT=setTimeout(mtRefresh,180);}
+function mtRefresh(){
+  var main=document.getElementById('mt-main'); if(!main){renderMaterial();return;}
+  var st=_mtS(),all=_mtAll();
+  all.forEach(function(m){m._usage=null;m._hay=null;});
+  var rows=_mtSortRows(all.filter(function(m){return _mtPass(m,null);}),st);
+  main.innerHTML=_mtResultsHTML(rows,all,st);
+  var cnt=document.getElementById('mt-cnt');
+  if(cnt)cnt.textContent=_mtCntText(rows);
+  var fh=_mtFiltersHTML(all);
+  var sd=document.getElementById('mt-sidef'); if(sd)sd.innerHTML=fh;
+  var sh=document.getElementById('mt-sheetf'); if(sh)sh.innerHTML=fh;
+}
+function _mtSortRows(rows,st){
+  return rows.sort(function(a,b){
+    if(st.sort==='name')return String(a.name).localeCompare(String(b.name),'ko');
+    if(st.sort==='used')return (b._usage||[]).length-(a._usage||[]).length;
+    if(st.sort==='price')return (a.priceN===''?1e12:a.priceN)-(b.priceN===''?1e12:b.priceN);
+    return (b.ord||0)-(a.ord||0)||String(a.name).localeCompare(String(b.name),'ko');
+  });
+}
+function _mtCntText(rows){
+  var nSw=rows.filter(function(m){return (m.rec&&m.rec.mSwLoc||'').trim();}).length;
+  return '총 '+rows.length+'개 · 실물 스와치 '+nSw+'개 보유';
+}
+function _mtResultsHTML(rows,all,st){
+  if(!rows.length)return '<div class="mt-empty">'+(all.length?'조건에 맞는 소재가 없어요.<br>필터를 지우거나 다른 말로 검색해 보세요.':'아직 소재가 없어요.<br>단가장에 원단·부자재를 등록하면 여기에 자동으로 모여요.')+'</div>';
+  return st.view==='grid'
+    ? '<div class="mt-grid">'+rows.map(_mtCardHTML).join('')+'</div>'
+    : '<div class="mt-list">'+rows.map(_mtRowHTML).join('')+'</div>';
+}
 function mtTog(k,v){var a=_mtS()[k],i=a.indexOf(v);if(i<0)a.push(v);else a.splice(i,1);renderMaterial();}
 function mtTogSw(v){var st=_mtS();st.sw=(st.sw===v?'':v);renderMaterial();}
 function mtReset(){window._mt={kind:_mtS().kind,view:_mtS().view,q:'',use:[],status:[],sw:'',sup:[],sort:_mtS().sort};renderMaterial();}
@@ -6904,7 +7001,8 @@ function _mtFiltersHTML(all){
   var sups=[];base.forEach(function(m){if(m.sup&&sups.indexOf(m.sup)<0)sups.push(m.sup);});
   sups.sort();
   var h='';
-  h+='<div class="mt-fg"><div class="mt-ft">용도</div><div class="mt-fo-w">'+MT_USES.map(function(u){return _mtOpt('use',u,u,_mtCount(base,'use',u));}).join('')+'</div></div>';
+  h+='<div class="mt-fg"><div class="mt-ft">용도</div><div class="mt-fo-w">'+getMtUses().map(function(u){return _mtOpt('use',u,u,_mtCount(base,'use',u));}).join('')
+    +'<span class="mt-fo mt-fo-add" onclick="mtAddUse()">＋ 용도</span></div></div>';
   h+='<div class="mt-fg"><div class="mt-ft">상태</div><div class="mt-fo-w">'+Object.keys(MT_STATUS).map(function(s){return _mtOpt('status',s,MT_STATUS[s],_mtCount(base,'status',s));}).join('')+'</div></div>';
   h+='<div class="mt-fg"><div class="mt-ft">실물 스와치</div><div class="mt-fo-w">'+_mtOpt('sw','y','가지고 있음',_mtCount(base,'sw','y'))+_mtOpt('sw','n','없음',_mtCount(base,'sw','n'))+'</div></div>';
   if(sups.length)h+='<div class="mt-fg"><div class="mt-ft">업체</div><div class="mt-fo-w">'+sups.map(function(s){return _mtOpt('sup',s,s,_mtCount(base,'sup',s));}).join('')+'</div></div>';
@@ -6951,17 +7049,10 @@ function renderMaterial(){
   _mtEnsureStyle();
   var st=_mtS(),all=_mtAll();
   all.forEach(function(m){m._usage=null;m._hay=null;});
-  var rows=all.filter(function(m){return _mtPass(m,null);});
-  rows.sort(function(a,b){
-    if(st.sort==='name')return String(a.name).localeCompare(String(b.name),'ko');
-    if(st.sort==='used')return (b._usage||[]).length-(a._usage||[]).length;
-    if(st.sort==='price')return (a.priceN===''?1e12:a.priceN)-(b.priceN===''?1e12:b.priceN);
-    return (b.ord||0)-(a.ord||0)||String(a.name).localeCompare(String(b.name),'ko');
-  });
-  var nSw=rows.filter(function(m){return (m.rec&&m.rec.mSwLoc||'').trim();}).length;
+  var rows=_mtSortRows(all.filter(function(m){return _mtPass(m,null);}),st);
   var fh=_mtFiltersHTML(all);
   var html=''
-   +'<div class="mt-hd"><h2 class="mt-ttl">소재 관리</h2><span class="mt-cnt">총 '+rows.length+'개 · 실물 스와치 '+nSw+'개 보유</span>'
+   +'<div class="mt-hd"><h2 class="mt-ttl">소재 관리</h2><span class="mt-cnt" id="mt-cnt">'+_mtCntText(rows)+'</span>'
      +'<span style="flex:1"></span><button class="btn s" onclick="mtAddExtra()">＋ 소재 직접 추가</button></div>'
    +'<div class="mt-bar">'
      +_mtChip('all','전체',st.kind)+_mtChip('fabric','원단',st.kind)+_mtChip('trim','부자재',st.kind)
@@ -6973,13 +7064,11 @@ function renderMaterial(){
      +'<div class="mt-vsw"><button class="'+(st.view==='grid'?'on':'')+'" onclick="mtSetView(\'grid\')">격자</button><button class="'+(st.view==='list'?'on':'')+'" onclick="mtSetView(\'list\')">목록</button></div>'
    +'</div>'
    +'<div class="mt-body">'
-     +'<aside class="mt-side"><div class="mt-fh"><b>필터</b><span onclick="mtReset()">초기화</span></div>'+fh+'</aside>'
-     +'<div class="mt-main">'+(rows.length
-        ? (st.view==='grid'?'<div class="mt-grid">'+rows.map(_mtCardHTML).join('')+'</div>':'<div class="mt-list">'+rows.map(_mtRowHTML).join('')+'</div>')
-        : '<div class="mt-empty">'+(all.length?'조건에 맞는 소재가 없어요.<br>필터를 지우거나 다른 말로 검색해 보세요.':'아직 소재가 없어요.<br>단가장에 원단·부자재를 등록하면 여기에 자동으로 모여요.')+'</div>')+'</div>'
+     +'<aside class="mt-side"><div class="mt-fh"><b>필터</b><span onclick="mtReset()">초기화</span></div><div id="mt-sidef">'+fh+'</div></aside>'
+     +'<div class="mt-main" id="mt-main">'+_mtResultsHTML(rows,all,st)+'</div>'
    +'</div>'
    +'<div class="mt-sheet-bg" id="mt-sheet-bg" onclick="mtSheet(false)"></div>'
-   +'<div class="mt-sheet" id="mt-sheet"><div class="mt-fh"><b>필터</b><span onclick="mtReset()">초기화</span></div>'+fh
+   +'<div class="mt-sheet" id="mt-sheet"><div class="mt-fh"><b>필터</b><span onclick="mtReset()">초기화</span></div><div id="mt-sheetf">'+fh+'</div>'
      +'<button class="btn p" style="width:100%;margin-top:12px" onclick="mtSheet(false)">닫기</button></div>';
   el.innerHTML=html;
 }
@@ -7038,7 +7127,12 @@ function _mtDetailHTML(m){
   +'<div class="mt-dr">'
     +'<div class="mt-sec">'+specRows+'</div>'
     +'<div class="mt-sec"><div class="mt-st">용도 <span class="mt-hint2">누르면 켜고 꺼져요</span></div><div class="mt-fo-w">'
-      +MT_USES.map(function(u){return '<span class="mt-fo'+(uses.indexOf(u)>=0?' on':'')+'" onclick="mtTogUse(\''+key+'\',decodeURIComponent(\''+encodeURIComponent(u)+'\'))">'+esc(u)+'</span>';}).join('')
+      +getMtUses().map(function(u){
+         var custom=MT_USES.indexOf(u)<0;
+         return '<span class="mt-fo'+(uses.indexOf(u)>=0?' on':'')+'" onclick="mtTogUse(\''+key+'\',decodeURIComponent(\''+encodeURIComponent(u)+'\'))">'+esc(u)
+           +(custom?'<b class="mt-fo-x" onclick="event.stopPropagation();mtDelUse(decodeURIComponent(\''+encodeURIComponent(u)+'\'))">×</b>':'')+'</span>';
+       }).join('')
+      +'<span class="mt-fo mt-fo-add" onclick="mtAddUse()">＋ 용도</span>'
     +'</div></div>'
     +'<div class="mt-sec"><div class="mt-st">상태</div>'
       +'<select class="mt-sel" onchange="mtSet(\''+key+'\',\'mStatus\',this.value)">'
@@ -7185,6 +7279,9 @@ function _mtEnsureStyle(){
   +'.mt-fo .n{font-size:10.5px;color:var(--mtt3);margin-left:4px;font-weight:500}'
   +'.mt-fo.on{background:#222;color:#fff;border-color:#222}.mt-fo.on .n{color:inherit;opacity:.75}'
   +'.mt-fo.zero{opacity:.35}'
+  +'.mt-fo-add{border-style:dashed;color:var(--mtt2);font-weight:800}'
+  +'.mt-fo-x{margin-left:5px;color:#A32D2D;font-weight:800;cursor:pointer;padding:0 2px}'
+  +'.mt-fo.on .mt-fo-x{color:inherit;opacity:.8}'
   +'.mt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}'
   +'.mt-card{background:var(--mtbg);border:var(--card-bdw,1px) solid var(--mtbd);border-radius:var(--card-radius,8px);box-shadow:var(--card-shadow,none);overflow:hidden;cursor:pointer}'
   +'.mt-ph{position:relative;aspect-ratio:1/1;background:#e5e2dc}'
