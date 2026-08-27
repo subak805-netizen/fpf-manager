@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260825t">
+<link rel="stylesheet" href="css/main.css?v=20260825w">
 </head>
 <body>
 
@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25v';
+var APP_BUILD=/*BUILD*/'2026-08-25w';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -11499,6 +11499,40 @@ function onWeightIn(el,kind){
   if(kind==='gsm'){ if(!String(o.value).trim())o.value=Math.round(v/WG_OZ*10)/10; }
   else { if(!String(g.value).trim())g.value=Math.round(v*WG_OZ); }
 }
+/* ===== 원단 → 바이어스 재단 (2026-08-25) ==================================
+   실제 업무: 원단은 «원단처»에 발주해서 우리가 받고 → «가공처»(메이드)에 넘겨 재단만 시킨다.
+   그래서 가공처 발주에는 **원단값이 안 들어가고**, 「이 원단을 이 폭으로 잘라줘」 + 컬러별 야드만 나간다.
+   공임은 **컬러탕**(컬러 수 × 정액) — 장수가 늘어도 공임은 안 는다.
+   ⚠️ 예전 «부자재» 쪽 바이어스 카드(orderType:'bias')는 그대로 둔다. 둘 다 켜면 이중 계산이니
+      옮기는 건 따로 한다. */
+function fabBiasSecHTML(f,i){
+  var bz=f.bias||{}, on=!!bz.on;
+  var fld=function(flex,min,lbl,key,val,ph,type){
+    return '<div class="fb-f" style="flex:'+flex+';min-width:'+min+'px"><label>'+lbl+'</label>'
+      +'<input '+(type?('type="'+type+'" step="0.01" min="0" '):'')+'data-fb="'+key+'" value="'+esc(val==null?'':val)+'" placeholder="'+esc(ph)+'"></div>';
+  };
+  return '<div class="fab-bias'+(on?' on':'')+'">'
+    +'<label class="fb-h"><input type="checkbox" data-fb="on" '+(on?'checked':'')+' onchange="onFabBiasOn('+i+',this)">'
+      +'바이어스 재단 보내기<span class="sub">가공처에 재단만 맡김 · 원단값은 원단처</span></label>'
+    +'<div class="fb-b" '+(on?'':'style="display:none"')+'>'
+      +'<div class="fb-row">'
+        +'<div class="fb-f" style="flex:1.1;min-width:100px"><label>가공처</label><input list="dl-sup" data-fb="factory" value="'+esc(bz.factory||'')+'" placeholder="메이드"></div>'
+        +fld('.6',70,'폭','spec',bz.spec,'30mm')
+        +fld('.85',96,'벌당 필요(야드)','yo',bz.yo,'0.1','number')
+        +fld('.95',104,'컬러당 공임(원)','fee',bz.fee,'20000','number')
+      +'</div>'
+      +'<label class="fb-chk"><input type="checkbox" data-fb="fold" '+(bz.fold===false?'':'checked')+'>'
+        +'원단 발주에 <b>합쳐서</b> 시킴<span class="sub">(끄면 원단처 발주서에 줄을 따로 뺌)</span></label>'
+    +'</div></div>';
+}
+/* 켜기/끄기 — 재렌더 없이 접기만 (타이핑 중이던 값이 안 날아가게) */
+function onFabBiasOn(i,cb){
+  var row=document.getElementById('fr-'+i); if(!row)return;
+  var wrap=row.querySelector('.fab-bias'), body=row.querySelector('.fb-b');
+  if(body)body.style.display=cb.checked?'':'none';
+  if(wrap)wrap.classList.toggle('on',cb.checked);
+  try{colFR();}catch(e){}
+}
 function fabRowHTML(f,i){
   const isKg=f.pricingUnit==='kg';
   const hasLinks=f.colorLinks&&f.colorLinks.length>0;
@@ -11578,6 +11612,7 @@ function fabRowHTML(f,i){
     </div>
   </div>
   ${colorSec}
+  ${fabBiasSecHTML(f,i)}
   ${mkPriceAdditionsSec(i,f,formColors)}
 </div>`;}
 
@@ -13168,6 +13203,15 @@ function _renderTrimRows_OLD_unused(){const el=document.getElementById('trim-row
   el.innerHTML=html;
 }
 function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r)=>{const i=+r.id.replace('fr-','');if(!formFabs[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const pu=g('pricingUnit')||'yard';formFabs[i].pricingUnit=pu;formFabs[i].supplier=g('supplier')||'';formFabs[i].name=g('name')||'';formFabs[i].consumption=+g('consumption')||0;formFabs[i].buffer=+(g('buffer'))||0;formFabs[i].width=g('width')?+g('width'):null;formFabs[i].weightGsm=g('weightGsm')?+g('weightGsm'):null;formFabs[i].weightOz=g('weightOz')?+g('weightOz'):null;formFabs[i].composition=g('composition')||'';formFabs[i].building=g('building')||'';formFabs[i].floorRoom=g('floorRoom')||'';if(g('market')!=null)formFabs[i].market=g('market')||'';if(g('floor')!=null)formFabs[i].floor=g('floor')||'';formFabs[i].part=g('part')||'';formFabs[i].memo=r.querySelector('[data-f-memo]')?.value||'';if(pu==='kg'){formFabs[i].pricePerKg=+g('pricePerKg')||0;formFabs[i].yardsPerKg=+g('yardsPerKg')||1;}else formFabs[i].unitPrice=+g('unitPrice')||0;
+  // 바이어스 재단 (원단 → 가공처)
+  const _bzOn=r.querySelector('[data-fb=on]');
+  if(_bzOn){
+    const gb=k=>{const el=r.querySelector('[data-fb='+k+']');return el?el.value:'';};
+    const _fold=r.querySelector('[data-fb=fold]');
+    const _bz={on:_bzOn.checked,factory:(gb('factory')||'').trim(),spec:(gb('spec')||'').trim(),
+               yo:+gb('yo')||0,fee:+gb('fee')||0,fold:_fold?_fold.checked:true};
+    if(_bz.on||_bz.factory||_bz.spec||_bz.yo||_bz.fee)formFabs[i].bias=_bz; else delete formFabs[i].bias;
+  }
   // 컬러 링크 수집
   const fabColAll=r.querySelector('[data-fab-col-all]');
   if(fabColAll){formFabs[i].fabricColor=fabColAll.value;formFabs[i].colorLinks=[];}
@@ -14909,7 +14953,36 @@ function calcSups(orderItems,opts){
           if(a.applyTo==='colors'&&a.colors&&a.colors.indexOf(c)>=0)return true;
           return false;
         }).map(function(a){return {name:a.name||'가산',price:+a.price||0};});
-        sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,totalYards:calc.ty,totalKg:calc.tk||null,baseTotalYards:_calcBase.ty,baseTotalKg:_calcBase.tk||null,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',part:f.part||'',fabId:f.id,itemId:oi.itemId,itemName:it.name,memo:f.memo||'',addPerUnit:calc.addPerUnit||0,appliedAdditions:appliedAdditions,effectivePcsApplied:effectivePcsForTrim});
+        /* 바이어스 재단 — 이 원단에서 뽑는 몫 (2026-08-25).
+           ⚠️ calc 는 _calcBase 와 «같은 객체»일 수 있어 고쳐 쓰면 안 된다 → 더한 값을 따로 넘긴다. */
+        const _bz=(f.bias&&f.bias.on&&+f.bias.yo>0)?f.bias:null;
+        const _bzYd=_bz?Math.round(+f.bias.yo*qty*100)/100:0;
+        const _bzFold=_bz?(f.bias.fold!==false):false;
+        const _bzAdd=(_bz&&_bzFold)?_bzYd:0;
+        sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,totalYards:(calc.ty||0)+_bzAdd,totalKg:calc.tk||null,baseTotalYards:(_calcBase.ty||0)+_bzAdd,baseTotalKg:_calcBase.tk||null,biasYards:_bzAdd||undefined,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',part:f.part||'',fabId:f.id,itemId:oi.itemId,itemName:it.name,memo:f.memo||'',addPerUnit:calc.addPerUnit||0,appliedAdditions:appliedAdditions,effectivePcsApplied:effectivePcsForTrim});
+        if(_bz&&_bzYd>0){
+          // 「합쳐서」 끄면 원단처 발주서에 바이어스용 줄을 따로 뺀다
+          if(!_bzFold){
+            sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,
+              displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),
+              colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,
+              totalYards:_bzYd,baseTotalYards:_bzYd,fabricColor:fabColorName,width:f.width||null,
+              composition:f.composition||'',part:((f.part?f.part+' ':'')+'바이어스용'),isBiasCut:true,
+              itemId:oi.itemId,itemName:it.name,memo:'',appliedAdditions:[],effectivePcsApplied:effectivePcsForTrim});
+          }
+          // 가공처에는 «재단 발주»만 — 원단값 없음, 공임은 컬러탕(컬러 하나당 정액)
+          const _bfc=(f.bias.factory||'').trim();
+          if(_bfc){
+            if(!sups[_bfc])sups[_bfc]=mkSupWithDefaults(_bfc);
+            sups[_bfc].materials.push({type:'trim',orderType:'bias',name:'바이어스재단',displayName:'바이어스재단',
+              fabricSource:(f.name||'')+(f.supplier?(' ('+f.supplier+')'):''),
+              biasSpec:f.bias.spec||'',colorName:fabColorName||c,part:f.part||'',
+              unitPrice:0,biasFee:+f.bias.fee||0,biasFromFab:true,fabId:f.id,
+              itemId:oi.itemId,itemName:it.name,
+              calc:{qty:_bzYd,unit:'y',cost:+f.bias.fee||0,_up:0},
+              effectivePcsApplied:effectivePcsForTrim});
+          }
+        }
       }
     }
     for(const t of it.trims||[]){
@@ -15564,7 +15637,9 @@ function genPoText(order,sn){
         bhdr+='바이어스재단';
         if(bg.biasSpec)bhdr+=' '+bg.biasSpec;
         L.push(bhdr);
-        var _bAt=showPrice?_poAtGroup(bg.colors):''; if(_bAt)L.push(_bAt);
+        /* 원단에서 온 바이어스는 컬러탕(컬러당 정액)이라 「@단가/y」가 아니다 */
+        var _bFee=(bg.colors||[]).reduce(function(s,x){return Math.max(s,+x.biasFee||0);},0);
+        var _bAt=showPrice?(_bFee?('@'+num(_bFee)+'원 · 컬러당'):_poAtGroup(bg.colors)):''; if(_bAt)L.push(_bAt);
         let biasTot=0;
         // 같은 출력 컬러(colorName)끼리 합치기 — 아이템 컬러만 다르고 자재색 같으면 한 줄로 (수량은 합)
         var _bcm={},_bco=[];
