@@ -1338,3 +1338,30 @@
 
 > ⚠️ **인쇄용 규칙과 이미지 저장용 규칙은 따로 만들어야 한다.** `@media print` 는 html2canvas 에 안 먹는다.
 > 화면 전용 UI 를 새로 만들면 **두 곳 다** 등록할 것.
+
+---
+
+## 2026-08-26a — 손잡이 드래그가 안 되던 것 (이름 충돌)
+
+**신고**: 「드래그안돼」 (자수 위치·크기 표 손잡이)
+
+**원인**: **앱에 `tpRowDragStart`/`tpRowDragMove`/`tpRowDragEnd`/`_tpRowDrag` 가 이미 있었다**
+(`tpEditList` 목록 드래그용, 파일 뒤쪽 38300줄대).
+내가 같은 이름으로 앞쪽(37470줄대)에 새로 만들었고 → **뒤에 있는 정의가 이겨서** 내 것이 통째로 안 돌았다.
+누르면 초점 테두리만 생기고 아무 일도 안 일어났던 이유.
+
+**고침**: `tpGripStart` / `tpGripMove` / `tpGripEnd` / `_tpGripRowAt` / `_tpGripDrag` 로 이름 분리.
+
+> ⚠️ **새 전역 함수를 만들기 전에 같은 이름이 있는지 먼저 볼 것.** 38,000줄짜리 한 파일이라 조용히 덮인다.
+> 확인법:
+> ```
+> grep -n "function 이름" index.html
+> ```
+> 전체 중복 검사(가끔 돌리기):
+> ```
+> python3 -c "import io,re,collections;s=io.open('index.html',encoding='utf-8').read();
+> js='\n'.join(re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>',s,re.S));
+> n=re.findall(r'^\s*(?:async\s+)?function\s+([A-Za-z_\$][\w\$]*)\s*\(',js,re.M);
+> print([k for k,c in collections.Counter(n).items() if c>1])"
+> ```
+> 현재 남은 중복은 전부 **함수 안 지역 함수**라 안전: `itemRowHTML`(10358·14167) · `_qkOf`(34316·34363) · `add` · `chip`.
