@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25w';
+var APP_BUILD=/*BUILD*/'2026-08-25x';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -37738,15 +37738,36 @@ function tpCbarHTML(it,qb,withThumb){ var thumb=''; if(withThumb){ var simg=tpGe
 
 /* 수동 표 (봉제) */
 function tpLegendHTML(){ var arr=tpGet('sew.legend',[]); if(!Array.isArray(arr)||!arr.length)arr=[{},{}]; var h='<table class="tp-tbl"><tr><th style="width:48px">기호</th><th>봉제 내용</th><th style="width:60px">땀수</th><th class="tp-editonly" style="width:44px">순서</th></tr>'; arr.forEach(function(r,i){ h+='<tr><td>'+tpInp('sew.legend.'+i+'.sym','★')+'</td><td class="l">'+tpInpL('sew.legend.'+i+'.desc','1/8\" 1줄 ST')+'</td><td>'+tpInp('sew.legend.'+i+'.stitch','3')+'</td><td class="tp-editonly" style="white-space:nowrap">'+tpRowMoveBtns('sew.legend',i,arr.length)+'<button type="button" class="tp-rx" onclick="tpDelRow(\'sew.legend\','+i+')" title="삭제">×</button></td></tr>'; }); return h+'</table><button class="tp-addrow" onclick="tpAddRow(\'sew.legend\',{})">＋ 줄 추가</button>'; }
-function tpGradeCell(path,kind,sz){ return '<input class="tp-cell tpg" data-tp="'+path+'" data-gk="'+kind+'" data-sz="'+tpEsc(sz)+'" value="'+tpEsc(tpGet(path,''))+'" oninput="tpGrade(this)" onchange="tpSet(this.dataset.tp,this.value)">'; }
+/* ⚠️ 「자동으로 채운 칸」 표시(data-auto)는 **화면에만** 있었다.
+      표를 다시 그리면 그 표시가 날아가서, 자동으로 채웠던 칸이 «손으로 적은 값»으로 둔갑한다.
+      그러면 치수를 다시 적어도 그 칸만 안 바뀐다 → 「하나는 되고 하나는 안 된다」(신고 2026-08-25).
+   → 그릴 때마다 **편차대로 딱 떨어지는 칸**을 자동칸으로 다시 알아본다. 자료는 안 건드린다.
+      손으로 다르게 맞춰 둔 칸(편차에 안 맞는 값)은 그대로 손값으로 남는다. */
+function _tpRowAutoMap(r,sizes){
+  var out={pat:{},v:{}};
+  var dd=parseFloat(r&&r.grade); if(isNaN(dd))return out;
+  ['pat','v'].forEach(function(g){
+    var m=(r&&r[g])||{}, bi=-1,bv=null;
+    for(var i=0;i<sizes.length;i++){ var x=parseFloat(m[sizes[i]]); if(!isNaN(x)){bi=i;bv=x;break;} }
+    if(bi<0)return;
+    for(var i=0;i<sizes.length;i++){
+      if(i===bi)continue;
+      var x=parseFloat(m[sizes[i]]); if(isNaN(x))continue;
+      if(Math.abs(x-(bv+(i-bi)*dd))<0.051)out[g][sizes[i]]=1;
+    }
+  });
+  return out;
+}
+function tpGradeCell(path,kind,sz,auto){ return '<input class="tp-cell tpg" data-tp="'+path+'" data-gk="'+kind+'" data-sz="'+tpEsc(sz)+'"'+(auto?' data-auto="1"':'')+' value="'+tpEsc(tpGet(path,''))+'" oninput="tpGrade(this)" onchange="tpSet(this.dataset.tp,this.value)">'; }
 var TP_SPEC_TOP=['네크단면','네크깊이','뒷목깊이','어깨단면','상동단면','밑단단면','암홀','소매장','소매부리','옆총장','뒷총장'];
 function tpSpecHTML(it,base){ base=base||'sew.spec'; var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FREE']; var arr=tpGet(base,[]); if(!Array.isArray(arr)||!arr.length)arr=TP_SPEC_TOP.map(function(p){return {part:p};}); var nS=sizes.length;
   var h='<table class="tp-tbl tp-spec"><tr><th rowspan="2">측정부위</th><th colspan="'+nS+'">패턴</th><th rowspan="2" style="width:38px">편차</th><th colspan="'+nS+'">완성</th><th rowspan="2" class="tp-editonly" style="width:44px">순서</th></tr><tr>';
   sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';}); sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';}); h+='</tr>';
-  arr.forEach(function(r,i){ h+='<tr><td>'+tpInp(base+'.'+i+'.part','총장')+'</td>';
-    sizes.forEach(function(s){h+='<td>'+tpGradeCell(base+'.'+i+'.pat.'+s,'p',s)+'</td>';});
+  arr.forEach(function(r,i){ var _am=_tpRowAutoMap(r,sizes);
+    h+='<tr><td>'+tpInp(base+'.'+i+'.part','총장')+'</td>';
+    sizes.forEach(function(s){h+='<td>'+tpGradeCell(base+'.'+i+'.pat.'+s,'p',s,_am.pat[s])+'</td>';});
     h+='<td class="d">'+tpGradeCell(base+'.'+i+'.grade','d','')+'</td>';
-    sizes.forEach(function(s){h+='<td>'+tpGradeCell(base+'.'+i+'.v.'+s,'f',s)+'</td>';});
+    sizes.forEach(function(s){h+='<td>'+tpGradeCell(base+'.'+i+'.v.'+s,'f',s,_am.v[s])+'</td>';});
     h+='<td class="tp-editonly" style="white-space:nowrap">'+tpRowMoveBtns(base,i,arr.length)+'<button type="button" class="tp-rx" onclick="tpDelRow(\''+base+'\','+i+')" title="삭제">×</button></td></tr>'; });
   return h+'</table><div class="tp-editonly" style="font-size:9px;color:#9aa0a8;padding:2px 4px">패턴 S·M 넣으면 편차·L 자동, 완성도 패턴 편차대로 자동</div>'; }
 /* 시트 키 = 치수 경로 앞부분 (sew.spec→sew, spat2.spec→spat2). 자수 빼기를 시트마다 따로 기억하려고 쓴다 */
@@ -38093,7 +38114,31 @@ function tpGrade(el){
 }
 
 /* 자수·나염 위치·크기 — 편차 자동채움 (2026-07-15): 편차0=한 칸 값을 전 사이즈 동일 복사(문자열 그대로 '2.5×3'도 OK) · 편차N=등차(순수 숫자만) */
-function tpPosCell(path,sz){ return '<input class="tp-cell tppg" data-tp="'+path+'" data-sz="'+tpEsc(sz)+'" value="'+tpEsc(tpGet(path,''))+'" oninput="tpPosGrade(this)" onchange="tpSet(this.dataset.tp,this.value)">'; }
+/* 치수표와 같은 이유 — 다시 그리면 자동칸 표시가 날아간다. 편차대로 «딱 맞는» 칸을 다시 알아본다. */
+function _tpPosAutoMap(r,sizes){
+  var out={},m=(r&&r.vals)||{},tol=String((r&&r.tol)!=null?r.tol:'').trim();
+  if(tol==='')return out;
+  var isNum=function(x){return /^-?\d+(\.\d+)?$/.test(String(x).trim());};
+  if(!isNum(tol))return out;
+  var t=parseFloat(tol);
+  if(t===0){   // 편차 0 = 전부 같은 값
+    var base=null;
+    for(var i=0;i<sizes.length;i++){ var v=m[sizes[i]]; if(v!=null&&String(v)!==''){base=String(v);break;} }
+    if(base==null)return out;
+    var first=true;
+    for(var i=0;i<sizes.length;i++){ var v=m[sizes[i]]; if(v==null||String(v)==='')continue;
+      if(first){first=false;continue;}
+      if(String(v)===base)out[sizes[i]]=1; }
+    return out;
+  }
+  var bi=-1,bv=null;
+  for(var i=0;i<sizes.length;i++){ var v=m[sizes[i]]; if(isNum(v)){bi=i;bv=parseFloat(v);break;} }
+  if(bi<0)return out;
+  for(var i=0;i<sizes.length;i++){ if(i===bi)continue; var v=m[sizes[i]]; if(!isNum(v))continue;
+    if(Math.abs(parseFloat(v)-(bv+(i-bi)*t))<0.011)out[sizes[i]]=1; }
+  return out;
+}
+function tpPosCell(path,sz,auto){ return '<input class="tp-cell tppg" data-tp="'+path+'" data-sz="'+tpEsc(sz)+'"'+(auto?' data-auto="1"':'')+' value="'+tpEsc(tpGet(path,''))+'" oninput="tpPosGrade(this)" onchange="tpSet(this.dataset.tp,this.value)">'; }
 function tpPosTol(path){ return '<input class="tp-cell d tppg-tol" data-tp="'+path+'" value="'+tpEsc(tpGet(path,''))+'" placeholder="±" oninput="tpPosGrade(this)" onchange="tpSet(this.dataset.tp,this.value)">'; }
 function tpPosGrade(el){
   var tr=el.closest('tr'); if(!tr)return;
@@ -38125,13 +38170,13 @@ function tpPosHTML(it,pfx){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FRE
     var d=tpData(); if(d){ if(!d[pfx])d[pfx]={}; d[pfx].posRows=rows; } } // 기존 위치/크기 → 첫 두 줄로 1회 이관
   var h='<table class="tp-tbl tp-pos"><tr><th style="width:96px">항목</th><th style="width:60px">기준</th><th style="width:44px" class="d">편차</th>';
   sizes.forEach(function(s){h+='<th>'+tpEsc(s)+'</th>';});
-  h+='<th class="tp-editonly" style="width:58px"></th></tr>';
-  rows.forEach(function(r,ri){ var so=!(r&&r.seam==='in');
+  h+='<th class="tp-editonly" style="width:44px">순서</th></tr>';
+  rows.forEach(function(r,ri){ var so=!(r&&r.seam==='in'); var _pam=_tpPosAutoMap(r,sizes);
     h+='<tr><td class="rl">'+tpInpL(pfx+'.posRows.'+ri+'.label','예: 앞목중심 아래')+'</td>'
       +'<td><button type="button" class="tp-seam '+(so?'out':'in')+'" onclick="tpPosSeam(\''+pfx+'\','+ri+')">'+(so?'시접빼고':'시접포함')+'</button></td>'
       +'<td class="d">'+tpPosTol(pfx+'.posRows.'+ri+'.tol')+'</td>';
-    sizes.forEach(function(s){h+='<td>'+tpPosCell(pfx+'.posRows.'+ri+'.vals.'+s,s)+'</td>';});
-    h+='<td class="tp-editonly" style="white-space:nowrap"><button type="button" class="tp-rmv" onclick="tpPosMove(\''+pfx+'\','+ri+',-1)" title="위로">▲</button><button type="button" class="tp-rmv" onclick="tpPosMove(\''+pfx+'\','+ri+',1)" title="아래로">▼</button><button type="button" class="tp-rx" onclick="tpDelRow(\''+pfx+'.posRows\','+ri+')" title="삭제">×</button></td></tr>';
+    sizes.forEach(function(s){h+='<td>'+tpPosCell(pfx+'.posRows.'+ri+'.vals.'+s,s,_pam[s])+'</td>';});
+    h+='<td class="tp-editonly" style="white-space:nowrap">'+tpRowMoveBtns(pfx+'.posRows',ri,rows.length)+'<button type="button" class="tp-rx" onclick="tpDelRow(\''+pfx+'.posRows\','+ri+')" title="삭제">×</button></td></tr>';
   });
   return h+'</table><div class="tp-editonly" style="padding:3px 0 0"><button class="gbtn" onclick="tpAddRow(\''+pfx+'.posRows\',{label:\'\',seam:\'out\',tol:\'\',vals:{}})">＋ 항목</button></div>'; }
 function tpPosSeam(pfx,ri){ var c=tpGet(pfx+'.posRows.'+ri+'.seam','out'); tpSet(pfx+'.posRows.'+ri+'.seam',c==='in'?'out':'in'); tpRender(); }
