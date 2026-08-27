@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260825w">
+<link rel="stylesheet" href="css/main.css?v=20260825y">
 </head>
 <body>
 
@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-25x';
+var APP_BUILD=/*BUILD*/'2026-08-25y';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -6616,7 +6616,7 @@ function _saveTrimCat(){try{savePB();}catch(e){}try{saveData();}catch(e){}}
 async function addTrimCategory(){var nm=(await appPrompt('새 부자재 종류 이름 (예: 심지, 밴드, 테잎)')||'').trim();if(!nm)return '';var list=getTrimCategories();if(list.indexOf(nm)<0){list.push(nm);S.refData.trimCategories=list;_saveTrimCat();}if(typeof renderBook==='function')renderBook();return nm;}
 function renameTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;var nm=(prompt('종류 이름 변경',old)||'').trim();if(!nm||nm===old)return;if(list.indexOf(nm)>=0&&list.indexOf(nm)!==idx){showToast('이미 있는 종류예요');return;}list[idx]=nm;S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category=nm;});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
 function deleteTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;if(!confirm('"'+old+'" 종류를 삭제할까요?\n이 종류로 지정된 부자재는 미분류가 돼요.'))return;list.splice(idx,1);_tombArr('refArr:trimCategories',old);/* 다른 기기에서 되살아나지 않게 */S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category='';});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
-async function setPbMatCategory(encSup,encKey,val){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);var pb=S.priceBook[sup];if(!pb||!pb.materials[key])return;if(val==='__new'){var nm=await addTrimCategory();if(!nm)return;pb.materials[key].category=nm;}else{pb.materials[key].category=val;}_saveTrimCat();if(typeof renderBookList==='function')renderBookList();}
+async function setPbMatCategory(encSup,encKey,val){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);var pb=S.priceBook[sup];if(!pb||!pb.materials[key])return;if(val==='__new'){var nm=await addTrimCategory();if(!nm)return;pb.materials[key].category=nm;}else{pb.materials[key].category=val;}_saveTrimCat();if(typeof pbSoftRender==='function')pbSoftRender();}
 function toggleTrimCatEdit(){window._pbCatEdit=!window._pbCatEdit;if(typeof renderBook==='function')renderBook();}
 function _trimCatBarHTML(){
   var cats=getTrimCategories();var edit=!!window._pbCatEdit;
@@ -7764,16 +7764,16 @@ function pbSetSpecPart(encSup,encKey,which,val){
   var cur=_pbSplitSpec(m.size);
   if(which==='n')cur.n=val; else cur.u=val;
   m.size=_pbJoinSpec(cur.n,cur.u);
-  savePB(); renderBookList();
+  savePB(); pbSoftRender();
 }
 function pbSetPack(encSup,encKey,val){
   var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
-  m.yardsPerRoll=(val===''||val==null)?'':(+val||0); savePB(); renderBookList();
+  m.yardsPerRoll=(val===''||val==null)?'':(+val||0); savePB(); pbSoftRender();
 }
 function pbSetPackPrice(encSup,encKey,val){
   var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
   if(val===''||val==null)delete m.packPrice; else m.packPrice=+val||0;
-  savePB(); renderBookList();
+  savePB(); pbSoftRender();
 }
 /* ---- 세트 ---- */
 function _pbSet(m){ return Array.isArray(m&&m.setItems)?m.setItems:[]; }
@@ -7841,6 +7841,51 @@ function pbTrimAddMat(encSup){
       if(el){ el.focus(); el.select(); el.scrollIntoView({block:'center'}); }
     }catch(e){}
   },40);
+}
+/* ⚠️ 칸 하나 고칠 때마다 표를 **통째로 다시 그리면**, 다음 칸으로 옮겨 간 순간
+      그 칸이 사라져서 거기 적던 게 통째로 날아간다
+      (신고 2026-08-25 「단가장에 새로 저장하면 저장이 안 돼서 없어진다」).
+   → 표 안에 커서가 있으면 다시 그리기를 **미룬다**. 표 밖으로 나가면 그때 한 번 그린다.
+      자료는 이미 savePB() 로 저장돼 있으니 미뤄도 안 잃는다. */
+function pbSoftRender(){
+  var lst=document.getElementById('book-list');
+  var ae=document.activeElement;
+  if(lst&&ae&&ae!==document.body&&lst.contains(ae)){ window._pbNeedRender=1; _pbArmBlurRender(); return; }
+  window._pbNeedRender=0;
+  if(typeof renderBookList==='function')renderBookList();
+}
+function _pbArmBlurRender(){
+  var lst=document.getElementById('book-list'); if(!lst||lst._pbArmed)return; lst._pbArmed=1;
+  lst.addEventListener('focusout',function(){
+    setTimeout(function(){
+      if(!window._pbNeedRender)return;
+      var el=document.getElementById('book-list');
+      var ae=document.activeElement;
+      if(el&&ae&&ae!==document.body&&el.contains(ae))return;   // 아직 표 안이면 계속 미룸
+      window._pbNeedRender=0;
+      if(typeof renderBookList==='function')renderBookList();
+    },0);
+  });
+}
+/* 이름이 바뀌면 그 줄의 «키»만 갈아끼운다 — 다시 그리지 않으므로 커서·적던 값이 안 날아간다 */
+function _pbRekeyRow(sup,oldKey,newKey){
+  try{
+    var lst=document.getElementById('book-list'); if(!lst)return false;
+    var eo=encodeURIComponent(oldKey), en=encodeURIComponent(newKey), esup=encodeURIComponent(sup);
+    var tr=null, all=lst.querySelectorAll('tr[data-pbk]');
+    for(var i=0;i<all.length;i++){ if(all[i].getAttribute('data-pbk')===eo&&all[i].getAttribute('data-pbs')===esup){ tr=all[i]; break; } }
+    if(!tr)return false;
+    var fix=function(el){
+      var at=el.attributes; if(!at)return;
+      for(var j=0;j<at.length;j++){
+        var a=at[j];
+        if(a.name.slice(0,2)==='on'&&a.value.indexOf(eo)>=0)el.setAttribute(a.name,a.value.split("'"+eo+"'").join("'"+en+"'"));
+      }
+    };
+    tr.setAttribute('data-pbk',en); fix(tr);
+    var els=tr.querySelectorAll('*'); for(var i2=0;i2<els.length;i2++)fix(els[i2]);
+    return true;
+  }catch(e){ return false; }
 }
 function pbTrimSet(k,v){ window._pbT=window._pbT||{}; window._pbT[k]=v; renderBookList(); }
 function _pbTState(){
@@ -7942,7 +7987,7 @@ function renderPbTrimTable(lst,sups){
       var dl=_pbDelta(m);
       var setOpen=(window._pbSetOpen===s+'|'+k);
       var isNew=(window._pbNewRow===s+'|'+k);
-      body+='<tr class="pbt-r'+(old?' old':'')+'">'
+      body+='<tr class="pbt-r'+(old?' old':'')+'" data-pbs="'+es+'" data-pbk="'+ek+'">'
         +'<td><select class="pbt-sel" onchange="setPbMatCategory(\''+es+'\',\''+ek+'\',this.value)"><option value=""'+(!m.category?' selected':'')+'>미분류</option>'
           +getTrimCategories().map(function(c){return '<option value="'+esc(c)+'"'+(m.category===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')
           +'<option value="__new">＋ 새 유형…</option></select></td>'
@@ -8222,7 +8267,9 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
   }
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   saveData();
-  renderBook();
+  /* 표를 다시 그리면 지금 옮겨 간 칸이 사라진다 → 줄의 «키»만 갈아끼우고 다시 그리기는 미룬다 */
+  if(typeof _pbRekeyRow==='function'&&_pbRekeyRow(s,oldKey,newKey)){ if(typeof pbSoftRender==='function')pbSoftRender(); }
+  else renderBook();
   showToast(field==='color'?'색상 변경':'이름 변경');
 }
 
