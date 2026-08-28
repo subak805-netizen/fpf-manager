@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26a';
+var APP_BUILD=/*BUILD*/'2026-08-26b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -37253,11 +37253,41 @@ function tpFitCanvasToA4(src,a4w,a4h,scale){
   cx.drawImage(src,0,0,src.width,src.height,dx,dy,dw,dh);
   return out;
 }
+/* 저장 이미지가 흐린 이유 두 가지 (신고 2026-08-26 「흐릿하고 글씨도 뭉개져」)
+     ① 배율이 3배 고정 — A4 200mm 가 2,268px 밖에 안 됐다(≈288dpi).
+     ② 내용이 종이에 안 들어가면 `.tp-fit` 에 축소(transform)가 걸리는데,
+        html2canvas 는 그런 «변형된 덩어리»를 작게 그린 뒤 늘려서 글씨가 뭉개진다.
+        → 축소가 걸린 만큼 배율을 **더 올려** 원래 또렷함을 되돌린다.
+   ⚠️ 배율을 올리면 캔버스가 커져 기기 한계(특히 아이패드 사파리)에 걸려 저장이 통째로 실패한다.
+      그래서 **높은 배율부터 시도하고 실패하면 한 단계씩 낮춘다**. */
+function _tpShotScales(ctx){
+  var fs=1;
+  try{ var t=ctx&&ctx.fit?getComputedStyle(ctx.fit).transform:''; var m=String(t||'').match(/^matrix\(\s*([-\d.]+)/); if(m)fs=parseFloat(m[1])||1; }catch(e){}
+  if(!(fs>0.2&&fs<=1))fs=1;
+  var want=4/fs;                       // 축소가 걸린 만큼 되올림
+  var list=[];
+  /* 4·3·2 는 «정수 배율» — 표의 1px 선이 픽셀에 딱 떨어져 선이 안 흐려진다.
+     3.5 는 아이패드처럼 한 변 4,090px 에 걸리는 기기용 중간 단계(그래도 예전 3배보다 또렷). */
+  [Math.min(6,want),4,3.5,3,2].forEach(function(v){
+    v=Math.round(v*100)/100;
+    if(v>=1.5&&list.indexOf(v)<0)list.push(v);
+  });
+  return list.sort(function(a,b){return b-a;});
+}
 function tpSaveImg(){
   var doc=document.getElementById('tp-doc'); if(!doc)return;
   window._tpCapturing=true; var ctx=tpCaptureExpand();
   var done=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
-  var go=function(){ tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:3,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200),onclone:tpCaptureFixVAlign}); }).then(function(c){ done(); fpfSaveFile(c.toDataURL('image/png'),'작업지시서_'+((window._tpProc||{})[_tpTab]||_tpTab||'')+'_'+tpFileBase()+'.png',{label:'이미지 저장됨'}); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
+  var scales=_tpShotScales(ctx);
+  var shot=function(sc){
+    return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:sc,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200),onclone:tpCaptureFixVAlign})
+      .then(function(c){ var u=c.toDataURL('image/png'); if(!u||u.length<2000)throw new Error('빈 이미지'); return u; });
+  };
+  var tryFrom=function(i){
+    if(i>=scales.length)return Promise.reject(new Error('전부 실패'));
+    return shot(scales[i]).catch(function(){ return tryFrom(i+1); });
+  };
+  var go=function(){ tpWaitImages(ctx.wrap).then(function(){ return tryFrom(0); }).then(function(url){ done(); fpfSaveFile(url,'작업지시서_'+((window._tpProc||{})[_tpTab]||_tpTab||'')+'_'+tpFileBase()+'.png',{label:'이미지 저장됨'}); }).catch(function(){ done(); if(typeof showToast==='function')showToast('이미지 저장 실패'); }); };
   if(typeof html2canvas==='undefined'){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload=go; s.onerror=function(){done();if(typeof showToast==='function')showToast('라이브러리 로드 실패');}; document.head.appendChild(s); } else go();
 }
 function tpSavePDF(){
