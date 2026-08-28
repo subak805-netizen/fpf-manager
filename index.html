@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26b';
+var APP_BUILD=/*BUILD*/'2026-08-26c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -37296,10 +37296,20 @@ function tpSavePDF(){
   var restore=function(){ window._tpCapturing=false; tpCaptureRestore(ctx); };
   if(typeof showToast==='function')showToast('PDF 만드는 중…');
   var run=function(){
-    tpWaitImages(ctx.wrap).then(function(){ return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:3,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200),onclone:tpCaptureFixVAlign}); }).then(function(canvas){
+    /* 이미지 저장과 같은 배율 사다리 — 3배 고정이면 글씨가 뭉갠다(2026-08-26) */
+    var _sc=_tpShotScales(ctx), _si=0;
+    var _shot=function(){
+      if(_si>=_sc.length)return Promise.reject(new Error('전부 실패'));
+      var v=_sc[_si++];
+      return html2canvas(ctx.wrap,{backgroundColor:'#ffffff',scale:v,useCORS:true,scrollX:0,scrollY:0,x:0,y:0,width:ctx.w,height:ctx.h,windowWidth:Math.max(1400,ctx.w+40),windowHeight:Math.max(ctx.h+40,1200),onclone:tpCaptureFixVAlign})
+        .then(function(c){ if(!c||!c.width)throw new Error('빈 이미지'); return c; })
+        .catch(function(){ return _shot(); });
+    };
+    tpWaitImages(ctx.wrap).then(function(){ return _shot(); }).then(function(canvas){
       restore();
       var land=(_tpOrient==='landscape');
-      var img=canvas.toDataURL('image/jpeg',0.92);
+      /* ⚠️ JPEG 0.92 는 글씨·표 선 둘레에 얼룩(링잉)이 생긴다 → 0.97 로. */
+      var img=canvas.toDataURL('image/jpeg',0.97);
       var pdf=new window.jspdf.jsPDF({orientation:land?'l':'p',unit:'mm',format:'a4'});
       var pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
       pdf.addImage(img,'JPEG',0,0,pw,ph);  // A4 한 장 꽉 채움 (다중페이지 방지)
