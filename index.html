@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260825z">
+<link rel="stylesheet" href="css/main.css?v=20260826g">
 </head>
 <body>
 
@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26f';
+var APP_BUILD=/*BUILD*/'2026-08-26g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7415,9 +7415,26 @@ function renderBook(){
       <button class="btn p s" style="align-self:flex-end" onclick="addPriceBookEntry()">+ 추가</button>
     </div>
   </div>`;
-  const importBtn=`<button class="btn p" style="width:100%;margin-bottom:10px;background:#16a34a;border-color:#16a34a" onclick="openPBImport()">단가표 사진 → 일괄 가져오기</button>`;
+  /* 머리 정리 (요청 2026-08-26 「이 윗부분 정신없고 필요없는건 없애줘」)
+     - 「거래처 직접 추가」를 **맨 위**로
+     - 부자재 종류 칩 줄 · 단가표 사진 일괄 가져오기 · 정리 버튼 3개 → **「정리 도구」 접이식 안**으로
+     ⚠️ 지우지 않고 접어 둔다. 종류는 표의 「유형」 드롭다운이 계속 쓰고,
+        이름변경·삭제와 일괄 가져오기는 여기 말고는 들어갈 데가 없다. */
+  const tools=`<details class="pb-tools" style="margin-bottom:10px">
+    <summary>정리 도구${_scope==='trim'?' · 부자재 종류':''}</summary>
+    <div class="pb-tools-b">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">백업/되돌리기</button>
+        <button class="btn s" onclick="pbAutoDedup()" title="띄어쓰기·철자 변형까지 자동으로 묶어 그룹당 한 번에 합치기" style="background:#fffbeb;border-color:#fcd34d;color:#92400e">중복 자동정리</button>
+        <button class="btn s" onclick="pbNormalizeBuildings()" title="A·에이·에이동 → A동 형식으로 한 번에 통일">건물명 통일</button>
+        <button class="btn s" onclick="openPBImport()" style="background:#f0fdf4;border-color:#86efac;color:#15803d">단가표 사진 → 일괄 가져오기</button>
+      </div>
+      <div id="pb-dups"></div>
+      ${_scope==='trim'?_trimCatBarHTML():''}
+    </div>
+  </details>`;
   try{pbAutoBackup();}catch(e){}
-  el.innerHTML=_flTg+searchBox+'<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">백업/되돌리기</button><button class="btn s" onclick="pbAutoDedup()" title="띄어쓰기·철자 변형까지 자동으로 묶어 그룹당 한 번에 합치기" style="background:#fffbeb;border-color:#fcd34d;color:#92400e">중복 자동정리</button><button class="btn s" onclick="pbNormalizeBuildings()" title="A·에이·에이동 → A동 형식으로 한 번에 통일">건물명 통일</button></div><div id="pb-dups"></div>'+(_scope==='trim'?_trimCatBarHTML():'')+importBtn+addForm+'<div id="book-list"></div>';
+  el.innerHTML=_flTg+addForm+searchBox+tools+'<div id="book-list"></div>';
   renderBookList();
 }
 
@@ -7887,7 +7904,29 @@ function _pbRekeyRow(sup,oldKey,newKey){
     return true;
   }catch(e){ return false; }
 }
-function pbTrimSet(k,v){ window._pbT=window._pbT||{}; window._pbT[k]=v; renderBookList(); }
+/* ⚠️ 검색은 «글자 칠 때마다 표를 통째로 다시 그리면» 입력칸이 사라져
+      한글 조합이 끊긴다 → 「4하ㅏ」처럼 자모가 흩어진다(신고 2026-08-26).
+      같은 사고 이력: 샘플 코멘트 검색칸 · 원단 배분 검색칸.
+   → ① 조합 중(`_cmp`)엔 아무것도 안 한다 (조합 끝나면 그때 그린다)
+      ② 그 외엔 220ms 쉬었다 그린다 (한 글자마다 안 흔들리게)
+      ③ 다시 그린 뒤 커서 자리를 되돌린다 */
+function pbTrimSet(k,v){
+  window._pbT=window._pbT||{}; window._pbT[k]=v;
+  if(k!=='q'){ renderBookList(); return; }
+  var el=document.querySelector('#book-list .pbt-in');
+  if(el&&el._cmp)return;
+  if(window._pbQT)clearTimeout(window._pbQT);
+  window._pbQT=setTimeout(function(){ window._pbQT=null; _pbRenderKeepQ(); },220);
+}
+function _pbRenderKeepQ(){
+  var old=document.querySelector('#book-list .pbt-in');
+  var was=!!(old&&document.activeElement===old);
+  var ss=old?old.selectionStart:0, se=old?old.selectionEnd:0;
+  renderBookList();
+  if(!was)return;
+  var neu=document.querySelector('#book-list .pbt-in');
+  if(neu){ try{ neu.focus(); neu.setSelectionRange(ss,se); }catch(e){} }
+}
 function _pbTState(){
   var o=window._pbT||(window._pbT={});
   if(o.sup===undefined)o.sup=''; if(o.cat===undefined)o.cat='';
@@ -7911,7 +7950,7 @@ function renderPbTrimTable(lst,sups){
     });
   });
   var H='<div class="pbt-bar">'
-    +'<input type="text" class="pbt-in" placeholder="품명·규격 검색" value="'+esc(o.q)+'" oninput="pbTrimSet(\'q\',this.value)">'
+    +'<input type="text" class="pbt-in" placeholder="품명·규격 검색" value="'+esc(o.q)+'" oninput="pbTrimSet(\'q\',this.value)" oncompositionstart="this._cmp=1" oncompositionend="this._cmp=0;pbTrimSet(\'q\',this.value)">'
     +'<select onchange="pbTrimSet(\'sup\',this.value)"><option value="">전체 거래처</option>'
       +sups.map(function(s){return '<option value="'+esc(s)+'"'+(s===o.sup?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
     +'<select onchange="pbTrimSet(\'cat\',this.value)"><option value="">전체 유형</option>'
