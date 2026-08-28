@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26g';
+var APP_BUILD=/*BUILD*/'2026-08-26h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -38061,17 +38061,40 @@ function tpSpecKeyInit(){
   },true);
 }
 /* 도식화가 들어 있는 다른 아이템 목록 */
+/* 도식화 칸 이름 → 사람 말 (툴팁에 「어느 지시서 것」인지 보이게) */
+function _tpSlotLbl(k){
+  if(k==='sewSketch')return '지시서';
+  if(k==='cutSketch')return '재단';
+  if(k==='grdSketch')return '그레이딩';
+  var m=String(k).match(/^spat(\d*)Sketch$/);
+  if(m)return '샘플·패턴 '+(m[1]||'1')+'차';
+  return String(k).replace(/Sketch$/,'');
+}
+/* ⚠️ 예전엔 sewSketch·cutSketch·spatSketch **세 칸만** 봤다.
+      2·3차 회차(spat2Sketch…)나 다른 시트에만 올린 도식화는 목록에 아예 안 떴다
+      (신고 2026-08-26 「왜 도식화가 다 안뜨지?」).
+   → images 안에서 이름에 Sketch 가 든 칸을 **전부** 훑고, 아이템 하나가 여러 장이면 여러 장 다 보여준다.
+      같은 그림이 여러 칸에 있으면 한 번만. */
 function _tpSketchItems(){
   var out=[];
   Object.keys(S.items||{}).forEach(function(id){
     if(id===_tpItemId)return;
     var it=S.items[id]; if(!it)return;
-    var d=it.techpack||{}, im=d.images||{};
-    var u=im.sewSketch||im.cutSketch||im.spatSketch||'';   /* 샘플·패턴 1차에만 올린 도식화도 목록에 (2026-08-19 회차) */
-    if(!u)return;
-    out.push({id:id,name:it.name||'',code:it.code||'',png:u,season:it.season||''});
+    var im=(it.techpack&&it.techpack.images)||{};
+    var seen={};
+    Object.keys(im).forEach(function(k){
+      if(!/sketch/i.test(k))return;
+      var u=im[k];
+      if(!u||typeof u!=='string'||!u.trim())return;
+      if(seen[u])return; seen[u]=1;
+      out.push({id:id+'|'+k,itemId:id,slot:k,slotLbl:_tpSlotLbl(k),
+                name:it.name||'',code:it.code||'',png:u,season:it.season||''});
+    });
   });
-  return out.sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||''),'ko'); });
+  return out.sort(function(a,b){
+    var c=String(a.name||'').localeCompare(String(b.name||''),'ko');
+    return c||String(a.slot||'').localeCompare(String(b.slot||''));
+  });
 }
 /* 치수가 들어 있는 다른 아이템 목록 */
 function _tpSpecItems(){
@@ -38111,7 +38134,8 @@ function tpSketchPick(slot){
     +'<button onclick="tpCloseOvl(\'tp-sk-pick\')" style="height:34px;padding:0 12px;border:1px solid #e7e3dc;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit">닫기</button></div>'
     +'<div style="padding:10px 18px 0;font-size:11.5px;color:#6b6760">가져오면 <b>복사본</b>이 됩니다 — 원본 아이템을 나중에 고쳐도 여기 도식화는 안 바뀝니다.</div>'
     +'<div style="padding:12px 18px 0"><input id="tp-sk-q" oninput="tpSketchFilter()" placeholder="품명·품번 검색" autocomplete="off" style="width:100%;height:38px;padding:0 13px;border:1px solid #e7e3dc;border-radius:9px;font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
-    +'<div id="tp-sk-grid" style="padding:16px 18px;overflow:auto;display:flex;flex-wrap:wrap;gap:13px"></div>');
+    /* ⚠️ 높이를 고정하지 않으면 검색할 때마다 결과 수에 따라 **창이 커졌다 작아졌다** 한다(신고 2026-08-26). */
+    +'<div id="tp-sk-grid" style="padding:16px 18px;height:58vh;min-height:300px;overflow:auto;display:flex;flex-wrap:wrap;align-content:flex-start;gap:13px"></div>');
   tpSketchFilter();
   setTimeout(function(){ var q=document.getElementById('tp-sk-q'); if(q)q.focus(); },50);
 }
@@ -38122,7 +38146,7 @@ function tpSketchFilter(){
   var grid=document.getElementById('tp-sk-grid'); if(!grid)return;
   /* 그림만 보여준다 — 품명·품번은 안 띄운다(사용자 요청). 검색은 이름·품번으로 되고, 마우스 올리면 이름이 뜬다. */
   grid.innerHTML=list.length?list.map(function(p){
-    return '<div onclick="tpSketchTake(\''+p.id+'\')" title="'+tpEsc((p.name||'')+(p.code?(' · '+p.code):''))+'" style="border:1px solid #e7e3dc;border-radius:11px;overflow:hidden;cursor:pointer;width:168px;height:150px;background:#fbfaf8;display:flex;align-items:center;justify-content:center">'
+    return '<div onclick="tpSketchTake(\''+p.id+'\')" title="'+tpEsc((p.name||'')+(p.code?(' · '+p.code):'')+(p.slotLbl?(' — '+p.slotLbl):''))+'" style="border:1px solid #e7e3dc;border-radius:11px;overflow:hidden;cursor:pointer;width:168px;height:150px;background:#fbfaf8;display:flex;align-items:center;justify-content:center">'
       +'<img src="'+tpEsc(p.png)+'" style="max-width:100%;max-height:100%;object-fit:contain"></div>';
   }).join('') : '<div style="color:#a6a199;padding:30px;text-align:center;width:100%">'+(q?'검색 결과가 없어요.':'도식화가 들어 있는 다른 아이템이 없어요.')+'</div>';
 }
@@ -38150,7 +38174,7 @@ function tpSpecPick(base){
     '<div style="padding:15px 18px;border-bottom:1px solid #e7e3dc;display:flex;align-items:center;gap:10px"><div style="font-size:15px;font-weight:600;flex:1">다른 아이템 치수 가져오기</div>'
     +'<button onclick="tpCloseOvl(\'tp-sp-pick\')" style="height:34px;padding:0 12px;border:1px solid #e7e3dc;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit">닫기</button></div>'
     +'<div style="padding:12px 18px 0"><input id="tp-sp-q" oninput="tpSpecFilter()" placeholder="품명·품번 검색" autocomplete="off" style="width:100%;height:38px;padding:0 13px;border:1px solid #e7e3dc;border-radius:9px;font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
-    +'<div id="tp-sp-list" style="padding:14px 18px;overflow:auto"></div>',560);
+    +'<div id="tp-sp-list" style="padding:14px 18px;height:58vh;min-height:300px;overflow:auto"></div>',560);
   tpSpecFilter();
   setTimeout(function(){ var q=document.getElementById('tp-sp-q'); if(q)q.focus(); },50);
 }
