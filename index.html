@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26e';
+var APP_BUILD=/*BUILD*/'2026-08-26f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -37236,7 +37236,13 @@ function tpCaptureFixVAlign(cdoc){
       div.textContent=val;
       div.style.whiteSpace='pre-wrap'; div.style.wordBreak='break-word'; div.style.overflow='hidden';
       div.style.width='100%'; div.style.height=(lt?lt.clientHeight:cte.clientHeight)+'px'; div.style.boxSizing='border-box';
-      if(cs){ div.style.fontSize=cs.fontSize; div.style.fontWeight=cs.fontWeight; div.style.lineHeight=cs.lineHeight; div.style.color=cs.color; div.style.padding=cs.padding; div.style.fontFamily=cs.fontFamily; div.style.textAlign=cs.textAlign; }
+      /* ⚠️ 글자 속성을 몇 개만 복사하면 화면과 다른 글꼴·자간으로 그려져 뭉개져 보인다.
+            덮어그리기(tpCaptureTextOverlay)와 **같은 목록**을 복사한다. */
+      if(cs){ ['fontFamily','fontSize','fontWeight','fontStyle','fontStretch','fontVariantNumeric',
+               'letterSpacing','wordSpacing','lineHeight','color','textAlign','textIndent',
+               'textTransform','fontFeatureSettings','fontKerning','padding'].forEach(function(k){
+        var v=cs[k]; if(v!=null&&v!=='')try{div.style[k]=v;}catch(e){} });
+        try{div.style.setProperty('-webkit-font-smoothing',cs.webkitFontSmoothing||'auto');}catch(e){} }
       cte.parentNode.replaceChild(div,cte);
     }
     // 도안·이미지칸: object-fit이 html2canvas에서 안 먹어 좌우로 늘어남 → 원본 비율 유지한 정확한 px 크기의 <img>로(선명·안 늘어남)
@@ -37443,12 +37449,15 @@ function tpCompress(file,maxDim,q,png,skipDataUrl){
       },type,q);
     };
     if(window.createImageBitmap){
-      /* 디코딩하면서 바로 줄이기(resizeWidth) — 4000px 원본을 통째로 디코딩한 뒤 캔버스에서 줄이는 것보다
-         훨씬 빠르다. 미지원 브라우저면 옵션 없이 한 번 더, 그것도 안 되면 옛 방식. */
-      var _plain=function(){ createImageBitmap(file).then(function(bm){ draw(bm,bm.width,bm.height); }).catch(_legacy); };
-      createImageBitmap(file,{resizeWidth:maxDim,resizeQuality:'high'})
-        .then(function(bm){ if(!bm||!bm.width)return _plain(); draw(bm,bm.width,bm.height); })
-        .catch(_plain);
+      /* ⚠️ 예전엔 `createImageBitmap(file,{resizeWidth:maxDim})` 로 «디코딩하면서 줄였는데»,
+            이건 **원본이 작아도 maxDim 까지 늘려버린다.** 늘린 걸 다시 JPEG 로 구우니
+            파일만 커지고 그림은 뿌예졌다(신고 2026-08-26 「화질이 더 안좋아졌다」).
+         → 원본 그대로 디코딩하고, 줄이는 건 draw() 에 맡긴다.
+            draw() 의 `sc=Math.min(1,...)` 가 **절대 안 늘린다**. */
+      createImageBitmap(file).then(function(bm){
+        if(!bm||!bm.width)return _legacy();
+        draw(bm,bm.width,bm.height);
+      }).catch(_legacy);
     }else _legacy();
     function _legacy(){
       var rd=new FileReader();
@@ -37480,7 +37489,9 @@ function tpProcessImageFile(f,slot){ if(!f||!slot)return; if(!/^image\//.test(f.
   var _pending=false;
   window._tpUping=window._tpUping||{}; window._tpUping[slot]=1;
   // ① 즉시 미리보기(작게=빠름) — 넣자마자 바로 보임
-  tpCompress(f,900,0.7,false).then(function(prev){
+  /* 미리보기가 900px·0.7 이라 «올린 직후 화면»이 눈에 띄게 나빴다(업로드 끝나면 고화질로 바뀌지만
+     그 사이가 흐릿). 화면 칸이 ~840px 이라 1,400px·0.85 로 올림 — 그래도 충분히 빠르다. */
+  tpCompress(f,1400,0.85,false).then(function(prev){
     // ⚠️ 미리보기를 반드시 '저장'(tpSet)해야 함 — 예전에 tpSetQuiet(저장 안 함)로 뒀더니 업로드가 느리거나 멈춘 사진은
     //    아예 저장이 안 돼 새로고침하면 사라졌음("4장 넣었는데 2장만 보임"). 업로드 끝나면 URL로 교체되므로 임시로만 남음.
     tpSet('images.'+slot,prev.dataUrl); _tpRenderSafe();
