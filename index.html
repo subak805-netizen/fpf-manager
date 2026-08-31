@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26s';
+var APP_BUILD=/*BUILD*/'2026-08-26t';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5861,8 +5861,9 @@ function saveToPB(item){
     const newTP=+t.unitPrice||0;
     const finalTP=newTP>0?newTP:(existing.unitPrice||0);
     var pbEntry={...existing,type:'trim',name:t.name,color:t.color||'',orderType:t.orderType||'count',unitPrice:finalTP,unit:t.unit||existing.unit||'yard',size:existing.size||t.size||'',yardsPerRoll:t.yardsPerRoll||existing.yardsPerRoll||null,
-      consumptionPerPiece:(t.consumptionPerPiece!=null&&t.consumptionPerPiece!==''?+t.consumptionPerPiece:(existing.consumptionPerPiece!=null?existing.consumptionPerPiece:null)),
-      qtyPerPiece:(t.qtyPerPiece!=null&&t.qtyPerPiece!==''?+t.qtyPerPiece:(existing.qtyPerPiece!=null?existing.qtyPerPiece:null)),
+      /* ★ 요척·벌당개수는 **옷마다 다르다.** 단가장에 넣으면 다음 아이템에 그대로 튀어나온다. */
+      consumptionPerPiece:(existing.consumptionPerPiece!=null?existing.consumptionPerPiece:null),
+      qtyPerPiece:(existing.qtyPerPiece!=null?existing.qtyPerPiece:null),
       useMinSplit:(t.useMinSplit!=null?!!t.useMinSplit:existing.useMinSplit),
       minSplitQty:(t.minSplitQty!=null&&t.minSplitQty!==''?+t.minSplitQty:(existing.minSplitQty!=null?existing.minSplitQty:null)),
       hasMinOrder:(t.hasMinOrder!=null?!!t.hasMinOrder:existing.hasMinOrder),
@@ -5872,17 +5873,17 @@ function saveToPB(item){
       weightGsm:t.weightGsm||existing.weightGsm||'',
       weightOz:t.weightOz||existing.weightOz||'',
       composition:t.composition||existing.composition||'',
-      part:t.part||existing.part||'',
+      part:existing.part||'',   /* 용도는 아이템마다 다르다 — 단가장을 덮지 않는다 */
       threadQty:(t.threadQty!=null&&t.threadQty!==''?+t.threadQty:(existing.threadQty!=null?existing.threadQty:null)),
       threadMin:(t.threadMin!=null&&t.threadMin!==''?+t.threadMin:(existing.threadMin!=null?existing.threadMin:null)),
       yardsPerJeol:(t.yardsPerJeol!=null&&t.yardsPerJeol!==''&&+t.yardsPerJeol>0?+t.yardsPerJeol:(existing.yardsPerJeol!=null?existing.yardsPerJeol:null)),
       loopPerYard:(t.loopPerYard!=null&&t.loopPerYard!==''&&+t.loopPerYard>0?+t.loopPerYard:(existing.loopPerYard!=null?existing.loopPerYard:null)),
       packUnit:t.packUnit||existing.packUnit||'',
-      biasSpec:t.biasSpec||existing.biasSpec||'',
-      fabricSource:t.fabricSource||existing.fabricSource||'',
+      biasSpec:existing.biasSpec||'',        /* 규격·원단출처는 단가장에서만 정한다 */
+      fabricSource:existing.fabricSource||'',
       labelName:t.labelName||existing.labelName||'',
-      labelPart:t.labelPart||existing.labelPart||'',
-      manufactureYM:t.manufactureYM||existing.manufactureYM||'',
+      labelPart:existing.labelPart||'',       /* 부위·제조연월도 아이템마다 다르다 */
+      manufactureYM:existing.manufactureYM||'',
       madeIn:t.madeIn||existing.madeIn||'',
       lastUpdated:today()};
     if(t.isCommonUse)pbEntry.isCommonUse=true;
@@ -6255,8 +6256,13 @@ function autofillTrim(r){
   if(szF&&e.size&&(!szF.value||_nameChanged)){szF.value=e.size;szF.classList.add('autofill');setTimeout(()=>szF.classList.remove('autofill'),1200);}
   // 안 바뀌는 고정값 함께 불러오기 (폭·요척·벌당개수·요척개수·혼용률 등) — 빈 칸만 채움
   var _flash=function(el){if(el){el.classList.add('autofill');setTimeout(function(){el.classList.remove('autofill');},1200);}};
-  // 고정값(폭·혼용률·절당yard 등)은 이름 바꾸면 따라오게(fixed=1), 요척(수량)은 직접 입력이라 빈 칸만(fixed=0)
-  [['width',e.width,1],['weightGsm',e.weightGsm,1],['weightOz',e.weightOz,1],['composition',e.composition,1],['yardsPerRoll',e.yardsPerRoll,1],['yardsPerJeol',e.yardsPerJeol,1],['threadQty',e.threadQty,1],['threadMin',e.threadMin,1],['loopPerYard',e.loopPerYard,1],['labelName',e.labelName,1],['manufactureYM',e.manufactureYM,1],['madeIn',e.madeIn,1],['part',e.part,0],['labelPart',e.labelPart,0],['consumptionPerPiece',e.consumptionPerPiece,0],['qtyPerPiece',e.qtyPerPiece,0]].forEach(function(pair){
+  /* ⚠️ 여기엔 **자재 고유값만** 넣는다(폭·무게·혼용률·롤당y·절당y·실 미니멈·제조국 …).
+        「아이템마다 다른 값」을 넣으면 단가장 항목 하나를 통해 **남의 아이템 값이 넘어온다**.
+        2026-08-26 뺀 것: 요척(consumptionPerPiece) · 벌당개수(qtyPerPiece) · 용도(part) ·
+                          부위(labelPart) · 제조연월(manufactureYM)
+        (신고 「심지랑 다데테이프 같은 부자재에 요척이 자꾸 아무렇게나 써있어」)
+        앞서 뺀 것: 규격(biasSpec) · 원단출처(fabricSource) — 2026-08-26v */
+  [['width',e.width,1],['weightGsm',e.weightGsm,1],['weightOz',e.weightOz,1],['composition',e.composition,1],['yardsPerRoll',e.yardsPerRoll,1],['yardsPerJeol',e.yardsPerJeol,1],['threadQty',e.threadQty,1],['threadMin',e.threadMin,1],['loopPerYard',e.loopPerYard,1],['labelName',e.labelName,1],['madeIn',e.madeIn,1]].forEach(function(pair){
     var inp=r.querySelector('[data-f='+pair[0]+']');
     var allow=pair[2]?(!inp||!inp.value||_nameChanged):(!inp||!inp.value);
     if(inp&&allow&&pair[1]!=null&&pair[1]!==''){inp.value=pair[1];_flash(inp);}
