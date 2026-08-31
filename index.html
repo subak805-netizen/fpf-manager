@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26u';
+var APP_BUILD=/*BUILD*/'2026-08-26v';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -26881,6 +26881,7 @@ function renderItemPay(opts){
         <div class="ip-summary">
           <div class="lbl">출고분 합계</div>
           <div class="amt">${num(r.totalAmount)}원</div>
+          ${_ordFcChangedBadge(r.oid)}
         </div>
       </div>
       <div class="ip-fcs"><div class="ip-fcgrid">${fcsHtml}</div></div>
@@ -26931,6 +26932,94 @@ function ipTogglePay(btn){
   // setPaySt가 saveData + renderPayStats + renderPayContent까지 호출 → 자동 새로고침
 }
 // 결제 수동 완료 이동/되돌리기 (생산대시보드식 — 자동 이동 안 함)
+/* ===== 오더의 공장을 「지금 아이템 공장」으로 다시 맞추기 (2026-08-26) ==================
+   ⚠️ 오더는 만들 때 공장을 **얼려 둔다**(o.fcMap). 나중에 아이템 공장을 바꿔도 옛 오더 결제는
+      안 움직인다 — 지난달 정산한 돈이 다른 공장으로 옮겨가면 안 되기 때문(2026-08 원칙).
+      그래서 옮기는 건 **사용자가 눌렀을 때만** 한다.
+   ⚠️ 같이 옮겨야 하는 것:
+        ① o.fcMap[아이템][공장키]        ② o.payments['fc_<공장>_<비용키>']  (결제 체크·날짜)
+        ③ o.factorySchedules[공장]        (출고 회차·부가세) — 옛 공장이 이 오더에서 **완전히 안 쓰이게 될 때만** 옮긴다.
+           한 공장이 여러 공정을 맡고 있으면 옮기면 안 된다(회차가 딸려 가 버린다).
+   ⚠️ 이미 결제 «완료»인 공정은 **건드리지 않는다**(사용자 확정). 목록에만 알려 준다. */
+/* 「지금 아이템 공장」과 다른 게 있으면 결제 카드에 알려 준다 — 있을 때만 뜬다 */
+function _ordFcChangedBadge(oid){
+  try{
+    var o=S.orders[oid]; if(!o)return '';
+    var r=_ordFcPlan(o);
+    var n=r.plan.length+r.blocked.length;
+    if(!n)return '';
+    return '<button type="button" class="btn s" onclick="event.stopPropagation();orderResyncFc(\''+oid+'\')"'
+      +' title="이 오더에 얼려둔 공장을 지금 아이템 공장으로 다시 맞춰요"'
+      +' style="margin-top:6px;font-size:10.5px;padding:3px 9px;background:#fff7ed;border-color:#fdba74;color:#9a3412;white-space:nowrap">공장 바뀜 '+n+'건 · 다시 맞추기</button>';
+  }catch(e){ return ''; }
+}
+function _ordFcPlan(o){
+  var plan=[],blocked=[];
+  (o.orderItems||[]).forEach(function(oi){
+    var it=oi&&S.items[oi.itemId]; if(!it)return;
+    COST_DEFS.forEach(function(d){
+      var ck=d[0],lbl=d[1],fk=d[2];
+      var was=(typeof orderFc==='function')?(orderFc(o,it,fk)||''):'';
+      var now=it[fk]||'';
+      if(was===now)return;
+      var nmOf=function(id){ return id?(((S.factories||{})[id]||{}).name||id):'(없음)'; };
+      var row={itemId:oi.itemId,itemName:it.name||'',ck:ck,fk:fk,lbl:lbl,was:was,now:now,wasNm:nmOf(was),nowNm:nmOf(now)};
+      var st=(was&&typeof getPaySt==='function')?getPaySt(o.id,'fc_'+was+'_'+ck):null;
+      if(st&&st.paid){ blocked.push(row); return; }
+      plan.push(row);
+    });
+  });
+  return {plan:plan,blocked:blocked};
+}
+function orderResyncFc(oid){
+  var o=S.orders[oid]; if(!o){showToast('오더를 찾을 수 없어요');return;}
+  var r=_ordFcPlan(o);
+  if(!r.plan.length&&!r.blocked.length){ showToast('바뀐 공장이 없어요 — 이미 아이템과 같아요',3500); return; }
+  var msg='';
+  if(r.plan.length){
+    msg+='이렇게 옮깁니다\n';
+    r.plan.forEach(function(x){ msg+='· '+x.itemName+' '+x.lbl+' : '+x.wasNm+' → '+x.nowNm+'\n'; });
+  }
+  if(r.blocked.length){
+    msg+=(msg?'\n':'')+'※ 이미 결제 완료라 안 바꿉니다\n';
+    r.blocked.forEach(function(x){ msg+='· '+x.itemName+' '+x.lbl+' : '+x.wasNm+' (완료)\n'; });
+    msg+='  바꾸려면 결제 완료를 먼저 푸세요.\n';
+  }
+  if(!r.plan.length){ alert(msg); return; }
+  if(!confirm(msg+'\n계속할까요?'))return;
+  o.fcMap=o.fcMap||{};
+  o.payments=o.payments||{};
+  var moved=0,schMoved=0;
+  r.plan.forEach(function(x){
+    if(!o.fcMap[x.itemId])o.fcMap[x.itemId]={};
+    o.fcMap[x.itemId][x.fk]=x.now;
+    moved++;
+    /* 결제 체크·날짜 옮기기 */
+    if(x.was&&x.now){
+      var ok='fc_'+x.was+'_'+x.ck, nk='fc_'+x.now+'_'+x.ck;
+      if(o.payments[ok]){ if(!o.payments[nk])o.payments[nk]=o.payments[ok]; delete o.payments[ok]; }
+    }
+  });
+  /* 출고 회차 — 옛 공장이 이 오더에서 더 이상 안 쓰이면 그때만 옮긴다 */
+  var stillUsed=function(fid){
+    return (o.orderItems||[]).some(function(oi){
+      var it=oi&&S.items[oi.itemId]; if(!it)return false;
+      return COST_DEFS.some(function(d){ return (orderFc(o,it,d[2])||'')===fid; });
+    });
+  };
+  r.plan.forEach(function(x){
+    if(!x.was||!x.now)return;
+    var sch=o.factorySchedules&&o.factorySchedules[x.was];
+    if(!sch)return;
+    if(stillUsed(x.was))return;                     // 다른 공정이 아직 그 공장을 씀 → 그대로 둔다
+    if(o.factorySchedules[x.now])return;            // 새 공장에 이미 회차가 있음 → 섞지 않는다
+    o.factorySchedules[x.now]=sch; delete o.factorySchedules[x.was]; schMoved++;
+  });
+  saveData();
+  try{ if(typeof renderItemPay==='function')renderItemPay(); }catch(e){}
+  try{ if(typeof renderOrderPane==='function')renderOrderPane(); }catch(e){}
+  showToast('공장 '+moved+'건 옮겼어요'+(schMoved?(' · 출고 회차 '+schMoved+'건 같이'):'')+(r.blocked.length?(' · 완료 '+r.blocked.length+'건은 그대로'):''),5000);
+}
 function payArchiveItem(oid,itemId){var o=S.orders[oid];if(!o)return;if(!o.payArchivedItems)o.payArchivedItems={};o.payArchivedItems[itemId]=(typeof todayISO==='function'?todayISO():'');saveData();if(typeof renderPayStats==='function')renderPayStats();if(typeof renderPayContent==='function')renderPayContent();if(typeof showToast==='function')showToast('완료로 이동');}
 function payUnarchiveItem(oid,itemId){var o=S.orders[oid];if(!o||!o.payArchivedItems)return;delete o.payArchivedItems[itemId];saveData();if(typeof renderPayStats==='function')renderPayStats();if(typeof renderPayContent==='function')renderPayContent();if(typeof showToast==='function')showToast('미결제로 되돌림');}
 // 아이템 중심 결제 카드 — 명세서 버튼 핸들러
