@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26j';
+var APP_BUILD=/*BUILD*/'2026-08-26k';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -13341,6 +13341,14 @@ function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{con
   if(g('biasSpec')!=null)tc.biasSpec=g('biasSpec')||''; // 가공 종류의 규격(청구방식 무관)
   if(ct==='tier'){tc.tierQty=+g('tierQty')||300;tc.tierUnder=+g('tierUnder')||0;tc.tierOver=+g('tierOver')||0;tc.costPerPcs=tc.tierOver;tc.costPerLot=0;}  /* tierUnderBasis는 여기서 건드리지 않음 — 없으면=기존(컬러별) 유지 */ // 원가는 기존처럼 개당(초과단가) 기준 — 결제 원장만 조건부 분기
   else{const amt=+g('costAmt')||0;if(ct==='perPcs'){tc.costPerPcs=amt;tc.costPerLot=0;}else{tc.costPerLot=amt;tc.costPerPcs=0;}}
+  /* 개당요척 — 공임(_tcQtyPerPiece)과 원자재 필요량(pcsPerGarment) 둘 다에 쓴다.
+     ⚠️ 부자재 쪽엔 **새 이름(pcsPerGarment)** 으로 옮긴다. 기존 qtyPerPiece 를 건드리면
+        단추·라벨 등 이미 그 칸을 쓰는 부자재의 계산이 조용히 바뀐다. */
+  if(g('tcQpp')!=null){ var _qv=String(g('tcQpp')||'').trim(); tc.qtyPerPiece=_qv===''?'':(+_qv||0); }
+  try{
+    var _lt=(formTrims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});
+    if(_lt){ var _q=+tc.qtyPerPiece; _lt.pcsPerGarment=(_q>0)?_q:''; }
+  }catch(e){}
   r.querySelectorAll('[data-clnm]').forEach(inp=>{const cn=decodeURIComponent(inp.dataset.clnm);const lk=(tc.colorLinks||[]).find(l=>l.itemColor===cn);if(lk)lk.colorName=inp.value;});});}
 function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r.id.replace('tr-','');if(!formTrims[i])return;const g=f=>r.querySelector('[data-f='+f+']')?.value;const tp=g('orderType')||'count';formTrims[i].orderType=tp;
     /* ⚠️ 그 칸이 **없는 카드**(라벨 등)에서 값이 통째로 지워지던 자리다(신고 2026-08-25 「저장하면 도루묵」).
@@ -13594,12 +13602,19 @@ function trimCostRowHTML(tc,i){
     <input class="tcl-amt" data-f="tierUnder" type="number" value="${tc.tierUnder||0}" min="0" title="기준 수량 이하일 때 — 개수와 상관없이 컬러별로 이 금액 한 번" oninput="colTrimCosts();tclTierSum(this)" style="width:68px"><span class="tcl-u" style="font-weight:700">원</span><select class="tcl-basis" onchange="setTcTierBasis(${i},this.value)" title="한번에: 모든 컬러 합쳐 1회 / 컬러별: 색마다 따로" style="width:auto;min-width:0;flex:0 0 auto;background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:9px;padding:1px 6px;font-size:10.5px;font-weight:800;margin:0 2px;cursor:pointer;font-family:inherit"><option value="once"${(tc.tierUnderBasis||'perLot')!=='perLot'?' selected':''}>한번에</option><option value="perLot"${(tc.tierUnderBasis||'perLot')==='perLot'?' selected':''}>컬러별</option></select>
     <span class="tcl-u" style="font-weight:700">,&nbsp;넘으면</span><input class="tcl-amt" data-f="tierOver" type="number" value="${tc.tierOver||0}" min="0" title="기준 수량을 넘으면 — 개수 × 이 단가" oninput="colTrimCosts();tclRecost(this);tclTierSum(this)" style="width:58px"><span class="tcl-u" style="font-weight:700">원</span><span class="tcl-basis" style="background:#ffedd5;color:#9a3412;border:1px solid #fdba74;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:800;margin:0 2px">개당</span>`
     :`<input class="tcl-amt" data-f="costAmt" type="number" value="${amtVal}" min="0" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">원</span>`;
+  /* 「개당요척」 — 옷 1장에 이 가공이 몇 개 붙나 (스트링 2개면 2).
+     ⚠️ 공임뿐 아니라 **원자재 필요량에도** 쓰인다(끈 요척 × 개당요척 × 장수). 비우면 1개.
+        요청 2026-08-26 「스트링 끈 요척 1.7 / 스트링 개당 요척 1개」 */
+  const qppSec=(mode==='perPcs'||mode==='tier')
+    ?`<span class="tcl-u" style="font-weight:700">×</span><input class="tcl-amt" data-f="tcQpp" type="number" min="0" step="0.01" value="${tc.qtyPerPiece!=null&&tc.qtyPerPiece!==''?tc.qtyPerPiece:''}" placeholder="1" title="옷 1장에 몇 개 — 스트링이 2개면 2. 비우면 1개&#10;원자재 필요량에도 같이 곱해집니다" oninput="colTrimCosts();tclRecost(this)" style="width:52px"><span class="tcl-u">개/장</span>`
+    :'';
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
     <input class="tcl-nm" data-f="name" list="dl-proc" value="${esc(tc.name||'')}" placeholder="예: 코팅, 염색, 로고" onchange="tcAutoFillRate(this)">
     ${kindSel}
     ${modeSel}
     ${amtSec}
+    ${qppSec}
 
     <input class="tcl-fac" data-f="factory" list="dl-sup" value="${esc(tc.factory||'')}" placeholder="담당 업체" onchange="tcAutoFillRate(this)">
     <span class="tcl-cost">원가 +${num(c.per)}원/장${c.sub?` <span class="tcl-sub">${c.sub}</span>`:''}</span>
@@ -14858,7 +14873,7 @@ function _calcTrimNeedRaw(t,qty){var extras=trimExtrasCost(t,qty);
     const n=allSame?Math.ceil(defaultQpp*qty*(1+buf)):Math.max.apply(null,Object.values(faceQtys).concat([0]));
     return{qty:n,unit:'세트',cost:n*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isSnap:true,faceQtys,allSameFaceQty:allSame};
   }
-  if(t.orderType==='roll'){const ty=t.consumptionPerPiece*qty*(1+((t.buffer??TRIM_LOSS_PCT)/100));const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return{rolls,ty:parseFloat(ty.toFixed(2)),ay:rolls*(t.yardsPerRoll||1),cost:rolls*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:true};}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*qty*(1+((t.buffer??TRIM_LOSS_PCT)/100));if(t.yardsPerJeol>0){const jeol=Math.ceil(ty/t.yardsPerJeol);const finalY=jeol*t.yardsPerJeol;return{qty:finalY,jeol:jeol,unit:(t.packUnit||'yard'),cost:finalY*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isJeol:true,originalNeed:parseFloat(ty.toFixed(2)),yardsPerJeol:t.yardsPerJeol};}const ay=Math.ceil(ty);return{qty:ay,unit:(t.packUnit||'yard'),cost:ay*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isRoll:false,originalNeed:parseFloat(ty.toFixed(2))};}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isThread:true,minQ:minQ,perColor:perColor};}
+  if(t.orderType==='roll'){const ty=t.consumptionPerPiece*qty*_pcsPG(t)*(1+((t.buffer??TRIM_LOSS_PCT)/100));const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return{rolls,ty:parseFloat(ty.toFixed(2)),ay:rolls*(t.yardsPerRoll||1),cost:rolls*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:true};}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*qty*_pcsPG(t)*(1+((t.buffer??TRIM_LOSS_PCT)/100));if(t.yardsPerJeol>0){const jeol=Math.ceil(ty/t.yardsPerJeol);const finalY=jeol*t.yardsPerJeol;return{qty:finalY,jeol:jeol,unit:(t.packUnit||'yard'),cost:finalY*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isJeol:true,originalNeed:parseFloat(ty.toFixed(2)),yardsPerJeol:t.yardsPerJeol};}const ay=Math.ceil(ty);return{qty:ay,unit:(t.packUnit||'yard'),cost:ay*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isRoll:false,originalNeed:parseFloat(ty.toFixed(2))};}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isThread:true,minQ:minQ,perColor:perColor};}
   // 케어라벨: 의뢰수량 그대로 + 사이즈별 buffer (사이즈별 분배는 발주서에서)
   if(t.orderType==='careLabel'){const buf=t.qtyBuffer!==undefined?+t.qtyBuffer:10;const qpp=(t.qtyPerPiece!=null&&+t.qtyPerPiece>0)?+t.qtyPerPiece:1;const n=Math.ceil((qty||0)*qpp)+buf; /* 의뢰×요척+여분 */ return{qty:n,unit:'개',cost:n*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isCareLabel:true,qtyBuffer:buf};}
   // 메인라벨: 컬러당 qtyPerColor+qtyBuffer — 컬러수는 발주서 단계에서 곱함
@@ -15547,6 +15562,59 @@ function _poTrimProcNotes(g){
       }
       if(!nm||seen[nm])return;
       seen[nm]=1;out.push(nm);
+    });
+  });
+  return out;
+}
+/* ===== 발주서 「가공」 블록 (2026-08-26) ==============================
+   요청 형태:
+     스트링 제작 138cm 악어 팁 니켈컬러 10mm  (1,100원)
+     #44카키   - 23개
+     #69네이비 - 43개
+   ⚠️ 개당(perPcs)·조건부(tier) 가공만. 「한번에」·「컬러별」은 개수 개념이 아니라 지금처럼 이름 줄로만 나간다.
+   ⚠️ 가공 담당업체(tc.factory)가 **이 발주서 거래처와 같을 때만** 넣는다 — 남의 집 발주서에 끼면 안 된다.
+   ⚠️ 개수 = 그 컬러 장수 × 개당요척(_tcQtyPerPiece). */
+function _poProcBlocks(g,sup){
+  var out=[],seen={};
+  ((g&&g.colors)||[]).forEach(function(m){
+    if(!m||!m.itemId)return;
+    var it=S.items[m.itemId];
+    if(!it||!Array.isArray(it.trimCosts)||!it.trimCosts.length)return;
+    var trs=(it.trims||[]).filter(function(x){return x&&(x.name||'')===(m.name||'');});
+    if(!trs.length)return;
+    var tr=trs.length>1?(trs.find(function(x){return (x.size||'')===(m.size||'')&&(x.orderType||'')===(m.orderType||'');})||trs[0]):trs[0];
+    var tid=tr&&tr.id; if(!tid)return;
+    it.trimCosts.forEach(function(tc){
+      if(!tc||tc.trimId!==tid)return;
+      var mode=tc.costType||'perPcs';
+      if(mode!=='perPcs'&&mode!=='tier')return;
+      if(String(tc.factory||'').trim()!==String(sup||'').trim())return;
+      var fee=+(mode==='tier'?tc.tierOver:tc.costPerPcs)||0;
+      if(!fee)return;
+      /* 이름과 종류가 사실상 같으면(「스트링 제작」/「스트링제작」) 한 번만 */
+      var _nm=(tc.name||'').trim(), _kd=(tc.procKind||'').trim();
+      if(_kd&&_nm.replace(/\s+/g,'')===_kd.replace(/\s+/g,''))_kd='';
+      var hdr=[_nm,_kd,(tc.biasSpec||'').trim()].filter(Boolean).join(' ');
+      if(!hdr)hdr='가공';
+      var key=tc.id||hdr;
+      if(seen[key])return; seen[key]=1;
+      var qpp=(typeof _tcQtyPerPiece==='function')?_tcQtyPerPiece(tc,it.trims):1;
+      /* 컬러별 개수 — 같은 발주색끼리 합친다 */
+      var byC={},ord=[];
+      ((g&&g.colors)||[]).forEach(function(x){
+        if(!x||x.itemId!==m.itemId)return;
+        var pcs=+((x.calc&&(x.calc.basePcs!=null?x.calc.basePcs:x.calc.needPcs))||x.garmentPcs||0);
+        if(!pcs)return;
+        var c=x.colorName||'';
+        if(byC[c]==null){byC[c]=0;ord.push(c);}
+        byC[c]+=Math.round(pcs*qpp);
+      });
+      if(!ord.length)return;
+      var lines=[hdr+' ('+num(fee)+'원)'];
+      var tot=0;
+      ord.forEach(function(c){ tot+=byC[c]; lines.push((c?('#'+c):'')+' - '+num(byC[c])+'개'); });
+      if(ord.length>1)lines.push('합계 '+num(tot)+'개');
+      out.push(lines);
     });
   });
   return out;
@@ -16280,7 +16348,12 @@ function genPoText(order,sn){
       }
       // 비고
       if(g.memo)L.push(`${g.memo}`);
-      _poTrimProcNotes(g).forEach(function(nm){L.push('가공: '+nm);});
+      /* 개당 가공(스트링 제작 등)은 «컬러별 개수»가 있는 자기 블록으로 (2026-08-26).
+         나머지(한번에·컬러별)는 예전처럼 「가공: 이름」 한 줄. */
+      var _pbs=(typeof _poProcBlocks==='function')?_poProcBlocks(g,sn):[];
+      var _pbHdrs={}; _pbs.forEach(function(b){ _pbHdrs[String(b[0]).replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
+      _poTrimProcNotes(g).forEach(function(nm){ if(_pbHdrs[String(nm).trim()])return; L.push('가공: '+nm); });
+      if(_pbs.length){ _pbs.forEach(function(b){ L.push(''); b.forEach(function(x){L.push(x);}); }); }
       L.push(''); // 부자재 그룹 사이 항상 줄바꿈
     }
   }
@@ -16406,7 +16479,14 @@ function addProcKind(i){var nm=(prompt('새 가공 종류 이름 (예: 스티치
   var l=getProcKinds();if(l.indexOf(nm)<0){l.push(nm);try{saveData();}catch(e){}}
   colTrimCosts();var tc=formTrimCosts[i];if(tc)tc.procKind=nm;_procKindRerender();}
 function setProcKind(i,v){colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;if(v==='__add__'){addProcKind(i);return;}tc.procKind=v;_procKindRerender();}
-function _tcQtyPerPiece(tc,trims){var t=(trims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});var q=t?+t.qtyPerPiece:0;return q>0?q:1;}
+/* 가공 1건이 옷 1장에 몇 개 붙나. 가공비 줄에 적은 값이 **먼저**, 없으면 부자재의 벌당개수, 그것도 없으면 1 */
+function _tcQtyPerPiece(tc,trims){
+  var own=+(tc&&tc.qtyPerPiece); if(own>0)return own;
+  var t=(trims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});
+  var q=t?+t.qtyPerPiece:0; return q>0?q:1;
+}
+/* 원자재 필요량에 곱할 개수 — 새 이름이라 기존 자료엔 없다(=1). */
+function _pcsPG(t){ var v=+(t&&t.pcsPerGarment); return v>0?v:1; }
 /* 조건부(tier) 가공비 — 원가에서도 수량 보고 판단 (2026-07-28 사용자 확정)
    부자재 총개수(만들 장수 × 벌당개수)가 기준 이하면 '정액'(13,000원), 넘으면 '개당'(40원).
    정액은 앱 기존 관례대로 미니멈 장수로 나눠 장당 원가로 환산 (13,000÷30장 = 433원/장). */
