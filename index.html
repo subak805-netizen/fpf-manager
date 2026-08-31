@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26q';
+var APP_BUILD=/*BUILD*/'2026-08-26s';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -13057,7 +13057,9 @@ document.addEventListener('input',function(e){
 var _TRIM_PB_LOCK_FIELDS=['size','weightGsm','weightOz','color','buttonStyle','zipperSize','zipperLength','zipperDirection','toothColor','sliderModel','sliderColor','sliderCost','sliderLogoCost','snapSize','yardsPerRoll','yardsPerJeol','threadMin','loopPerYard','unitPrice','rollUnit','packUnit','unit'];
 // 단가장 자재 객체 찾기 (_pbHasTrim과 같은 순서: 키 정확일치 → 이름만)
 function _pbFindTrimMat(sup,t){
-  var pb=S.priceBook&&S.priceBook[sup];if(!pb||!pb.materials||!t||!t.name)return null;
+  var pb=S.priceBook&&S.priceBook[sup];if(!pb||!pb.materials||!t)return null;
+  t=Object.assign({},t,{name:_pbTrimName(t)});
+  if(!t.name)return null;
   var mats=pb.materials,isTrim=function(m){return !!m&&m.type!=='fabric';};
   var c=[pbKey(t.name,t.color||'',t.size||''),pbKey(t.name,t.color||''),t.name];
   for(var i=0;i<c.length;i++)if(isTrim(mats[c[i]]))return mats[c[i]];
@@ -13075,11 +13077,22 @@ function _pbFieldHasVal(m,f){
   if(f==='zipperLength'||f==='biasSpec'||f==='rollUnit'||f==='packUnit')return !!String(m[f]||'').trim();
   return false;
 }
+/* ⚠️ 예전엔 한 줄에서 오류가 나면 **나머지 줄이 통째로 안 잠겼다** —
+      부르는 쪽이 try/catch 로 감싸고 있어 아무 표시도 안 났다
+      (신고 2026-08-26 「단가 변경 안 되게 해야지」·「부자재칸 왜 갑자기 다시 바뀌었어」).
+   → 줄마다 따로 감싼다. 라벨 칸도 같이 훑는다(#label-trim-rows). */
 function _lockTrimPbFields(){
-  var root=document.getElementById('trim-rows');if(!root)return;
-  root.querySelectorAll('[id^=tr-]').forEach(function(row){
+  var _pulled=false;
+  var rows=[];
+  ['trim-rows','label-trim-rows'].forEach(function(id){
+    var root=document.getElementById(id); if(!root)return;
+    Array.prototype.forEach.call(root.querySelectorAll('[id^=tr-]'),function(r){rows.push(r);});
+  });
+  if(!rows.length)return;
+  rows.forEach(function(row){
+   try{
     var i=+row.id.replace('tr-','');var t=formTrims[i];if(!t)return;
-    var reg=!!(t.supplier&&t.name&&_pbHasTrim(t.supplier,t));
+    var reg=!!(t.supplier&&_pbTrimName(t)&&_pbHasTrim(t.supplier,t));
     var mat=reg?_pbFindTrimMat(t.supplier,t):null;
     row.classList.toggle('tcd-pb',reg);
     // 레이스(컷) 체크도 자재 정체(단가장 소유) — 등록된 부자재는 못 바꿈
@@ -13105,6 +13118,12 @@ function _lockTrimPbFields(){
         else{el.readOnly=lock;el.classList.toggle('tcd-ro',lock);
           if(lock){if(!el.getAttribute('data-ph0'))el.setAttribute('data-ph0',el.placeholder||'');el.placeholder='';} // 잠긴 칸에 placeholder(15mm 등)가 값처럼 보이지 않게
           else if(el.getAttribute('data-ph0')!=null){el.placeholder=el.getAttribute('data-ph0');}}
+        /* 잠근 칸은 **단가장 값으로 채운다** — 잠그기만 하면 0 인 채로 남는다
+           (요청 2026-08-26 「라벨도 여기서 단가장 불러오게 해줘」). */
+        if(lock&&mat){
+          var _pv=(typeof _pbMatVal==='function')?_pbMatVal(mat,f):null;
+          if(_pv!=null&&String(el.value)!==String(_pv)){ el.value=_pv; _pulled=true; }
+        }
         if(f==='unitPrice'){
           var link=el.parentNode&&el.parentNode.querySelector('.tcd-pblink');
           if(lock&&!link){link=document.createElement('a');link.className='tcd-pblink';link.textContent='단가장에서 수정';link.title='단가장 새 창에서 고치면 아이템에 자동 반영';link.onclick=function(ev){ev.preventDefault();openBookWindow('trim');};el.parentNode.appendChild(link);}
@@ -13112,7 +13131,10 @@ function _lockTrimPbFields(){
         }
       });
     });
+   }catch(e){ console.warn('[부자재 잠금] 한 줄 실패 — 나머지는 계속',row&&row.id,e); }
   });
+  /* 화면에 채운 단가장 값을 메모리에도 옮긴다 — 안 하면 저장할 때 옛 값으로 되돌아간다 */
+  if(_pulled){ try{ if(typeof colTR==='function')colTR(); }catch(e){} }
 }
 // 단가장 새 창에서 고친 값 → 본창 열린 폼에 자동 반영 (localStorage fpm_shared 재읽기 후 잠긴 칸 덮어쓰기)
 function _pbMatVal(m,f){
@@ -13260,8 +13282,22 @@ function _injectPbBadge(html,badge,i){
 /* 이 부자재가 단가장에 있나 — 키(이름+색+크기)가 정확히 안 맞아도 '같은 이름'이면 등록된 걸로 본다.
    ⚠️ 예전엔 pbKey 정확일치만 봐서, 단가장에서 불러온 뒤 크기/색이 채워지면 키가 달라져
       이미 등록된 자재인데도 「단가장 등록」 버튼이 다시 떴음(2026-08-07 신고). */
+/* 단가장에서 찾을 «이름» — 라벨은 t.name 이 「케어라벨」·「메인라벨」로 고정이라
+   실제 이름(labelName = 부자재 규격명)으로 찾아야 한다. 그래야 라벨도 다른 부자재처럼
+   단가장에서 단가를 불러오고 잠긴다(요청 2026-08-26 「부자재 단가장이랑 동일하게」). */
+function _pbTrimName(t){
+  if(!t)return '';
+  var ot=t.orderType||'';
+  if(ot==='careLabel'||ot==='mainLabel'){
+    var ln=String(t.labelName||'').trim();
+    if(ln)return ln;
+  }
+  return String(t.name||'').trim();
+}
 function _pbHasTrim(sup,t){
-  var pb=S.priceBook[sup]; if(!pb||!pb.materials||!t||!t.name)return false;
+  var pb=S.priceBook[sup]; if(!pb||!pb.materials||!t)return false;
+  t=Object.assign({},t,{name:_pbTrimName(t)});
+  if(!t.name)return false;
   var mats=pb.materials;
   var isTrim=function(m){ return !!m && m.type!=='fabric'; };   // 옛 항목은 type이 없을 수 있어 '원단만 제외'
   if(isTrim(mats[pbKey(t.name,t.color||'',t.size||'')]))return true;
@@ -13275,7 +13311,7 @@ function _pbHasTrim(sup,t){
   });
 }
 function _pbTrimBadge(t,i){
-  if(!t||!t.supplier||!t.name)return'';
+  if(!t||!t.supplier||!_pbTrimName(t))return'';
   var inPB=_pbHasTrim(t.supplier,t);
   if(inPB)return'<span style="order:98;align-self:center;font-size:10px;color:#16a34a;background:#dcfce7;border:1px solid #86efac;padding:1px 7px;border-radius:20px;white-space:nowrap">✓ 단가장</span>';
   return'<button type="button" class="btn s" onclick="pbRegisterFormMat(\'trim\','+i+')" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">단가장 등록</button>';
@@ -15707,7 +15743,10 @@ function _poProcBlocks(g,sup){
       var byC={},ord=[];
       ((g&&g.colors)||[]).forEach(function(x){
         if(!x||x.itemId!==m.itemId)return;
-        var pcs=+((x.calc&&(x.calc.basePcs!=null?x.calc.basePcs:x.calc.needPcs))||x.garmentPcs||0);
+        /* ⚠️ **로스 포함 장수**를 써야 한다 — 끈(야드)은 로스가 들어가는데 개수만 빠지면 안 맞는다
+              (신고 2026-08-26 「스트링 로스는 끈이랑 갯수 둘 다 들어가야 되는데」).
+              needPcs = 실제로 계산에 쓴 장수(로스 포함) · basePcs = 로스 전 의뢰수량 */
+        var pcs=+((x.calc&&(x.calc.needPcs!=null?x.calc.needPcs:x.calc.basePcs))||x.garmentPcs||0);
         if(!pcs)return;
         var c=x.colorName||'';
         if(byC[c]==null){byC[c]=0;ord.push(c);}
