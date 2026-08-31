@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26k';
+var APP_BUILD=/*BUILD*/'2026-08-26m';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -13251,6 +13251,46 @@ function renderUnregisteredMats(){
       +'<button type="button" class="btn s" onclick="pbRegisterFormMat(\''+u.type+'\','+u.idx+')" style="font-size:10px;padding:2px 8px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">단가장 등록</button>'
       +'</div>';}).join('')
     +'</div>';
+}
+/* ===== 라벨 → 단가장 등록 (2026-08-26) =====================================
+   라벨 카드는 `t.name` 이 「케어라벨」·「메인라벨」로 **고정**이라 그대로 등록하면
+   단가장에 「케어라벨」 하나만 생긴다. 실제로 쓰는 이름은 `labelName`(부자재 규격명)이다.
+   ⚠️ 아이템 자동저장은 «단가장에 이미 있는 항목만» 갱신한다(2026-08-14 중복 증식 방지).
+      그래서 새 라벨은 여기서 **눌러서** 넣어야 한다 — 자동으로 안 늘어난다. */
+function _pbLabelName(t){ return String((t&&t.labelName)||'').trim(); }
+function _pbHasLabel(t){
+  var sup=String((t&&t.supplier)||'').trim(), nm=_pbLabelName(t);
+  if(!sup||!nm)return false;
+  var pb=S.priceBook[sup]; if(!pb||!pb.materials)return false;
+  return !!(pb.materials[pbKey(nm,'','')]||pb.materials[nm]);
+}
+function pbRegisterLabel(i){
+  try{colTR();}catch(e){}
+  var t=(typeof formTrims!=='undefined'?formTrims:[])[i]; if(!t)return;
+  var sup=String(t.supplier||'').trim(), nm=_pbLabelName(t);
+  if(!sup){ showToast('부자재처를 먼저 적어주세요'); return; }
+  if(!nm){ showToast('라벨 이름을 먼저 적어주세요'); return; }
+  var pb=getPB(sup), key=pbKey(nm,'',''), already=!!pb.materials[key];
+  var ex=pb.materials[key]||{};
+  pb.materials[key]=Object.assign({},ex,{type:'trim',name:nm,color:'',
+    orderType:t.orderType||'careLabel',
+    unitPrice:(+t.unitPrice||ex.unitPrice||0),
+    category:ex.category||'라벨',
+    labelPart:t.labelPart||ex.labelPart||'',
+    lastUpdated:(typeof todayISO==='function'?todayISO():today())});
+  savePB();
+  showToast((already?'단가장 갱신 — ':'단가장 등록 — ')+sup+' · '+nm+((+t.unitPrice)?(' '+num(+t.unitPrice)+'원'):' (단가 없음)'),4000);
+  try{renderTrimRows();}catch(e){}
+}
+/* 라벨 카드에 붙는 「단가장」 배지/버튼 — 원단 카드(pbRegisterFormMat)와 같은 모양.
+   ⚠️ 이 함수가 없으면 라벨 카드 그리기가 통째로 죽는다(호출부만 들어갔던 사고 2026-08-26). */
+function _pbLabelBadge(t,i){
+  try{
+    if(!String((t&&t.supplier)||'').trim()||!_pbLabelName(t))return '';
+    return _pbHasLabel(t)
+      ? '<button type="button" class="btn s" onclick="pbRegisterLabel('+i+')" title="단가·부위를 단가장에 다시 저장" style="font-size:10px;padding:2px 7px;background:#dcfce7;border-color:#86efac;color:#16a34a;white-space:nowrap">✓ 단가장</button>'
+      : '<button type="button" class="btn s" onclick="pbRegisterLabel('+i+')" title="이 라벨을 단가장에 등록" style="font-size:10px;padding:2px 7px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">단가장 등록</button>';
+  }catch(e){ return ''; }
 }
 function pbRegisterFormMat(type,idx){
   // ⚠️ 먼저 폼에 타이핑한 값을 메모리로 수집해야 함 — 안 하면 ①낡은 값으로 등록되고 ②끝의 renderFabRows/renderTrimRows가
