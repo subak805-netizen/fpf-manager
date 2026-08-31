@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26p';
+var APP_BUILD=/*BUILD*/'2026-08-26q';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -13774,7 +13774,8 @@ function renderTrimCostRows(){const el=document.getElementById('tc-rows');if(!el
 function addTrimCostRow(){colTrimCosts();formTrimCosts.push({id:uid(),name:'',costType:'perPcs',costPerPcs:0,costPerLot:0,factory:'',colorLinks:[]});renderTrimCostRows();}
 function addTrimCostFor(i){colTR();colTrimCosts();var t=formTrims[i]||{};formTrimCosts.push({id:uid(),trimId:t.id||'',name:(t.name?t.name+' 가공':''),costType:'perLot',costPerPcs:0,costPerLot:0,factory:t.supplier||'',colorLinks:(t.colorLinks?JSON.parse(JSON.stringify(t.colorLinks)):[])});renderTrimAndCosts();showToast('가공비 추가됨 — 이 부자재 카드 안에서 입력하세요');}
 function addFinishCostRow(){
-  const container=document.getElementById('finish-cost-rows');if(!container)return;
+  const container=document.getElementById('finish-cost-rows');
+  if(!container){ if(typeof showToast==='function')showToast('아이템 수정 화면에서 눌러주세요'); return; }
   const idx=container.children.length;
   const row=document.createElement('div');row.className='trim-row';
   row.innerHTML=`<input data-fc2="name" placeholder="항목명 (예: 행택, 케어라벨, 포장박스)" style="flex:2" oninput="scheduleDraft()"><input data-fc2="costPerPcs" type="number" value="0" min="0" placeholder="원/pcs" style="flex:1" oninput="scheduleDraft()"><span class="muted" style="font-size:11px">원/pcs</span><button class="btn s d" type="button" onclick="this.closest('.trim-row').remove();scheduleDraft()">✕</button>`;
@@ -14046,7 +14047,13 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
   })();
   item.workRoute=document.getElementById('f-workRoute')?.value?.trim()||'';item.workRouteManual=!!window._wrManual;
   item.defaultTrimSup=document.getElementById('f-defaultsup')?.value?.trim()||'';
-  item.patternCost=+document.getElementById('f-patternCost')?.value||0;
+  /* ⚠️ 화면에서 긁어오는 값은 **그 칸이 없으면** 0·빈배열로 저장돼 자료가 통째로 날아간다
+        (신고 2026-08-26 「완성부자재가 갑자기 없어지고」 / 2026-08-25 샘플 코멘트와 같은 구조).
+        → 칸이 있을 때만 덮어쓰고, 없으면 **옛 값을 지킨다**. */
+  const _oldI=(editItemId&&S.items[editItemId])||{};
+  const _numOf=(elId,keep)=>{ const el=document.getElementById(elId); return el?(+el.value||0):(+keep||0); };
+  const _strOf=(elId,keep)=>{ const el=document.getElementById(elId); return el?((el.value||'').trim()):(keep||''); };
+  item.patternCost=_numOf('f-patternCost',_oldI.patternCost);
   /* ⚠️ 칸이 화면에 없을 때는 옛 값을 지킨다 — 없다고 0으로 밀면 카드에서 적은 게 통째로 날아간다
         (공임 0원 사고와 같은 함정). */
   (function(){
@@ -14066,16 +14073,22 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
       item[kind+'Fees']=v>0?[{amt:v}]:[];
     });
   })();
-  item.sampleCost=+document.getElementById('f-sampleCost')?.value||0;
-  item.onceCost=+document.getElementById('f-onceCost')?.value||0;
-  item.onceCostNm=document.getElementById('f-onceCostNm')?.value?.trim()||'';
-  item.inclOnce=document.getElementById('f-inclOnce')?.checked||false;
+  item.sampleCost=_numOf('f-sampleCost',_oldI.sampleCost);
+  item.onceCost=_numOf('f-onceCost',_oldI.onceCost);
+  item.onceCostNm=_strOf('f-onceCostNm',_oldI.onceCostNm);
+  item.inclOnce=(function(){var el=document.getElementById('f-inclOnce');return el?!!el.checked:!!_oldI.inclOnce;})();
   // 완성 부자재 비용 저장 (라벨, 택, 케어라벨 등)
-  const finishRows=document.querySelectorAll('#finish-cost-rows .trim-row');
-  item.finishCosts=[...finishRows].map(row=>({
-    name:row.querySelector('[data-fc2=name]')?.value?.trim()||'',
-    costPerPcs:+row.querySelector('[data-fc2=costPerPcs]')?.value||0
-  })).filter(fc2=>fc2.name||fc2.costPerPcs>0);
+  /* ★ 칸(#finish-cost-rows)이 아예 없으면 «빈 배열»로 저장하지 않는다 — 그게 자료 유실의 원인이었다 */
+  const _fcBox=document.getElementById('finish-cost-rows');
+  if(_fcBox){
+    const finishRows=_fcBox.querySelectorAll('.trim-row');
+    item.finishCosts=[...finishRows].map(row=>({
+      name:row.querySelector('[data-fc2=name]')?.value?.trim()||'',
+      costPerPcs:+row.querySelector('[data-fc2=costPerPcs]')?.value||0
+    })).filter(fc2=>fc2.name||fc2.costPerPcs>0);
+  }else{
+    item.finishCosts=Array.isArray(_oldI.finishCosts)?_oldI.finishCosts:[];
+  }
   // 음수 방어 — 단가·수량·비용이 음수면 0으로
   (item.trims||[]).forEach(t=>['unitPrice','qtyPerPiece','consumptionPerPiece','yardsPerRoll','buffer','threadQty','threadMin','loopPerPiece','loopPerYard','minSplitQty'].forEach(k=>{if(typeof t[k]==='number'&&t[k]<0)t[k]=0;}));
   (item.fabrics||[]).forEach(f=>['unitPrice','pricePerKg','yardsPerKg','consumption','buffer','width'].forEach(k=>{if(typeof f[k]==='number'&&f[k]<0)f[k]=0;}));
