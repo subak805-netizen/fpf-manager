@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260826i2">
+<link rel="stylesheet" href="css/main.css?v=20260826n">
 </head>
 <body>
 
@@ -4057,7 +4057,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26m';
+var APP_BUILD=/*BUILD*/'2026-08-26n';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -6587,6 +6587,10 @@ async function pbOpenBackups(){
 }
 function _pbSupKind(pb){
   // 거래처를 자재 type으로 분류: fabric / trim / both / none (renderBookList의 isFab 규칙과 동일 — type==='fabric'만 원단)
+  /* ⚠️ 품목으로만 판정하면 **품목 0개인 거래처는 갈 곳이 없다** —
+        「하나라벨」이 부자재 단가장에 안 뜨던 이유(신고 2026-08-26).
+     → 직접 정해 둔 종류(pb.kind)가 있으면 그게 이긴다. */
+  if(pb&&(pb.kind==='trim'||pb.kind==='fabric'||pb.kind==='both'))return pb.kind;
   if(!pb||!pb.materials)return 'none';
   var hasF=false,hasT=false;
   var vals=Object.values(pb.materials);
@@ -7403,18 +7407,8 @@ function renderBook(){
     </div>
     <div style="margin-top:8px;display:flex;align-items:center;gap:8px"><span style="font-size:11.5px;font-weight:700;color:${_scope==='trim'?'#92580b':'#1e40af'}">${_scope==='trim'?'부자재 단가장':'원단 단가장'} <span class="muted" style="font-weight:400;font-size:10px">— ${_scope==='trim'?'부자재처만 표시 (부자재는 여기서 추가·관리)':'원단처만 표시'}</span></span><button class="btn s" onclick="openBookWindow('${_scope}')" title="새 창으로 열어 아이템 편집이랑 나란히 보기" style="margin-left:auto;font-size:11px;white-space:nowrap">새 창으로 열기</button></div>
   </div>`;
-  const addForm=`<div class="card" style="margin-bottom:10px;border:2px dashed var(--bd)">
-    <div style="font-weight:600;margin-bottom:8px">+ 거래처 직접 추가</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-      <div class="fg" style="margin:0;flex:1;min-width:120px"><label>거래처명</label><input id="newpb-name" placeholder="거래처명"></div>
-      <div class="fg" style="margin:0;flex:1;min-width:110px"><label>전화</label><input type="tel" id="newpb-phone" placeholder="02-0000-0000"></div>
-      <div class="fg" style="margin:0;flex:1;min-width:140px"><label>이메일</label><input type="email" id="newpb-email" placeholder="example@email.com"></div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <div class="fg" style="margin:0;flex:3;min-width:200px"><label>입금 계좌</label><input id="newpb-bank" placeholder="은행명 계좌번호 예금주"></div>
-      <button class="btn p s" style="align-self:flex-end" onclick="addPriceBookEntry()">+ 추가</button>
-    </div>
-  </div>`;
+  /* 큰 폼이 늘 펼쳐져 있어 자리를 많이 먹었다 → **버튼 하나**, 누르면 창에서 입력 (요청 2026-08-26) */
+  const addForm=`<div style="margin-bottom:10px"><button class="btn s" onclick="openAddSupModal('${_scope}')" style="font-weight:700">＋ 거래처 추가</button></div>`;
   /* 머리 정리 (요청 2026-08-26 「이 윗부분 정신없고 필요없는건 없애줘」)
      - 「거래처 직접 추가」를 **맨 위**로
      - 부자재 종류 칩 줄 · 단가표 사진 일괄 가져오기 · 정리 버튼 3개 → **「정리 도구」 접이식 안**으로
@@ -7988,7 +7982,9 @@ function renderPbTrimTable(lst,sups){
       if(ca!==cb)return ca.localeCompare(cb,'ko');
       return String(ma.name||'').localeCompare(String(mb.name||''),'ko');
     });
-    if(!list.length)return;
+    /* ⚠️ 품목이 0개여도 **표는 보여준다** — 안 그러면 「＋ 품목」을 누를 데가 없어
+          새 거래처에 첫 품목을 못 넣는다(신고 2026-08-26). 단, 검색·거르개 중일 땐 뺀다. */
+    if(!list.length&&(q||o.cat||o.old))return;
     nAll+=list.length;
     var loc=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');
     var open=(window._pbSupOpen===s);
@@ -8074,6 +8070,7 @@ function renderPbTrimTable(lst,sups){
       }
       if(old)nOld++;
     });
+    if(!body)body='<tr><td colspan="10" class="pbt-none">아직 품목이 없어요 — 위 「＋ 품목」으로 넣어주세요.</td></tr>';
     blocks.push('<table class="pbt"><thead>'+supRow+THEAD+'</thead><tbody>'+body+'</tbody></table>');
   });
   H+=(blocks.length?blocks.join('')
@@ -8255,11 +8252,63 @@ function pbSaveNewMat(supEnc,si){
   showToast(''+name+' 추가됨');
   renderBookList();
 }
+/* 거래처 추가 — 창 안에서 (2026-08-26).
+   ⚠️ 칸 id 는 예전 폼과 **똑같이** 둔다(newpb-*). addPriceBookEntry 가 그 id 로 읽는다. */
+function openAddSupModal(scope){
+  var isTrim=(scope==='trim');
+  showGenericModal('거래처 추가',
+    '<div class="fg" style="margin-bottom:8px"><label>거래처명 *</label><input id="newpb-name" placeholder="거래처명" autocomplete="off"></div>'
+    +'<div class="fg" style="margin-bottom:8px"><label>종류 <span class="muted" style="font-weight:400;font-size:10px">품목이 없어도 이 단가장에 떠요</span></label>'
+      +'<div id="newpb-kind-pills" style="display:flex;gap:5px;flex-wrap:wrap">'
+      +['trim','fabric','both'].map(function(k){
+          var lb=(k==='trim'?'부자재처':(k==='fabric'?'원단처':'둘 다'));
+          var on=(k===(isTrim?'trim':'fabric'));
+          return '<button type="button" class="btn s" data-kind="'+k+'" onclick="_pbPickKind(this)" style="'+(on?'background:var(--text);color:#fff;border-color:transparent':'')+'">'+lb+'</button>';
+        }).join('')
+      +'</div><input type="hidden" id="newpb-kind" value="'+(isTrim?'trim':'fabric')+'"></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +'<div class="fg" style="margin:0 0 8px;flex:1;min-width:120px"><label>전화</label><input type="tel" id="newpb-phone" placeholder="02-0000-0000"></div>'
+      +'<div class="fg" style="margin:0 0 8px;flex:1;min-width:150px"><label>이메일</label><input type="email" id="newpb-email" placeholder="example@email.com"></div>'
+    +'</div>'
+    +'<div class="fg" style="margin-bottom:12px"><label>입금 계좌</label><input id="newpb-bank" placeholder="은행명 계좌번호 예금주"></div>'
+    +'<button class="btn p" style="width:100%" onclick="addPriceBookEntry()">＋ 추가</button>',
+    460);
+  setTimeout(function(){ var el=document.getElementById('newpb-name'); if(el)el.focus(); },60);
+}
+function _pbPickKind(btn){
+  var box=document.getElementById('newpb-kind-pills'); if(!box)return;
+  Array.prototype.forEach.call(box.querySelectorAll('[data-kind]'),function(b){ b.style.cssText=''; b.className='btn s'; });
+  btn.style.cssText='background:var(--text);color:#fff;border-color:transparent';
+  var h=document.getElementById('newpb-kind'); if(h)h.value=btn.getAttribute('data-kind')||'';
+}
 function addPriceBookEntry(){
   const name=document.getElementById('newpb-name')?.value.trim();
   if(!name){showToast('거래처명을 입력하세요');return;}
-  if(S.priceBook[name]){showToast('이미 있는 거래처예요');return;}
+  const _kdPre=document.getElementById('newpb-kind')?.value||'';
+  /* ⚠️ 이미 있는 거래처를 그냥 막으면 «다른 단가장에 있는 거래처»를 이쪽으로 못 가져온다
+        (신고 2026-08-26 「하나라벨 추가하려는데 안돼」 — 원단 쪽에 있어서 막혔다).
+     → 종류만 바꿔서 **옮겨** 준다. */
+  if(S.priceBook[name]){
+    var _cur=S.priceBook[name];
+    var _lbl={trim:'부자재처',fabric:'원단처',both:'둘 다'};
+    if(_kdPre&&_lbl[_kdPre]&&_pbSupKind(_cur)!==_kdPre){
+      _cur.kind=_kdPre;
+      try{ if(S._tomb&&S._tomb.pbSup)delete S._tomb.pbSup[name]; }catch(e){}
+      try{if(typeof closeGenericModal==='function')closeGenericModal();}catch(e){}
+      savePB();renderBook();
+      showToast(name+' — '+_lbl[_kdPre]+'로 옮겼어요',4000);
+      return;
+    }
+    showToast('이미 있는 거래처예요 — 종류를 바꾸려면 다른 종류를 골라주세요',4000);return;
+  }
+  const _kd=_kdPre;
+  /* ★ 지운 거래처는 묘비(_tomb.pbSup)가 남는다. 같은 이름으로 다시 만들면
+        동기화가 그 묘비를 보고 **또 지워버린다**. 다시 만들 땐 묘비를 먼저 푼다.
+        (신고 2026-08-26 「원단 삭제하고 부자재에 추가했는데 안 떠」) */
+  try{ if(S._tomb&&S._tomb.pbSup)delete S._tomb.pbSup[name]; }catch(e){}
   S.priceBook[name]={email:document.getElementById('newpb-email')?.value.trim()||'',phone:document.getElementById('newpb-phone')?.value.trim()||'',bank:document.getElementById('newpb-bank')?.value.trim()||'',kakaoId:'',materials:{},defaultPoOpts:{}};
+  if(_kd==='trim'||_kd==='fabric'||_kd==='both')S.priceBook[name].kind=_kd;
+  try{if(typeof closeGenericModal==='function')closeGenericModal();}catch(e){}
   savePB();renderBook();showToast(`${name} 추가됨`);
 }
 function deletePriceBookEntry(encName){
