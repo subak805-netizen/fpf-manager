@@ -1794,3 +1794,25 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 
 **＋ 작지 안 이동탭은 작게** — 15px/42px 이 작지 머리에선 자리를 너무 먹었다 → `#tp-modal .ctxbar button{12.5px/32px}`.
 아이템 수정 화면은 그대로 크게.
+
+## 2026-08-26y — 작지 넘나들기 탭 글씨가 아래로 처짐
+- **뿌리**: `#tp-modal .ctxbar{height:30px}` 로 바 높이를 고정했는데 버튼은 `min-height:32px`.
+  넘친 2px가 `overflow:hidden` 으로 **아래쪽만 잘려서** 위여백 12.3 / 아래여백 6.0 이 됐다.
+- **고침**: 바 `height:auto` + `.ctxbar button` 을 `inline-flex; align-items:center; line-height:1`.
+  작지 안 버튼은 `min-height:28px; padding:5px 14px 6px` 로 바 크기를 그대로 유지(30→31px).
+- ⚠️ **글씨가 처져 보이면 먼저 «잘림»을 의심할 것.** 컨테이너 고정높이 < 아이템 높이 + overflow:hidden 조합.
+- ⚠️ 작지(`#tp-modal`)는 폰트가 **IBM Plex Sans KR** 이라 애플 기본폰트와 위아래 여백이 다르다.
+  ctxbar 같은 공용 부품을 잴 땐 **그 화면의 실제 폰트로** 재야 한다.
+
+## 2026-08-26z — 작지 오른쪽 「코멘트」 칸 (같이 보기)
+- 작지 머리의 「코멘트 열기」 → `#tp-cmt` (오른쪽 340px 고정 칸). 글(미팅전·미팅후)만, 사진·사이즈표는 뺐다.
+- ⚠️ **저장은 샘플 코멘트와 같은 자리**(`it.smpRounds`) — `scSetMemo` / `_scWrite` 만 쓴다. 새 통로 금지.
+- ⚠️ **`scAddRound` / `scToggleRoundDone` 를 쓰지 말 것.** 그 함수들은 `renderSampleComment()` 를 불러
+  코멘트 탭에서 고른 아이템(`window._scOpen`)까지 바꿔버린다. 여기선 자료만 고치고 이 칸만 다시 그린다.
+- ⚠️ 글칸은 **onchange 로만 저장**. `oninput` 으로 저장/재렌더하면 한글 조합이 깨진다(전에 4번 터진 자리).
+  `oninput` 은 칸 높이 조절(`tpCmtGrow`)에만 쓴다 — 값을 안 건드리므로 안전.
+- `tpScreenFit` 의 자리 폭 기준을 `modal.clientWidth` → **`doc.clientWidth`** 로 바꿨다.
+  칸이 열리면 `.tp-doc` 이 `margin-right:340px` 로 줄어 자동 반영되고, 닫혀 있으면 두 값이 같아 예전과 동일.
+- 폰(≤900px)에선 칸이 작지를 **덮는다**(`margin-right:0`). 인쇄는 `@media print` **두 블록 모두**에서 숨김.
+- 알려진 것: A4 좌우 여백이 17px쯤 어긋난다(축소되면 스크롤바가 사라져 폭이 늘어나는데 여백은 이미 계산된 뒤).
+  **이 칸과 무관하게 원래 있던 것** — 열림/닫힘 편차가 같다.

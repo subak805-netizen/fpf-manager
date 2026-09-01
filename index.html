@@ -670,6 +670,7 @@ tryInitFirebase();
     <span class="tp-ctrl-t">작업지시서</span>
     <span class="tp-seg"><button id="tp-bP" class="on" onclick="tpOrient('portrait')">세로</button><button id="tp-bL" onclick="tpOrient('landscape')">가로</button></span>
     <span class="tp-outs"><button class="tp-b tp-out" onclick="tpSaveImg()">이미지</button><button class="tp-b tp-out" onclick="tpSavePDF()">PDF</button><button class="tp-b tp-out" onclick="tpPrint()">A4 인쇄</button></span>
+    <button class="tp-b tp-cmtb" id="tp-cmt-btn" onclick="tpCmtToggle()">코멘트 열기</button>
     <button class="tp-b tp-save" onclick="tpSaveNow()">저장</button>
     <button class="tp-b tp-x" onclick="tpClose()">✕ 닫기</button>
     <span class="tp-brk"></span>
@@ -677,6 +678,12 @@ tryInitFirebase();
     <span class="tp-hintx" id="tp-hintx"></span>
   </div>
   <div class="tp-doc" id="tp-doc"></div>
+  <!-- 작지 보면서 같이 보는 샘플 코멘트 칸 (요청 2026-09-01) — 글만, 사진·사이즈표는 뺀다 -->
+  <div id="tp-cmt">
+    <div class="tpc-h"><span class="tpc-ttl" id="tp-cmt-ttl"></span><button type="button" class="tpc-x" onclick="tpCmtToggle()">✕</button></div>
+    <div class="tpc-t"><button type="button" class="tp-b" onclick="tpCmtAdd()">회차 추가</button><span class="tpc-fix" id="tp-cmt-fix"></span></div>
+    <div class="tpc-b" id="tp-cmt-body"></div>
+  </div>
 </div>
 <style id="tp-page-rule">@page{size:A4 portrait;margin:3mm;}</style>
 <style>
@@ -774,6 +781,34 @@ tryInitFirebase();
   .tp-outs .tp-b{flex:1;}
 }
 .tp-doc{max-width:820px;margin:0 auto;padding:16px;}
+/* ===== 같이 보는 코멘트 칸 (작지 오른쪽) ===== */
+#tp-cmt{position:fixed;top:0;right:0;bottom:0;width:340px;z-index:8;background:#fff;border-left:2px solid #333;display:none;flex-direction:column;overflow:hidden;}
+#tp-modal.cmt-on #tp-cmt{display:flex;}
+#tp-modal.cmt-on .tp-doc{margin-right:340px;}
+#tp-modal.cmt-on .tp-ctrl{padding-right:352px;}
+.tp-cmtb.on{background:#161616;color:#fff;}
+.tpc-h{display:flex;align-items:center;gap:8px;padding:calc(10px + env(safe-area-inset-top,0px)) 12px 10px;border-bottom:1.5px solid #333;flex:0 0 auto;}
+.tpc-ttl{font-size:13px;font-weight:800;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tpc-x{width:28px;height:28px;border:1.5px solid #333;background:#fff;border-radius:4px;cursor:pointer;font-family:inherit;font-size:12px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;}
+.tpc-t{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #e5e7eb;flex:0 0 auto;}
+.tpc-fix{font-size:11.5px;font-weight:700;color:#b45309;}
+.tpc-b{flex:1 1 0;min-height:0;overflow:auto;padding:10px 12px 24px;}
+.tpc-r{border:1.5px solid #d1d5db;border-radius:5px;padding:8px 9px;margin-bottom:9px;background:#fff;}
+.tpc-r.fix{border-color:#f59e0b;background:#fffbeb;}
+.tpc-rh{display:flex;align-items:center;gap:7px;margin-bottom:6px;}
+.tpc-rh b{font-size:13px;}
+.tpc-d{font-size:11px;color:#9aa0a8;flex:1;}
+.tpc-ok{height:24px;padding:0 9px;font-size:11px;font-weight:700;border:1.5px solid #333;background:#fff;border-radius:4px;cursor:pointer;font-family:inherit;white-space:nowrap;}
+.tpc-ok.on{background:#161616;color:#fff;}
+.tpc-c{margin-top:6px;}
+.tpc-l{display:block;font-size:10.5px;font-weight:700;color:#6b7280;margin-bottom:2px;}
+.tpc-c textarea{width:100%;border:1px solid #d1d5db;border-radius:4px;padding:6px 7px;font-size:12.5px;font-family:inherit;line-height:1.45;resize:vertical;min-height:44px;background:#fff;color:#1f2937;}
+.tpc-empty{padding:22px 12px;text-align:center;font-size:12.5px;color:#9aa0a8;line-height:1.7;}
+@media(max-width:900px){
+  #tp-cmt{width:min(340px,88vw);box-shadow:-6px 0 20px rgba(0,0,0,.18);}
+  #tp-modal.cmt-on .tp-doc{margin-right:0;}
+  #tp-modal.cmt-on .tp-ctrl{padding-right:12px;}
+}
 .tp-doc.land{max-width:1100px;}
 /* 제목/메타 */
 .tp-sheet{background:#fff;border:1.5px solid #333;}
@@ -905,6 +940,7 @@ tryInitFirebase();
   body.tp-printing #tp-modal{display:block!important;position:static;background:#fff;overflow:visible;}
   body.tp-printing #tp-page-rule{display:none;}
   #tp-modal .tp-ctrl{display:none!important;}
+  #tp-cmt{display:none!important;}
   #tp-modal .tp-doc{max-width:none;width:100%;padding:0;}
   #tp-modal .tp-panel{display:block!important;margin-top:0;}
   #tp-modal .tp-panel+.tp-panel{page-break-before:always;}
@@ -1199,6 +1235,7 @@ body.tp-printing #tp-modal .tp-upbadge,body.tp-capturing #tp-modal .tp-upbadge{d
   #tp-modal *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;box-sizing:border-box!important;}
   #tp-modal .tp-wrap table{border-collapse:collapse!important;}
   #tp-modal .tp-ctrl{display:none!important;}
+  #tp-cmt{display:none!important;}
   #tp-modal .tp-doc{padding:0!important;margin:0!important;max-width:none!important;}
   #tp-modal .tp-wrap{margin:0 auto!important;overflow:hidden!important;transform:none!important;}
   #tp-modal .tp-wrap .tp-fit{overflow:visible!important;}
@@ -4057,7 +4094,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-08-26y';
+var APP_BUILD=/*BUILD*/'2026-08-26z';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -39202,12 +39239,15 @@ function tpScreenFit(){
   var modal=document.getElementById('tp-modal'); if(!modal)return;
   var wrapW=wrap.offsetWidth, wrapH=wrap.offsetHeight;
   var topOff=wrap.getBoundingClientRect().top-modal.getBoundingClientRect().top;
-  var availH=modal.clientHeight-topOff-18, availW=modal.clientWidth-24;
+  /* 자리 폭은 tp-doc 기준으로 잰다 — 오른쪽 코멘트 칸이 열리면 doc 이 margin-right 만큼 줄어들어
+     자동으로 반영된다(칸이 닫혀 있으면 doc 폭 = modal 폭이라 예전과 똑같다). */
+  var _availBox=doc.clientWidth||modal.clientWidth;
+  var availH=modal.clientHeight-topOff-18, availW=_availBox-24;
   // A4 비율 유지하며 화면에 맞춰 축소(확대 안 함). top-left 기준 + 레이아웃 폭/높이 보정 → 모바일(시트>뷰포트)에서도 가로스크롤·잘림 없음
   var s=Math.min(1, availW/wrapW, availH/wrapH);
   if(s<1&&s>0){ s=Math.floor(s*1000)/1000; var sw=Math.ceil(wrapW*s);
     wrap.style.transformOrigin='top left'; wrap.style.transform='scale('+s+')';
-    wrap.style.marginLeft=Math.max(0,Math.floor((modal.clientWidth-sw)/2))+'px';
+    wrap.style.marginLeft=Math.max(0,Math.floor((_availBox-sw)/2))+'px';
     wrap.style.marginRight=(sw-wrapW)+'px';
     wrap.style.marginBottom=Math.ceil(wrapH*(s-1))+'px'; }
 }
@@ -39300,7 +39340,88 @@ function tpOpen(id){ var it=S.items&&S.items[id]; if(!it){ if(typeof showToast==
   var _bn=(tpBrandName(it)||'').toString();
   if(/아루드|arude/i.test(_bn))_tpOrient='portrait';
   else if(/프루토|fruto|리틀|그로브|grove/i.test(_bn))_tpOrient='landscape';
-  tpInitDefaults(); tpEnsureFileInput(); tpSpecKeyInit(); tpRender(); tpOrient(_tpOrient||'portrait'); var m=document.getElementById('tp-modal'); m.style.display='block'; m.scrollTop=0; document.body.style.overflow='hidden'; requestAnimationFrame(function(){ try{tpFit();}catch(e){} }); }
+  tpInitDefaults(); tpEnsureFileInput(); tpSpecKeyInit(); tpRender(); tpOrient(_tpOrient||'portrait'); var m=document.getElementById('tp-modal'); m.style.display='block'; m.scrollTop=0; document.body.style.overflow='hidden';
+  try{ m.classList.toggle('cmt-on',!!window._tpCmtOn);
+       var _cb=document.getElementById('tp-cmt-btn');
+       if(_cb){ _cb.textContent=window._tpCmtOn?'코멘트 닫기':'코멘트 열기'; _cb.classList.toggle('on',!!window._tpCmtOn); }
+       if(window._tpCmtOn&&typeof tpCmtRender==='function')tpCmtRender(); }catch(e){}
+  requestAnimationFrame(function(){ try{tpFit();}catch(e){} }); }
+/* ===== 작지 오른쪽 「코멘트」 칸 (요청 2026-09-01 「작업지시서 화면에서 코멘트 창 켜서 같이 볼수있게」)
+   ⚠️ 저장은 샘플 코멘트와 **같은 자리**(it.smpRounds)에 _scWrite 로만 넣는다. 새 저장 통로를 만들지 말 것.
+   ⚠️ 글칸은 onchange 로만 저장한다. oninput 으로 저장/재렌더하면 한글 조합이 깨진다(전에 4번 터진 자리).
+   ⚠️ scAddRound/scToggleRoundDone 은 안 쓴다 — 그 함수들은 renderSampleComment() 를 불러
+      코멘트 탭에서 고른 아이템(window._scOpen)까지 바꿔버린다. 여기선 자료만 고치고 이 칸만 다시 그린다. */
+function tpCmtToggle(){
+  var m=document.getElementById('tp-modal'); if(!m)return;
+  var on=!m.classList.contains('cmt-on');
+  m.classList.toggle('cmt-on',on);
+  window._tpCmtOn=on;
+  var b=document.getElementById('tp-cmt-btn');
+  if(b){ b.textContent=on?'코멘트 닫기':'코멘트 열기'; b.classList.toggle('on',on); }
+  if(on)tpCmtRender();
+  try{ if(typeof tpFit==='function')tpFit(); }catch(e){}
+}
+function _tpCmtIt(){ return (_tpItemId&&S.items)?S.items[_tpItemId]:null; }
+function tpCmtRender(){
+  var box=document.getElementById('tp-cmt-body'); if(!box)return;
+  var it=_tpCmtIt();
+  var ttl=document.getElementById('tp-cmt-ttl');
+  if(ttl)ttl.textContent=it?((it.name||'(이름없음)')+(it.code?(' · '+it.code):'')):'';
+  if(!it){ box.innerHTML='<div class="tpc-empty">아이템을 찾을 수 없어요.</div>'; tpCmtFixBadge(); return; }
+  var rs=(typeof _scRounds==='function')?_scRounds(it):[];
+  if(!rs.length){
+    box.innerHTML='<div class="tpc-empty">적어둔 코멘트가 없어요.<br><button type="button" class="tp-b" style="margin-top:12px" onclick="tpCmtAdd()">1차 만들기</button></div>';
+    tpCmtFixBadge(); return;
+  }
+  var mm=function(r,k){ return (typeof _scMemo==='function')?_scMemo(r,k):String((r&&r[k])||''); };
+  var H='';
+  rs.forEach(function(r,ri){
+    var has=(typeof _scHasText==='function')?_scHasText(r):!!(String(mm(r,'patMemo')).trim()||String(mm(r,'smpMemo')).trim());
+    var done=!!(r&&r.done);
+    H+='<div class="tpc-r'+((has&&!done)?' fix':'')+'" id="tpc-r-'+ri+'">'
+      +'<div class="tpc-rh"><b>'+esc(String(r.n||(ri+1)))+'차</b><span class="tpc-d">'+esc(r.date||'')+'</span>'
+        +'<button type="button" class="tpc-ok'+(done?' on':'')+'" onclick="tpCmtDone('+ri+')">'+(done?'확인됨':'확인')+'</button></div>'
+      +'<div class="tpc-c"><span class="tpc-l">미팅전</span><textarea oninput="tpCmtGrow(this)" onchange="tpCmtSet('+ri+',\'patMemo\',this.value)">'+esc(mm(r,'patMemo'))+'</textarea></div>'
+      +'<div class="tpc-c"><span class="tpc-l">미팅후</span><textarea oninput="tpCmtGrow(this)" onchange="tpCmtSet('+ri+',\'smpMemo\',this.value)">'+esc(mm(r,'smpMemo'))+'</textarea></div>'
+      +'</div>';
+  });
+  box.innerHTML=H;
+  try{ box.querySelectorAll('textarea').forEach(tpCmtGrow); }catch(e){}
+  tpCmtFixBadge();
+}
+/* 글 길이에 맞춰 칸 키우기 — 값은 안 건드리므로 한글 조합과 무관 */
+function tpCmtGrow(t){ if(!t)return; t.style.height='auto'; t.style.height=Math.max(44,t.scrollHeight+2)+'px'; }
+function tpCmtFixBadge(){
+  var el=document.getElementById('tp-cmt-fix'); if(!el)return;
+  var it=_tpCmtIt(); var n=(it&&typeof _scFixN==='function')?_scFixN(it):0;
+  el.textContent=n?(n+'회차 수정필요'):'';
+}
+function tpCmtSet(ri,key,v){
+  var it=_tpCmtIt(); if(!it)return;
+  if(typeof scSetMemo==='function')scSetMemo(_tpItemId,ri,key,v);   /* 샘플 코멘트와 같은 저장 통로 */
+  /* 포커스를 잃지 않도록 다시 그리지 않고, 그 카드 표시만 갱신 */
+  try{
+    var rr=((typeof _scRounds==='function')?_scRounds(it):[])[ri];
+    var card=document.getElementById('tpc-r-'+ri);
+    if(card&&rr){ var has=(typeof _scHasText==='function')?_scHasText(rr):false; card.classList.toggle('fix',!!(has&&!rr.done)); }
+  }catch(e){}
+  tpCmtFixBadge();
+}
+function tpCmtDone(ri){
+  var it=_tpCmtIt(); if(!it)return;
+  var a=((typeof _scRounds==='function')?_scRounds(it):[]).slice(); if(!a[ri])return;
+  a[ri]=Object.assign({},a[ri],{done:!a[ri].done});
+  if(typeof _scWrite==='function')_scWrite(it,a); else { it.smpRounds=a; try{saveData();}catch(e){} }
+  tpCmtRender();
+}
+function tpCmtAdd(){
+  var it=_tpCmtIt(); if(!it)return;
+  var a=((typeof _scRounds==='function')?_scRounds(it):[]).slice();
+  var mx=0; a.forEach(function(r){ if(+r.n>mx)mx=+r.n; });
+  a.unshift({n:mx+1,date:(typeof todayISO==='function'?todayISO():''),pics:{},patMemo:'',smpMemo:''});
+  if(typeof _scWrite==='function')_scWrite(it,a); else { it.smpRounds=a; try{saveData();}catch(e){} }
+  tpCmtRender();
+}
 function tpClose(){ try{tpSaveFlush();}catch(e){} try{tpCloseSheetMenu();}catch(e){} document.getElementById('tp-modal').style.display='none'; document.body.style.overflow=''; }
 function tpSaveNow(){ try{saveData();}catch(e){} if(typeof showToast==='function')showToast('작업지시서 저장됨'); }
 </script>
