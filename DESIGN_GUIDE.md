@@ -1838,3 +1838,15 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - ⚠️ 앞으로 단가장에 **드롭다운을 새로 만들면** 그 핸들러도 `pbSoftRender(true)` 로 부를 것.
 - 같이: 유형 띠(「심지 15」)에 **「＋ 품목」** — `pbTrimAddMat(encSup, encCat)` 로 그 유형으로 바로 만든다.
   「미분류」 띠에서 누르면 유형은 빈 값. 거래처 띠의 기존 「＋품목」은 그대로(유형 없음).
+
+## 2026-09-02b — 세로 작지 스와치를 세로로 쌓기
+- 세로 작지는 폭이 200mm 뿐이라 컬러 4개면 칸이 좁아져 「배색」 글자가 잘렸다(신고).
+- **세로 작지 + 컬러 2개 이상**이면 컬러를 **줄**로 쌓는다(`table.tp-swv`). 가로 작지는 그대로.
+- 자수실은 컬러 이름 밑으로 (`th.tp-swvh` 안).
+- ⚠️ **줄 높이를 인라인 `style="height:.."` 로 주면 안 된다** — 이 규칙들이 `!important` 로 이긴다:
+  `#tp-modal .panel[data-panel="sew"] .tp-swrow{height:70px!important}` ·
+  `#tp-modal .tp-doc:not(.land) .panel[...] .tp-swrow{height:98px!important}`
+  → 테이블에 `style="--swvh:75px"` 로 넘기고 `.tp-swv tr.tp-swrow{height:var(--swvh)!important}` 로 받는다.
+  (목업에서도 같은 함정에 걸렸다 — `height:auto!important` 가 인라인을 무시시켰다.)
+- 높이 = `min(96, max(58, 300/컬러수))` → 2~3컬러 96px · 4컬러 75px · 5컬러 60px.
+- `swRow`(문자열 join) → `swCells`(배열)로 바꿔 가로/세로가 같은 칸 만들기를 공유한다.
