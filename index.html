@@ -4125,7 +4125,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-02j';
+var APP_BUILD=/*BUILD*/'2026-09-02k';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5848,7 +5848,19 @@ function fcOpts(sel,typeFilter){
 }
 
 /* ===== PRICE BOOK ===== */
-function getPB(sup){if(!S.priceBook[sup])S.priceBook[sup]={email:'',phone:'',kakaoId:'',materials:{}};return S.priceBook[sup];}
+/* ⚠️ 예전에 지운 적 있는 거래처면 **묘비(_tomb.pbSup)가 남아 있다** → 새로 만들어도
+      다음 동기화 병합에서 «지운 것»으로 보고 **또 지워진다**
+      (신고 2026-09-02 「하나라벨 저장했던 거 또 없어졌어」— 반복 재현).
+      여기서 만든다는 건 «다시 쓰겠다»는 뜻이므로 묘비를 지운다.
+      예전엔 거래처 추가 모달(openAddSupModal)에서만 지워서, 「＋품목」·아이템 저장으로
+      만든 거래처는 계속 되살아났다 사라졌다 했다. */
+function getPB(sup){
+  if(!S.priceBook[sup]){
+    try{ if(S._tomb&&S._tomb.pbSup)delete S._tomb.pbSup[sup]; }catch(e){}
+    S.priceBook[sup]={email:'',phone:'',kakaoId:'',materials:{}};
+  }
+  return S.priceBook[sup];
+}
 // pbKey: 이름+색상+크기를 조합한 단가장 키. 크기가 다르면 별개 항목으로 저장됨
 // 구분자: 이름↔색상=\x1F, 색상↔크기=\x1F\x1F (기존 키와 혼동 없도록 이중 구분자)
 function pbKey(name,color,size){
@@ -7964,6 +7976,8 @@ function pbTrimAddMat(encSup,encCat){
   var base='새 품목', nm=base, n=2;
   while(pb.materials[pbKey(nm,'','')]){ nm=base+' '+n; n++; if(n>200)break; }
   var key=pbKey(nm,'','');
+  /* 같은 이름을 예전에 지웠다면 품목 묘비도 지운다 — 안 그러면 만들자마자 동기화가 또 지운다 */
+  try{ if(S._tomb&&S._tomb.pbMat)delete S._tomb.pbMat[s+'\u001f'+key]; }catch(e){}
   pb.materials[key]={type:'trim',name:nm,color:'',size:'',unitPrice:0,orderType:'count',category:_cat,lastUpdated:(typeof todayISO==='function'?todayISO():'')};
   savePB();
   window._pbNewRow=s+'|'+key;
@@ -13493,6 +13507,8 @@ function _pbHasTrim(sup,t){
 }
 function _pbTrimBadge(t,i){
   if(!t||!t.supplier||!_pbTrimName(t))return'';
+  /* 라벨 카드에서는 「단가장 등록」·「✓단가장」을 안 보인다 (요청 2026-09-02) — 다른 부자재는 그대로 */
+  if(t.orderType==='careLabel'||t.orderType==='mainLabel')return'';
   var inPB=_pbHasTrim(t.supplier,t);
   if(inPB)return'<span style="order:98;align-self:center;font-size:10px;color:#16a34a;background:#dcfce7;border:1px solid #86efac;padding:1px 7px;border-radius:20px;white-space:nowrap">✓ 단가장</span>';
   return'<button type="button" class="btn s" onclick="pbRegisterFormMat(\'trim\','+i+')" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">단가장 등록</button>';
@@ -13552,7 +13568,13 @@ function pbRegisterLabel(i){
 }
 /* 라벨 카드에 붙는 「단가장」 배지/버튼 — 원단 카드(pbRegisterFormMat)와 같은 모양.
    ⚠️ 이 함수가 없으면 라벨 카드 그리기가 통째로 죽는다(호출부만 들어갔던 사고 2026-08-26). */
+/* ⚠️ 라벨 카드의 「단가장 등록」 버튼은 뺐다 (요청 2026-09-02 「단가장 등록 되지도 않고 쓸데없어 삭제해줘」).
+      라벨은 단가장 이름 칸에서 골라 쓰고, 등록은 단가장 화면에서 한다.
+      함수는 남겨둔다 — 부르는 자리가 여러 군데라 지우면 깨진다. */
 function _pbLabelBadge(t,i){
+  return '';
+}
+function _pbLabelBadgeOld(t,i){
   try{
     if(!String((t&&t.supplier)||'').trim()||!_pbLabelName(t))return '';
     return _pbHasLabel(t)
