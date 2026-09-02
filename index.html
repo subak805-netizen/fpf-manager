@@ -4125,7 +4125,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-02d';
+var APP_BUILD=/*BUILD*/'2026-09-02e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -38606,6 +38606,61 @@ function _tpOvl(id,inner,w){
 function tpCloseOvl(id){ var x=document.getElementById(id); if(x)x.remove(); }
 
 /* ---- 다른 아이템 도식화 가져오기 ---- */
+/* ===== 작지 사진칸 ← 샘플 코멘트 회차 사진 가져오기 (요청 2026-09-02
+   「지시서에 이미지, 샘플 1차나 2차에 있는 이미지 불러올수있게해줘」)
+   ⚠️ 도식화 「다른 아이템」(tpSketchPick/Take)과 **같은 구조**로 맞춘다 — 가져오면 복사본이 된다.
+   ⚠️ 사진은 이 아이템의 it.smpRounds[i].pics[front|back|lining|detail] 에 있다. */
+function _tpSmpPics(){
+  var it=(typeof tpItem==='function')?tpItem():null;
+  if(!it)return [];
+  var rs=(typeof _scRounds==='function')?_scRounds(it):(Array.isArray(it.smpRounds)?it.smpRounds:[]);
+  var lbls={}; (typeof SC_PICS!=='undefined'?SC_PICS:[]).forEach(function(pk){ lbls[pk[0]]=pk[1]; });
+  var out=[];
+  rs.forEach(function(r,ri){
+    var pics=(r&&r.pics)||{};
+    Object.keys(pics).forEach(function(k){
+      var u=String(pics[k]||'').trim(); if(!u)return;
+      out.push({key:ri+'|'+k, url:u, round:(r.n||(ri+1)), date:(r.date||''), lbl:(lbls[k]||k)});
+    });
+  });
+  /* 최근 회차가 위로 — 보통 마지막 샘플 사진을 쓴다 */
+  out.sort(function(a,b){ return (b.round-a.round)||0; });
+  return out;
+}
+function tpSmpPick(slot){
+  window._tpSmpSlot=slot||'sewSketch';
+  var list=_tpSmpPics(); window._tpSmpList=list;
+  var body=list.length
+    ? list.map(function(p){
+        return '<div onclick="tpSmpTake(\''+tpEsc(p.key)+'\')" title="'+tpEsc(p.round+'차 '+p.lbl+(p.date?(' · '+p.date):''))+'"'
+          +' style="border:1px solid #e7e3dc;border-radius:11px;overflow:hidden;cursor:pointer;width:168px;background:#fff">'
+          +'<div style="height:130px;display:flex;align-items:center;justify-content:center;background:#faf9f6">'
+            +'<img src="'+tpEsc(p.url)+'" style="max-width:100%;max-height:100%;object-fit:contain"></div>'
+          +'<div style="padding:6px 8px;font-size:11.5px;font-weight:700;border-top:1px solid #f0ece5">'
+            +tpEsc(p.round)+'차 <span style="color:#8a8578;font-weight:600">'+tpEsc(p.lbl)+'</span></div></div>';
+      }).join('')
+    : '<div style="color:#a6a199;padding:30px;text-align:center;width:100%">샘플 코멘트에 올려둔 사진이 없어요.<br>「코멘트」 탭에서 회차 사진을 먼저 올려주세요.</div>';
+  _tpOvl('tp-smp-pick',
+    '<div style="padding:15px 18px;border-bottom:1px solid #e7e3dc;display:flex;align-items:center;gap:10px"><div style="font-size:15px;font-weight:600;flex:1">샘플 사진 가져오기</div>'
+    +'<button onclick="tpCloseOvl(\'tp-smp-pick\')" style="height:34px;padding:0 12px;border:1px solid #e7e3dc;background:#fff;border-radius:8px;cursor:pointer;font-family:inherit">닫기</button></div>'
+    +'<div style="padding:10px 18px 0;font-size:11.5px;color:#6b6760">가져오면 <b>복사본</b>이 됩니다 — 샘플 코멘트 쪽 사진을 나중에 지워도 여기 사진은 그대로예요.</div>'
+    +'<div style="padding:16px 18px;height:58vh;min-height:300px;overflow:auto;display:flex;flex-wrap:wrap;align-content:flex-start;gap:13px">'+body+'</div>');
+}
+function tpSmpTake(key){
+  var p=(window._tpSmpList||[]).filter(function(x){return x.key===key;})[0];
+  var slot=window._tpSmpSlot||'sewSketch';
+  tpCloseOvl('tp-smp-pick');
+  if(!p||!p.url){ if(typeof showToast==='function')showToast('사진이 없어요'); return; }
+  var fin=function(url){ tpSet('images.'+slot,url); tpRender(); if(typeof showToast==='function')showToast(p.round+'차 '+p.lbl+' 사진 가져옴 — 복사본이에요',4000); };
+  var justCopy=function(){ fin(p.url); };
+  /* 도식화 가져오기와 같게 — 내 작지 것으로 새로 올려 원본과 갈라놓는다 */
+  try{
+    if(!(window.fbStorage&&window.fbUser&&_tpItemId)){ justCopy(); return; }
+    var up=function(blob){ tpUpload(blob,_tpItemId,slot,true).then(fin).catch(justCopy); };
+    if(/^data:/.test(p.url)){ up(_dataUrlToBlob(p.url)); return; }
+    fetch(p.url).then(function(r){ if(!r.ok)throw 0; return r.blob(); }).then(up).catch(justCopy);
+  }catch(e){ justCopy(); }
+}
 function tpSketchPick(slot){
   window._tpSkSlot=slot||'sewSketch';
   var list=_tpSketchItems(); window._tpSkList=list;
@@ -39113,7 +39168,8 @@ function tpRender(){
   var spatTabs=_spatRs.map(function(k){ return T(k,'샘플·패턴'+(_spatRs.length>1?(' '+tpSpatLbl(k)):'')); }).join('');
   var tabs='<div class="tabs">'+(isPromo?(T('cs','지시서')+T('pack','완성')+T('pack2','포장')+T('insp','검품')):(T('sew','지시서')+spatTabs+T('grd','그레이딩')+T('pack','완성')+T('pack2','포장')+T('insp','검품')))+designTabs+T('smp','샘플 사진')+addBtn+'</div>';
   var _skSlot=function(slot,ph){var u=tpGet('images.'+slot,'');return '<div class="sketch" onclick="tpPickImage(\''+slot+'\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'):('＋ '+tpEsc(ph)))+'<button class="tp-loadbtn" onclick="event.stopPropagation();dosikPick(\''+slot+'\')" title="도식화 탭에서 불러오기" style="position:absolute;left:6px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">불러오기</button>'
-    +'<button class="tp-loadbtn" onclick="event.stopPropagation();tpSketchPick(\''+slot+'\')" title="다른 아이템 작지에서 가져오기 (복사본)" style="position:absolute;left:78px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">다른 아이템</button></div>';};
+    +'<button class="tp-loadbtn" onclick="event.stopPropagation();tpSketchPick(\''+slot+'\')" title="다른 아이템 작지에서 가져오기 (복사본)" style="position:absolute;left:78px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #cfe0f3;background:#eef5fc;color:#185FA5;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">다른 아이템</button>'
+    +'<button class="tp-loadbtn" onclick="event.stopPropagation();tpSmpPick(\''+slot+'\')" title="샘플 코멘트 1차·2차에 올린 사진 가져오기 (복사본)" style="position:absolute;left:168px;bottom:6px;font-size:11px;padding:3px 8px;border:1px solid #f3d9a8;background:#fdf6e6;color:#92580b;border-radius:7px;cursor:pointer;font-family:inherit;z-index:2">샘플 사진</button></div>';};
   var _sk=function(ph){ return _skSlot('sewSketch',ph); };
   var _iz=function(slot,ph){var u=tpGet('images.'+slot,'');return '<div class="iz" onclick="tpPickImage(\''+slot+'\')">'+(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'+tpUpBadge(slot)):('＋ '+tpEsc(ph)))+'</div>';};
   // 라벨 사진칸 — 아이템 개별 업로드 없으면 선택한 브랜드 라벨 사진 자동표시(브랜드 뱃지)
