@@ -4125,7 +4125,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-02n';
+var APP_BUILD=/*BUILD*/'2026-09-02p';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -32332,7 +32332,10 @@ function scAddRound(id){
   var a=_scRounds(it).slice();
   var mx=0; a.forEach(function(r){ if(+r.n>mx)mx=+r.n; });
   a.unshift({n:mx+1,date:(typeof todayISO==='function'?todayISO():''),pics:{},patMemo:'',smpMemo:''});
-  _scWrite(it,a); window._scOpen=id; window._scR=0; renderSampleComment();   /* 새 회차가 맨 앞이라 0 */
+  _scWrite(it,a); window._scOpen=id; window._scR=0;
+  /* 작지에도 같은 번호 회차를 만들어 짝을 맞춘다 (작지를 쓴 아이템만) */
+  try{ if(_rndSyncToTechpack(id,mx+1)&&typeof showToast==='function')showToast('작지에도 '+(mx+1)+'차를 만들었어요'); }catch(e){}
+  renderSampleComment();   /* 새 회차가 맨 앞이라 0 */
 }
 function scDelRound(id,ri){
   var it=S.items[id]; if(!it)return;
@@ -39177,6 +39180,51 @@ function tpCloseSheetMenu(){ var m=document.getElementById('tp-sheet-menu'); if(
       다시 매기면 남은 회차 내용이 통째로 밀린다. 번호(1차/2차)는 화면에서만 순서대로 붙인다. */
 var TP_SPAT_MAX=5;
 function tpSpatKeyOf(n){ return n===1?'spat':('spat'+n); }
+/* ===== 작지 회차 ↔ 코멘트 회차 잇기 (요청 2026-09-02
+   「코멘트는 내가 만든 작지마다 이어져 붙어야 되는데 안 이어져 있고 플러스하면 자꾸 생기네」)
+   자료는 그대로 두고 **번호(N차)로 짝**을 맞춘다:
+     작지  it.techpack.spatRounds[i]  (spat·spat2·spat3…)  → i+1 차
+     코멘트 it.smpRounds[].n                                 → n 차
+   한쪽에서 회차를 만들면 다른 쪽에 **그 번호가 없을 때만** 만든다(이미 있으면 그냥 짝이 맞는다).
+   ⚠️ 작지를 한 번도 안 연 아이템은 techpack.spatRounds 가 없다 — 그럴 땐 작지 쪽을 안 건드린다.
+   ⚠️ 코멘트는 맨 앞이 최신(unshift)이므로 넣은 뒤 번호 내림차순으로 정렬한다. */
+function _rndSyncToComment(itemId,n){
+  try{
+    var it=S.items&&S.items[itemId]; if(!it||!(+n>0))return false;
+    var a=(typeof _scRounds==='function')?_scRounds(it).slice():(Array.isArray(it.smpRounds)?it.smpRounds.slice():[]);
+    if(a.some(function(r){return +r.n===+n;}))return false;
+    a.push({n:+n,date:(typeof todayISO==='function'?todayISO():''),pics:{},patMemo:'',smpMemo:''});
+    a.sort(function(x,y){return (+y.n||0)-(+x.n||0);});
+    if(typeof _scWrite==='function')_scWrite(it,a); else { it.smpRounds=a; try{saveData();}catch(e){} }
+    return true;
+  }catch(e){ return false; }
+}
+function _rndSyncToTechpack(itemId,n){
+  try{
+    var it=S.items&&S.items[itemId]; if(!it||!(+n>0))return false;
+    var d=it.techpack; if(!d)return false;                       /* 작지를 안 쓴 아이템은 안 건드림 */
+    if(!Array.isArray(d.spatRounds)||!d.spatRounds.length)return false;
+    if(d.spatRounds.length>=n)return false;                      /* 이미 그 회차까지 있음 */
+    var MAX=(typeof TP_SPAT_MAX!=='undefined')?TP_SPAT_MAX:9;
+    var made=0;
+    while(d.spatRounds.length<n && d.spatRounds.length<MAX){
+      var idx=d.spatRounds.length+1;
+      var k=(typeof tpSpatKeyOf==='function')?tpSpatKeyOf(idx):(idx===1?'spat':'spat'+idx);
+      if(d.spatRounds.indexOf(k)>=0)break;
+      var prev=d.spatRounds[d.spatRounds.length-1];
+      var cp={}; try{ cp=JSON.parse(JSON.stringify(d[prev]||{})); }catch(e){ cp={}; }
+      delete cp.mat; cp.date='';
+      d[k]=cp;
+      if(!d.images)d.images={};
+      var pk=(typeof tpSpatSketchSlot==='function')?tpSpatSketchSlot(prev):(prev+'Sketch');
+      var nk=(typeof tpSpatSketchSlot==='function')?tpSpatSketchSlot(k):(k+'Sketch');
+      if(d.images[pk]&&!d.images[nk])d.images[nk]=d.images[pk];
+      d.spatRounds.push(k); made++;
+    }
+    if(made){ try{saveData();}catch(e){} }
+    return made>0;
+  }catch(e){ return false; }
+}
 function tpIsSpat(k){ return k==='spat'||/^spat[2-9]$/.test(k||''); }
 function tpSpatRounds(){
   var d=tpData(); if(!d)return ['spat'];
@@ -39249,6 +39297,8 @@ function tpAddSpatRound(){
   rs.push(k);
   if(typeof _entMechAbsorb==='function'){try{_entMechAbsorb('items',_tpItemId,_preI);}catch(e){}}
   try{saveData();}catch(e){}
+  /* 코멘트에도 같은 번호 회차를 만들어 짝을 맞춘다 */
+  try{ if(_rndSyncToComment(_tpItemId,rs.length)&&typeof showToast==='function')showToast('코멘트에도 '+rs.length+'차를 만들었어요'); }catch(e){}
   _tpTab=k; tpRender();
   if(typeof showToast==='function')showToast(tpSpatLbl(k)+' 지시서를 만들었어요 — 직전 회차를 복사했어요');
 }
