@@ -4145,7 +4145,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-02q';
+var APP_BUILD=/*BUILD*/'2026-09-02r';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -13838,7 +13838,15 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
     formTrims[i].brandId=g('brandId')||'';
     // 다중 라벨명 배열 읽기 (hidden input에 JSON 직렬화됨)
     var _lnEl=r.querySelector('[data-f-labelnames]');
-    if(_lnEl&&_lnEl.value){try{var _lnParsed=JSON.parse(_lnEl.value);if(Array.isArray(_lnParsed)){formTrims[i].labelNames=_lnParsed;formTrims[i].labelName=_lnParsed[0]||'';}}catch(e){}}
+    if(_lnEl&&_lnEl.value){try{var _lnParsed=JSON.parse(_lnEl.value);if(Array.isArray(_lnParsed)){
+      formTrims[i].labelNames=_lnParsed;
+      /* ⚠️ 예전엔 브랜드 라벨이 **단가장 이름을 통째로 덮었다** → 이름이 바뀌어 단가를 못 찾았다.
+            단가장 이름 칸이 비어 있을 때만 채운다(사용자가 적은 값이 우선). */
+      var _lnCur=g('labelName');
+      if(!String(_lnCur||'').trim())formTrims[i].labelName=_lnParsed[0]||'';
+      /* 고른 짝을 단가장에 기억해 둔다 */
+      try{ _pbLabelPairSet(formTrims[i]); }catch(e){}
+    }}catch(e){}}
     formTrims[i].labelPart=g('labelPart')||'';
     formTrims[i].midSize=formTrims[i].labelName||formTrims[i].midSize||''; // 호환: midSize에도 라벨명 저장
     formTrims[i].unitPrice=+g('unitPrice')||0;
@@ -29711,10 +29719,49 @@ function updCareLabelDL(el){
     buildCareLabelDB(sup);
   }catch(e){ try{buildCareLabelDB();}catch(e2){} }
 }
+/* ===== 단가장 라벨 ↔ 브랜드 케어라벨 «짝» (요청 2026-09-02) ==================
+   두 곳이 서로 다른 걸 저장한다:
+     · 단가장 라벨 이름(t.labelName)  = 거래처에서 «단가»를 찾는 이름 (가로30 유광단면공단)
+     · 브랜드 케어라벨(t.labelNames)  = 작지에 붙일 «사진»의 이름 (무광양면 가로30)
+   이름이 달라서 매번 둘 다 골라야 했다 → 한 번 고르면 **단가장 항목에 짝을 기억**하고
+   다음부터 단가장 라벨만 고르면 브랜드 라벨이 자동으로 붙는다.
+   저장 자리: 단가장 항목의 brandLabels = { 브랜드id: [브랜드라벨이름…] } — 브랜드마다 다를 수 있다. */
+function _pbLabelPairSet(t){
+  try{
+    var sup=String((t&&t.supplier)||'').trim(); if(!sup)return false;
+    if(!(typeof _pbLabelName==='function'?_pbLabelName(t):(t&&t.labelName)))return false;
+    var m=(typeof _pbFindTrimMat==='function')?_pbFindTrimMat(sup,t):null; if(!m)return false;
+    var bid=String((t&&t.brandId)||''); if(!bid)return false;
+    var names=Array.isArray(t.labelNames)?t.labelNames.filter(Boolean):[];
+    if(!m.brandLabels||typeof m.brandLabels!=='object')m.brandLabels={};
+    if(names.length)m.brandLabels[bid]=names.slice(); else delete m.brandLabels[bid];
+    try{savePB();}catch(e){}
+    return true;
+  }catch(e){ return false; }
+}
+function _pbLabelPairGet(t){
+  try{
+    var sup=String((t&&t.supplier)||'').trim(); if(!sup)return null;
+    var m=(typeof _pbFindTrimMat==='function')?_pbFindTrimMat(sup,t):null;
+    if(!m||!m.brandLabels)return null;
+    var v=m.brandLabels[String((t&&t.brandId)||'')];
+    return (Array.isArray(v)&&v.length)?v.slice():null;
+  }catch(e){ return null; }
+}
 function onCareLabelNameChange(i,name){
   colTR();
   if(!formTrims[i])return;
   formTrims[i].labelName=name;
+  /* 이 라벨에 짝지어 둔 브랜드 케어라벨이 있으면 자동으로 붙인다 (아직 안 골랐을 때만) */
+  try{
+    var _pair=_pbLabelPairGet(formTrims[i]);
+    var _cur=Array.isArray(formTrims[i].labelNames)?formTrims[i].labelNames.filter(Boolean):[];
+    if(_pair&&_pair.length&&!_cur.length){
+      formTrims[i].labelNames=_pair;
+      if(typeof renderTrimRows==='function')setTimeout(renderTrimRows,0);
+      if(typeof showToast==='function')showToast('브랜드 라벨 「'+_pair.join(', ')+'」 자동 연결됨');
+    }
+  }catch(e){}
   var db=window._careLabelDB||buildCareLabelDB();
   var rec=db[name];
   if(rec){
