@@ -4125,7 +4125,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-02h';
+var APP_BUILD=/*BUILD*/'2026-09-02i';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -11903,6 +11903,8 @@ function fabRowHTML(f,i){
   </div>
   ${colorSec}
   ${fabBiasSecHTML(f,i)}
+  ${inlineFabCostsHTML(f)}
+  <div style="margin-top:6px"><button type="button" class="btn s" onclick="addFabCostFor(${i})" style="font-size:11.5px;padding:4px 10px;background:#fffbeb;border-color:#fcd34d;color:#854f0b">＋ 가공비 (염색·재단 등)</button></div>
   ${mkPriceAdditionsSec(i,f,formColors)}
 </div>`;}
 
@@ -13010,6 +13012,35 @@ function renderFabRows(){const el=document.getElementById('fab-rows');if(!el)ret
   // 혼용률 빌더 각 row 초기 렌더
   formFabs.forEach(function(f,i){renderCompBuilder(i,f.composition||'');});
 }
+/* ===== 원단 가공비 (요청 2026-09-02 「원단에도 가공비 추가」)
+   ⚠️ 부자재 가공비와 **같은 자료(formTrimCosts)·같은 줄 부품(trimCostRowHTML)** 을 쓴다.
+      부자재는 tc.trimId, 원단은 **tc.fabId** 로 어느 카드에 붙는지 가른다.
+      그래서 청구방식 4가지·최소 작업수량·원가/발주/결제 계산이 **저절로 똑같이** 돈다.
+   ⚠️ 옛 「바이어스 재단 보내기」(f.bias)는 그대로 둔다 — 둘 다 켜면 공임이 두 번 잡힌다. */
+function inlineFabCostsHTML(f){
+  if(!f||!f.id)return'';
+  const linked=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>x.tc.fabId===f.id);
+  if(!linked.length)return'';
+  return '<div style="margin:6px 0 0;padding:8px 10px 4px;background:#fffbeb;border:1px dashed #fcd34d;border-radius:8px">'
+    +'<div style="font-size:11px;font-weight:700;color:#854f0b;margin-bottom:6px">이 원단 가공비 (염색·바이어스 재단 등)</div>'
+    +linked.map(x=>trimCostRowHTML(x.tc,x.i)).join('')
+    +'</div>';
+}
+function addFabCostFor(i){
+  colFR();colTrimCosts();
+  var f=formFabs[i]||{};
+  formTrimCosts.push({id:uid(),fabId:f.id||'',name:(f.name?f.name+' 가공':''),costType:'perPcs',
+    costPerPcs:0,costPerLot:0,factory:'',qtyPerPiece:'',
+    colorLinks:(f.colorLinks?JSON.parse(JSON.stringify(f.colorLinks)):[])});
+  renderFabAndCosts();
+  if(typeof showToast==='function')showToast('가공비 추가됨 — 이 원단 카드 안에서 입력하세요');
+}
+/* 원단 카드와 가공비를 같이 다시 그린다 (타이핑하던 값 먼저 거둠) */
+function renderFabAndCosts(){
+  try{colFR();colTR();colTrimCosts();}catch(e){}
+  renderFabRows(); if(typeof renderTrimCostRows==='function')renderTrimCostRows();
+  if(typeof buildProcDL==='function')buildProcDL();
+}
 function inlineTrimCostsHTML(t){
   if(!t||!t.id)return'';
   const linked=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>x.tc.trimId===t.id);
@@ -13971,7 +14002,10 @@ function onTcTypeChange(i,val){cycleTcMode(i);}
 // 가공비 컬러 기준 토글 (염색 켠 색만 / 전체 컬러)
 function setTcBasis(i,b){colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;tc.colorBasis=b;renderTrimAndCosts();}
 
-function renderTrimCostRows(){const el=document.getElementById('tc-rows');if(!el)return;const list=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>!x.tc.trimId||!formTrims.find(t=>t.id===x.tc.trimId));el.innerHTML=list.length?list.map(x=>trimCostRowHTML(x.tc,x.i)).join(''):'<div class="muted" style="text-align:center;padding:.4rem;font-size:11px">부자재에 연결되지 않은 가공비 없음 — 각 부자재 카드의 ＋가공비로 추가하세요</div>';}
+function renderTrimCostRows(){const el=document.getElementById('tc-rows');if(!el)return;const list=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>{
+    if(x.tc.fabId&&formFabs.find(f=>f.id===x.tc.fabId))return false;   /* 원단 카드 안에 이미 보임 */
+    return !x.tc.trimId||!formTrims.find(t=>t.id===x.tc.trimId);
+  });el.innerHTML=list.length?list.map(x=>trimCostRowHTML(x.tc,x.i)).join(''):'<div class="muted" style="text-align:center;padding:.4rem;font-size:11px">부자재에 연결되지 않은 가공비 없음 — 각 부자재 카드의 ＋가공비로 추가하세요</div>';}
 function addTrimCostRow(){colTrimCosts();formTrimCosts.push({id:uid(),name:'',costType:'perPcs',costPerPcs:0,costPerLot:0,factory:'',colorLinks:[]});renderTrimCostRows();}
 function addTrimCostFor(i){colTR();colTrimCosts();var t=formTrims[i]||{};formTrimCosts.push({id:uid(),trimId:t.id||'',name:(t.name?t.name+' 가공':''),costType:'perLot',costPerPcs:0,costPerLot:0,factory:t.supplier||'',colorLinks:(t.colorLinks?JSON.parse(JSON.stringify(t.colorLinks)):[])});renderTrimAndCosts();showToast('가공비 추가됨 — 이 부자재 카드 안에서 입력하세요');}
 function addFinishCostRow(){
