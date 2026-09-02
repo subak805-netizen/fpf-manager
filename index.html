@@ -4125,7 +4125,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-02i';
+var APP_BUILD=/*BUILD*/'2026-09-02j';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -16092,10 +16092,10 @@ function genPoText(order,sn){
       _fcO.forEach(function(fabClr){
         var grp=_fcG[fabClr];
         var yv=parseFloat(grp.y.toFixed(2));
-        var qtyLine='#'+fabClr+' - '+yv+'y';
+        /* 키로 발주면 **키로가 앞** · 야드가 뒤 · kg 소수점 1자리 (요청 2026-09-02) */
+        var qtyLine='#'+fabClr+' - '+(grp.kg?(parseFloat(grp.kg.toFixed(1))+'kg ('+yv+'y)'):(yv+'y'));
         if(grp.items.length)qtyLine+=' ('+grp.items.join(', ')+' 사용)';
         if(grp.ovr){var ov=parseFloat(grp.oy.toFixed(2));if(ov!==yv)qtyLine+=' ※실제발주(원래 '+ov+'y)';}
-        else if(grp.kg)qtyLine+='('+parseFloat(grp.kg.toFixed(2))+'kg)';
         if(showPrice&&!_fAt){ var _c1=g.colors.find(function(c){return (c.fabricColor||c.colorName||'')===fabClr;}); var _a1=_c1?_poAt(_c1):''; if(_a1)qtyLine+=' '+_a1; }
         L.push(qtyLine);
       });
@@ -18657,8 +18657,13 @@ function poCardHTML(o,sn){
       // 원단: 같은 원단(이름+폭)끼리 합산 — 요척은 1번만 (컬러별 중복 제거)
       var fMap={},fOrder=[];
       fabs.forEach(function(f){
-        var key=(f.name||'')+'|'+(f.width||'');
-        if(!fMap[key]){var fc=(S.items[f.itemId]&&S.items[f.itemId].fabrics||[]).find(x=>x.id===f.fabId);var _fbs=!!(fc&&fc.consumptionBySize&&Object.keys(fc.consumptionBySize).length);fMap[key]={name:(f.name||(f.displayName||'').replace(/\s*\([^)]*\)\s*$/,'')),colors:[],yd:0,kg:0,pcs:0,yo:fc?_yo(fc.consumption):0,bySize:_fbs,bySizeVals:(fc&&fc.consumptionBySize)||null,price:+f.unitPrice||0,perKg:!!(+f.totalKg)};fOrder.push(key);}
+        /* ⚠️ 용도(몸판·배색·시보리)도 키에 넣는다 — 예전엔 «이름+폭»만이라 같은 원단이 몸판·배색으로
+              쓰이면 **한 줄로 합쳐져 몸판만** 보였다(신고 2026-09-02). 발주서 본문은 용도별로 나뉘는데
+              위 요약 카드만 안 나뉘어 서로 안 맞았다. */
+        var fc=(S.items[f.itemId]&&S.items[f.itemId].fabrics||[]).find(x=>x.id===f.fabId);
+        var _part=String((fc&&fc.part)||f.part||'').trim();
+        var key=(f.name||'')+'|'+(f.width||'')+'|'+_part;
+        if(!fMap[key]){var _fbs=!!(fc&&fc.consumptionBySize&&Object.keys(fc.consumptionBySize).length);fMap[key]={name:(f.name||(f.displayName||'').replace(/\s*\([^)]*\)\s*$/,'')),part:_part,colors:[],yd:0,kg:0,pcs:0,yo:fc?_yo(fc.consumption):0,bySize:_fbs,bySizeVals:(fc&&fc.consumptionBySize)||null,price:+f.unitPrice||0,perKg:!!(+f.totalKg)};fOrder.push(key);}
         fMap[key].yd+=(+f.totalYards||0);fMap[key].kg+=(+f.totalKg||0);fMap[key].pcs+=(+f.garmentPcs||0);
         var _fcl=f.colorName||f.fabricColor||'';if(_fcl&&fMap[key].colors.indexOf(_fcl)<0)fMap[key].colors.push(_fcl);
       });
@@ -18667,9 +18672,11 @@ function poCardHTML(o,sn){
         var _bsTxt='사이즈별 요척';
         if(m.bySize&&m.bySizeVals){var _ks=Object.keys(m.bySizeVals).filter(function(s){return +m.bySizeVals[s]>0;});if(_ks.length)_bsTxt='요척 '+_ks.map(function(s){return esc(s)+' '+_yo(m.bySizeVals[s]);}).join(' · ');}
         var sub=m.bySize?((jang?jang+'장 · ':'')+_bsTxt):((jang?jang+'장':'')+(m.yo?(jang?' · ':'')+'요척 '+m.yo+'y':''));
-        var qty=parseFloat(m.yd.toFixed(2))+'yd'+(m.kg?' ('+parseFloat(m.kg.toFixed(2))+'kg)':'');
+        /* 키로 발주면 **키로가 앞** · 야드가 뒤. kg 는 소수점 1자리 (요청 2026-09-02) */
+        var _ydT=parseFloat(m.yd.toFixed(2))+'yd';
+        var qty=m.kg?(parseFloat(m.kg.toFixed(1))+'kg ('+_ydT+')'):_ydT;
         var pr=m.price?'<div class="pr">'+_won(m.price)+(m.perKg?'/kg':'/yd')+'</div>':'';
-        var _fnm=esc(m.name)+((m.colors&&m.colors.length)?' <span class="mcl">('+esc(m.colors.join('/'))+')</span>':'');
+        var _fnm=(m.part?'<span class="mcl">('+esc(m.part)+')</span> ':'')+esc(m.name)+((m.colors&&m.colors.length)?' <span class="mcl">('+esc(m.colors.join('/'))+')</span>':'');
         var fml=fFml[m.name]||fFml[(m.name||'').replace(/\s*\([^)]*\)\s*$/,'')]||'';
         return '<div class="mitem'+(fml?' hasf':'')+'"><div class="mr"'+(fml?' onclick="this.parentNode.classList.toggle(\'open\')"':'')+'><span class="mk f">원단</span><div class="mid"><div class="mn">'+_fnm+'</div>'+(sub?'<div class="sb">'+esc(sub)+'</div>':'')+'</div><div class="rt"><div class="mq">'+qty+'</div>'+pr+'</div>'+(fml?'<span class="car">▸</span>':'')+'</div>'+(fml?'<div class="mfml">'+fml+'</div>':'')+'</div>';}).join('');
       // 부자재: 같은 부자재(이름+크기+타입)끼리 합산 — 요척 1번만 (컬러별 중복 제거)
