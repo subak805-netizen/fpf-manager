@@ -1828,3 +1828,13 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - ⚠️ **새 부자재 종류를 만들면 그 「크기」 칸 이름을 `_TRIM_PB_LOCK_FIELDS` 에 꼭 넣을 것.**
 - 아직 목록에 없는 자재 속성(확인 필요): `composition` `labelName` `madeIn` `threadQty` `sliderLogoText` `hasSliderLogo`
   — `autofillTrim` 이 단가장에서 끌어오는데 잠금 목록엔 없다. 아이템별로 달라야 하는지 확인 후 처리.
+
+## 2026-09-02a — 단가장 유형(심지 등)을 바꿔도 화면에 반영 안 됨
+- **뿌리**: `pbSoftRender()` 는 «표 안에 포커스가 있으면» 다시 그리기를 blur 때까지 미룬다(한글 조합 보호).
+  그런데 **드롭다운은 고른 순간 그 select 가 activeElement** 라 항상 미루기에 걸렸다 →
+  자료엔 들어갔는데 화면은 그대로 = 「반영이 안돼」. 다른 데를 클릭해야 그제서야 바뀌었다.
+- **고침**: `pbSoftRender(force)` 추가. **조합이 없는 select 만** `force=true` 로 부른다(`setPbMatCategory`).
+  글자 칸은 예전대로 미룬다 — 여기서 force 를 쓰면 한글 조합이 깨진다.
+- ⚠️ 앞으로 단가장에 **드롭다운을 새로 만들면** 그 핸들러도 `pbSoftRender(true)` 로 부를 것.
+- 같이: 유형 띠(「심지 15」)에 **「＋ 품목」** — `pbTrimAddMat(encSup, encCat)` 로 그 유형으로 바로 만든다.
+  「미분류」 띠에서 누르면 유형은 빈 값. 거래처 띠의 기존 「＋품목」은 그대로(유형 없음).
