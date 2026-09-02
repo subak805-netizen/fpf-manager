@@ -1949,14 +1949,34 @@ function _mergeById(a,b,tomb){
 var _mergeTasksById=_mergeById;   // 구명 호환
 // ── 배열 묘비(tombstone): 지운 id를 S._tomb.<배열명>에 기록 → 병합 때 부활 차단 (items/orders의 _entMerge 무덤과 동일 사상)
 var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra'];
-function _tombArr(name,id){ try{ if(!id)return; if(!S._tomb)S._tomb={}; if(!S._tomb[name])S._tomb[name]={}; S._tomb[name][id]=(typeof todayISO==='function'?todayISO():new Date().toISOString().slice(0,10)); }catch(e){} }
+function _tombArr(name,id){ try{ if(!id)return; if(!S._tomb)S._tomb={}; if(!S._tomb[name])S._tomb[name]={}; S._tomb[name][id]=(typeof todayISO==='function'?todayISO():new Date().toISOString().slice(0,10));
+  /* 다시 지웠으니 «되살림» 표시는 거둔다 */
+  try{ if(S._tomb['un:'+name])delete S._tomb['un:'+name][id]; }catch(e){} }catch(e){} }
+/* ★ 되살림 표시 — 지웠던 걸 «다시 만들었다»는 기록.
+   ⚠️ 묘비를 로컬에서 지우기만 하면 소용없다: 묘비는 병합 때 **합집합**이라
+      («_mergeTomb» 가 양쪽을 합치고 날짜 큰 쪽을 남긴다) 클라우드에 남은 묘비가 **다시 내려와**
+      되살린 걸 또 지웠다(신고 2026-09-02 「하나라벨 아직도 저장 안 되는데」 — 묘비 삭제만으론 안 됨).
+   → 되살림도 **묘비 저장소 안에** 'un:<이름>' 으로 남긴다. 그러면 저장·전송·병합 배선을 그대로 타고
+      다른 기기까지 전달된다. 되살림 날짜가 묘비 날짜와 같거나 나중이면 묘비를 무시한다
+      (같은 날 지웠다 되살렸으면 «되살림»이 이긴다 — 사용자가 방금 다시 만든 것이므로). */
+function _untombArr(name,id){ try{ if(!id)return; if(!S._tomb)S._tomb={}; var k='un:'+name;
+  if(!S._tomb[k])S._tomb[k]={};
+  S._tomb[k][id]=(typeof todayISO==='function'?todayISO():new Date().toISOString().slice(0,10));
+  if(S._tomb[name])delete S._tomb[name][id];
+}catch(e){} }
 // 배열에서 조건에 맞는 항목 삭제 + 묘비 기록 (모든 삭제는 가급적 이걸 통해서)
 function _arrDelWhere(name,pred){ var a=S[name]||[],keep=[],n=0; a.forEach(function(x){ if(x&&pred(x)){ if(x.id)_tombArr(name,x.id); n++; } else keep.push(x); }); S[name]=keep; return n; }
 /* ===== 공장(factories)·단가장(priceBook) 병합 — 2026-08-11 =====
    ⚠️ 예전엔 `factories: sh.factories||S.factories` 처럼 **클라우드 공유문서가 통째로 이김**이라,
       폰이 옛 공유문서를 올려두면 방금 등록한 업체·단가가 그대로 사라졌다(실제 유실: '퍼니베베').
    이제 **키 합집합**으로 합치고, 진짜 삭제만 묘비(_tomb)로 걸러 부활을 막는다. */
-function _tombHas(name,key){ try{ return !!(S._tomb&&S._tomb[name]&&S._tomb[name][key]); }catch(e){ return false; } }
+function _tombHas(name,key){ try{
+  if(String(name).indexOf('un:')===0)return false;
+  var t=S._tomb&&S._tomb[name]&&S._tomb[name][key]; if(!t)return false;
+  var u=S._tomb&&S._tomb['un:'+name]&&S._tomb['un:'+name][key];
+  if(u&&String(u)>=String(t))return false;   /* 지운 뒤 다시 만들었다 → 묘비 무시 */
+  return true;
+}catch(e){ return false; } }
 /* ===== refData 병합 — 2026-08-14 =====
    refData에는 **사용자가 직접 만든 목록**이 들어있다(가공 종류 procKinds, 부자재 종류 trimCategories, 체크리스트 등).
    예전엔 `_mergeMap(S.refData, data.refData)` — 같은 키면 **원격이 통째로 이김**이라,
@@ -4125,7 +4145,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-02p';
+var APP_BUILD=/*BUILD*/'2026-09-02q';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5856,7 +5876,7 @@ function fcOpts(sel,typeFilter){
       만든 거래처는 계속 되살아났다 사라졌다 했다. */
 function getPB(sup){
   if(!S.priceBook[sup]){
-    try{ if(S._tomb&&S._tomb.pbSup)delete S._tomb.pbSup[sup]; }catch(e){}
+    try{ _untombArr('pbSup',sup); }catch(e){}
     S.priceBook[sup]={email:'',phone:'',kakaoId:'',materials:{}};
   }
   return S.priceBook[sup];
@@ -7977,7 +7997,7 @@ function pbTrimAddMat(encSup,encCat){
   while(pb.materials[pbKey(nm,'','')]){ nm=base+' '+n; n++; if(n>200)break; }
   var key=pbKey(nm,'','');
   /* 같은 이름을 예전에 지웠다면 품목 묘비도 지운다 — 안 그러면 만들자마자 동기화가 또 지운다 */
-  try{ if(S._tomb&&S._tomb.pbMat)delete S._tomb.pbMat[s+'\u001f'+key]; }catch(e){}
+  try{ _untombArr('pbMat',s+'\u001f'+key); }catch(e){}
   pb.materials[key]={type:'trim',name:nm,color:'',size:'',unitPrice:0,orderType:'count',category:_cat,lastUpdated:(typeof todayISO==='function'?todayISO():'')};
   savePB();
   window._pbNewRow=s+'|'+key;
@@ -8446,7 +8466,7 @@ function addPriceBookEntry(){
     var _lbl={trim:'부자재처',fabric:'원단처',both:'둘 다'};
     if(_kdPre&&_lbl[_kdPre]&&_pbSupKind(_cur)!==_kdPre){
       _cur.kind=_kdPre;
-      try{ if(S._tomb&&S._tomb.pbSup)delete S._tomb.pbSup[name]; }catch(e){}
+      try{ _untombArr('pbSup',name); }catch(e){}
       try{if(typeof closeGenericModal==='function')closeGenericModal();}catch(e){}
       savePB();renderBook();
       showToast(name+' — '+_lbl[_kdPre]+'로 옮겼어요',4000);
@@ -8458,7 +8478,7 @@ function addPriceBookEntry(){
   /* ★ 지운 거래처는 묘비(_tomb.pbSup)가 남는다. 같은 이름으로 다시 만들면
         동기화가 그 묘비를 보고 **또 지워버린다**. 다시 만들 땐 묘비를 먼저 푼다.
         (신고 2026-08-26 「원단 삭제하고 부자재에 추가했는데 안 떠」) */
-  try{ if(S._tomb&&S._tomb.pbSup)delete S._tomb.pbSup[name]; }catch(e){}
+  try{ _untombArr('pbSup',name); }catch(e){}
   S.priceBook[name]={email:document.getElementById('newpb-email')?.value.trim()||'',phone:document.getElementById('newpb-phone')?.value.trim()||'',bank:document.getElementById('newpb-bank')?.value.trim()||'',kakaoId:'',materials:{},defaultPoOpts:{}};
   if(_kd==='trim'||_kd==='fabric'||_kd==='both')S.priceBook[name].kind=_kd;
   try{if(typeof closeGenericModal==='function')closeGenericModal();}catch(e){}
