@@ -2110,14 +2110,14 @@ function _mergeSharedSmart(local,remote){
   return out;
 }
 var _rtUnsubShared=null,_rtPendingShared=null,_rtUnsubOrdersArr=[],_rtPendingAux=null,_rtUnsubAuxArr=[];
-function applyRemoteShared(data,ts){
+function applyRemoteShared(data,ts,opts){
   if(!data)return;
   try{
     var m=_mergeSharedSmart({factories:S.factories,priceBook:S.priceBook},data);
     S.factories=m.factories; S.priceBook=_restoreLocalDataUrls(m.priceBook,S.priceBook||{});
     lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
     _shShadowInit(); if(ts)setSyncBase('fpm_shared',ts);
-    try{var _sy=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy);}catch(e){try{render();}catch(e2){}}
+    if(!(opts&&opts.noRender)){try{var _sy=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy);}catch(e){try{render();}catch(e2){}}}
   }catch(e){ console.warn('[applyRemoteShared]',e); }
 }
 /* ===== 발주 문서 조각내기 (2026-08-18, 1MB 2단계) =====
@@ -2187,7 +2187,7 @@ async function _readOrderShards(coId){
   if(!res.any){ var lg=await cloudGetDoc('fpm_'+coId+'__orders'); if(lg&&lg.value&&lg.value.orders&&!lg.value._deleted){ res.legacy=true; res.orders=lg.value.orders; res.tomb=(lg.value._tomb&&lg.value._tomb.orders)||{}; res.ts['fpm_'+coId+'__orders']=lg.ts||''; } }
   return res;
 }
-function applyRemoteOrders(orders,tomb,ts,key){
+function applyRemoteOrders(orders,tomb,ts,key,opts){
   if(!orders)return;
   _entEnsureTomb();
   var _mo=_entMerge(S.orders||{},orders,S._tomb.orders,tomb,'cloud');
@@ -2196,7 +2196,7 @@ function applyRemoteOrders(orders,tomb,ts,key){
   try{_rehydrateExtraSuppliers();}catch(e){} // 업로드에서 뺐던 추가발주 발주서 줄 다시 계산
   try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{},_kmt:S._kmt||{}});}catch(e){}
   try{_entShadowInit();}catch(e){}
-  try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
+  if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
 /* ★④ 배너에 «뭐가 바뀌는지» 요약 — 대기 중인 원격 자료를 내 것과 비교해 달라진 아이템·오더를 센다 */
 function _rtPendingSummary(){
@@ -2212,21 +2212,25 @@ function _rtPendingSummary(){
   try{ if(_rtPendingOrders&&_rtPendingOrders.byKey)Object.keys(_rtPendingOrders.byKey).forEach(function(k){ var x=_rtPendingOrders.byKey[k]; if(x)scanOrders(x.orders); }); }catch(e){}
   return out;
 }
-function showRemoteBanner(){
-  var b=document.getElementById('rt-banner');
-  if(!b){
-    b=document.createElement('div');b.id='rt-banner';
-    b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:64px;z-index:9998;background:var(--blue,#185FA5);color:#fff;padding:9px 12px 9px 16px;border-radius:14px;font-size:13px;font-weight:600;box-shadow:0 3px 12px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px;max-width:min(92vw,560px)';
-    document.body.appendChild(b);
-  }
-  var sm=_rtPendingSummary();
-  var what=[]; if(sm.items)what.push('아이템 '+sm.items); if(sm.orders)what.push('발주 '+sm.orders);
-  var det=(what.length?what.join(' · ')+'개':'변경')+(sm.names.length?(' — '+sm.names.map(function(x){return String(x).slice(0,14);}).join(', ')+(sm.items+sm.orders>sm.names.length?' 외':'')):'');
-  b.innerHTML='<span style="flex:1;min-width:0;line-height:1.35"><b>다른 기기에서 변경됨</b><br><span style="font-weight:500;opacity:.92;font-size:12px">'+det+'</span></span>'
-    +'<button type="button" onclick="event.stopPropagation();applyPendingRemote()" style="border:none;background:#fff;color:#185FA5;font-weight:800;padding:7px 12px;border-radius:9px;cursor:pointer;font-family:inherit;white-space:nowrap">받기</button>'
-    +'<button type="button" onclick="event.stopPropagation();rejectPendingRemote()" title="이 기기 것이 맞을 때 — 다른 기기 변경을 버리고 내 것을 보냅니다" style="border:1px solid rgba(255,255,255,.55);background:transparent;color:#fff;font-weight:700;padding:7px 10px;border-radius:9px;cursor:pointer;font-family:inherit;white-space:nowrap">내 것 유지</button>';
-  b.style.display='flex';
+/* ★2026-09-04b 배너·「받기」·「내 것 유지」 전부 없앰 (요청 「그런 게 아예 없었으면 좋겠어」).
+   편집 중이어도 원격 변경은 **조용히 합친다**(항목마다 _mt 로 나중 것이 이기므로 판단은 시스템이 한다).
+   화면만 «편집이 끝난 뒤»에 다시 그린다 — 타이핑하던 칸이 날아가지 않게. 배너 함수는 호출부가 남아 있어 빈 껍데기로 둔다. */
+function showRemoteBanner(){ try{hideRemoteBanner();}catch(e){} }
+/* 편집이 끝나면(입력칸 포커스 없음·폼/작지 닫힘) 미뤄둔 화면 갱신을 한 번 한다 — 3초마다 + 포커스가 빠질 때 */
+function _rtRenderWhenIdle(){
+  try{
+    if(!window._rtNeedRender)return false;
+    if(typeof isEditingNow==='function'&&isEditingNow())return false;
+    window._rtNeedRender=false;
+    try{var _sy=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy);}catch(e){try{render();}catch(e2){}}
+    try{ if(typeof showToast==='function')showToast('다른 기기 변경이 반영됐어요'); }catch(e){}
+    return true;
+  }catch(e){ return false; }
 }
+try{
+  setInterval(function(){ try{_rtRenderWhenIdle();}catch(e){} },3000);
+  document.addEventListener('focusout',function(){ setTimeout(function(){ try{_rtRenderWhenIdle();}catch(e){} },80); },true);
+}catch(e){}
 /* ★④ 「내 것 유지」 — 다른 기기 변경을 받지 않고, 달라진 아이템·오더에 내 도장(_mt=지금)을 찍어 내 것이 이기게 한 뒤 올린다.
    ⚠️ 상대 기기의 진짜 수정도 지워질 수 있으니 확인을 받는다. */
 function rejectPendingRemote(){
@@ -2292,7 +2296,7 @@ function startRealtimeSync(){
       var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
       if(!data)return;
       _rtAppliedTs[key]=ts;
-      if(isEditingNow()){_rtPending={coId:coAtSub,data:data,ts:ts};showRemoteBanner();return;}
+      if(isEditingNow()){ applyRemoteCoData(data,ts,{noRender:true}); window._rtNeedRender=true; return; }   /* 편집 중: 자료만 합치고 화면은 나중에 */
       applyRemoteCoData(data,ts);showToast('다른 기기 변경이 반영됐어요');
     },function(err){console.error('onSnapshot 오류:',err);});
     // 보조 상자(할일판·레퍼런스) 리스너 — 메인에서 뺀 필드는 여기서 받는다 (2026-08-18)
@@ -2312,7 +2316,7 @@ function startRealtimeSync(){
         var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
         if(!data||data._deleted)return;
         _rtAppliedTs[akey]=ts;
-        if(isEditingNow()){ if(!_rtPendingAux||_rtPendingAux.coId!==coAtSub)_rtPendingAux={coId:coAtSub,byKey:{}}; _rtPendingAux.byKey[akey]={data:data,ts:ts}; showRemoteBanner(); return; }
+        if(isEditingNow()){ applyRemoteCoData(data,ts,{baseKey:akey,noRender:true}); window._rtNeedRender=true; return; }
         applyRemoteCoData(data,ts,{baseKey:akey});showToast('다른 기기 변경이 반영됐어요');
       },function(err){console.error('onSnapshot(aux '+akey+') 오류:',err);}));
     });
@@ -2334,7 +2338,7 @@ function startRealtimeSync(){
         if(!data||data._deleted||data.orders===undefined||data.orders===null)return; // 회사 삭제·발주 키 없음 → 무시
         _rtAppliedTs[okey]=ts;
         var _oTomb=(data._tomb&&data._tomb.orders)||null;
-        if(isEditingNow()){ if(!_rtPendingOrders||_rtPendingOrders.coId!==coAtSub)_rtPendingOrders={coId:coAtSub,byKey:{}}; _rtPendingOrders.byKey[okey]={orders:data.orders,tomb:_oTomb,ts:ts}; showRemoteBanner(); return; }
+        if(isEditingNow()){ applyRemoteOrders(data.orders,_oTomb,ts,okey,{noRender:true}); window._rtNeedRender=true; return; }
         applyRemoteOrders(data.orders,_oTomb,ts,okey);showToast('다른 기기 발주 변경이 반영됐어요');
       },function(err){console.error('onSnapshot(orders '+okey+') 오류:',err);}));
     });
@@ -2353,7 +2357,7 @@ function startRealtimeSync(){
       var data;try{data=d.value?JSON.parse(d.value):null;}catch(e){return;}
       if(!data)return;
       _rtAppliedTs[skey]=ts;
-      if(isEditingNow()){_rtPendingShared={data:data,ts:ts};showRemoteBanner();return;}
+      if(isEditingNow()){ applyRemoteShared(data,ts,{noRender:true}); window._rtNeedRender=true; return; }
       applyRemoteShared(data,ts);showToast('다른 기기 업체·단가장 변경이 반영됐어요');
     },function(err){console.error('onSnapshot(shared) 오류:',err);});
     console.log('실시간 동기화 시작:',key);
@@ -2667,7 +2671,7 @@ async function cloudSyncSave(){
           //       편집 중이면 noRender로 화면은 안 건드림(입력 보존) — 데이터만 합쳐짐.
           console.warn('[cloudSyncSave] 스테일 감지: cloudTs '+_cloudTs+' > base '+(_base||'(없음)')+' → 병합 후 계속 저장');
           var _editing=(typeof isEditingNow==='function'&&isEditingNow());
-          try{ applyRemoteCoData(cloudCurrent,_cloudTs,{noRender:_editing}); }catch(e){console.warn('[cloudSyncSave] 스테일 병합 실패:',e);}
+          try{ applyRemoteCoData(cloudCurrent,_cloudTs,{noRender:_editing}); if(_editing)window._rtNeedRender=true; }catch(e){console.warn('[cloudSyncSave] 스테일 병합 실패:',e);}
           // 방금 그 문서를 병합했으니 메인 문서 배너 대기분은 해소 (발주 문서 대기분은 별도 유지)
           if(_rtPending&&_rtPending.coId===curCoId){_rtPending=null; if(!_rtPendingOrders&&typeof hideRemoteBanner==='function')hideRemoteBanner();}
           if(typeof showToast==='function')showToast('다른 기기 변경을 합쳐서 저장했어요',4000);
@@ -4217,7 +4221,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-04a';
+var APP_BUILD=/*BUILD*/'2026-09-04b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
