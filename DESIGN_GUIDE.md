@@ -2119,3 +2119,16 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - **4칸까지 한 줄, 5칸부터 두 줄**: `.tp-swsplit.wrap` + `--bw`(100/per %) + 둘째 줄 `.r2`(윗선)/`.r2f`(왼선 없음), 표에 `.tp-swtall` + `--swvh` 키움.
   ⚠️ 지시서 줄높이 `.sewlike .tp-swrow{70/98px!important}` 를 이기려고 tp-swtall 선택자를 (1,6,1) 로 뒀다 — 줄높이 규칙 추가할 땐 이 순위 확인.
 - 검증(실제 함수 18개 + 실제 CSS 렌더): 세로/가로/샘플회차 동일, 슬롯명, 폭, 추가·이름동기화·사진·삭제취소/확인·빈이름, 5칸 3+2 배치·줄높이 170.
+
+## 2026-09-04l — 옛 「바이어스 재단 보내기」 체크 삭제 → 원단 가공비 하나로 통합 (+발주서에 원단 가공비 출력)
+- 요청: 「가공비 추가 버튼을 만들었으면 바이어스 버튼은 없애야지 중복이잖아」. 원단 카드의 바이어스 체크칸(`fabBiasSecHTML`·`onFabBiasOn`·colFR의 data-fb 수집) **삭제**.
+- **이관 `_migrateFabBias(it)`**: f.bias{on,factory,spec,yo,fee,fold} → trimCosts 1줄 {fabId, procKind '바이어스 재단', biasSpec, factory, costType 'perLot', costPerLot=fee, biasYo=yo, biasFold=fold, colorBasis 'all'}.
+  f.bias 는 on=false·migrated=true 로 남김(되돌리기 대비). 멱등. 불리는 곳 3: normalize(앱 시작)·calcSups 아이템 루프·임시저장 복원.
+- **원단 가공비만의 칸 2개**(`trimCostRowHTML` fabId 줄 `.tcl-fabline`): `biasYo` 벌당 야드 더 시킴 · `biasFold` 원단 발주에 합쳐서(기본 켬). colTrimCosts 가 수집. 단위 표기 y/장·y.
+- **발주 파이프라인(calcSups)**: 옛 f.bias 대신 `tc.fabId===f.id && biasYo>0` 인 가공비 줄들로 — 합쳐서면 원단 야드에 +, 끄면 「(용도) ○○용」 줄 따로(isBiasCut),
+  담당 업체가 원단처와 **다르면** 그쪽에 재단 발주(orderType 'bias', 원단값 0·**공임 0**, tcId·procKind 기록). 공임은 가공비 체계(결제 명세서 _procRows·원장 가공비 절)가 집계 → 이중 집계 없음.
+  ⚠️ 원장 자동집계는 `biasFromFab && !biasFee` 자재를 건너뛴다(0원 줄 방지). 결제 명세서엔 0원 재단 줄이 남는다(재단 사실 기록).
+- **발주서 종이**: 원단 그룹 밑에 `_poFabProcNotes(g,sn)`(컬러별·한번에 = 「가공: 이름 종류 규격 (금액 · 컬러당)」, **담당=이 원단처일 때만**) + `_poProcBlocks(g,sn)`(fabId 지원: 개당·조건부 = 컬러별 **야드** 블록·소수 2자리·최소 y).
+  가공처의 재단 발주 블록은 `bg.tcId` 로 가공비 줄을 찾아 `@금액 · 컬러당/한번에/y당(· 최소 Ny)` 를 찍는다.
+- 검산 **문제 14** 추가(calc-tests.js, calc-check FUNCS에 `_migrateFabBias/_poProcBlocks/_poFabProcNotes/_tcQtyPerPiece`): 이관·110y·재단 10y 0원·멱등·안합침·담당=원단처·가공 줄·블록 18검사.
+- 남은 것: 담당 업체가 원단처와 다르고 **벌당 야드가 없는** 원단 가공(염색처 등)은 예전처럼 발주서 없이 결제 명세서(가공비 전용 거래처)만 — 필요하면 «가공 발주서» 별도 과제.

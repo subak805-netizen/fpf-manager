@@ -265,6 +265,55 @@ TEST('문제 12. 벌치 5 = 컬러별 +5개 (아이 25 / 검정 45)', function()
   CHECK('+개 6: 검정 44개(비례)', by['검정'], 44);
 });
 
+// ── 문제 14. 옛 바이어스 체크 → 원단 가공비 이관 + 발주 (2026-09-04) ─────────────────────
+// 원단A(모스트, 요척 1y·로스 0·1,000원/y)에 옛 f.bias{메이드, 30mm, 벌당 0.1y, 컬러당 20,000, 합쳐서} · 오더 소라 100장.
+// 손계산: 원단 100y + 바이어스용 0.1×100=10y → 모스트 110y. 메이드엔 «재단 발주» 10y·0원(공임 20,000은 가공비 줄 perLot 로 결제·원장).
+// 이관: trimCosts 1줄(fabId f1·바이어스 재단·perLot 20,000·biasYo 0.1·합쳐서) · f.bias.on=false · 두 번 돌려도 1줄.
+// 합쳐서 끄면: 모스트 100y + 「몸판 바이어스용」 10y 줄 따로. 담당이 원단처 자신이면 재단 발주 없음.
+// 발주서 블록: 염색 개당 1,500원/y·벌당 1.2y·최소 150y → "원단A 염색 (1500원/y) · 최소 150y (합계 120y)" + "#소라 - 120y".
+TEST('문제 14. 바이어스 이관: 모스트 110y · 메이드 재단 10y 0원 · 멱등 · 안합침 · 발주서 블록', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  S.items.itB = { id:'itB', name:'테스트', colors:['소라'], sizes:['S'],
+    fabrics:[{ id:'f1', name:'원단A', supplier:'모스트', part:'몸판', consumption:1, buffer:0, unitPrice:1000,
+               bias:{ on:true, factory:'메이드', spec:'30mm', yo:0.1, fee:20000, fold:true } }],
+    trims:[], trimCosts:[] };
+  var oi = { itemId:'itB', qtyGrid:{ '소라':{ S:100 } } };
+  var o = { id:'o2', orderItems:[oi], suppliers:{} };
+  S.orders.o2 = o;
+  var sups = calcSups(o.orderItems);
+  var it = S.items.itB, tcs = it.trimCosts;
+  CHECK('이관: 가공비 1줄', tcs.length, 1);
+  var tc = tcs[0] || {};
+  CHECK('이관: fabId·종류·청구방식', [tc.fabId, tc.procKind, tc.costType], ['f1','바이어스 재단','perLot']);
+  CHECK('이관: 공임·벌당야드·합쳐서·담당', [tc.costPerLot, tc.biasYo, tc.biasFold, tc.factory], [20000, 0.1, true, '메이드']);
+  CHECK('이관: 옛 체크 꺼짐', [it.fabrics[0].bias.on, it.fabrics[0].bias.migrated], [false, true]);
+  var fm = ((sups['모스트']||{}).materials)||[];
+  CHECK('모스트: 원단 1줄', fm.length, 1);
+  CHECK('모스트: 110y (100+바이어스 10)', [fm[0].totalYards, fm[0].biasYards], [110, 10]);
+  var mm = ((sups['메이드']||{}).materials)||[];
+  CHECK('메이드: 재단 발주 1줄', mm.length, 1);
+  var b = mm[0] || { calc:{} };
+  CHECK('메이드: 10y · 원단값 0 · 공임 0', [b.orderType, b.calc.qty, b.calc.cost, b.biasFee, b.unitPrice], ['bias', 10, 0, 0, 0]);
+  CHECK('메이드: 원단출처·규격·가공비 줄 연결', [b.fabricSource, b.biasSpec, b.tcId===tc.id], ['원단A (모스트)', '30mm', true]);
+  calcSups(o.orderItems);
+  CHECK('멱등: 다시 돌려도 가공비 1줄', it.trimCosts.length, 1);
+  tc.biasFold = false;
+  var sups2 = calcSups(o.orderItems);
+  var fm2 = ((sups2['모스트']||{}).materials)||[];
+  CHECK('안 합침: 모스트 2줄', fm2.length, 2);
+  CHECK('안 합침: 원단 100y + 바이어스용 10y', [fm2[0].totalYards, fm2[1].totalYards, fm2[1].isBiasCut, fm2[1].part], [100, 10, true, '몸판 바이어스용']);
+  tc.biasFold = true; tc.factory = '모스트';
+  var sups3 = calcSups(o.orderItems);
+  CHECK('담당=원단처: 재단 발주 안 만듦', !!sups3['메이드'], false);
+  CHECK('담당=원단처: 원단 110y 그대로', (((sups3['모스트']||{}).materials)||[])[0].totalYards, 110);
+  CHECK('발주서 「가공:」 줄 (컬러별 정액·담당 원단처)', _poFabProcNotes({ colors:(sups3['모스트'].materials) }, '모스트'), ['가공: 원단A 바이어스 재단 30mm (20000원 · 컬러당)']);
+  CHECK('발주서 「가공:」 줄 (담당 남의 집이면 없음)', _poFabProcNotes({ colors:(sups3['모스트'].materials) }, '메이드'), []);
+  it.trimCosts.push({ id:'tcD', fabId:'f1', name:'원단A', procKind:'염색', costType:'perPcs', costPerPcs:1500, qtyPerPiece:1.2, minQty:150, factory:'모스트' });
+  var blk = _poProcBlocks({ colors:(sups3['모스트'].materials) }, '모스트');
+  CHECK('발주서 블록: 개당 원단 가공', blk, [['원단A 염색 (1500원/y) · 최소 150y (합계 120y)', '#소라 - 120y']]);
+  CHECK('발주서 블록: 남의 집엔 없음', _poProcBlocks({ colors:(sups3['모스트'].materials) }, '메이드'), []);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){

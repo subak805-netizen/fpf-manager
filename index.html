@@ -4245,7 +4245,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-04k';
+var APP_BUILD=/*BUILD*/'2026-09-04l';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4737,6 +4737,7 @@ function migrateData(){
   // Items
   for(const it of Object.values(S.items||{})){
     if(!it.colors)it.colors=[];if(!it.sizes)it.sizes=[];if(!it.fabrics)it.fabrics=[];if(!it.trims)it.trims=[];if(!it.notes)it.notes='';if(!it.careInstructions)it.careInstructions='';if(!it.trimCosts)it.trimCosts=[];
+    try{_migrateFabBias(it);}catch(e){}   /* 옛 「바이어스 재단 보내기」 → 원단 가공비 줄 (2026-09-04l) */
     COST_DEFS.forEach(([ck,,fk])=>{if(it[ck]===undefined)it[ck]=0;if(fk&&it[fk]===undefined)it[fk]='';});
     if(it.patternCost===undefined)it.patternCost=0;if(it.sampleCost===undefined)it.sampleCost=0;if(it.gradingCost===undefined)it.gradingCost=0;
     if(it.onceCost===undefined)it.onceCost=0;if(!it.onceCostNm)it.onceCostNm='';if(it.inclOnce===undefined)it.inclOnce=false;
@@ -11520,6 +11521,7 @@ function loadDraft(){
   formLaborBySize=Object.assign({},d.laborBySize||{});
   window._laborSzOn=Object.keys(formLaborBySize).length>0;
   formColors=[...(d.colors||[])];formSizes=[...(d.sizes||[])];
+  try{_migrateFabBias(d);}catch(e){}
   formFabs=JSON.parse(JSON.stringify(d.fabrics||[]));
   formTrims=JSON.parse(JSON.stringify(d.trims||[]));
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
@@ -11956,39 +11958,30 @@ function onWeightIn(el,kind){
   if(kind==='gsm'){ if(!String(o.value).trim())o.value=Math.round(v/WG_OZ*10)/10; }
   else { if(!String(g.value).trim())g.value=Math.round(v*WG_OZ); }
 }
-/* ===== 원단 → 바이어스 재단 (2026-08-25) ==================================
-   실제 업무: 원단은 «원단처»에 발주해서 우리가 받고 → «가공처»(메이드)에 넘겨 재단만 시킨다.
-   그래서 가공처 발주에는 **원단값이 안 들어가고**, 「이 원단을 이 폭으로 잘라줘」 + 컬러별 야드만 나간다.
-   공임은 **컬러탕**(컬러 수 × 정액) — 장수가 늘어도 공임은 안 는다.
-   ⚠️ 예전 «부자재» 쪽 바이어스 카드(orderType:'bias')는 그대로 둔다. 둘 다 켜면 이중 계산이니
-      옮기는 건 따로 한다. */
-function fabBiasSecHTML(f,i){
-  var bz=f.bias||{}, on=!!bz.on;
-  var fld=function(flex,min,lbl,key,val,ph,type){
-    return '<div class="fb-f" style="flex:'+flex+';min-width:'+min+'px"><label>'+lbl+'</label>'
-      +'<input '+(type?('type="'+type+'" step="0.01" min="0" '):'')+'data-fb="'+key+'" value="'+esc(val==null?'':val)+'" placeholder="'+esc(ph)+'"></div>';
-  };
-  return '<div class="fab-bias'+(on?' on':'')+'">'
-    +'<label class="fb-h"><input type="checkbox" data-fb="on" '+(on?'checked':'')+' onchange="onFabBiasOn('+i+',this)">'
-      +'바이어스 재단 보내기<span class="sub">가공처에 재단만 맡김 · 원단값은 원단처</span></label>'
-    +'<div class="fb-b" '+(on?'':'style="display:none"')+'>'
-      +'<div class="fb-row">'
-        +'<div class="fb-f" style="flex:1.1;min-width:100px"><label>가공처</label><input list="dl-sup" data-fb="factory" value="'+esc(bz.factory||'')+'" placeholder="메이드"></div>'
-        +fld('.6',70,'폭','spec',bz.spec,'30mm')
-        +fld('.85',96,'벌당 필요(야드)','yo',bz.yo,'0.1','number')
-        +fld('.95',104,'컬러당 공임(원)','fee',bz.fee,'20000','number')
-      +'</div>'
-      +'<label class="fb-chk"><input type="checkbox" data-fb="fold" '+(bz.fold===false?'':'checked')+'>'
-        +'원단 발주에 <b>합쳐서</b> 시킴<span class="sub">(끄면 원단처 발주서에 줄을 따로 뺌)</span></label>'
-    +'</div></div>';
-}
-/* 켜기/끄기 — 재렌더 없이 접기만 (타이핑 중이던 값이 안 날아가게) */
-function onFabBiasOn(i,cb){
-  var row=document.getElementById('fr-'+i); if(!row)return;
-  var wrap=row.querySelector('.fab-bias'), body=row.querySelector('.fb-b');
-  if(body)body.style.display=cb.checked?'':'none';
-  if(wrap)wrap.classList.toggle('on',cb.checked);
-  try{colFR();}catch(e){}
+/* ===== 옛 「바이어스 재단 보내기」(f.bias) → 원단 가공비(trimCosts, tc.fabId) 로 이관 (2026-09-04l) ==========
+   요청: 「가공비 추가 버튼을 만들었으면 바이어스 버튼은 없애야지 중복이잖아」. 원단 카드의 바이어스 체크칸은 없앴고,
+   옛 체크가 하던 세 가지를 가공비 줄이 그대로 넘겨받는다:
+     ① 컬러당 공임(fee)      → costType 'perLot' · costPerLot   (원가·결제 명세서·거래처 원장은 가공비 체계 그대로)
+     ② 벌당 야드 더 시킴(yo)  → tc.biasYo   (원단처 발주 야드에 합쳐지거나, 끄면 「○○용」 줄로 따로)
+     ③ 합쳐서(fold)           → tc.biasFold (기본 켬)
+     + 담당 업체가 원단처와 다르면 그쪽엔 «재단 발주»(컬러별 야드·원단값 0·공임 0)가 따로 나간다 — 공임은 가공비 줄에서 집계.
+   이관은 한 번만(f.bias.migrated). f.bias 는 지우지 않고 on=false 로 둔다(되돌릴 때 대비). 어디서 만나도 같은 결과(멱등).
+   불리는 곳: 앱 시작 정리(normalize) · 발주 계산(calcSups 아이템 루프) · 임시저장 복원. */
+function _migrateFabBias(it){
+  try{
+    if(!it||!Array.isArray(it.fabrics))return false;
+    var changed=false;
+    it.fabrics.forEach(function(f){
+      var b=f&&f.bias; if(!b||b.migrated)return;
+      if(!b.on){ b.migrated=true; return; }   /* 안 켠 옛 칸은 값만 남아 있어도 이관할 게 없다 */
+      if(!Array.isArray(it.trimCosts))it.trimCosts=[];
+      it.trimCosts.push({id:(typeof uid==='function'?uid():'tc'+Date.now().toString(36)),fabId:f.id||'',name:f.name||'',procKind:'바이어스 재단',biasSpec:String(b.spec||'').trim(),
+        factory:String(b.factory||'').trim(),costType:'perLot',costPerLot:+b.fee||0,costPerPcs:0,qtyPerPiece:'',colorBasis:'all',
+        biasYo:+b.yo||0,biasFold:(b.fold!==false),colorLinks:[]});
+      b.on=false; b.migrated=true; changed=true;
+    });
+    return changed;
+  }catch(e){ return false; }
 }
 function fabRowHTML(f,i){
   const isKg=f.pricingUnit==='kg';
@@ -12070,7 +12063,6 @@ function fabRowHTML(f,i){
     </div>
   </div>
   ${colorSec}
-  ${fabBiasSecHTML(f,i)}
   ${inlineFabCostsHTML(f)}
   <div style="margin-top:6px"><button type="button" class="btn s" onclick="addFabCostFor(${i})" style="font-size:11.5px;padding:4px 10px;background:#fffbeb;border-color:#fcd34d;color:#854f0b">＋ 가공비 (염색·재단 등)</button></div>
   ${mkPriceAdditionsSec(i,f,formColors)}
@@ -13184,7 +13176,8 @@ function renderFabRows(){const el=document.getElementById('fab-rows');if(!el)ret
    ⚠️ 부자재 가공비와 **같은 자료(formTrimCosts)·같은 줄 부품(trimCostRowHTML)** 을 쓴다.
       부자재는 tc.trimId, 원단은 **tc.fabId** 로 어느 카드에 붙는지 가른다.
       그래서 청구방식 4가지·최소 작업수량·원가/발주/결제 계산이 **저절로 똑같이** 돈다.
-   ⚠️ 옛 「바이어스 재단 보내기」(f.bias)는 그대로 둔다 — 둘 다 켜면 공임이 두 번 잡힌다. */
+   옛 「바이어스 재단 보내기」(f.bias)는 2026-09-04l 에 이 가공비 줄로 이관됐다(_migrateFabBias) — 체크칸 없음.
+   원단 가공비만의 칸: biasYo(벌당 야드 더 시킴)·biasFold(원단 발주에 합쳐서). */
 function inlineFabCostsHTML(f){
   if(!f||!f.id)return'';
   const linked=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>x.tc.fabId===f.id);
@@ -13198,7 +13191,7 @@ function addFabCostFor(i){
   colFR();colTrimCosts();
   var f=formFabs[i]||{};
   formTrimCosts.push({id:uid(),fabId:f.id||'',name:(f.name?f.name+' 가공':''),costType:'perPcs',
-    costPerPcs:0,costPerLot:0,factory:'',qtyPerPiece:'',
+    costPerPcs:0,costPerLot:0,factory:'',qtyPerPiece:'',biasYo:'',biasFold:true,
     colorLinks:(f.colorLinks?JSON.parse(JSON.stringify(f.colorLinks)):[])});
   renderFabAndCosts();
   if(typeof showToast==='function')showToast('가공비 추가됨 — 이 원단 카드 안에서 입력하세요');
@@ -13782,15 +13775,7 @@ function colFR(){document.querySelectorAll('[id^=fr-]').forEach((r)=>{const i=+r
        (사용자 확정 2026-08-26 「이것도 단가장에서만 쓰는거」). 요척·용도와 달리 옷마다 달라지지 않는다. */
     if(g('omude')!=null)formFabs[i].omude=g('omude')||'';
     formFabs[i].part=g('part')||'';formFabs[i].memo=r.querySelector('[data-f-memo]')?.value||'';if(pu==='kg'){formFabs[i].pricePerKg=+g('pricePerKg')||0;formFabs[i].yardsPerKg=+g('yardsPerKg')||1;}else formFabs[i].unitPrice=+g('unitPrice')||0;
-  // 바이어스 재단 (원단 → 가공처)
-  const _bzOn=r.querySelector('[data-fb=on]');
-  if(_bzOn){
-    const gb=k=>{const el=r.querySelector('[data-fb='+k+']');return el?el.value:'';};
-    const _fold=r.querySelector('[data-fb=fold]');
-    const _bz={on:_bzOn.checked,factory:(gb('factory')||'').trim(),spec:(gb('spec')||'').trim(),
-               yo:+gb('yo')||0,fee:+gb('fee')||0,fold:_fold?_fold.checked:true};
-    if(_bz.on||_bz.factory||_bz.spec||_bz.yo||_bz.fee)formFabs[i].bias=_bz; else delete formFabs[i].bias;
-  }
+  // (옛 바이어스 체크칸은 2026-09-04l 에 가공비 줄로 이관 — 수집할 칸 없음)
   // 컬러 링크 수집
   const fabColAll=r.querySelector('[data-fab-col-all]');
   if(fabColAll){formFabs[i].fabricColor=fabColAll.value;formFabs[i].colorLinks=[];}
@@ -13834,6 +13819,9 @@ function colTrimCosts(){document.querySelectorAll('[data-tcid]').forEach(r=>{con
   if(g('tcQpp')!=null){ var _qv=String(g('tcQpp')||'').trim(); tc.qtyPerPiece=_qv===''?'':(+_qv||0); }
   /* 최소 작업수량 — 비우면 없음(0 아님). 있으면 그 개수 아래로는 그 개수로 청구한다. */
   if(g('tcMinQty')!=null){ var _mv=String(g('tcMinQty')||'').trim(); tc.minQty=_mv===''?'':(+_mv||0); }
+  /* 원단 가공비만: 벌당 야드 더 시킴·원단 발주에 합쳐서 (2026-09-04l) */
+  if(g('biasYo')!=null){ var _by=String(g('biasYo')||'').trim(); tc.biasYo=_by===''?'':(+_by||0); }
+  var _bf=r.querySelector('[data-f=biasFold]'); if(_bf)tc.biasFold=!!_bf.checked;
   try{
     var _lt=(formTrims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});
     if(_lt){ var _q=+tc.qtyPerPiece; _lt.pcsPerGarment=(_q>0)?_q:''; }
@@ -14107,13 +14095,15 @@ function trimCostRowHTML(tc,i){
      ⚠️ 공임뿐 아니라 **원자재 필요량에도** 쓰인다(끈 요척 × 개당요척 × 장수). 비우면 1개.
         요청 2026-08-26 「스트링 끈 요척 1.7 / 스트링 개당 요척 1개」 */
   const qppSec=(mode==='perPcs'||mode==='tier')
-    ?`<span class="tcl-u" style="font-weight:700">×</span><input class="tcl-amt" data-f="tcQpp" type="number" min="0" step="0.01" value="${tc.qtyPerPiece!=null&&tc.qtyPerPiece!==''?tc.qtyPerPiece:''}" placeholder="1" title="옷 1장에 몇 개 — 스트링이 2개면 2. 비우면 1개&#10;원자재 필요량에도 같이 곱해집니다" oninput="colTrimCosts();tclRecost(this)" style="width:52px"><span class="tcl-u">개/장</span>`
+    ?`<span class="tcl-u" style="font-weight:700">×</span><input class="tcl-amt" data-f="tcQpp" type="number" min="0" step="0.01" value="${tc.qtyPerPiece!=null&&tc.qtyPerPiece!==''?tc.qtyPerPiece:''}" placeholder="1" title="옷 1장에 몇 개 — 스트링이 2개면 2. 비우면 1개&#10;원자재 필요량에도 같이 곱해집니다" oninput="colTrimCosts();tclRecost(this)" style="width:52px"><span class="tcl-u">${tc.fabId?'y/장':'개/장'}</span>`
     :'';
   /* 「최소 작업수량」 — 그 수량 아래로는 안 받는 가공(예: 바이어스 재단 5야드 미니멈).
      단위는 이 가공이 세는 것 그대로(개·야드). 정액(한번에·컬러별)은 수량이 없어 안 보인다. */
   const minSec=(mode==='perPcs'||mode==='tier')
-    ?`<span class="tcl-u" style="font-weight:700">·&nbsp;최소</span><input class="tcl-amt" data-f="tcMinQty" type="number" min="0" step="0.01" value="${tc.minQty!=null&&tc.minQty!==''?tc.minQty:''}" placeholder="—" title="이 수량 아래로는 안 받는 가공이면 적어요&#10;예: 바이어스 재단 5야드 미니멈 → 3야드만 필요해도 5야드 값&#10;단위는 이 가공이 세는 것 그대로(개·야드)" oninput="colTrimCosts();tclRecost(this)" style="width:56px"><span class="tcl-u">${mode==='tier'?'개':'개'}</span>`
+    ?`<span class="tcl-u" style="font-weight:700">·&nbsp;최소</span><input class="tcl-amt" data-f="tcMinQty" type="number" min="0" step="0.01" value="${tc.minQty!=null&&tc.minQty!==''?tc.minQty:''}" placeholder="—" title="이 수량 아래로는 안 받는 가공이면 적어요&#10;예: 바이어스 재단 5야드 미니멈 → 3야드만 필요해도 5야드 값&#10;단위는 이 가공이 세는 것 그대로(개·야드)" oninput="colTrimCosts();tclRecost(this)" style="width:56px"><span class="tcl-u">${tc.fabId?'y':'개'}</span>`
     :'';
+  /* 원단에 붙은 가공비(fabId)만: 「원단 더 시킴」 벌당 야드 + 「원단 발주에 합쳐서」 — 옛 바이어스 체크칸 대체 (2026-09-04l) */
+  const fabSec=tc.fabId?`<div class="tcl-fabline" style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:4px;font-size:11.5px;color:#5b4a12"><span style="font-weight:800">원단 더 시킴</span><span class="tcl-u">벌당</span><input class="tcl-amt" data-f="biasYo" type="number" min="0" step="0.01" value="${(+tc.biasYo>0)?tc.biasYo:''}" placeholder="—" title="바이어스처럼 이 가공용으로 원단을 더 시켜야 하면 벌당 야드 (예: 0.1)&#10;염색·본딩처럼 원단 그대로면 비움" oninput="colTrimCosts()" style="width:56px"><span class="tcl-u">y</span><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-weight:600"><input type="checkbox" data-f="biasFold" ${tc.biasFold===false?'':'checked'} onchange="colTrimCosts()">원단 발주에 합쳐서</label><span style="color:#9aa0a6">끄면 원단처 발주서에 「○○용」 줄 따로 · 담당 업체가 원단처와 다르면 그쪽엔 재단 발주서(컬러별 야드)가 따로 나가요</span></div>`:'';
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
     <input class="tcl-nm" data-f="name" list="dl-proc" value="${esc(tc.name||'')}" placeholder="예: 코팅, 염색, 로고" onchange="tcAutoFillRate(this)">
@@ -14126,6 +14116,7 @@ function trimCostRowHTML(tc,i){
     <input class="tcl-fac" data-f="factory" list="dl-sup" value="${esc(tc.factory||'')}" placeholder="담당 업체" onchange="tcAutoFillRate(this)">
     <span class="tcl-cost">원가 +${num(c.per)}원/장${c.sub?` <span class="tcl-sub">${c.sub}</span>`:''}</span>
     <button class="tcl-x" type="button" onclick="rmTrimCostRow(${i})">×</button>
+    ${fabSec}
     ${mode==='tier'?`<div class="tcl-tiersum" style="flex-basis:100%;font-size:11.5px;color:#3f3f46;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;padding:5px 9px;margin-top:4px;line-height:1.6">${_tcTierSumText(tc)}</div>`:''}
     ${colorSec?`<div class="tcl-colors">${colorSec}</div>`:''}
   </div>`;}
@@ -15494,7 +15485,7 @@ function calcSups(orderItems,opts){
   opts=opts||{};
   const applyEffPcsToTrim=opts.trimEffectivePcs!==false; // 기본 true
   const sups={};
-  for(const oi of orderItems){const it=S.items[oi.itemId];if(!it)continue;
+  for(const oi of orderItems){const it=S.items[oi.itemId];if(!it)continue;try{_migrateFabBias(it);}catch(e){}
     const colors=it.colors?.length?it.colors:[''];const sizes=it.sizes?.length?it.sizes:['free'];
     const colorQtys={};colors.forEach(c=>colorQtys[c]=sizes.reduce((s,sz)=>s+(+oi.qtyGrid?.[c]?.[sz]||0),0));
     // 컬러별 사이즈 분포도 같이 모은다 (사이즈별 요척 계산용)
@@ -15587,36 +15578,37 @@ function calcSups(orderItems,opts){
           if(a.applyTo==='colors'&&a.colors&&a.colors.indexOf(c)>=0)return true;
           return false;
         }).map(function(a){return {name:a.name||'가산',price:+a.price||0};});
-        /* 바이어스 재단 — 이 원단에서 뽑는 몫 (2026-08-25).
+        /* 원단 가공비 중 「벌당 야드 더 시킴」(tc.biasYo — 바이어스 재단 등) — 이 원단에서 뽑는 몫 (2026-09-04l, 옛 f.bias 대체).
            ⚠️ calc 는 _calcBase 와 «같은 객체»일 수 있어 고쳐 쓰면 안 된다 → 더한 값을 따로 넘긴다. */
-        const _bz=(f.bias&&f.bias.on&&+f.bias.yo>0)?f.bias:null;
-        const _bzYd=_bz?Math.round(+f.bias.yo*qty*100)/100:0;
-        const _bzFold=_bz?(f.bias.fold!==false):false;
-        const _bzAdd=(_bz&&_bzFold)?_bzYd:0;
+        const _fbz=(it.trimCosts||[]).filter(function(tc){return tc&&tc.fabId===f.id&&+tc.biasYo>0;});
+        const _bzYdOf=function(tc){return Math.round(+tc.biasYo*qty*100)/100;};
+        let _bzAdd=0; _fbz.forEach(function(tc){ if(tc.biasFold!==false)_bzAdd+=_bzYdOf(tc); }); _bzAdd=Math.round(_bzAdd*100)/100;
         sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,totalYards:(calc.ty||0)+_bzAdd,totalKg:calc.tk||null,baseTotalYards:(_calcBase.ty||0)+_bzAdd,baseTotalKg:_calcBase.tk||null,biasYards:_bzAdd||undefined,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',part:f.part||'',fabId:f.id,itemId:oi.itemId,itemName:it.name,memo:f.memo||'',addPerUnit:calc.addPerUnit||0,appliedAdditions:appliedAdditions,effectivePcsApplied:effectivePcsForTrim});
-        if(_bz&&_bzYd>0){
-          // 「합쳐서」 끄면 원단처 발주서에 바이어스용 줄을 따로 뺀다
-          if(!_bzFold){
+        _fbz.forEach(function(tc){
+          const _bzYd=_bzYdOf(tc); if(!(_bzYd>0))return;
+          const _kindNm=String(tc.procKind||'바이어스 재단').trim();
+          // 「합쳐서」 끄면 원단처 발주서에 「○○용」 줄을 따로 뺀다
+          if(tc.biasFold===false){
             sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,
               displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),
               colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,
               totalYards:_bzYd,baseTotalYards:_bzYd,fabricColor:fabColorName,width:f.width||null,
-              composition:f.composition||'',part:((f.part?f.part+' ':'')+'바이어스용'),isBiasCut:true,
+              composition:f.composition||'',part:((f.part?f.part+' ':'')+_kindNm.replace(/\s*재단$/,'')+'용'),isBiasCut:true,
               itemId:oi.itemId,itemName:it.name,memo:'',appliedAdditions:[],effectivePcsApplied:effectivePcsForTrim});
           }
-          // 가공처에는 «재단 발주»만 — 원단값 없음, 공임은 컬러탕(컬러 하나당 정액)
-          const _bfc=(f.bias.factory||'').trim();
-          if(_bfc){
+          // 담당 업체가 원단처와 다르면 그쪽엔 «재단 발주»만 — 원단값 0 · 공임 0 (공임은 가공비 줄이 결제·원장에서 집계)
+          const _bfc=String(tc.factory||'').trim();
+          if(_bfc&&_bfc!==String(f.supplier||'').trim()){
             if(!sups[_bfc])sups[_bfc]=mkSupWithDefaults(_bfc);
             sups[_bfc].materials.push({type:'trim',orderType:'bias',name:'바이어스재단',displayName:'바이어스재단',
               fabricSource:(f.name||'')+(f.supplier?(' ('+f.supplier+')'):''),
-              biasSpec:f.bias.spec||'',colorName:fabColorName||c,part:f.part||'',
-              unitPrice:0,biasFee:+f.bias.fee||0,biasFromFab:true,fabId:f.id,
+              biasSpec:String(tc.biasSpec||'').trim(),colorName:fabColorName||c,part:f.part||'',
+              unitPrice:0,biasFee:0,biasFromFab:true,fabId:f.id,tcId:tc.id,procKind:_kindNm,
               itemId:oi.itemId,itemName:it.name,
-              calc:{qty:_bzYd,unit:'y',cost:+f.bias.fee||0,_up:0},
+              calc:{qty:_bzYd,unit:'y',cost:0,_up:0},
               effectivePcsApplied:effectivePcsForTrim});
           }
-        }
+        });
       }
     }
     for(const t of it.trims||[]){
@@ -16093,6 +16085,28 @@ function _poTrimProcNotes(g){
   });
   return out;
 }
+/* 원단 그룹(fabId) 밑 「가공: …」 줄 — 컬러별·한번에(정액) 원단 가공비, **이 원단처가 담당일 때만** (2026-09-04l).
+   단가 있는 개당·조건부는 _poProcBlocks 가 컬러별 야드 블록으로 찍는다(여기선 건너뜀). 남의 집 가공은 이 발주서에 안 낀다. */
+function _poFabProcNotes(g,sup){
+  var out=[],seen={};
+  ((g&&g.colors)||[]).forEach(function(m){
+    if(!m||!m.itemId||!m.fabId)return;
+    var it=S.items[m.itemId]; if(!it||!Array.isArray(it.trimCosts))return;
+    it.trimCosts.forEach(function(tc){
+      if(!tc||tc.fabId!==m.fabId)return;
+      if(String(tc.factory||'').trim()!==String(sup||'').trim())return;
+      var mode=tc.costType||'perPcs';
+      if((mode==='perPcs'||mode==='tier')&&(+(mode==='tier'?tc.tierOver:tc.costPerPcs)||0))return;
+      var _nm=(tc.name||'').trim(),_kd=(tc.procKind||'').trim();
+      if(_kd&&_nm.replace(/\s+/g,'')===_kd.replace(/\s+/g,''))_kd='';
+      var lbl=[_nm,_kd,(tc.biasSpec||'').trim()].filter(Boolean).join(' ')||'가공';
+      var fee=(mode==='perLot'||mode==='once')?(+tc.costPerLot||0):0;
+      var line='가공: '+lbl+(fee?(' ('+num(fee)+'원'+(mode==='perLot'?' · 컬러당':' · 한번에')+')'):'');
+      var k=tc.id||line; if(seen[k])return; seen[k]=1; out.push(line);
+    });
+  });
+  return out;
+}
 /* ===== 발주서 「가공」 블록 (2026-08-26) ==============================
    요청 형태:
      스트링 제작 138cm 악어 팁 니켈컬러 10mm  (1,100원)
@@ -16107,12 +16121,19 @@ function _poProcBlocks(g,sup){
     if(!m||!m.itemId)return;
     var it=S.items[m.itemId];
     if(!it||!Array.isArray(it.trimCosts)||!it.trimCosts.length)return;
-    var trs=(it.trims||[]).filter(function(x){return x&&(x.name||'')===(m.name||'');});
-    if(!trs.length)return;
-    var tr=trs.length>1?(trs.find(function(x){return (x.size||'')===(m.size||'')&&(x.orderType||'')===(m.orderType||'');})||trs[0]):trs[0];
-    var tid=tr&&tr.id; if(!tid)return;
+    /* 원단 자재(fabId)면 원단 가공비(tc.fabId)로 — 개수 대신 야드(소수 2자리) (2026-09-04l). 부자재는 이름 역매칭 그대로 */
+    var _fid=(m.type==='fabric'&&m.fabId)?m.fabId:'';
+    var _u=_fid?'y':'개', _fmt=function(v){return _fid?String(Math.round(v*100)/100):num(v);};
+    var tid=null;
+    if(!_fid){
+      var trs=(it.trims||[]).filter(function(x){return x&&(x.name||'')===(m.name||'');});
+      if(!trs.length)return;
+      var tr=trs.length>1?(trs.find(function(x){return (x.size||'')===(m.size||'')&&(x.orderType||'')===(m.orderType||'');})||trs[0]):trs[0];
+      tid=tr&&tr.id; if(!tid)return;
+    }
     it.trimCosts.forEach(function(tc){
-      if(!tc||tc.trimId!==tid)return;
+      if(!tc)return;
+      if(_fid?(tc.fabId!==_fid):(tc.trimId!==tid))return;
       var mode=tc.costType||'perPcs';
       if(mode!=='perPcs'&&mode!=='tier')return;
       if(String(tc.factory||'').trim()!==String(sup||'').trim())return;
@@ -16136,18 +16157,18 @@ function _poProcBlocks(g,sup){
               needPcs = 실제로 계산에 쓴 장수(로스 포함) · basePcs = 로스 전 의뢰수량 */
         var pcs=+((x.calc&&(x.calc.needPcs!=null?x.calc.needPcs:x.calc.basePcs))||x.garmentPcs||0);
         if(!pcs)return;
-        var c=x.colorName||'';
+        var c=_fid?(x.fabricColor||x.colorName||''):(x.colorName||'');
         if(byC[c]==null){byC[c]=0;ord.push(c);}
-        byC[c]+=Math.round(pcs*qpp);
+        byC[c]+=_fid?Math.round(pcs*qpp*100)/100:Math.round(pcs*qpp);
       });
       if(!ord.length)return;
       /* 최소 작업수량 — 전체 합계가 모자라면 그 개수로 올린다(가장 큰 컬러에 몰아주지 않고 «최소 N» 로 적는다) */
       var _tot=0; ord.forEach(function(c){ _tot+=(+byC[c]||0); });
-      var _minNote=(_mnQ>0&&_tot<_mnQ)?(' · 최소 '+num(_mnQ)+' (합계 '+num(_tot)+')'):'';
-      var lines=[hdr+' ('+num(fee)+'원)'+_minNote];
+      var _minNote=(_mnQ>0&&_tot<_mnQ)?(' · 최소 '+_fmt(_mnQ)+_u+' (합계 '+_fmt(_tot)+_u+')'):'';
+      var lines=[hdr+' ('+num(fee)+'원'+(_fid?'/y':'')+')'+_minNote];
       var tot=0;
-      ord.forEach(function(c){ tot+=byC[c]; lines.push((c?('#'+c):'')+' - '+num(byC[c])+'개'); });
-      if(ord.length>1)lines.push('합계 '+num(tot)+'개');
+      ord.forEach(function(c){ tot+=byC[c]; lines.push((c?('#'+c):'')+' - '+_fmt(byC[c])+_u); });
+      if(ord.length>1)lines.push('합계 '+_fmt(tot)+_u);
       out.push(lines);
     });
   });
@@ -16285,6 +16306,8 @@ function genPoText(order,sn){
       });
       if(g.colors.length>1){const tot=parseFloat(g.colors.reduce((s,c)=>{const q=c.actualOrderedQty!==undefined&&c.actualOrderedQty!==''?+c.actualOrderedQty:c.totalYards;return s+q;},0).toFixed(2));L.push(`합계 ${tot}y`);}
       if(g.memo)L.push(`${g.memo}`);
+      /* 원단 가공비(fabId) — 이 원단처가 담당인 것만 (2026-09-04l): 컬러별·한번에 = 「가공: …」 줄, 개당·조건부 = 컬러별 야드 블록 */
+      try{ _poFabProcNotes(g,sn).forEach(function(x){L.push(x);}); var _fpb=_poProcBlocks(g,sn); if(_fpb.length){_fpb.forEach(function(b){L.push('');b.forEach(function(x){L.push(x);});});} }catch(e){}
       // 원단(그룹)이 바뀔 때만 한 줄 띄움
       if(grpOrder.indexOf(k)<grpOrder.length-1)L.push('');
     }
@@ -16332,8 +16355,12 @@ function genPoText(order,sn){
         if(bg.biasSpec)bhdr+=' '+bg.biasSpec;
         L.push(bhdr);
         /* 원단에서 온 바이어스는 컬러탕(컬러당 정액)이라 「@단가/y」가 아니다 */
-        var _bFee=(bg.colors||[]).reduce(function(s,x){return Math.max(s,+x.biasFee||0);},0);
-        var _bAt=showPrice?(_bFee?('@'+num(_bFee)+'원 · 컬러당'):_poAtGroup(bg.colors)):''; if(_bAt)L.push(_bAt);
+        var _bFee=(bg.colors||[]).reduce(function(s,x){return Math.max(s,+x.biasFee||0);},0), _bFeeLbl='컬러당';
+        /* 가공비 줄(tcId)에서 온 재단 발주면 공임은 그 줄의 청구방식대로 (2026-09-04l: 옛 f.bias 대체) */
+        try{ var _itB=S.items[bg.itemId], _tcB=(bg.tcId&&_itB&&(_itB.trimCosts||[]).find(function(x){return x&&x.id===bg.tcId;}))||null;
+          if(_tcB){ var _mB=_tcB.costType||'perPcs'; _bFee=(_mB==='perLot'||_mB==='once')?(+_tcB.costPerLot||0):(_mB==='tier'?(+_tcB.tierOver||0):(+_tcB.costPerPcs||0));
+            _bFeeLbl=(_mB==='perLot')?'컬러당':(_mB==='once'?'한번에':'y당'); if((_mB==='perPcs'||_mB==='tier')&&+_tcB.minQty>0)_bFeeLbl+=' · 최소 '+num(+_tcB.minQty)+'y'; } }catch(e){}
+        var _bAt=showPrice?(_bFee?('@'+num(_bFee)+'원 · '+_bFeeLbl):_poAtGroup(bg.colors)):''; if(_bAt)L.push(_bAt);
         let biasTot=0;
         // 같은 출력 컬러(colorName)끼리 합치기 — 아이템 컬러만 다르고 자재색 같으면 한 줄로 (수량은 합)
         var _bcm={},_bco=[];
@@ -25351,6 +25378,7 @@ function trimLedgerAuto(){
     Object.keys(sups).forEach(function(sn){
       (sups[sn].materials||[]).forEach(function(m){
         if(m.type!=='trim')return; // 부자재만 (원단 제외)
+        if(m.biasFromFab&&!(+m.biasFee))return; /* 원단에서 온 재단 발주(공임 0) — 공임은 아래 가공비 줄이 집계. 0원 줄 안 만듦 (2026-09-04l) */
         var L=_tlLine(m);L.date=dISO;L.src='auto';L.orderId=oid;L.orderName=o.name||'';L.inout='out';
         L.key='a|'+oid+'|'+(L.name||'')+'|'+(L.spec||'')+'|'+(L.brand||''); // 결제완료 표시용 고유키
         // 개당(perPcs) 가공비(로고·코팅 등)가 이 부자재에 연결돼 있으면 단가에 합산 (2026-07-10 사용자 확정 — 컬러당·1회 정액은 별도 줄 유지)

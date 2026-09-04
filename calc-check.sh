@@ -19,7 +19,8 @@ FUNCS=['orderFc','snapshotOrderFc','calcFabAdditionForColor','calcFabShrinkForCo
 'getMatActualQty','getMatActualCost','getMatOrigQty','hasMatOverride','getMatBaseQty',
 '_trimWeightedPrice','ensureOrderLoss','_ensureOrderLossRaw','_entMech','_entPre','_entMechAbsorb','_entJson','orderLabelBuffer','calcSups','mkSup','mkSupWithDefaults',
 'lossParse','lossEnc','getEffectivePcsByColor','getEffectivePcsForOrderItem','getEffectivePcsBreakdown',
-'getPayFees','payFeeAmt','payFeeBlock','bgUnitPrice','sewLaborBase','laborRate','hasLaborBySize']
+'getPayFees','payFeeAmt','payFeeBlock','bgUnitPrice','sewLaborBase','laborRate','hasLaborBySize',
+'_migrateFabBias','_poProcBlocks','_poFabProcNotes','_tcQtyPerPiece']
 CONSTS=['COST_DEFS']
 
 def find_def(name):
