@@ -2081,3 +2081,7 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 ### ② `renamePbSupplier` 도 옛 이름에 묘비 + 새 이름 되살림 (02f 품목과 같은 뿌리). `pbMergeGroup` 은 delete 문 없음.
 ### ③ 부자재 단가장 표: 「삭제」「쓰는 곳」을 **맨 왼쪽 칸**으로 (요청). 헤더에 빈 th(96px) 추가, 줄 첫 td `.pbt-act .pbt-act-l`,
    마지막 칸엔 「이력」「상세」만. 띠·안내 줄 colspan 10→**11**. css `td.pbt-act-l{text-align:left;white-space:nowrap}`.
+
+## 2026-09-04h — 규격 단위 추천에서 「인치」→ `"`
+- `dl-pbunit` 의 `<option value="인치">` 를 `<option value="&quot;">` 로. 작지·원단 카드는 원래 `57"` 식이라 표기가 맞춰졌다.
+- `_pbSplitSpec` 은 `^숫자\s*(나머지)` 라 `"` 도 단위로 그대로 잡힌다(수정 없음). `_pbdUnitSel`(sizeUnit mm/cm/inch)은 다른 칸 — 손 안 댐.
