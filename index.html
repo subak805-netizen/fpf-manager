@@ -4224,7 +4224,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-04e';
+var APP_BUILD=/*BUILD*/'2026-09-04f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7960,7 +7960,35 @@ function pbSetCat(si,cat){
    ⚠️ 세트가 있으면 **구성 합계를 unitPrice 에 써 넣는다** — 원가·발주는 지금도 unitPrice 를 읽으므로
       돈 계산 코드를 하나도 안 건드리고 맞는다(1회비 회차와 같은 방식).
    ⚠️ 원단 단가장(_scope==='fabric')은 손대지 않았다. */
-var PB_UNITS=[['count','ea'],['yard','Y'],['roll','롤'],['thread','실'],['zipper','지퍼'],['button','단추']];
+/* 단위 드롭다운 (요청 2026-09-04 「Y, R, 콘, ea, set, 묶음 이렇게」).
+   ⚠️ 예전엔 이 칸이 계산용 orderType 을 직접 바꿨다(ea/Y/롤/실/지퍼/단추). 이제 «단가가 무엇당인가»(m.unit)를 적고,
+      Y·R·콘은 계산 유형(yard·roll·thread)도 같이 맞춘다. ea·set·묶음은 개수 계산이지만 단추·지퍼·스냅·라벨·바이어스처럼
+      제 유형이 있는 것은 건드리지 않는다(디테일 칸이 사라지면 안 되니). */
+var PB_UNITS=[['Y','Y'],['R','R'],['콘','콘'],['ea','ea'],['set','set'],['묶음','묶음']];
+var _PB_UNIT_TO_OT={'Y':'yard','R':'roll','콘':'thread','ea':'count','set':'count','묶음':'count'};
+var _PB_OT_TO_UNIT={yard:'Y',roll:'R',thread:'콘'};
+var _PB_OT_KEEP={zipper:1,button:1,snap:1,careLabel:1,mainLabel:1,bias:1};
+/* 줄에 보여줄 단위: 적어둔 m.unit 이 목록에 있으면 그것, 없으면 계산 유형에서 유추(yard→Y·roll→R·thread→콘·나머지 ea) */
+function _pbUnitOf(m){
+  var u=String((m&&m.unit)||'').trim();
+  if(PB_UNITS.some(function(x){return x[0]===u;}))return u;
+  if(u.toLowerCase()==='y'||u==='yd'||u==='야드')return 'Y';
+  return _PB_OT_TO_UNIT[(m&&m.orderType)||'']||'ea';
+}
+function updatePBUnit(supEnc,nmEnc,unit){
+  var s=decodeURIComponent(supEnc), nm=decodeURIComponent(nmEnc);
+  var pb=S.priceBook[s]; if(!pb||!pb.materials[nm])return;
+  var m=pb.materials[nm]; m.unit=unit; m.lastUpdated=todayISO();
+  var ot=_PB_UNIT_TO_OT[unit]||'';
+  var cur=m.orderType||'count';
+  if(ot&&!_PB_OT_KEEP[cur]&&cur!==ot){
+    m.orderType=ot;
+    for(var iid in S.items){ var it=S.items[iid]; if(it.trims)for(var ti=0;ti<it.trims.length;ti++){ if(it.trims[ti].supplier===s&&it.trims[ti].name===nm)it.trims[ti].orderType=ot; } }
+  }
+  lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
+  saveData();
+  if(typeof pbSoftRender==='function')pbSoftRender(true);   /* select 는 즉시 다시 그린다(02a 규칙) */
+}
 function _pbSplitSpec(sz){
   var s=String(sz==null?'':sz).trim();
   var m=s.match(/^([\d.]+)\s*(.*)$/);
@@ -8281,8 +8309,8 @@ function renderPbTrimTable(lst,sups){
         +'<td><input class="pbt-nm'+(isNew?' new':'')+'"'+(isNew?' data-newrow="1"':'')+' value="'+esc(nm)+'" onchange="renamePBMaterial(\''+es+'\',\''+ek+'\',this.value,\'name\')"></td>'
         +'<td class="pbt-spec"><input class="pbt-n" value="'+esc(sp.n)+'" placeholder="15" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'n\',this.value)">'
           +'<input class="pbt-u" list="dl-pbunit" value="'+esc(sp.u)+'" placeholder="mm" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'u\',this.value)"></td>'
-        +'<td><select class="pbt-sel" onchange="updatePBOrderType(\''+es+'\',\''+ek+'\',this.value)">'
-          +PB_UNITS.map(function(u){return '<option value="'+u[0]+'"'+(((m.orderType||'count')===u[0])?' selected':'')+'>'+u[1]+'</option>';}).join('')+'</select></td>'
+        +'<td><select class="pbt-sel" onchange="updatePBUnit(\''+es+'\',\''+ek+'\',this.value)">'
+          +PB_UNITS.map(function(u){return '<option value="'+u[0]+'"'+((_pbUnitOf(m)===u[0])?' selected':'')+'>'+u[1]+'</option>';}).join('')+'</select></td>'
         +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+(pack===''?'':pack)+'" placeholder="—" onchange="pbSetPack(\''+es+'\',\''+ek+'\',this.value)"></td>'
         +'<td class="n">'+(hasSet
             ? ('<span class="pbt-auto">'+num(each)+'</span><span class="pbt-sub2">구성 합계</span>')
@@ -8593,7 +8621,12 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
     if(!confirm('같은 이름·색상·크기 조합이 이미 존재해요. 덮어쓸까요?'))return renderBook();
   }
   pb.materials[newKey]={...oldEntry,name:newNm,color:newCl,lastUpdated:todayISO()};
-  if(newKey!==oldKey)delete pb.materials[oldKey];
+  if(newKey!==oldKey){
+    delete pb.materials[oldKey];
+    /* ⚠️ 묘비 없이 지우면 클라우드 합집합이 옛 키(「새 품목」)를 되살려, 다음 「+품목」이 새 품목 2·3·4·5 로 밀렸다
+          (신고 2026-09-04). 옛 키엔 묘비, 새 키는 (예전에 지운 적 있어도) 되살림 표시. */
+    try{ _tombArr('pbMat',s+'\u001f'+oldKey); _untombArr('pbMat',s+'\u001f'+newKey); }catch(e){}
+  }
   // Update all items referencing this material in S.items
   for(var iid in S.items){
     var it=S.items[iid];
