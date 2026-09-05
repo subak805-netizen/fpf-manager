@@ -4245,7 +4245,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-04l';
+var APP_BUILD=/*BUILD*/'2026-09-05a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4281,10 +4281,29 @@ function fpfShowUpdateBar(latest){
   document.body.appendChild(b);
 }
 function _esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+/* 옛 버전이면 «스스로» 최신으로 다시 연다 (2026-09-05a) — 아이패드·맥처럼 오래 켜둔 기기가 10분 검사에서 띠만 띄우고
+   옛 규칙으로 계속 저장하던 문제(「아이패드가 아직도 최신으로 동기화가 안 돼」). 부팅 때 게이트(onFirebaseLogin)와 짝.
+   조건: 편집 중 아님 · 올릴 게 남아 있지 않음(_cloudSyncTimer 없음). 같은 서버 버전엔 한 번만(sessionStorage, 루프 방지) — 그 뒤엔 띠만. */
+async function fpfAutoUpdate(){
+  try{
+    var v=await fpfCheckAppVersion({silent:true});
+    if(!v||!v.stale)return false;
+    var key='fpm_autoUp_'+v.latest, tried=false;
+    try{ tried=sessionStorage.getItem(key)==='1'; }catch(e){}
+    var busy=(typeof isEditingNow==='function'&&isEditingNow())||!!window._cloudSyncTimer;
+    if(tried||busy){ fpfShowUpdateBar(v.latest); return false; }
+    try{ sessionStorage.setItem(key,'1'); }catch(e){}
+    try{ if(typeof showToast==='function')showToast('새 버전('+v.latest+')으로 다시 엽니다…',3000); }catch(e){}
+    setTimeout(function(){ try{fpfHardReload();}catch(e){} },1200);
+    return true;
+  }catch(e){ return false; }
+}
 /* 캐시까지 비우고 다시 받기 — 홈화면 앱이 옛 파일을 물고 있을 때 */
 async function fpfHardReload(){
   try{ if(window.caches&&caches.keys){ var ks=await caches.keys(); for(var i=0;i<ks.length;i++)await caches.delete(ks[i]); } }catch(e){}
   try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations){ var rs=await navigator.serviceWorker.getRegistrations(); for(var j=0;j<rs.length;j++)await rs[j].unregister(); } }catch(e){}
+  /* 홈화면 앱은 다음에 «시작 주소(물음표 없는 주소)»로 열리므로 그 캐시도 지금 새로 받아 둔다 (2026-09-05a) */
+  try{ var _base=location.href.split('#')[0].split('?')[0]; await fetch(_base,{cache:'reload'}); }catch(e){}
   var u=location.href.split('#')[0].replace(/[?&]vc=\d+/,'');
   location.replace(u+(u.indexOf('?')<0?'?':'&')+'vc='+Date.now());
 }
@@ -37847,10 +37866,11 @@ function runAlertCheck() {
 // 앱 켤 때 + 30분마다 체크
 setTimeout(() => { runAlertCheck(); setInterval(runAlertCheck, 30 * 60 * 1000); }, 2000);
 // 매일 자동 파일 백업 — 앱 로드 8초 뒤 1회(데이터 로드 대기) + 이후 1분마다 슬롯 확인(오후 2시·밤 9시)
-setTimeout(() => { try{fpfCheckAppVersion();}catch(e){} try{_checkAutoFileBackup();}catch(e){} try{fpfAutoCleanupOnce();}catch(e){} setInterval(() => { try{_checkAutoFileBackup();}catch(e){} }, 60 * 1000);
-  // 앱을 오래 켜둔 기기(맥)는 새 배포를 모르고 옛 동기화 로직으로 계속 저장함 → 10분마다 + 화면 복귀 때 버전 확인 (2026-08-18)
-  setInterval(() => { try{fpfCheckAppVersion();}catch(e){} }, 10*60*1000);
-  try{ document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible'){ try{fpfCheckAppVersion();}catch(e){} } }); }catch(e){}
+setTimeout(() => { try{fpfAutoUpdate();}catch(e){} try{_checkAutoFileBackup();}catch(e){} try{fpfAutoCleanupOnce();}catch(e){} setInterval(() => { try{_checkAutoFileBackup();}catch(e){} }, 60 * 1000);
+  // 앱을 오래 켜둔 기기(맥·아이패드)는 새 배포를 모르고 옛 동기화 로직으로 계속 저장함 → 10분마다 + 화면 복귀 때 버전 확인,
+  // 옛 버전이면 띠만 띄우지 않고 스스로 다시 연다(fpfAutoUpdate, 2026-09-05a — 편집 중이면 띠만)
+  setInterval(() => { try{fpfAutoUpdate();}catch(e){} }, 10*60*1000);
+  try{ document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible'){ try{fpfAutoUpdate();}catch(e){} } }); }catch(e){}
 }, 8000);
 
 /* ===== 할일판 (브랜드→할일/메이드/시장 3칸→자유 그룹→태그·체크 항목, 드래그·인쇄·동기화) ===== */
