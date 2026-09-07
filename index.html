@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260904a">
+<link rel="stylesheet" href="css/main.css?v=20260907a">
 </head>
 <body>
 
@@ -1994,6 +1994,19 @@ function _arrDelWhere(name,pred){ var a=S[name]||[],keep=[],n=0; a.forEach(funct
    ⚠️ 예전엔 `factories: sh.factories||S.factories` 처럼 **클라우드 공유문서가 통째로 이김**이라,
       폰이 옛 공유문서를 올려두면 방금 등록한 업체·단가가 그대로 사라졌다(실제 유실: '퍼니베베').
    이제 **키 합집합**으로 합치고, 진짜 삭제만 묘비(_tomb)로 걸러 부활을 막는다. */
+/* ★ 지금 로컬에 «있는» 단가장 품목·거래처에 살아있는 묘비가 있으면 되살림 표시 (2026-09-07a).
+   사고: 아이템 카드 「단가장 등록」·저장 경로가 되살림 표시 없이 품목을 넣어, 예전에 지운 같은 이름의 묘비(90일 보관)가
+   동기화 때 새 품목을 또 지웠다(「다 등록했는데 지금 또 다 미등록이래」). 등록 경로가 몇 개든 여기서 한 번에 막는다.
+   ⚠️ 다른 기기가 «이름을 바꿔서» 지운 옛 키가 아직 내 로컬에 남아 있는 경우와 구분해야 한다(그건 지워져야 함):
+      품목의 lastUpdated(날짜)가 묘비 날짜보다 «옛날»이면 그냥 옛 복사본 → 손대지 않는다. 같은 날이거나 나중이면 내가 다시 만든 것 → 되살림. */
+function _pbReviveExisting(){ try{ var pb=S.priceBook||{};
+  Object.keys(pb).forEach(function(sup){ var e=pb[sup]; if(!e)return;
+    if(_tombHas('pbSup',sup))_untombArr('pbSup',sup);
+    var mats=(e.materials&&typeof e.materials==='object')?e.materials:{};
+    Object.keys(mats).forEach(function(k){ var m=mats[k]; if(!m)return; var tk=sup+'\u001f'+k; if(!_tombHas('pbMat',tk))return;
+      var td=String((S._tomb&&S._tomb.pbMat&&S._tomb.pbMat[tk])||'').slice(0,10), md=String(m.lastUpdated||'').slice(0,10);
+      if(md&&td&&md<td)return;   /* 묘비보다 옛 복사본 — 지워질 게 맞다 */
+      _untombArr('pbMat',tk); }); }); }catch(e){} }
 function _tombHas(name,key){ try{
   if(String(name).indexOf('un:')===0)return false;
   var t=S._tomb&&S._tomb[name]&&S._tomb[name][key]; if(!t)return false;
@@ -2651,7 +2664,7 @@ async function cloudSyncSave(){
       var cloudCurrent=_cloudDoc&&_cloudDoc.value;
       var _cloudTs=(_cloudDoc&&_cloudDoc.ts)||'';
       var _ordRead=await _readOrderShards(curCoId); var _cloudOrdDoc=(_ordRead.any||_ordRead.legacy)?{orders:_ordRead.orders,_tomb:{orders:_ordRead.tomb}}:null; // 발주 조각 문서 전부(값+ts) — 없으면 옛 단일 문서 폴백 (2026-08-18)
-      var _shDoc=null; try{ _shDoc=await cloudGetDoc('fpm_shared'); }catch(eSh){} // 업체·단가장 공유문서(값+ts) — 송신 병합용(2026-08-17)
+      var _shDoc=null,_shSkipPush=false; try{ _shDoc=await cloudGetDoc('fpm_shared'); }catch(eSh){ _shSkipPush=true; console.warn('[cloudSyncSave] 공유문서 읽기 실패 → 이번엔 업체·단가장을 올리지 않음(통째 덮어쓰기 방지 2026-09-07a)',eSh); } // 업체·단가장 공유문서(값+ts) — 송신 병합용(2026-08-17)
       var _auxRead=null; try{ _auxRead=await _readAuxDocs(curCoId); }catch(eAx){} // 보조 상자(할일판·레퍼런스)
       var _cloudMainRaw=''; try{ if(cloudCurrent)_cloudMainRaw=JSON.stringify(cloudCurrent); }catch(eR){}
       if(cloudCurrent&&_auxRead)_overlayAux(cloudCurrent,_auxRead.values); // 병합·가드는 합쳐진 전체를 본다
@@ -2838,7 +2851,7 @@ async function cloudSyncSave(){
     var _coRes=await Promise.all([
       _pushDoc('fpm_cos',companies,_jCos),
       _pushDoc(_kMain,coData,_jMain),
-      _pushDoc('fpm_shared',sharedData,_jSh)
+      (_shSkipPush?Promise.resolve('defer'):_pushDoc('fpm_shared',sharedData,_jSh))   /* 읽기 실패면 미룸 — 더티 키는 그대로 남아 다음에 병합해서 올림 */
     ].concat(_ordKeys.map(function(k,i){ return _pushDoc(k,_ordShards[i],_jOrdArr[i]); })).concat(_auxKeyList.map(function(k){ return _pushDoc(k,_auxObjs[k],_jAux[k]); }))); // [3..3+8) = 발주 조각, 그 뒤 = 보조 상자
     if(_coRes[1]==='skip'){ try{ if(typeof _cloudTs!=='undefined'&&_cloudTs)setSyncBase(_kMain,_cloudTs); }catch(eB){} } // 메인 생략 시 base=클라우드 ts (스테일 오탐 방지)
     // 발주·공유 문서도 기준 ts 기록 (부팅 게이트가 3문서를 보게) + 공유문서 그림자 갱신 (2026-08-17)
@@ -3270,6 +3283,22 @@ async function _openRecoveryToolInner(){
     (window._abkCache||[]).forEach(function(bk,i){ var c=bk&&bk.data&&_tbContentCount(bk.data.todoBoard); if(c>0)_tbCands.push({src:'abk',idx:i,ts:bk.ts,cnt:c}); });
     (window._hbkCache||[]).forEach(function(bk,i){ var c=bk&&bk.data&&_tbContentCount(bk.data.todoBoard); if(c>0)_tbCands.push({src:'hbk',idx:i,ts:bk.ts||0,date:bk.date,hr:bk.hr,cnt:c}); });
     _tbCands.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+    /* 단가장 품목만 복구 (2026-09-07a) */
+    html+='<div style="border:2px solid #2563eb;background:#eff6ff;border-radius:8px;padding:12px;margin-bottom:14px">';
+    html+='<div style="font-weight:700;color:#1e3a8a;font-size:13px;margin-bottom:4px">단가장 품목만 복구 <span style="font-weight:400">(다른 데이터는 그대로 · 지우지 않고 합치기만)</span></div>';
+    html+='<div style="font-size:11px;color:#1e40af;margin-bottom:8px;line-height:1.5">단가장에서 품목이 사라졌을 때. ①은 아이템 카드가 기억하는 이름·규격·무게로 빈 품목을 다시 만들고(단가는 아이템에 적힌 값), ②는 백업 파일의 단가까지 채웁니다.</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">';
+    html+='<button onclick="recoverPBFromItems()" style="background:#2563eb;color:#fff;border:none;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600">① 아이템 부자재·원단으로 되살리기</button>';
+    html+='<label style="font-size:11px;color:#1e40af;background:#fff;border:1px solid #93c5fd;border-radius:5px;padding:5px 10px;cursor:pointer;font-weight:600">② 백업 파일(JSON)에서 단가장만 합치기<input type="file" accept=".json,application/json" style="display:none" onchange="recoverPBFromFile(this)"></label>';
+    html+='</div>';
+    try{ var _pbC=[]; (window._abkCache||[]).forEach(function(bk,i){ var p=bk&&bk.data&&bk.data.priceBook; if(p&&Object.keys(p).length)_pbC.push({src:'abk',idx:i,ts:bk.ts,n:Object.keys(p).reduce(function(s,k){return s+Object.keys((p[k]&&p[k].materials)||{}).length;},0)}); });
+      (window._hbkCache||[]).forEach(function(bk,i){ var p=bk&&bk.data&&bk.data.priceBook; if(p&&Object.keys(p).length)_pbC.push({src:'hbk',idx:i,ts:bk.ts||0,date:bk.date,hr:bk.hr,n:Object.keys(p).reduce(function(s,k){return s+Object.keys((p[k]&&p[k].materials)||{}).length;},0)}); });
+      _pbC.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      if(_pbC.length){ html+='<div style="margin-top:8px;max-height:150px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">';
+        _pbC.forEach(function(c){ var tt; if(c.src==='hbk'&&c.date){ tt=esc(c.date)+' '+esc(String(c.hr))+'시'; } else { var bd=new Date(c.ts); var bp=function(x){return String(x).padStart(2,'0');}; tt=(bd.getMonth()+1)+'/'+bd.getDate()+' '+bp(bd.getHours())+':'+bp(bd.getMinutes()); }
+          html+='<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #93c5fd;border-radius:6px;padding:5px 10px"><span style="font-size:11px;color:#1e40af"><b>'+tt+'</b> · 단가장 품목 '+c.n+'개</span><button onclick="recoverPriceBookOnly(\''+c.src+'\','+c.idx+')" style="background:#1d4ed8;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600">이 백업의 단가장 합치기</button></div>'; });
+        html+='</div>'; } }catch(e){}
+    html+='</div>';
     html+='<div style="border:2px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px;margin-bottom:14px">';
     html+='<div style="font-weight:700;color:#92400e;font-size:13px;margin-bottom:4px">할일판만 복구 <span style="font-weight:400">(다른 데이터는 그대로 둬요)</span></div>';
     if(_tbCands.length){
@@ -3639,6 +3668,70 @@ function _tbPick(existing,incoming){
   return win||{};
 }
 // 백업에서 '할일판만' 되살리기 — 아이템·오더 등 나머지는 그대로 유지
+/* ===== 단가장 품목만 복구 (2026-09-07a) — 다른 자료는 손대지 않는다. 합집합·되살림 표시. 삭제는 절대 안 함.
+   ① 아이템에 적힌 부자재·원단으로: 아이템 카드가 아직 기억하는 이름·규격·색상·무게·오무데·단가로 없는 품목을 다시 만든다.
+   ② 백업(파일·자동백업)에서: 백업의 단가장 품목 중 지금 없는 것만 추가, 있는데 단가가 0이면 백업 단가로 채움. */
+function _pbReviveKey(sup,key){ try{ _untombArr('pbSup',sup); _untombArr('pbMat',sup+'\u001f'+key); }catch(e){} }
+function _pbUnionFrom(srcPB){
+  var added=0,filled=0,sups=0;
+  Object.keys(srcPB||{}).forEach(function(sup){
+    var src=srcPB[sup]; if(!src||typeof src!=='object')return;
+    var had=!!(S.priceBook&&S.priceBook[sup]);
+    var pb=getPB(sup); if(!had){ sups++; Object.keys(src).forEach(function(k){ if(k!=='materials'&&(pb[k]===undefined||pb[k]===null||pb[k]===''))pb[k]=src[k]; }); }
+    var mats=(src.materials&&typeof src.materials==='object')?src.materials:{};
+    Object.keys(mats).forEach(function(key){
+      var m=mats[key]; if(!m||typeof m!=='object')return;
+      var cur=pb.materials[key];
+      if(!cur){ pb.materials[key]=JSON.parse(JSON.stringify(m)); pb.materials[key].lastUpdated=todayISO(); _pbReviveKey(sup,key); added++; return; }
+      var ch=false, up=+m.unitPrice||0, pk=+m.pricePerKg||0;
+      if(!(+cur.unitPrice>0)&&up>0){cur.unitPrice=up;ch=true;}
+      if(!(+cur.pricePerKg>0)&&pk>0){cur.pricePerKg=pk;ch=true;}
+      ['weightGsm','weightOz','omude','size','width','composition','category','yardsPerRoll','packPrice','buttonSize','zipperLength'].forEach(function(f){ if((cur[f]==null||cur[f]==='')&&m[f]!=null&&m[f]!==''){cur[f]=m[f];ch=true;} });
+      if(ch)filled++;
+    });
+  });
+  return {added:added,filled:filled,sups:sups};
+}
+function recoverPBFromItems(){
+  var added=0;
+  Object.keys(S.items||{}).forEach(function(iid){ var it=S.items[iid]; if(!it)return;
+    (it.fabrics||[]).forEach(function(f){ if(!f||!f.supplier||!f.name)return; var pb=getPB(f.supplier); if(pb.materials[f.name])return;
+      pb.materials[f.name]={type:'fabric',name:f.name,pricingUnit:f.pricingUnit||'yard',unitPrice:+f.unitPrice||0,pricePerKg:+f.pricePerKg||0,yardsPerKg:+f.yardsPerKg||1,width:f.width||'',weightGsm:f.weightGsm||'',weightOz:f.weightOz||'',composition:f.composition||'',omude:f.omude||'',lastUpdated:todayISO(),restoredFrom:'item'};
+      _pbReviveKey(f.supplier,f.name); added++; });
+    (it.trims||[]).forEach(function(t){ if(!t||!t.supplier)return; if(t.orderType==='careLabel'||t.orderType==='mainLabel')return;
+      var nm=(typeof _pbTrimName==='function')?_pbTrimName(t):(t.name||''); if(!nm)return;
+      if(typeof _pbFindTrimMat==='function'&&_pbFindTrimMat(t.supplier,t))return;
+      var key=pbKey(nm,t.color||'',t.size||''); var pb=getPB(t.supplier); if(pb.materials[key])return;
+      pb.materials[key]={type:'trim',name:nm,color:t.color||'',size:t.size||'',orderType:t.orderType||'count',unitPrice:+t.unitPrice||0,weightGsm:t.weightGsm||'',weightOz:t.weightOz||'',omude:t.omude||'',buttonSize:t.buttonSize||'',zipperLength:t.zipperLength||'',yardsPerRoll:(t.yardsPerRoll!=null?t.yardsPerRoll:null),category:t.category||'',lastUpdated:todayISO(),restoredFrom:'item'};
+      _pbReviveKey(t.supplier,key); added++; });
+  });
+  if(added){ savePB(); try{saveData();}catch(e){} }
+  showToast(added?('단가장에 '+added+'개 품목을 아이템 기록으로 되살렸어요 — 단가·규격은 단가장에서 확인하세요'):'되살릴 게 없어요 (아이템의 부자재·원단이 모두 단가장에 있음)',7000);
+  try{ var ov=document.getElementById('recovery-overlay'); if(ov)ov.remove(); }catch(e){}
+  try{ if(typeof renderBook==='function'&&typeof activeTab!=='undefined'&&activeTab==='book')renderBook(); }catch(e){}
+  return added;
+}
+function _recoverPBApply(srcPB,label){
+  if(!srcPB||typeof srcPB!=='object'||!Object.keys(srcPB).length){ alert(label+'에 단가장이 없어요 (예전 백업엔 단가장이 안 들어 있었어요 — 2026-09-07 이후 백업부터 들어가요)'); return; }
+  var cnt=0; Object.keys(srcPB).forEach(function(s){ cnt+=Object.keys((srcPB[s]&&srcPB[s].materials)||{}).length; });
+  if(!confirm(label+'의 단가장 품목 '+cnt+'개를 지금 단가장에 «합칠까요»?\n\n※ 없는 품목만 추가되고, 있는 품목은 단가가 비어 있을 때만 채워요.\n※ 아무것도 지우지 않아요. 아이템·오더 등 다른 자료는 그대로예요.'))return;
+  var r=_pbUnionFrom(srcPB); savePB(); try{saveData();}catch(e){}
+  try{ var ov=document.getElementById('recovery-overlay'); if(ov)ov.remove(); }catch(e){}
+  showToast('단가장 합치기 완료 — 품목 '+r.added+'개 추가 · '+r.filled+'개 단가/정보 채움'+(r.sups?' · 거래처 '+r.sups+'곳 추가':''),7000);
+  try{ if(typeof renderBook==='function'&&typeof activeTab!=='undefined'&&activeTab==='book')renderBook(); }catch(e){}
+}
+function recoverPriceBookOnly(source,idx){
+  try{ var list=(source==='hbk'?window._hbkCache:window._abkCache)||[]; var bk=list[idx];
+    _recoverPBApply(bk&&bk.data&&bk.data.priceBook,'이 백업'); }catch(e){ alert('단가장 복구 실패: '+e.message); }
+}
+function recoverPBFromFile(input){
+  var file=input.files&&input.files[0]; if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(ev){ try{ var data=JSON.parse(ev.target.result);
+      var pbS=(data.shared&&data.shared.priceBook)||data.priceBook||(data.data&&data.data.priceBook)||null;
+      _recoverPBApply(pbS,'이 파일('+file.name+')'); }catch(e){ alert('파일을 읽지 못했어요: '+e.message); } };
+  reader.readAsText(file);
+}
 function recoverTodoBoardOnly(source,idx){
   try{
     var list=(source==='hbk'?window._hbkCache:window._abkCache)||[];
@@ -4245,7 +4338,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-05a';
+var APP_BUILD=/*BUILD*/'2026-09-07a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4572,7 +4665,7 @@ function autoLocalBackup(){
         items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,
         orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],
         packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],
-        brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]
+        brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],priceBook:S.priceBook||{},factories:S.factories||{}
       }
     };
     list.push(snap);
@@ -4594,7 +4687,7 @@ function autoHourlyBackup(){
     var list=window._hbkCache;
     if(list.length&&list[list.length-1].stamp===stamp)return; // 이번 시간 이미 저장됨
     var snap={stamp:stamp,ts:Date.now(),hr:hr,date:(now.getMonth()+1)+'/'+now.getDate(),n:Object.keys(items).length,
-      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[]}};
+      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],priceBook:S.priceBook||{},factories:S.factories||{}}};
     list.push(snap); while(list.length>HBK_MAX)list.shift();
     idbBkSet('fpm_hbk_'+curCoId,list).catch(function(){}); // IndexedDB에 비동기 저장
   }catch(e){}
@@ -4613,6 +4706,7 @@ function saveData(){
   var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   try{_shDirtyMark();}catch(e){} // 공유문서(업체·단가장) 미푸시 편집 키 기록 (2026-08-17)
+  try{_pbReviveExisting();}catch(e){} // 지금 있는 단가장 품목에 옛 묘비가 살아 있으면 되살림 표시 — 마지막 안전망 (2026-09-07a)
   lsSet('fpm_cos',companies);
   const el=document.getElementById('save-ind');
   var _savedOk=_mainOk&&!window._lsQuotaErr;
@@ -7626,7 +7720,22 @@ function _mtEnsureStyle(){
   var st=document.createElement('style'); st.id='mt-css'; st.textContent=c; document.head.appendChild(st);
 }
 
+/* 새 창 주소의 ?bs=거래처&bq=품명 → 부자재 단가장을 그 거래처·품명으로 (한 번만) */
+function _pbApplyFocusFromUrl(){ try{ if(window._pbFocusDone)return; window._pbFocusDone=1;
+  var sp=new URLSearchParams(location.search||''); var bq=sp.get('bq')||'', bs=sp.get('bs')||''; if(!bq&&!bs)return;
+  var o=(window._pbT=window._pbT||{}); o.q=bq; o.sup=bs; o.cat=''; o.old=false;
+  if(bs){ window._pbtOpen=window._pbtOpen||{}; window._pbtOpen[bs]=1; }
+  window._pbFocusName=bq;
+  try{ history.replaceState(null,'',location.pathname+location.hash); }catch(e){}
+}catch(e){} }
+function _pbScrollToFocus(){ try{ var nm=window._pbFocusName; if(!nm)return; window._pbFocusName='';
+  setTimeout(function(){ var rows=document.querySelectorAll('#book-list tr.pbt-r'), hit=null;
+    for(var i=0;i<rows.length;i++){ var inp=rows[i].querySelector('.pbt-nm'); if(inp&&String(inp.value).trim()===String(nm).trim()){hit=rows[i];break;} }
+    if(!hit&&rows.length)hit=rows[0];
+    if(hit){ hit.classList.add('pbt-focus'); try{hit.scrollIntoView({block:'center'});}catch(e){} } },120); }catch(e){} }
 function renderBook(){
+  try{_pbApplyFocusFromUrl();}catch(e){}
+  try{ if(window._pbFocusName)setTimeout(_pbScrollToFocus,50); }catch(e){}
   const el=document.getElementById('book-c');if(!el)return;
   const _scope=window._bookScope||'fabric';
   {var _pt=document.getElementById('book-pane-title');if(_pt)_pt.textContent=(_scope==='trim'?'부자재 단가장':'원단 단가장');}
@@ -7677,10 +7786,12 @@ function renderBook(){
 /* ===== 원단 라이브러리 (단가장 확장) ===== */
 function setBookView(v){window._bookView=v;renderBook();}
 // 부자재/원단 단가장을 새 창으로 (아이템 편집이랑 나란히 보기)
-function openBookWindow(scope){
+/* focus={sup,name}: 단가장을 «그 거래처·품명»으로 열어 바로 그 줄만 보이게 (요청 2026-09-07 「단가장만 떠가지고 또 검색하지 말고」) */
+function openBookWindow(scope,focus){
   window._pbWinWatch=1; // 돌아오면(focus) 열린 아이템 폼의 잠긴 칸을 단가장 값으로 재불러옴
   var hash=scope==='trim'?'#booktrim':'#book';
-  var url=location.origin+location.pathname+hash;
+  var q=''; try{ if(focus&&(focus.name||focus.sup))q='?bs='+encodeURIComponent(focus.sup||'')+'&bq='+encodeURIComponent(focus.name||''); }catch(e){}
+  var url=location.origin+location.pathname+q+hash;
   var w=window.open(url,'fpf-'+(scope==='trim'?'booktrim':'book'),'width=560,height=880,menubar=no,toolbar=no');
   if(w){try{w.focus();}catch(e){}}
   else{try{window.open(url,'_blank');}catch(e){}if(typeof showToast==='function')showToast('팝업이 막혔으면 새 탭으로 열렸어요');}
@@ -8079,6 +8190,14 @@ function pbSetDel(encSup,encKey,i){
   a.splice(i,1); m.setItems=a; if(!a.length)delete m.setItems;
   savePB(); _pbSetSync(encSup,encKey); renderBookList();
 }
+/* 표 칸 하나 갱신 (무게·온즈·오무데) — 다시 그리지 않아 커서가 안 날아감. 아이템 카드의 잠긴 칸은 창 돌아올 때 재불러옴 (2026-09-07a) */
+function pbSetMatField(encSup,encKey,f,val){
+  var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
+  if(f==='weightGsm'||f==='weightOz'){ var v=String(val||'').trim(); m[f]=v===''?'':(+v||''); }
+  else m[f]=String(val||'').trim();
+  m.lastUpdated=(typeof todayISO==='function')?todayISO():m.lastUpdated;
+  savePB();
+}
 function pbSetField(encSup,encKey,i,f,val){
   var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
   var a=_pbSet(m).slice(); if(!a[i])return;
@@ -8269,6 +8388,7 @@ function renderPbTrimTable(lst,sups){
     +'<th style="width:96px"></th>'   /* 삭제·쓰는 곳 — 맨 왼쪽 (요청 2026-09-04) */
     +'<th style="width:112px">유형</th><th style="width:210px">품명</th>'
     +'<th style="width:120px">규격</th><th style="width:96px">단위</th>'
+    +'<th class="n" style="width:82px">무게 g/㎡</th><th class="n" style="width:70px">온즈</th><th style="width:150px">오무데</th>'   /* 아이템 카드에 뜨는 값은 단가장에 다 있어야 한다 (요청 2026-09-07) */
     +'<th class="n" style="width:74px">묶음</th><th class="n" style="width:96px">개당 단가</th>'
     +'<th class="n" style="width:108px">묶음단가</th><th style="width:150px">세트</th>'
     +'<th style="width:124px">갱신</th><th style="width:118px"></th></tr>';
@@ -8305,7 +8425,7 @@ function renderPbTrimTable(lst,sups){
     /* 업체는 «눌러서 여는» 방식 — 품목이 100건 넘으면 다 펼쳐져 스크롤이 끝없이 길었다(요청).
        검색·거르개를 쓰는 중이면 결과를 봐야 하니 자동으로 편다. */
     var _shut=!_pbtOpenSup(s);
-    var supRow='<tr class="pbt-sup'+(_shut?' shut':'')+'"><td colspan="11"><div class="pbt-supbar">'
+    var supRow='<tr class="pbt-sup'+(_shut?' shut':'')+'"><td colspan="14"><div class="pbt-supbar">'
       +'<span class="pbt-supn" onclick="pbToggleSupOpen(\''+encodeURIComponent(s)+'\')">'
       +'<span class="pbt-car">'+(_shut?'▸':'▾')+'</span>'
       +esc(s)+'<span class="m">'+esc(loc)+' · '+list.length+'건</span></span>'
@@ -8314,7 +8434,7 @@ function renderPbTrimTable(lst,sups){
       +'</div></td></tr>';
     if(open){
       /* 한 줄로 가로 길게 — td 에 flex 를 주면 colspan 폭이 깨져 세로로 접힌다(신고) */
-      body+='<tr class="pbt-info"><td colspan="11"><div class="pbt-inf">'
+      body+='<tr class="pbt-info"><td colspan="14"><div class="pbt-inf">'
         +'<span class="pbt-il">건물</span><input style="width:110px" value="'+esc(pb.building||'')+'" onchange="getPB(\''+esc(s)+'\').building=this.value;savePB()">'
         +'<span class="pbt-il">층</span><input style="width:64px" value="'+esc(pb.floor||'')+'" onchange="getPB(\''+esc(s)+'\').floor=this.value;savePB()">'
         +'<span class="pbt-il">호수</span><input style="width:96px" value="'+esc(pb.room||'')+'" onchange="getPB(\''+esc(s)+'\').room=this.value;savePB()">'
@@ -8330,7 +8450,7 @@ function renderPbTrimTable(lst,sups){
       if(_cg!==_prevCat){
         _prevCat=_cg;
         var _cn=list.filter(function(kk){ return ((mats[kk].category||'').trim()||'미분류')===_cg; }).length;
-        body+='<tr class="pbt-cat"><td colspan="11">'+esc(_cg)+'<span class="n">'+_cn+'</span>'
+        body+='<tr class="pbt-cat"><td colspan="14">'+esc(_cg)+'<span class="n">'+_cn+'</span>'
           +'<button type="button" class="pbt-catadd" title="이 유형으로 품목 추가" onclick="event.stopPropagation();pbTrimAddMat(\''+encodeURIComponent(s)+'\',\''+encodeURIComponent(_cg)+'\')">＋ 품목</button>'
           +'</td></tr>';
       }
@@ -8358,6 +8478,9 @@ function renderPbTrimTable(lst,sups){
           +'<input class="pbt-u" list="dl-pbunit" value="'+esc(sp.u)+'" placeholder="mm" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'u\',this.value)"></td>'
         +'<td><select class="pbt-sel" onchange="updatePBUnit(\''+es+'\',\''+ek+'\',this.value)">'
           +PB_UNITS.map(function(u){return '<option value="'+u[0]+'"'+((_pbUnitOf(m)===u[0])?' selected':'')+'>'+u[1]+'</option>';}).join('')+'</select></td>'
+        +'<td class="n"><input class="pbt-num" type="number" min="0" step="1" value="'+(m.weightGsm!=null&&m.weightGsm!==''?esc(m.weightGsm):'')+'" placeholder="—" title="무게 g/㎡" onchange="pbSetMatField(\''+es+'\',\''+ek+'\',\'weightGsm\',this.value)"></td>'
+        +'<td class="n"><input class="pbt-num" type="number" min="0" step="0.1" value="'+(m.weightOz!=null&&m.weightOz!==''?esc(m.weightOz):'')+'" placeholder="—" title="온즈 oz" onchange="pbSetMatField(\''+es+'\',\''+ek+'\',\'weightOz\',this.value)"></td>'
+        +'<td><input class="pbt-nm" list="dl-pbomude" value="'+esc(m.omude||'')+'" placeholder="우상 · 좌상 · 직접" title="오무데 방향·면" onchange="pbSetMatField(\''+es+'\',\''+ek+'\',\'omude\',this.value)"></td>'
         +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+(pack===''?'':pack)+'" placeholder="—" onchange="pbSetPack(\''+es+'\',\''+ek+'\',this.value)"></td>'
         +'<td class="n">'+(hasSet
             ? ('<span class="pbt-auto">'+num(each)+'</span><span class="pbt-sub2">구성 합계</span>')
@@ -8390,7 +8513,7 @@ function renderPbTrimTable(lst,sups){
       }
       if(old)nOld++;
     });
-    if(!body)body='<tr><td colspan="11" class="pbt-none">아직 품목이 없어요 — 위 「＋ 품목」으로 넣어주세요.</td></tr>';
+    if(!body)body='<tr><td colspan="14" class="pbt-none">아직 품목이 없어요 — 위 「＋ 품목」으로 넣어주세요.</td></tr>';
     /* 닫혀 있으면 업체 띠만 — 열 이름줄·품목줄은 아예 안 만든다(가벼움) */
     blocks.push(_shut
       ? '<table class="pbt shut"><thead>'+supRow+'</thead></table>'
@@ -8399,6 +8522,8 @@ function renderPbTrimTable(lst,sups){
   H+=(blocks.length?blocks.join('')
       :'<table class="pbt"><tbody><tr><td class="pbt-none">해당하는 부자재가 없어요.</td></tr></tbody></table>')+'</div>';
   H+='<datalist id="dl-pbunit"><option value="mm"><option value="cm"><option value="&quot;"><option value="호"><option value="수"><option value="Y"></datalist>';
+  try{ var _om={'우상':1,'좌상':1}; Object.keys(S.priceBook||{}).forEach(function(s){ var ms=(S.priceBook[s]&&S.priceBook[s].materials)||{}; Object.keys(ms).forEach(function(k){ var v=ms[k]&&ms[k].omude; if(v&&String(v).trim())_om[String(v).trim()]=1; }); });
+    H+='<datalist id="dl-pbomude">'+Object.keys(_om).map(function(v){return '<option value="'+esc(v)+'">';}).join('')+'</datalist>'; }catch(e){}
   lst.innerHTML=H;
   var c=document.getElementById('pbt-cnt');
   if(c)c.innerHTML='품목 <b>'+nAll+'</b>'+(nOld?(' · <span class="pbt-oldc">90일 지남 '+nOld+'</span>'):'');
@@ -12008,7 +12133,7 @@ function fabRowHTML(f,i){
   const _fabInPB=!!(f.supplier&&f.name&&S.priceBook[f.supplier]?.materials?.[f.name]);
   const _fabPbBadge=(f.supplier&&f.name)?(_fabInPB
     ?`<span style="order:98;align-self:center;font-size:10px;color:#16a34a;background:#dcfce7;border:1px solid #86efac;padding:1px 7px;border-radius:20px;white-space:nowrap">✓ 단가장</span>`
-    :`<button type="button" class="btn s" onclick="pbRegisterFormMat('fab',${i})" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">단가장 등록</button>`):'';
+    :`<button type="button" class="btn s" onclick="pbOpenBookFor('fab',${i})" title="등록은 단가장에서 — 이 원단명으로 단가장을 엽니다" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#fff7ed;border-color:#fdba74;color:#9a3412;white-space:nowrap">단가장에 없음 · 열기</button>`):'';
   // 컬러 연결 섹션
   let colorSec='';
   if(formColors.length>0){
@@ -13487,7 +13612,7 @@ function _lockTrimPbFields(){
         }
         if(f==='unitPrice'){
           var link=el.parentNode&&el.parentNode.querySelector('.tcd-pblink');
-          if(lock&&!link){link=document.createElement('a');link.className='tcd-pblink';link.textContent='단가장에서 수정';link.title='단가장 새 창에서 고치면 아이템에 자동 반영';link.onclick=function(ev){ev.preventDefault();openBookWindow('trim');};el.parentNode.appendChild(link);}
+          if(lock&&!link){link=document.createElement('a');link.className='tcd-pblink';link.textContent='단가장에서 수정';link.title='단가장 새 창에서 고치면 아이템에 자동 반영';link.onclick=function(ev){ev.preventDefault();openBookWindow('trim',{sup:t.supplier||'',name:(typeof _pbTrimName==='function'?_pbTrimName(t):(t.name||''))||''});};el.parentNode.appendChild(link);}
           else if(!lock&&link)link.remove();
         }
       });
@@ -13677,7 +13802,14 @@ function _pbTrimBadge(t,i){
   if(t.orderType==='careLabel'||t.orderType==='mainLabel')return'';
   var inPB=_pbHasTrim(t.supplier,t);
   if(inPB)return'<span style="order:98;align-self:center;font-size:10px;color:#16a34a;background:#dcfce7;border:1px solid #86efac;padding:1px 7px;border-radius:20px;white-space:nowrap">✓ 단가장</span>';
-  return'<button type="button" class="btn s" onclick="pbRegisterFormMat(\'trim\','+i+')" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">단가장 등록</button>';
+  /* 아이템 카드에서 단가장 등록은 안 한다(사용자 확정 2026-08-19·재확인 09-07) — 단가장을 그 품명으로 열어 준다 */
+  return'<button type="button" class="btn s" onclick="pbOpenBookFor(\'trim\','+i+')" title="등록은 단가장에서 — 이 품명으로 단가장을 엽니다" style="order:98;align-self:center;font-size:10px;padding:2px 7px;background:#fff7ed;border-color:#fdba74;color:#9a3412;white-space:nowrap">단가장에 없음 · 열기</button>';
+}
+/* 아이템 카드의 미등록 부자재·원단 → 단가장을 그 거래처·품명으로 바로 열기 (2026-09-07a) */
+function pbOpenBookFor(type,idx){
+  try{colFR();colTR();}catch(e){}
+  if(type==='fab'){ var f=(formFabs||[])[idx]||{}; openBookWindow('fabric',{sup:f.supplier||'',name:f.name||''}); }
+  else{ var t=(formTrims||[])[idx]||{}; openBookWindow('trim',{sup:t.supplier||'',name:(typeof _pbTrimName==='function'?_pbTrimName(t):(t.name||''))||''}); }
 }
 function renderUnregisteredMats(){
   const el=document.getElementById('if-unreg');if(!el)return;
@@ -13695,10 +13827,10 @@ function renderUnregisteredMats(){
   if(!items.length){el.innerHTML='';return;}
   el.innerHTML='<div style="border:1px solid #fde68a;border-radius:8px;padding:10px 14px;background:#fef9c3;margin-bottom:10px">'
     +'<div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:5px">단가장 미등록 소재 '+items.length+'개</div>'
-    +'<div style="font-size:10px;color:#a16207;margin-bottom:7px">등록하면 다음 아이템에서 자동완성돼요. 저장만 해도 이 아이템엔 기록됩니다.</div>'
+    +'<div style="font-size:10px;color:#a16207;margin-bottom:7px">등록은 단가장에서 해요(그 품명으로 열림). 저장만 해도 이 아이템엔 기록됩니다.</div>'
     +items.map(function(u){return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid #fde68a">'
       +'<span style="font-size:11px;flex:1;color:#78350f">'+esc(u.label)+'</span>'
-      +'<button type="button" class="btn s" onclick="pbRegisterFormMat(\''+u.type+'\','+u.idx+')" style="font-size:10px;padding:2px 8px;background:#eff6ff;border-color:#93c5fd;color:#1e40af;white-space:nowrap">단가장 등록</button>'
+      +'<button type="button" class="btn s" onclick="pbOpenBookFor(\''+u.type+'\','+u.idx+')" style="font-size:10px;padding:2px 8px;background:#fff7ed;border-color:#fdba74;color:#9a3412;white-space:nowrap">단가장에서 등록</button>'
       +'</div>';}).join('')
     +'</div>';
 }
@@ -13760,6 +13892,7 @@ function pbRegisterFormMat(type,idx){
       yardsPerKg:+f.yardsPerKg||existing.yardsPerKg||1,width:f.width||existing.width||'',
       weightGsm:f.weightGsm||existing.weightGsm||'',weightOz:f.weightOz||existing.weightOz||'',
       composition:f.composition||existing.composition||'',omude:f.omude||existing.omude||'',lastUpdated:today()};
+    try{_untombArr('pbMat',f.supplier+'\u001f'+f.name);}catch(e){}   /* 예전에 지운 이름이면 묘비가 또 지운다 → 되살림 표시 (2026-09-07a) */
     savePB();showToast('단가장 등록: '+f.name);
   } else {
     var t=(formTrims||[])[idx];if(!t||!t.supplier||!t.name){showToast('거래처와 소재명을 먼저 입력해주세요');return;}
@@ -13769,6 +13902,7 @@ function pbRegisterFormMat(type,idx){
       unitPrice:+t.unitPrice||existing.unitPrice||0,size:t.size||existing.size||'',
       weightGsm:t.weightGsm||existing.weightGsm||'',weightOz:t.weightOz||existing.weightOz||'',
       yardsPerRoll:t.yardsPerRoll!=null?t.yardsPerRoll:existing.yardsPerRoll||null,lastUpdated:today()};
+    try{_untombArr('pbMat',t.supplier+'\u001f'+key);}catch(e){}   /* 되살림 표시 — 없으면 동기화가 다시 지움 (2026-09-07a 「다 등록했는데 또 미등록」 원인) */
     savePB();showToast('단가장 등록: '+t.name+(t.color?' ('+t.color+')':''));
   }
   renderFabRows();renderTrimRows();
