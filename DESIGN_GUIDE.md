@@ -2208,3 +2208,8 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 고침: 종이(.tp-wrap) 안 input 은 복제본에서 `_tpCloneInputsToText` 로 글자 div 로 교체(textarea 와 같은 방식, 글꼴·색·정렬·테두리 복사, 빈칸은 빈 div). 덮어그리기는 종이 밖 칸만.
   `_tpCloneFitImages`: object-fit contain/scale-down 이미지를 자연 크기로 «맞춘 크기·위치»로 못 박고 object-fit:fill → 항상 같은 결과.
 - 검증(브라우저, 실제 함수+html2canvas): input 4개 → 글자 div(빈칸 포함)·input 0개·알약 테두리 유지, 4×2 이미지가 300×120 칸에서 240×120·left 30 으로 맞춰짐, 캡처 성공.
+
+## 2026-09-07l — 원단 카드 동·층·호수가 자꾸 사라지던 것
+- 원인: `autofillFab` 의 «옛 거래처» 판정이 존재하지 않는 변수(formFabrics)를 봐서 늘 빈칸 → 원단명만 고쳐도 «거래처가 바뀐 것»으로 오인 → `_fabPutLoc` 이 단가장의(대개 빈) 주소로 갈아끼움. 08-24 「거래처 바꾸면 주소 갈아끼우기」 고침이 낳은 회귀.
+- 고침: 옛 거래처는 `formFabs[i].supplier` 로 보고, 옛 값이 «있고 다를 때만» 갈아끼움(갈아끼운 뒤 formFabs 에 새 거래처 기록). 처음 고르는 거래처는 빈 칸만 채움.
+- `saveToPB` 가 시장·층도 building·room 과 같은 규칙(단가장에 비어 있을 때만)으로 저장. 검증 4개(jsc, 실제 함수+자동 스텁).
