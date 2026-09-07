@@ -4349,7 +4349,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-07f';
+var APP_BUILD=/*BUILD*/'2026-09-07g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -39117,11 +39117,10 @@ function tpSpecOrphans(it,base){
   });
   return out.map(function(k){return {sz:k,n:seen[k]};});
 }
-/* 떠 있는 옛 사이즈 → 지금 사이즈로 옮기기 */
-function tpSpecAdopt(base,oldSz,newSz){
-  var arr=tpGet(base,[]); if(!Array.isArray(arr))return;
+/* 옛 사이즈 키의 값을 새 사이즈로 옮긴 배열 — 수동 되살리기·자동 이관 공용 */
+function _tpSpecAdoptArr(arr,oldSz,newSz){
   var n=0;
-  arr=arr.map(function(r){
+  var out=(arr||[]).map(function(r){
     if(!r)return r;
     var nr=Object.assign({},r);
     ['pat','v'].forEach(function(kk){
@@ -39134,6 +39133,27 @@ function tpSpecAdopt(base,oldSz,newSz){
     });
     return nr;
   });
+  return {arr:out,n:n};
+}
+/* ★ 사이즈가 없을 때(FREE) 적은 치수는 사이즈를 추가하면 «첫 사이즈»로 자동 이관 (요청 2026-09-07 「사이즈 추가하니까 적어놨던 치수가 사라졌어」).
+   FREE 는 «사이즈 없음» 자리표시라 어디로 갈지 물을 필요가 없다(첫 사이즈 = 기준 사이즈). 다른 이름의 떠 있는 값은 여전히 되살리기 상자에서 고른다.
+   치수 표를 그릴 때마다 검사하므로 사이즈를 어느 기기·어느 폼에서 바꿨든 다음에 작지를 열면 옮겨진다. */
+function tpSpecAutoAdoptFree(it,base){
+  try{
+    var sizes=(it&&it.sizes&&it.sizes.length)?it.sizes:null; if(!sizes||sizes.indexOf('FREE')>=0)return false;
+    var arr=tpGet(base,[]); if(!Array.isArray(arr)||!arr.length)return false;
+    var has=arr.some(function(r){ return !!r&&['pat','v'].some(function(kk){ var o=r[kk]; return !!o&&typeof o==='object'&&String(o.FREE==null?'':o.FREE).trim()!==''; }); });
+    if(!has)return false;
+    var res=_tpSpecAdoptArr(arr,'FREE',sizes[0]);
+    tpSetQuiet(base,res.arr); try{saveData();}catch(e){}
+    if(typeof showToast==='function')showToast('사이즈가 없을 때 적은 치수 '+res.n+'칸을 「'+sizes[0]+'」 사이즈로 옮겼어요',6000);
+    return true;
+  }catch(e){ return false; }
+}
+/* 떠 있는 옛 사이즈 → 지금 사이즈로 옮기기 */
+function tpSpecAdopt(base,oldSz,newSz){
+  var arr=tpGet(base,[]); if(!Array.isArray(arr))return;
+  var res=_tpSpecAdoptArr(arr,oldSz,newSz), n=res.n; arr=res.arr;
   tpSet(base,arr); tpRender();
   showToast(n?('「'+oldSz+'」에 있던 치수 '+n+'칸을 「'+newSz+'」로 옮겼어요'):'옮길 값이 없었어요',4000);
 }
@@ -39154,6 +39174,7 @@ function tpSpecAdoptOpen(base,oldSz){
   showGenericModal('떠 있는 치수 되살리기',B,380);
 }
 function tpSpecSecHTML(it,base){ base=base||'sew.spec'; var _b="'"+base+"'";
+  try{tpSpecAutoAdoptFree(it,base);}catch(e){}   /* FREE 치수 → 첫 사이즈 자동 이관 (2026-09-07g) */
   return '<div class="sec">치수 (패턴·편차·완성) cm<span class="tp-editonly" style="float:right;font-weight:400"><button class="gbtn" onclick="tpSpecPreset(\'top\','+_b+')">상의</button><button class="gbtn" onclick="tpSpecPreset(\'shirt\','+_b+')">셔츠</button><button class="gbtn" onclick="tpSpecPreset(\'raglan\','+_b+')">레글런</button><button class="gbtn" onclick="tpSpecPreset(\'pants\','+_b+')">팬츠</button><button class="gbtn" onclick="tpSpecPreset(\'skirt\','+_b+')">스커트</button><button class="gbtn" onclick="tpSpecAdd('+_b+')">＋부위</button><button class="gbtn" onclick="tpSpecPick('+_b+')" title="다른 아이템의 치수를 사이즈 골라서 가져오기">불러오기</button>'
     +(_tpEmbHas(it)?('<button class="gbtn" onclick="tpToggleEmbSpec(\''+_tpSheetOf(base)+'\')" title="이 지시서에서만 자수 위치·크기 표를 빼요 (자수 탭 자료는 그대로)">'+(tpEmbOff(_tpSheetOf(base))?'자수 넣기':'자수 빼기')+'</button>'):'')
     +'</span></div>'+tpSpecHTML(it,base)+_tpOrphanHTML(it,base)+tpEmbSpecLinkHTML(it,_tpSheetOf(base)); }
