@@ -2196,3 +2196,8 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 신고 「아이템이 사라졌어」. 자동 백업(abk 5·hbk 12)엔 items 가 들어 있으므로, 백업마다 «지금 없는 아이템» 목록(이름)을 보여주고 골라 되살린다.
 - `_bkMissingItems(bk)` / `recoverItemsFromBackup(src,idx)`: 복사 후 `_mt=now`, 로컬 `_tomb.items[id]` 제거 → `_entMerge` 에서 옛 삭제 무덤(ms)보다 새것이라 다시 안 지워짐. 다른 자료는 그대로.
 - ⚠️ 백업 아이템은 작지 사진(dataURL) 이 빠져 있음(tpStripDataUrls). 검증 4개(jsc).
+
+## 2026-09-07j — 아이폰·아이패드에서 이미지 다운로드가 조용히 안 되던 것
+- `_fpfDownload` 의 a.download 는 iOS(특히 홈화면 앱)에서 아무 일도 안 한다. `_fpfIsIOS()`(iPadOS 데스크탑 UA도 잡음)면
+  이미지 → `_showImgSave` 오버레이(길게 눌러 사진에 저장), 그 외 파일 → `navigator.share({files})`(파일에 저장), 실패 시 새 탭. PC는 그대로.
+- 모든 저장은 `fpfSaveFile` 한 통로라 작지·라인시트·발주서 이미지·백업 JSON 전부 적용. 검증 4개(jsc).
