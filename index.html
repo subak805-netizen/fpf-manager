@@ -3294,6 +3294,19 @@ async function _openRecoveryToolInner(){
     (window._abkCache||[]).forEach(function(bk,i){ var c=bk&&bk.data&&_tbContentCount(bk.data.todoBoard); if(c>0)_tbCands.push({src:'abk',idx:i,ts:bk.ts,cnt:c}); });
     (window._hbkCache||[]).forEach(function(bk,i){ var c=bk&&bk.data&&_tbContentCount(bk.data.todoBoard); if(c>0)_tbCands.push({src:'hbk',idx:i,ts:bk.ts||0,date:bk.date,hr:bk.hr,cnt:c}); });
     _tbCands.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+    /* 사라진 아이템만 되살리기 (2026-09-07i) — 백업에 있는데 지금 없는 아이템을 골라서, 다른 자료는 그대로 */
+    try{ var _icC=[]; var _scan=function(src,list){ (list||[]).forEach(function(bk,i){ var miss=_bkMissingItems(bk); if(miss.length)_icC.push({src:src,idx:i,ts:bk.ts||0,date:bk.date,hr:bk.hr,miss:miss}); }); };
+      _scan('abk',window._abkCache); _scan('hbk',window._hbkCache); _icC.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      html+='<div style="border:2px solid #16a34a;background:#f0fdf4;border-radius:8px;padding:12px;margin-bottom:14px">';
+      html+='<div style="font-weight:700;color:#166534;font-size:13px;margin-bottom:4px">사라진 아이템만 되살리기 <span style="font-weight:400">(다른 자료는 그대로 · 백업에 있는데 지금 없는 아이템만)</span></div>';
+      if(_icC.length){ html+='<div style="font-size:11px;color:#166534;margin-bottom:8px">백업 시점마다 «지금 없는 아이템»을 보여줘요. 이름을 확인하고 되살리세요. 되살린 아이템은 다른 기기의 삭제 기록보다 새것으로 표시돼 다시 안 지워져요.</div>';
+        html+='<div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:5px">';
+        _icC.slice(0,12).forEach(function(c){ var tt; if(c.src==='hbk'&&c.date){ tt=esc(c.date)+' '+esc(String(c.hr))+'시'; } else { var bd=new Date(c.ts); var bp=function(x){return String(x).padStart(2,'0');}; tt=(bd.getMonth()+1)+'/'+bd.getDate()+' '+bp(bd.getHours())+':'+bp(bd.getMinutes()); }
+          var names=c.miss.slice(0,6).map(function(m){return esc(m.name||m.id);}).join(', ')+(c.miss.length>6?' 외 '+(c.miss.length-6)+'개':'');
+          html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff;border:1px solid #86efac;border-radius:6px;padding:6px 10px"><span style="font-size:11.5px;color:#166534;line-height:1.4"><b>'+tt+'</b> · 지금 없는 아이템 '+c.miss.length+'개<br><span style="color:#15803d">'+names+'</span></span><button onclick="recoverItemsFromBackup(\''+c.src+'\','+c.idx+')" style="background:#16a34a;color:#fff;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">이 '+c.miss.length+'개 되살리기</button></div>'; });
+        html+='</div>'; }
+      else html+='<div style="font-size:11px;color:#166534">백업에 있는데 지금 없는 아이템은 없어요 (모든 백업이 지금과 같거나 더 적어요).</div>';
+      html+='</div>'; }catch(e){}
     /* 단가장 품목만 복구 (2026-09-07a) */
     html+='<div style="border:2px solid #2563eb;background:#eff6ff;border-radius:8px;padding:12px;margin-bottom:14px">';
     html+='<div style="font-weight:700;color:#1e3a8a;font-size:13px;margin-bottom:4px">단가장 품목만 복구 <span style="font-weight:400">(다른 데이터는 그대로 · 지우지 않고 합치기만)</span></div>';
@@ -3679,6 +3692,25 @@ function _tbPick(existing,incoming){
   return win||{};
 }
 // 백업에서 '할일판만' 되살리기 — 아이템·오더 등 나머지는 그대로 유지
+/* ===== 사라진 아이템만 되살리기 (2026-09-07i) =====================================
+   백업(자동 5개·매시간 12개)에 있는데 지금 S.items 에 없는 아이템만 골라 돌려놓는다. 다른 자료는 손대지 않는다.
+   되살린 아이템은 _mt=지금 으로 찍어 다른 기기·클라우드의 삭제 무덤(_tomb.items, ms)보다 새것이 되게 한다(_entMerge: 무덤이 _mt 이상일 때만 삭제 유지).
+   ⚠️ 백업 아이템은 작지 사진(dataURL)이 빠져 있다(tpStripDataUrls) — 사진은 다시 올려야 할 수 있다. */
+function _bkMissingItems(bk){ try{ var its=bk&&bk.data&&bk.data.items; if(!its||typeof its!=='object')return []; var cur=S.items||{}, out=[];
+  Object.keys(its).forEach(function(id){ var it=its[id]; if(!it||typeof it!=='object')return; if(cur[id])return; out.push({id:id,name:it.name||''}); }); return out; }catch(e){ return []; } }
+function recoverItemsFromBackup(source,idx){
+  try{ var list=(source==='hbk'?window._hbkCache:window._abkCache)||[]; var bk=list[idx]; var miss=_bkMissingItems(bk);
+    if(!miss.length){ alert('이 백업엔 지금 없는 아이템이 없어요'); return; }
+    var names=miss.map(function(m){return m.name||m.id;}).join('\n');
+    if(!confirm('이 아이템 '+miss.length+'개를 되살릴까요?\n\n'+names+'\n\n※ 다른 아이템·오더·단가장은 그대로예요.\n※ 작지 사진은 백업에 없어서 다시 올려야 할 수 있어요.'))return;
+    var now=Date.now(), n=0; S.items=S.items||{};
+    miss.forEach(function(m){ var src=bk.data.items[m.id]; if(!src)return; var it=JSON.parse(JSON.stringify(src)); it._mt=now; S.items[m.id]=it; try{ if(S._tomb&&S._tomb.items)delete S._tomb.items[m.id]; }catch(e){} n++; });
+    try{saveData();}catch(e){}
+    try{ var ov=document.getElementById('recovery-overlay'); if(ov)ov.remove(); }catch(e){}
+    try{ if(typeof renderItemsList==='function')renderItemsList(); else if(typeof render==='function')render(); }catch(e){}
+    showToast('아이템 '+n+'개를 되살렸어요 — 다른 기기에서도 곧 보여요',6000);
+  }catch(e){ alert('아이템 복구 실패: '+e.message); }
+}
 /* ===== 단가장 품목만 복구 (2026-09-07a) — 다른 자료는 손대지 않는다. 합집합·되살림 표시. 삭제는 절대 안 함.
    ① 아이템에 적힌 부자재·원단으로: 아이템 카드가 아직 기억하는 이름·규격·색상·무게·오무데·단가로 없는 품목을 다시 만든다.
    ② 백업(파일·자동백업)에서: 백업의 단가장 품목 중 지금 없는 것만 추가, 있는데 단가가 0이면 백업 단가로 채움. */
@@ -4349,7 +4381,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-07h';
+var APP_BUILD=/*BUILD*/'2026-09-07i';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
