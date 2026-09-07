@@ -2000,6 +2000,7 @@ function _arrDelWhere(name,pred){ var a=S[name]||[],keep=[],n=0; a.forEach(funct
    ⚠️ 다른 기기가 «이름을 바꿔서» 지운 옛 키가 아직 내 로컬에 남아 있는 경우와 구분해야 한다(그건 지워져야 함):
       품목의 lastUpdated(날짜)가 묘비 날짜보다 «옛날»이면 그냥 옛 복사본 → 손대지 않는다. 같은 날이거나 나중이면 내가 다시 만든 것 → 되살림. */
 function _pbReviveExisting(){ try{ var pb=S.priceBook||{};
+  try{ Object.keys(pb).forEach(function(s){ var ms=(pb[s]&&pb[s].materials)||{}; Object.keys(ms).forEach(function(k){ _wgFixJunkOz(ms[k]); }); }); }catch(e){}   /* 단가장 품목의 온즈 쓰레기값도 비움 (2026-09-07d) */
   Object.keys(pb).forEach(function(sup){ var e=pb[sup]; if(!e)return;
     if(_tombHas('pbSup',sup))_untombArr('pbSup',sup);
     var mats=(e.materials&&typeof e.materials==='object')?e.materials:{};
@@ -2007,6 +2008,10 @@ function _pbReviveExisting(){ try{ var pb=S.priceBook||{};
       var td=String((S._tomb&&S._tomb.pbMat&&S._tomb.pbMat[tk])||'').slice(0,10), md=String(m.lastUpdated||'').slice(0,10);
       if(md&&td&&md<td)return;   /* 묘비보다 옛 복사본 — 지워질 게 맞다 */
       _untombArr('pbMat',tk); }); }); }catch(e){} }
+/* 온즈 쓰레기값 정리 (2026-09-07d): 옛 자동환산 버그가 «2»80 첫 키에서 0.1 을 박아 넣었다. 1 oz/yd² 미만 원단·부자재는 없고,
+   무게(g/㎡)와 50% 넘게 어긋나는 온즈도 그 버그의 흔적 → 비운다. 정상값은 손대지 않는다. */
+function _wgFixJunkOz(o){ try{ if(!o||o.weightOz==null||o.weightOz==='')return false; var oz=+o.weightOz, g=+o.weightGsm||0; if(!isFinite(oz))return false;
+  var junk=(oz>0&&oz<1)||(g>0&&oz>0&&Math.abs(oz*33.906-g)>g*0.5); if(!junk)return false; o.weightOz=''; return true; }catch(e){ return false; } }
 function _tombHas(name,key){ try{
   if(String(name).indexOf('un:')===0)return false;
   var t=S._tomb&&S._tomb[name]&&S._tomb[name][key]; if(!t)return false;
@@ -4341,7 +4346,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-07c';
+var APP_BUILD=/*BUILD*/'2026-09-07d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4854,6 +4859,7 @@ function migrateData(){
   for(const it of Object.values(S.items||{})){
     if(!it.colors)it.colors=[];if(!it.sizes)it.sizes=[];if(!it.fabrics)it.fabrics=[];if(!it.trims)it.trims=[];if(!it.notes)it.notes='';if(!it.careInstructions)it.careInstructions='';if(!it.trimCosts)it.trimCosts=[];
     try{_migrateFabBias(it);}catch(e){}   /* 옛 「바이어스 재단 보내기」 → 원단 가공비 줄 (2026-09-04l) */
+    try{ (it.fabrics||[]).forEach(_wgFixJunkOz); (it.trims||[]).forEach(_wgFixJunkOz); }catch(e){}   /* 온즈 0.1 같은 쓰레기값 비움 (2026-09-07d) */
     COST_DEFS.forEach(([ck,,fk])=>{if(it[ck]===undefined)it[ck]=0;if(fk&&it[fk]===undefined)it[fk]='';});
     if(it.patternCost===undefined)it.patternCost=0;if(it.sampleCost===undefined)it.sampleCost=0;if(it.gradingCost===undefined)it.gradingCost=0;
     if(it.onceCost===undefined)it.onceCost=0;if(!it.onceCostNm)it.onceCostNm='';if(it.inclOnce===undefined)it.inclOnce=false;
@@ -12087,23 +12093,31 @@ function calcFabShrinkForColor(f,colorName){
    적어두는 정보(스펙)일 뿐 발주·원가 계산엔 안 쓰임. 단가장에 저장되고 다음에 자동완성됨.
    환산 기준: 1 oz/yd² = 33.906 g/㎡ */
 var WG_OZ=33.906;
-function wgFabFlds(f){f=f||{};return '<div style="flex:.7;min-width:70px"><label>무게 (g/㎡)</label><input data-f="weightGsm" type="number" value="'+(f.weightGsm||'')+'" min="0" step="1" placeholder="280" oninput="onWeightIn(this,\'gsm\')"></div>'
-  +'<div style="flex:.6;min-width:62px"><label>온즈 (oz)</label><input data-f="weightOz" type="number" value="'+(f.weightOz||'')+'" min="0" step="0.1" placeholder="8.3" oninput="onWeightIn(this,\'oz\')"></div>';}
+function wgFabFlds(f){f=f||{};return '<div style="flex:.7;min-width:70px"><label>무게 (g/㎡)</label><input data-f="weightGsm" type="number" value="'+(f.weightGsm||'')+'" min="0" step="1" placeholder="280" onchange="onWeightIn(this,\'gsm\')"></div>'
+  +'<div style="flex:.6;min-width:62px"><label>온즈 (oz)</label><input data-f="weightOz" type="number" value="'+(f.weightOz||'')+'" min="0" step="0.1" placeholder="8.3" onchange="onWeightIn(this,\'oz\')"></div>';}
 /* 오무데(능직 방향) — 원단과 같은 칸. 단가장이 주인이라 등록된 부자재에선 잠긴다.
    ⚠️ 잠금 목록(_TRIM_PB_LOCK_FIELDS)에도 'omude' 를 넣어야 «단가장에서만» 정해진다. */
 function omudeTrimFld(t){t=t||{};var v=t.omude||'';
   return '<div class="tcd-fld" style="flex:0 0 110px"><label>오무데 <span class="muted" style="font-size:9px">방향·면</span></label>'
     +'<input list="dl-omude" data-f="omude" value="'+esc(v)+'" placeholder="우상 · 좌상 · 직접 입력" onfocus="buildOmudeDL()" style="width:100%;font-size:12px;padding:5px 6px"></div>';}
-function wgTrimFlds(t){t=t||{};return '<div class="tcd-fld" style="flex:0 0 82px"><label>무게 (g/㎡)</label><input data-f="weightGsm" type="number" value="'+(t.weightGsm||'')+'" min="0" step="1" placeholder="280" oninput="onWeightIn(this,\'gsm\')"></div>'
-  +'<div class="tcd-fld" style="flex:0 0 70px"><label>온즈 (oz)</label><input data-f="weightOz" type="number" value="'+(t.weightOz||'')+'" min="0" step="0.1" placeholder="8.3" oninput="onWeightIn(this,\'oz\')"></div>'
+function wgTrimFlds(t){t=t||{};return '<div class="tcd-fld" style="flex:0 0 82px"><label>무게 (g/㎡)</label><input data-f="weightGsm" type="number" value="'+(t.weightGsm||'')+'" min="0" step="1" placeholder="280" onchange="onWeightIn(this,\'gsm\')"></div>'
+  +'<div class="tcd-fld" style="flex:0 0 70px"><label>온즈 (oz)</label><input data-f="weightOz" type="number" value="'+(t.weightOz||'')+'" min="0" step="0.1" placeholder="8.3" onchange="onWeightIn(this,\'oz\')"></div>'
   +omudeTrimFld(t);}
-// 한쪽을 적으면 다른 쪽 자동 계산 — 빈칸일 때만. 직접 적어둔 값은 절대 안 덮음
+/* 한쪽을 적으면 다른 쪽 자동 계산 — 직접 적어둔 값은 절대 안 덮음.
+   ⚠️ 2026-09-07d: 예전엔 키 하나 칠 때마다 계산해서 «2»80 을 치는 순간 온즈가 0.1 로 박히고(빈칸이 아니게 되어) 다시는 안 고쳐졌다
+      (신고 「온즈가 자꾸 0.1로 나오는데」). 이제 ①칸을 떠날 때(change)만 계산 ②자동으로 채운 값(data-auto)은 다시 계산하거나 지운다. */
 function onWeightIn(el,kind){
   var row=el&&el.closest?el.closest('.fab-row'):null; if(!row)return;
   var g=row.querySelector('[data-f=weightGsm]'),o=row.querySelector('[data-f=weightOz]'); if(!g||!o)return;
-  var v=parseFloat(el.value); if(!isFinite(v)||v<=0)return;
-  if(kind==='gsm'){ if(!String(o.value).trim())o.value=Math.round(v/WG_OZ*10)/10; }
-  else { if(!String(g.value).trim())g.value=Math.round(v*WG_OZ); }
+  var other=(kind==='gsm')?o:g;
+  try{ el.dataset.auto=''; }catch(e){}
+  var v=parseFloat(el.value);
+  var otherAuto=!!(other.dataset&&other.dataset.auto==='1');
+  if(!isFinite(v)||v<=0){ if(otherAuto){ other.value=''; try{other.dataset.auto='';}catch(e){} } return; }
+  if(otherAuto||!String(other.value).trim()){
+    other.value=(kind==='gsm')?(Math.round(v/WG_OZ*10)/10):Math.round(v*WG_OZ);
+    try{ other.dataset.auto='1'; }catch(e){}
+  }
 }
 /* ===== 옛 「바이어스 재단 보내기」(f.bias) → 원단 가공비(trimCosts, tc.fabId) 로 이관 (2026-09-04l) ==========
    요청: 「가공비 추가 버튼을 만들었으면 바이어스 버튼은 없애야지 중복이잖아」. 원단 카드의 바이어스 체크칸은 없앴고,
