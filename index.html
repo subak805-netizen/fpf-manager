@@ -4381,7 +4381,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-07j';
+var APP_BUILD=/*BUILD*/'2026-09-07k';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -38301,8 +38301,10 @@ function tpCaptureTextOverlay(root){
         - onclone(tpCaptureFixVAlign): 복제본의 textarea 를 글자 div 로 «갈아끼운다»
         둘 다 돌면 같은 글자가 두 겹으로, 줄높이가 조금씩 달라 세 겹처럼 번져 보인다.
         → 종이(.tp-wrap) 안 textarea 는 **복제본 쪽에만 맡긴다.** */
+  /* 2026-09-07k: 종이(.tp-wrap) 안 «input» 도 복제본(_tpCloneInputsToText)에 맡긴다 — 덮어그리기는 자리 계산(offsetParent)이 어긋나면
+     글자가 엉뚱한 곳/안 보이는 곳에 그려져 담당자·자수 방법·실컬러가 빈칸으로 저장됐다(신고 2026-09-07). 종이 밖 칸만 여기서 덮는다. */
   var list=[].slice.call((root||document).querySelectorAll('#tp-doc textarea, #tp-doc input[type="text"], #tp-doc input:not([type])'))
-    .filter(function(el){ return !(el.tagName==='TEXTAREA'&&el.closest&&el.closest('.tp-wrap')); });
+    .filter(function(el){ return !(el.closest&&el.closest('.tp-wrap')); });
   list.forEach(function(el){
     var v=(el.value||'').trim(); if(!v)return;
     var cs=getComputedStyle(el);
@@ -38348,6 +38350,40 @@ function tpWaitImages(el){
 }
 // html2canvas 1.4.1은 input·td의 vertical-align:middle을 무시하고 글씨를 셀 하단(baseline)에 그림 →
 // 캡처 복제본(onclone)에서만 셀·인풋 line-height를 실제 칸높이로 맞춰 수직 중앙 강제(화면 DOM은 안 건드림).
+/* 종이 안 input → 글자 div (복제본에서만). 화면 값·글꼴·색·정렬·테두리(스와치 알약)를 그대로. 빈 칸은 빈 div (placeholder 안 찍힘) — 2026-09-07k */
+function _tpCloneInputsToText(cdoc){
+  var sel='#tp-modal .tp-wrap input:not([type]),#tp-modal .tp-wrap input[type="text"],#tp-modal .tp-wrap input[type="number"]';
+  var lin=document.querySelectorAll(sel), cin=cdoc.querySelectorAll(sel);
+  for(var i=0;i<cin.length;i++){
+    var lv=lin[i], ce=cin[i]; if(!lv||!ce||!ce.parentNode)continue;
+    var cs=getComputedStyle(lv); var d=cdoc.createElement('div'); d.className='tp-cap-in'; d.textContent=lv.value||'';
+    var w=lv.offsetWidth, h=lv.offsetHeight; if(!w||!h){ try{ce.value='';ce.setAttribute('placeholder','');}catch(e){} continue; }
+    d.style.cssText='box-sizing:border-box;white-space:pre;overflow:hidden;padding-top:0;padding-bottom:0;';
+    d.style.display=(cs.display==='inline-block'||cs.display==='inline')?'inline-block':'block';
+    d.style.width=w+'px'; d.style.height=h+'px'; d.style.lineHeight=(lv.clientHeight||h)+'px';
+    ['fontFamily','fontSize','fontWeight','fontStyle','fontStretch','fontVariantNumeric','letterSpacing','wordSpacing','color','textAlign','textIndent','textTransform','fontFeatureSettings','fontKerning',
+     'paddingLeft','paddingRight','backgroundColor','borderTop','borderRight','borderBottom','borderLeft','borderRadius','boxShadow','marginTop','marginRight','marginBottom','marginLeft','verticalAlign','minWidth','maxWidth','position','left','top','right','bottom','zIndex']
+      .forEach(function(k){ var v=cs[k]; if(v!=null&&v!=='')try{d.style[k]=v;}catch(e){} });
+    try{ d.style.setProperty('-webkit-font-smoothing',cs.webkitFontSmoothing||'auto'); }catch(e){}
+    ce.parentNode.replaceChild(d,ce);
+  }
+}
+/* object-fit:contain 이미지(도식화·자수 도안 등)를 복제본에서 «맞춘 크기»로 못 박는다 — html2canvas 가 object-fit 을 놓치면 늘어져 보였다
+   (신고 2026-09-07 「이미지 저장하니까 사진이 늘어지게 나와」, 두 번째엔 정상 — 타이밍 따라 달랐다). 화면 자연 크기로 직접 계산해 항상 같게. */
+function _tpCloneFitImages(cdoc){
+  var sel='#tp-modal .tp-wrap img'; var lim=document.querySelectorAll(sel), cim=cdoc.querySelectorAll(sel);
+  for(var i=0;i<cim.length;i++){
+    var lv=lim[i], ce=cim[i]; if(!lv||!ce)continue;
+    var cs=getComputedStyle(lv); var fit=cs.objectFit||''; if(fit!=='contain'&&fit!=='scale-down')continue;
+    var nw=lv.naturalWidth||0, nh=lv.naturalHeight||0, bw=lv.offsetWidth, bh=lv.offsetHeight; if(!nw||!nh||!bw||!bh)continue;
+    var s=Math.min(bw/nw,bh/nh); if(fit==='scale-down')s=Math.min(s,1);
+    var dw=Math.round(nw*s), dh=Math.round(nh*s), ox=Math.round((bw-dw)/2), oy=Math.round((bh-dh)/2);
+    ce.style.setProperty('object-fit','fill','important'); ce.style.setProperty('width',dw+'px','important'); ce.style.setProperty('height',dh+'px','important');
+    ce.style.setProperty('max-width','none','important'); ce.style.setProperty('max-height','none','important'); ce.style.setProperty('display','block','important');
+    if(cs.position==='absolute'||cs.position==='fixed'){ ce.style.setProperty('left',(parseFloat(cs.left)||0)+ox+'px','important'); ce.style.setProperty('top',(parseFloat(cs.top)||0)+oy+'px','important'); ce.style.setProperty('right','auto','important'); ce.style.setProperty('bottom','auto','important'); }
+    else { ce.style.setProperty('margin-left',(parseFloat(cs.marginLeft)||0)+ox+'px','important'); ce.style.setProperty('margin-top',(parseFloat(cs.marginTop)||0)+oy+'px','important'); }
+  }
+}
 function tpCaptureFixVAlign(cdoc){
   try{
     var sel='#tp-modal .tp-wrap td,#tp-modal .tp-wrap th,#tp-modal .tp-wrap input,#tp-modal .htop .who input';
@@ -38381,6 +38417,8 @@ function tpCaptureFixVAlign(cdoc){
       dsp.style.cssText='display:inline-block;width:100%;text-align:center;font-weight:700;color:#161616;font-size:'+(cds?cds.fontSize:'12px')+';';
       cd.parentNode.replaceChild(dsp,cd);
     }
+    try{ _tpCloneInputsToText(cdoc); }catch(e){ console.warn('tp clone inputs',e); }
+    try{ _tpCloneFitImages(cdoc); }catch(e){ console.warn('tp clone imgs',e); }
     // textarea(메모) → 여러 줄 div로 교체 (html2canvas가 textarea를 한 줄로 잘라버리는 문제)
     var lta=document.querySelectorAll('#tp-modal .tp-wrap textarea'), cta=cdoc.querySelectorAll('#tp-modal .tp-wrap textarea');
     for(var t=0;t<cta.length;t++){

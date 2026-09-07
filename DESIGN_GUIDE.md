@@ -2201,3 +2201,10 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - `_fpfDownload` 의 a.download 는 iOS(특히 홈화면 앱)에서 아무 일도 안 한다. `_fpfIsIOS()`(iPadOS 데스크탑 UA도 잡음)면
   이미지 → `_showImgSave` 오버레이(길게 눌러 사진에 저장), 그 외 파일 → `navigator.share({files})`(파일에 저장), 실패 시 새 탭. PC는 그대로.
 - 모든 저장은 `fpfSaveFile` 한 통로라 작지·라인시트·발주서 이미지·백업 JSON 전부 적용. 검증 4개(jsc).
+
+## 2026-09-07k — 작지 이미지 저장: 담당자·자수 방법·실컬러 빈칸 / 도안 이미지 늘어짐
+- 신고: 자수 시트 이미지 저장에서 input 값(담당자·자수 방법·실컬러)이 빈칸, 첫 저장은 도안 이미지가 가로로 늘어짐(두 번째는 정상).
+- 원인: input 은 «살아있는 화면에 덮어그리기»(tpCaptureTextOverlay)였는데 자리 계산(offsetParent)이 어긋나면 글자가 안 보이는 곳에 그려지고, 복제본에선 값을 비워(data-tp-hid) 빈칸이 됐다. 이미지는 html2canvas 가 object-fit:contain 을 타이밍에 따라 놓쳤다.
+- 고침: 종이(.tp-wrap) 안 input 은 복제본에서 `_tpCloneInputsToText` 로 글자 div 로 교체(textarea 와 같은 방식, 글꼴·색·정렬·테두리 복사, 빈칸은 빈 div). 덮어그리기는 종이 밖 칸만.
+  `_tpCloneFitImages`: object-fit contain/scale-down 이미지를 자연 크기로 «맞춘 크기·위치»로 못 박고 object-fit:fill → 항상 같은 결과.
+- 검증(브라우저, 실제 함수+html2canvas): input 4개 → 글자 div(빈칸 포함)·input 0개·알약 테두리 유지, 4×2 이미지가 300×120 칸에서 240×120·left 30 으로 맞춰짐, 캡처 성공.
