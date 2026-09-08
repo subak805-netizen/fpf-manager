@@ -1541,8 +1541,32 @@ function _lsUsageInfo(){
   return {totalKB:Math.round(total/1024), fpmKB:Math.round(fpm/1024), limitKB:5120, pct:Math.min(100,Math.round(total/1024/5120*100))};
 }
 // 저장 실패 시 방어: 경고 + 백업파일 자동 다운로드 (20초에 한 번만)
+/* ===== 브라우저 저장공간 가득 → 사진을 기기 안에서 줄여 자리를 만든다 (2026-09-08e)
+   사고: 맥북 저장소 97% → 저장 실패가 조용히 이어져 새로고침마다 편집이 사라짐(치수·사이즈). 인라인 사진(2.2MB)이 원인.
+   클라우드 없이도 되는 응급조치: 150KB 넘는 인라인 사진을 1200px·0.72 로 다시 압축(보통 1/3~1/5). 원본 화질이 필요하면 나중에 클라우드로 올려도 됨. */
+async function shrinkInlineImagesLocal(opts){
+  opts=opts||{}; var tasks=[]; try{ tasks=_collectInlineImages(); }catch(e){}
+  var big=tasks.filter(function(x){ return x.dataUrl&&x.dataUrl.length>150*1024; });
+  if(!big.length){ if(!opts.silent&&typeof showToast==='function')showToast('줄일 사진이 없어요 (150KB 넘는 인라인 사진 없음)',5000); return {n:0,saved:0}; }
+  var saved=0,n=0;
+  for(var i=0;i<big.length;i++){ var x=big[i]; try{ var blob=_dataUrlToBlob(x.dataUrl); var c=await tpCompress(blob,1200,0.72,false); if(c&&c.dataUrl&&c.dataUrl.length<x.dataUrl.length){ saved+=x.dataUrl.length-c.dataUrl.length; x.apply(c.dataUrl); n++; } }catch(e){ console.warn('[shrink]',e); } }
+  if(n){ window._lsQuotaErr=false; try{saveData();}catch(e){} }
+  if(!opts.silent&&typeof showToast==='function')showToast(n?('사진 '+n+'장을 줄여 약 '+Math.round(saved/1024)+'KB 비웠어요 — 이제 저장돼요'):'줄여도 더 작아지는 사진이 없어요',7000);
+  return {n:n,saved:saved};
+}
+function fpfStorageBanner(on){
+  var b=document.getElementById('fpf-store-banner'); if(!on){ if(b)b.remove(); return; } if(b)return;
+  b=document.createElement('div'); b.id='fpf-store-banner';
+  b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#b91c1c;color:#fff;padding:9px 14px;font-size:13px;font-weight:700;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-family:inherit';
+  b.innerHTML='<span>브라우저 저장공간이 가득 차서 지금 고치는 내용이 저장되지 않아요 (새로고침하면 사라짐)</span>'
+    +'<button onclick="shrinkInlineImagesLocal().then(function(r){ if(r&&r.n)fpfStorageBanner(false); })" style="border:none;background:#fff;color:#7f1d1d;font-weight:800;padding:5px 11px;border-radius:6px;cursor:pointer;font-family:inherit">지금 비우기 (사진 줄이기)</button>';
+  (document.body||document.documentElement).appendChild(b);
+}
 function _onSaveFailed(){
   var now=Date.now();
+  try{ fpfStorageBanner(true); }catch(e){}
+  /* 한 번은 자동으로 사진을 줄여 다시 저장해 본다 — 사용자가 못 보고 지나쳐도 편집이 안 날아가게 */
+  if(!window._autoShrinkTried){ window._autoShrinkTried=true; try{ shrinkInlineImagesLocal({silent:true}).then(function(r){ if(r&&r.n){ try{ if(typeof showToast==='function')showToast('저장공간이 가득 차서 사진 '+r.n+'장을 자동으로 줄이고 다시 저장했어요',8000); }catch(e){} if(!window._lsQuotaErr)fpfStorageBanner(false); } }); }catch(e){} }
   if(window._saveFailLastWarn&&(now-window._saveFailLastWarn)<20000)return;
   window._saveFailLastWarn=now;
   var msg=_ls?'저장공간이 가득 차 저장이 안 됐어요! 백업파일을 받아둘게요 — 데이터 관리 → 사진 정리로 비워주세요'
@@ -3277,10 +3301,14 @@ async function _openRecoveryToolInner(){
       html+='<div style="border:2px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px;margin-bottom:14px">';
       html+='<div style="font-weight:700;color:#92400e;font-size:13px;margin-bottom:4px">사진 용량 정리 (동기화 실패 해결)</div>';
       html+='<div style="font-size:11px;color:#92400e;margin-bottom:8px">이 기기에만 저장된 사진(인라인) <b>'+_imgStat.count+'장</b> ≈ <b>'+Math.round(_imgStat.bytes/1024)+'KB</b>. 이 용량이 커지면 클라우드 동기화가 막혀요(1MB 한도). 로그인 후 아래 버튼을 누르면 사진을 클라우드(Storage)로 옮기고 본문엔 가벼운 링크만 남겨 용량이 확 줄어요. (사진은 그대로 보여요.)</div>';
+      html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
       if(isCloudOn()){
         html+='<button onclick="document.getElementById(\'recovery-overlay\').remove();migrateImagesToCloud();" style="background:#d97706;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">사진 '+_imgStat.count+'장 클라우드로 정리하기</button>';
-      }else{
-        html+='<div style="font-size:11px;color:#b45309;font-weight:600">먼저 상단 <b>연동</b>에서 로그인하세요 — 그 다음 이 도구를 다시 열면 정리 버튼이 떠요.</div>';
+      }
+      html+='<button onclick="document.getElementById(\'recovery-overlay\').remove();shrinkInlineImagesLocal();" style="background:#fff;color:#92400e;border:1.5px solid #f59e0b;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">사진 기기 안에서 줄이기 (클라우드 없이 용량↓)</button>';
+      html+='</div>';
+      if(!isCloudOn()){
+        html+='<div style="font-size:11px;color:#b45309;font-weight:600;margin-top:6px">'+(window.fbReady?'클라우드에 로그인이 안 돼 있어요 — 화면 위 「연동」에서 로그인하면 클라우드로 옮기는 버튼이 떠요.':'구글 서버(파이어베이스) 연결이 안 된 상태예요 — 화면 위 빨간 띠의 「지금 다시 시도」. 그동안은 위 「기기 안에서 줄이기」로 자리를 비울 수 있어요.')+'</div>';
       }
       html+='</div>';
     }
@@ -4410,7 +4438,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08d';
+var APP_BUILD=/*BUILD*/'2026-09-08e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4808,6 +4836,7 @@ function saveData(){
   var _savedOk=_mainOk&&!window._lsQuotaErr;
   if(_savedOk){
     if(el){const n=new Date();el.textContent=`${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')} 저장됨`;el.style.color='';el.style.fontWeight='';el.title='';}
+    try{ fpfStorageBanner(false); }catch(e){}
   }else{
     // 진짜 저장 실패 — 거짓 '저장됨' 대신 정직하게 알리고 백업파일로 방어
     if(el){el.textContent=_ls?'저장 실패! 용량부족':'저장 안됨(시크릿)';el.style.color='#dc2626';el.style.fontWeight='800';el.title='브라우저 저장공간이 가득 찼어요. 데이터 관리 → 사진 정리로 비우세요.';}
@@ -39031,8 +39060,9 @@ var _TP_SUB_PART_RE=/안감|주머니속|주머니|배색|시보리|에리감|�
 var _TP_NOT_MAT_OT={button:1,zipper:1,snap:1,thread:1,careLabel:1,mainLabel:1};
 function _tpHasSubMat(it){
   var fabs=(it&&it.fabrics)||[];
-  if(fabs.length>1)return true;
+  /* 2026-09-08e: 원단 2개여도 «둘 다 몸판»(컬러별 원단)이면 배색 아님 (신고 「원부자재에 배색이 없는데 왜 스와치에 배색이 뜬 거지」). 용도를 안 적은 원단이 섞여 있으면 예전처럼 배색으로 본다 */
   if(fabs.some(function(f){var p=String((f&&f.part)||'').trim();return p!==''&&p!=='몸판';}))return true;
+  if(fabs.length>1&&fabs.some(function(f){return String((f&&f.part)||'').trim()==='';}))return true;
   var trims=(it&&it.trims)||[];
   return trims.some(function(t){
     if(!t)return false;
@@ -39328,7 +39358,14 @@ function tpSpecSecHTML(it,base,sheet){ base=base||'sew.spec'; sheet=sheet||_tpSh
    옛 회차 자료(spatN.spec)는 지우지 않는다 — 지시서 치수가 비어 있고 회차에만 있으면 한 번 옮겨서 보이게 한다. */
 function _tpSpecShareInit(sk){ try{ var d=tpData(); if(!d)return; var sew=(d.sew&&d.sew.spec)||[]; var sp=(d[sk]&&d[sk].spec)||[];
   var has=function(a){ return Array.isArray(a)&&a.some(function(r){ return r&&(String(r.name||'').trim()||['pat','v'].some(function(k){ var o=r[k]; return o&&Object.keys(o).some(function(z){return String(o[z]==null?'':o[z]).trim()!=='';}); })); }); };
-  if(!has(sew)&&has(sp)){ if(!d.sew)d.sew={}; d.sew.spec=JSON.parse(JSON.stringify(sp)); try{saveData();}catch(e){} } }catch(e){} }
+  if(!has(sew)&&has(sp)){ if(!d.sew)d.sew={}; d.sew.spec=JSON.parse(JSON.stringify(sp)); try{saveData();}catch(e){} return; }
+  /* 2026-09-08e: 둘 다 있으면 회차 값 중 지시서에 «빈» 칸만 채워 넣는다(한 회차당 한 번). 07h 가 회차 치수를 숨겨 «지운 것처럼» 보였던 것 되살림 */
+  if(has(sew)&&has(sp)&&!(d[sk]&&d[sk].specMergedToSew)){ var n=0; var byName={}; sew.forEach(function(r){ if(r&&r.name)byName[String(r.name).trim()]=r; });
+    sp.forEach(function(r){ if(!r)return; var nm=String(r.name||'').trim(); var tgt=nm?byName[nm]:null;
+      if(!tgt){ var nr=JSON.parse(JSON.stringify(r)); sew.push(nr); if(nm)byName[nm]=nr; n++; return; }
+      ['pat','v'].forEach(function(kk){ var o=r[kk]; if(!o||typeof o!=='object')return; if(!tgt[kk]||typeof tgt[kk]!=='object')tgt[kk]={}; for(var z in o){ var val=o[z]; if(val==null||String(val).trim()==='')continue; if(String(tgt[kk][z]==null?'':tgt[kk][z]).trim()==='')  { tgt[kk][z]=val; n++; } } }); });
+    if(!d[sk])d[sk]={}; d[sk].specMergedToSew=1; if(n){ try{saveData();}catch(e){} if(typeof showToast==='function')showToast('샘플 회차에 적혀 있던 치수 '+n+'칸을 지시서 치수로 합쳤어요',6000); } }
+  }catch(e){} }
 function _tpOrphanHTML(it,base){
   var os=tpSpecOrphans(it,base); if(!os.length)return '';
   var _b=String(base).replace(/'/g,"\\'");
