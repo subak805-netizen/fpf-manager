@@ -376,7 +376,7 @@ tryInitFirebase();
       <div class="fb" style="margin-bottom:10px;position:sticky;top:0;background:var(--bg);z-index:10;padding:6px 0;border-bottom:1px solid var(--bd)">
         <b id="if-t" style="font-size:15px">아이템 추가</b>
         <div class="fr" style="gap:6px">
-          <button class="btn s ok" onclick="saveItemForm()" id="if-save-btn">저장</button>
+          <button class="btn s ok" onpointerdown="saveItemFormSafe()" onclick="saveItemFormSafe()" id="if-save-btn">저장</button>
           <button class="btn s g" onclick="hideItemForm()">✕ 닫기</button>
         </div>
       </div>
@@ -4436,7 +4436,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08n';
+var APP_BUILD=/*BUILD*/'2026-09-08o';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -12049,7 +12049,7 @@ function showItemForm(id){
     
     <!-- 메모 (한줄) -->
     <div class="fg"><label>메모</label><textarea id="f-notes" rows="2" oninput="scheduleDraft()">${esc(p.notes||'')}</textarea></div>
-    <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="hideItemForm()">닫기</button><button class="btn p" onclick="saveItemForm()">✓ 저장</button></div>`;
+    <div class="fr" style="justify-content:flex-end;gap:6px;margin-top:12px"><button class="btn" onclick="hideItemForm()">닫기</button><button class="btn p" onpointerdown="saveItemFormSafe()" onclick="saveItemFormSafe()">✓ 저장</button></div>`;
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
   try{renderLaborSizes();}catch(e){}
   setTimeout(refreshWorkRoute,0);
@@ -14758,6 +14758,19 @@ function _dedupeItemFabrics(item){
     seen[sig]=1;out.push(f);
   });
   return {fabrics:removed?out:fabs,removed:removed};
+}
+/* ===== 저장이 2~3번 눌러야 먹히던 것 (2026-09-08o) =====================================
+   원인: 부자재·원단 칸 중에 `onchange="colTR();renderTrimRows()"` 처럼 **값이 바뀌면 줄을 다시 그리는** 칸이 있다.
+   입력칸에 커서를 둔 채 「저장」을 누르면 ①mousedown → ②blur → onchange → 줄 재렌더(버튼이 있던 DOM이 사라짐)
+   → ③click 이 아무 데서도 안 일어나 저장이 안 됐다. 다시 누르면(이미 포커스가 없어서) 그제야 저장됨.
+   고침: 버튼을 «누르는 순간(pointerdown)» 처리한다. 먼저 blur 로 대기 중인 onchange(값 수집)를 끝내고,
+   다음 틱에 저장 → 재렌더와 부딪히지 않는다. pointerdown 과 click 이 겹쳐 두 번 저장되지 않게 0.8초 잠금. */
+function saveItemFormSafe(){
+  var now=Date.now();
+  if(window._ifSaveAt&&(now-window._ifSaveAt)<800)return;
+  window._ifSaveAt=now;
+  try{ var ae=document.activeElement; if(ae&&ae.blur&&ae!==document.body)ae.blur(); }catch(e){}
+  setTimeout(function(){ try{ saveItemForm(); }catch(e){ console.warn('[saveItemFormSafe]',e); try{ if(typeof showToast==='function')showToast('저장 중 오류 — '+((e&&e.message)||e),6000); }catch(e2){} } },0);
 }
 function saveItemForm(opts){
   // silent=자동 저장 모드: 경고창을 띄울 상황(이름 없음·혼용률 오류·품번 중복)이면 조용히 건너뜀 — 수동 저장 때 처리
