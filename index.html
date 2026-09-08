@@ -4436,7 +4436,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08i';
+var APP_BUILD=/*BUILD*/'2026-09-08j';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -22241,8 +22241,10 @@ function renderProdDash(){
       }catch(e){}
       // 출고 수량 (컬러 합계 + 컬러×사이즈 그리드)
       let shipTotal=0;const shipColors={};const shipDates=[];const shipSizeGrid={};
-      if(sewSch&&sewSch.shipments){
-        sewSch.shipments.forEach(s=>{
+      /* 출고기록이 대표공장 일정에 없으면 그 오더의 다른 공장 일정에서 찾는다 (2026-09-08j) */
+      const _shipSch=(sewSch&&Array.isArray(sewSch.shipments)&&sewSch.shipments.length)?sewSch:((typeof _pdSchList==='function'?_pdSchList(it,o):[]).find(x=>x&&Array.isArray(x.shipments)&&x.shipments.length)||sewSch);
+      if(_shipSch&&_shipSch.shipments){
+        _shipSch.shipments.forEach(s=>{
           if(!s||!+s.qty)return;
           if(s.itemId&&s.itemId!==oi.itemId)return;
           if(!s.itemId&&o.orderItems.length>1)return;
@@ -23603,15 +23605,34 @@ function pdOrderCSGrid(it,o){
   colors.forEach(c=>{var g={},t=0;sizes.forEach(sz=>{var q=+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0;if(q>0){g[sz]=q;t+=q;}});if(t>0)res[c]=g;});
   return res;
 }
+/* ⚠️ 2026-09-08j: 예전엔 it.sewingFcId 일정만 봐서, 프로모션 아이템(봉제공장 칸이 빔)이나 다른 공장 칸에 적은 재단·출고 수량이
+   카드에서 «0» 으로 보였다(신고 「출고 수량도 다 적었는데 수량이 안 떠」). → 대표공장(makerFc) 먼저, 없으면 그 오더의 모든 공장 일정을 훑는다. */
+function _pdSchList(it,o){
+  var out=[],seen={};
+  try{ var fs=(o&&o.factorySchedules)||{}; var mk=(typeof makerFc==='function')?makerFc(it):(it&&it.sewingFcId)||'';
+    if(mk&&fs[mk]){ out.push(fs[mk]); seen[mk]=1; }
+    Object.keys(fs).forEach(function(k){ if(!seen[k]&&fs[k])out.push(fs[k]); }); }catch(e){}
+  return out;
+}
 function pdCutCSGrid(it,o){
-  const res={};const sewFcId=it.sewingFcId||'';const sch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;if(!sch)return res;
+  var _l=_pdSchList(it,o);
+  for(var _i=0;_i<_l.length;_i++){ var _r=_pdCutCSGridOne(it,o,_l[_i]); if(Object.keys(_r).length)return _r; }
+  return {};
+}
+function _pdCutCSGridOne(it,o,sch){
+  const res={};if(!sch)return res;
   const single=o.orderItems&&o.orderItems.length===1;
   if(Array.isArray(sch.cuttingShipments)){sch.cuttingShipments.forEach(r=>{if(!r)return;var match=r.itemId?(r.itemId===it.id):single;if(!match)return;var c=r.color||'',sz=r.size||'',q=+r.qty||0;if(q>0){if(!res[c])res[c]={};res[c][sz]=(res[c][sz]||0)+q;}});}
   if(!Object.keys(res).length&&sch.cuttingGrid&&sch.cuttingGrid[it.id]){Object.entries(sch.cuttingGrid[it.id]).forEach(([c,sg])=>{Object.entries(sg||{}).forEach(([sz,v])=>{var q=+v||0;if(q>0){if(!res[c])res[c]={};res[c][sz]=(res[c][sz]||0)+q;}});});}
   return res;
 }
 function pdShipCSGrid(it,o){
-  const res={};const sewFcId=it.sewingFcId||'';const sch=sewFcId?(o.factorySchedules||{})[sewFcId]:null;if(!sch||!Array.isArray(sch.shipments))return res;
+  var _l=_pdSchList(it,o);
+  for(var _i=0;_i<_l.length;_i++){ var _r=_pdShipCSGridOne(it,o,_l[_i]); if(Object.keys(_r).length)return _r; }
+  return {};
+}
+function _pdShipCSGridOne(it,o,sch){
+  const res={};if(!sch||!Array.isArray(sch.shipments))return res;
   const single=o.orderItems&&o.orderItems.length===1;
   sch.shipments.forEach(r=>{if(!r)return;var match=r.itemId?(r.itemId===it.id):single;if(!match)return;var c=r.color||'',sz=r.size||'',q=+r.qty||0;if(q>0){if(!res[c])res[c]={};res[c][sz]=(res[c][sz]||0)+q;}});
   return res;
