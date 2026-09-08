@@ -43,25 +43,48 @@ const firebaseConfig = {
   appId: "1:415966666310:web:9c4bb75cd2594cc744b447"
 };
 
+/* 구글 서버(파이어베이스) 연결 안 됨 빨간 띠 — 동기화·사진이 멈춘 걸 사용자가 알게 (2026-09-08d) */
+function fpfNetBanner(on){
+  var b=document.getElementById('fpf-net-banner');
+  if(!on){ if(b){ b.remove(); try{ if(typeof showToast==='function')showToast('구글 서버에 연결됐어요 — 동기화 시작',4000); }catch(e){} } return; }
+  if(b)return;
+  b=document.createElement('div'); b.id='fpf-net-banner';
+  b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:100003;background:#b91c1c;color:#fff;padding:9px 14px;font-size:13px;font-weight:700;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-family:inherit';
+  b.innerHTML='<span>구글 서버(파이어베이스)에 연결이 안 돼요 — 동기화·사진 올리기가 멈춥니다. 와이파이·VPN·보안프로그램을 확인하세요. 계속 다시 시도 중…</span>'
+    +'<button onclick="fpfRetryFirebaseScripts()" style="border:none;background:#fff;color:#7f1d1d;font-weight:800;padding:5px 11px;border-radius:6px;cursor:pointer;font-family:inherit">지금 다시 시도</button>'
+    +'<button onclick="location.reload()" style="border:1px solid rgba(255,255,255,.7);background:transparent;color:#fff;font-weight:700;padding:5px 11px;border-radius:6px;cursor:pointer;font-family:inherit">새로고침</button>';
+  (document.body||document.documentElement).appendChild(b);
+}
+/* SDK 스크립트 4개를 다시 끼워 넣기 (막혔다 풀린 경우·느린 망) */
+function fpfRetryFirebaseScripts(){
+  var v='10.7.1', names=[], done=0;
+  if(typeof firebase==='undefined')names=['app','auth','firestore','storage'];
+  else { if(typeof firebase.auth!=='function')names.push('auth'); if(typeof firebase.firestore!=='function')names.push('firestore'); if(typeof firebase.storage!=='function')names.push('storage'); }
+  if(!names.length){ if(window.fbReady){ try{fpfNetBanner(false);}catch(e){} } return; }
+  names.forEach(function(n){ var s=document.createElement('script'); s.src='https://www.gstatic.com/firebasejs/'+v+'/firebase-'+n+'-compat.js?r='+Date.now(); s.async=false; s.onload=function(){ done++; }; s.onerror=function(){ console.warn('SDK 재로드 실패',n); }; document.head.appendChild(s); });
+  try{ if(typeof showToast==='function')showToast('구글 서버에 다시 연결 시도 중…',3000); }catch(e){}
+}
 // Firebase SDK 로딩 대기 후 초기화 (네트워크 느린 환경 대응)
 function tryInitFirebase(attempts){
   attempts = attempts || 0;
   if(typeof firebase === 'undefined'){
-    if(attempts < 60){ // 최대 6초 대기 (100ms × 60)
-      setTimeout(function(){tryInitFirebase(attempts+1);}, 100);
-    }else{
-      console.error('Firebase SDK 로딩 실패 - 인터넷 또는 인앱 브라우저 차단');
-      window.fbReady = false;
-      if(typeof updateCloudModal === 'function')updateCloudModal();
-    }
+    /* ⚠️ 2026-09-08d: 예전엔 6초만 기다리고 «영영 포기»했다 → 와이파이가 느린 날 SDK 가 7초에 와도 앱은 연결 안 된 채로 살았다
+         (맥북 신고: 연동 창에 로그인도 로그인됨도 안 뜸 · 동기화 멈춤 · 사진 못 올림 · 저장소 97%). 이제 6초 뒤 빨간 띠를 띄우고,
+         2초마다 계속 기다리며 30초마다 스크립트를 다시 끼워 넣는다. 오면 바로 연결. */
+    if(attempts < 60){ setTimeout(function(){tryInitFirebase(attempts+1);}, 100); return; }
+    if(attempts === 60){ console.error('Firebase SDK 로딩 실패 - 인터넷 또는 차단'); window.fbReady = false; try{fpfNetBanner(true);}catch(e){} if(typeof updateCloudModal === 'function')updateCloudModal(); }
+    if(attempts % 15 === 0 && attempts > 60){ try{fpfRetryFirebaseScripts();}catch(e){} }
+    setTimeout(function(){tryInitFirebase(attempts+1);}, 2000);
     return;
   }
   try{
-    firebase.initializeApp(firebaseConfig);
+    if(typeof firebase.auth!=='function'||typeof firebase.firestore!=='function')throw new Error('SDK 일부(auth/firestore) 안 옴');
+    if(firebase.apps&&firebase.apps.length)firebase.app(); else firebase.initializeApp(firebaseConfig);   /* 재시도 때 «already exists» 안 나게 */
     window.fbAuth = firebase.auth();
     window.fbDB = firebase.firestore();
     try{ window.fbStorage = firebase.storage(); }catch(e){ console.warn('Storage init 실패', e); }
     window.fbReady = true;
+    try{fpfNetBanner(false);}catch(e){}   /* 진짜 연결된 뒤에만 띠 내림 */
     fbAuth.onAuthStateChanged(function(user){
       if(user)window._cloudSyncReady=false; // 로그인 순간부터 초기 로드 끝날 때까지 푸시 금지(그전에 덮어쓰기 방지)
       window.fbUser = user;
@@ -79,6 +102,10 @@ function tryInitFirebase(attempts){
   }catch(e){
     console.error('Firebase 초기화 실패:', e);
     window.fbReady = false;
+    /* 2026-09-08d: 스크립트 4개 중 일부만 온 경우(느린 망·일시 오류) — 빠진 걸 다시 끼우고 2초 뒤 다시 초기화. 6초 뒤부턴 빨간 띠 */
+    if(attempts>=60){ try{fpfNetBanner(true);}catch(e2){} }
+    try{fpfRetryFirebaseScripts();}catch(e2){}
+    setTimeout(function(){tryInitFirebase(Math.max(attempts+1,61));}, 2000);
   }
 }
 tryInitFirebase();
@@ -1365,8 +1392,10 @@ body.tp-printing #tp-modal .tp-upbadge,body.tp-capturing #tp-modal .tp-upbadge{d
     
     <!-- Firebase 미준비 상태 -->
     <div id="fb-not-ready" style="display:none">
-      <div class="info-box" style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:10px;border-radius:8px">
- Firebase 로딩 중이거나 연결 안 됨. 잠시 후 다시 시도하세요.
+      <div class="info-box" style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:10px;border-radius:8px;line-height:1.6">
+        <b>구글 서버(파이어베이스)에 연결이 안 됐어요.</b> 그래서 로그인 칸도, 「로그인됨」도 안 보이고 동기화·사진 올리기가 멈춥니다.<br>
+        이 기기의 와이파이·VPN·보안프로그램이 www.gstatic.com / googleapis.com 을 막고 있거나 인터넷이 느린 상태예요. 앱이 계속 다시 시도합니다.<br>
+        <button onclick="fpfRetryFirebaseScripts()" style="margin-top:6px;border:none;background:#991b1b;color:#fff;font-weight:700;padding:6px 12px;border-radius:6px;cursor:pointer;font-family:inherit">지금 다시 시도</button>
       </div>
     </div>
   </div>
@@ -4381,7 +4410,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08c';
+var APP_BUILD=/*BUILD*/'2026-09-08d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
