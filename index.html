@@ -4436,7 +4436,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08h';
+var APP_BUILD=/*BUILD*/'2026-09-08i';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -22201,7 +22201,10 @@ function renderProdDash(){
     for(const oi of o.orderItems){
       const it=S.items[oi.itemId];if(!it)continue;
       // 출고 완료 여부
-      const sewingFcId=it.sewingFcId||'';
+      /* ⚠️ 2026-09-08i: 예전엔 it.sewingFcId 만 봐서, 프로모션 아이템(promotionFcId)처럼 봉제공장 칸이 비면
+         카드 아래 「출고」 칸(makerFc 기준)에 날짜를 넣어도 카드 위엔 «출고 미정»으로 떴다(신고 「다 했는데 왜 미정」).
+         → 칸과 같은 공장(makerFc)을 본다. */
+      const sewingFcId=(typeof makerFc==='function'?makerFc(it):(it.sewingFcId||''))||'';
       const sewSch=sewingFcId?(o.factorySchedules||{})[sewingFcId]:null;
       const isFullyShipped=sewSch&&sewSch.shipDone;
       // 출고완료 항목도 행에 포함(숨기지 않음) → '출고 완료' 필터로만 따로 봄
@@ -22700,7 +22703,8 @@ function renderProdDashRow(r){
   const _curStage=r.shipDone?'출고완료':(_curIdx<0?'완료':_STG[_curIdx].k);
   const _donePct=Math.round(_doneN/_STG.length*100);
   const _trackHtml=_STG.map((s,i)=>{var cls=s.d?'done':(i===_curIdx?(_isLate?'late':'cur'):'pend');return `<div class="pdc-step ${cls}"><span class="pdc-dot">${s.d?'✓':(cls==='late'?'!':'')}</span><span class="pdc-sl">${esc(s.k)}</span></div>`;}).join('');
-  const _eta2=(r.sewSch&&(r.sewSch.shipExpectedDate||r.sewSch.shippingDate))||r.o.shippingDate||'';
+  /* 출고예정 → 오더 출고일 → «실제 출고 기록»(회차·출고완료일) 순. 실제로 나갔는데 미정으로 보이지 않게 (2026-09-08i) */
+  const _eta2=(r.sewSch&&(r.sewSch.shipExpectedDate||r.sewSch.shippingDate))||r.o.shippingDate||(typeof fcLastShipDate==='function'?fcLastShipDate(r.sewSch):'')||'';
   const _shipShort=_eta2?(typeof toISO==='function'?String(toISO(_eta2)).slice(5).replace('-','.'):_eta2):'미정';
   const _rid=esc(r.o.id)+'::'+esc(r.it.id);
   return `<div class="pdc${r.dashDone?' shipped':''}${window._pdOpenId===_rid?' open':''}" data-rowid="${_rid}" data-bid="${esc(r.brandId||'')}">
