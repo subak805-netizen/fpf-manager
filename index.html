@@ -4436,7 +4436,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08j';
+var APP_BUILD=/*BUILD*/'2026-09-08k';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -18109,13 +18109,28 @@ function applyYoRec(oid,sn,idx,val){
 }
 function yocheokHistory(itemId){
   var it=S.items[itemId];if(!it)return [];
+  /* 사이즈별 요척 → 재단 사이즈 비율로 가중평균. 사이즈별이 없으면 대표 요척 그대로 (2026-09-08k) */
+  var _yoMergeGrid=function(g){ var out={}; Object.keys(g||{}).forEach(function(c){ Object.keys(g[c]||{}).forEach(function(sz){ out[sz]=(out[sz]||0)+(+g[c][sz]||0); }); }); return out; };
+  var _yoPlanOf=function(fc,sizeQty){
+    if(!fc)return 0;
+    var flat=+fc.consumption||0, bs=fc.consumptionBySize||{};
+    var keys=Object.keys(bs).filter(function(k){return +bs[k]>0;});
+    if(!keys.length)return flat;
+    var num=0,den=0;
+    Object.keys(sizeQty||{}).forEach(function(sz){ var q=+sizeQty[sz]||0; if(q<=0)return; var v=+bs[sz]; if(!(v>0))v=flat; if(!(v>0))return; num+=v*q; den+=q; });
+    if(den>0)return num/den;
+    var s=0; keys.forEach(function(k){ s+=+bs[k]; }); return s/keys.length;   /* 재단 사이즈를 모르면 사이즈별 평균 */
+  };
   var groups={},order=[];
   Object.values(S.orders||{}).forEach(function(o){
     if(!o.orderItems)return;
     var oi=o.orderItems.find(function(x){return x.itemId===itemId;});if(!oi)return;
     var single=o.orderItems.length===1;
-    var sewSch=(it.sewingFcId&&o.factorySchedules)?o.factorySchedules[it.sewingFcId]:null;
-    var cutGrid=(sewSch&&typeof pdCutSizeGrid==='function')?pdCutSizeGrid(sewSch,itemId,single):{};
+    /* 재단 기록은 대표공장(makerFc) 먼저, 없으면 그 오더의 다른 공장 일정에서 (2026-09-08k — 08i·08j 와 같은 뿌리) */
+    var cutGrid={};
+    try{ var _schs=(typeof _pdSchList==='function')?_pdSchList(it,o):[((it.sewingFcId&&o.factorySchedules)?o.factorySchedules[it.sewingFcId]:null)];
+      for(var _si=0;_si<_schs.length;_si++){ var _g=(_schs[_si]&&typeof pdCutSizeGrid==='function')?pdCutSizeGrid(_schs[_si],itemId,single):null;
+        if(_g&&Object.keys(_g).length){ cutGrid=_g; break; } } }catch(e){}
     var cutByColor={},cutTot=0;
     Object.keys(cutGrid||{}).forEach(function(c){var s=0;Object.keys(cutGrid[c]||{}).forEach(function(sz){s+=+cutGrid[c][sz]||0;});cutByColor[c]=s;cutTot+=s;});
     if(cutTot<=0)return; // 재단 기록 없는 발주는 제외
@@ -18134,16 +18149,20 @@ function yocheokHistory(itemId){
         if(ordered<=0)return;
         var oq=ordByColor[color]||0; if(!oq&&nCutColors===1)oq=ordTot;
         var fc=(it.fabrics||[]).find(function(f){return f.id===m.fabId||f.name===m.name;});
-        var plan=fc?(+fc.consumption||0):0;
+        /* ⚠️ 2026-09-08k: 예전엔 f.consumption(대표값)만 써서 «사이즈별 요척»을 쓰는 아이템의 계획 요척이 실제와 안 맞았다
+           (신고 「요척 히스토리가 왜 사이즈별 요척을 반영 안 하지」). → 그 발주에서 «재단한 사이즈 비율»로 가중평균한다. */
+        var plan=_yoPlanOf(fc,(cutGrid&&cutGrid[color])||((nCutColors===1)?_yoMergeGrid(cutGrid):null));
         var key=(m.name||'')+'|'+(m.part||'')+'|'+color;
         if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,rows:[],sumOrd:0,sumCut:0,sumOrdQty:0};order.push(key);}
         var g=groups[key];
-        g.rows.push({date:o.createdAt||'',oname:o.name||'',oid:o.id,ordered:ordered,cut:cut,ordQty:oq,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')});
+        g.rows.push({date:o.createdAt||'',oname:o.name||'',oid:o.id,ordered:ordered,cut:cut,ordQty:oq,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''),plan:plan});
         g.sumOrd+=ordered;g.sumCut+=cut;g.sumOrdQty+=oq;
+        g.sumPlanW=(g.sumPlanW||0)+(plan*cut);   /* 발주마다 사이즈 구성이 달라 계획도 장수 가중평균 (2026-09-08k) */
       });
     });
   });
   return order.map(function(k){var g=groups[k];g.wAvg=g.sumCut?(g.sumOrd/g.sumCut):0;
+      if(g.sumCut>0&&g.sumPlanW>0)g.plan=g.sumPlanW/g.sumCut;   /* 계획 요척도 장수 가중평균 (사이즈별 요척 반영, 2026-09-08k) */
     g.rows.sort(function(a,b){return (typeof cmpDate==='function')?(cmpDate(a.date)-cmpDate(b.date)):String(a.date).localeCompare(String(b.date));});
     return g;});
 }
