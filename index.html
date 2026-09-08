@@ -4436,7 +4436,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08k';
+var APP_BUILD=/*BUILD*/'2026-09-08l';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -28848,6 +28848,34 @@ function getNegotiatedForMat(matName,matId){
   return 0;
 }
 
+/* ===== 원가계산서 사이즈 기준 (2026-09-08l)
+   요청: 「사이즈별로 공임을 나눴으면 원가계산서도 사이즈별로 나와야 하는데 엄지공임이 아예 안 뜬다」.
+   ① 공임: 예전엔 it.laborCost(기본값)만 봐서 «사이즈별만 적고 기본은 0» 이면 줄이 통째로 사라졌다 → laborRate 기준으로.
+   ② 사이즈 칩: 고른 사이즈 기준으로 공임·원단 요척이 함께 바뀐다. 기본값은 예전과 같은 «최대» 기준(가장 비싼 사이즈). */
+function csSizeList(it){ try{ var s=(it&&it.sizes)||[]; return s.filter(function(x){return String(x||'').trim()!=='';}); }catch(e){ return []; } }
+function csHasSizeCost(it){
+  try{ if(typeof hasLaborBySize==='function'&&hasLaborBySize(it))return true;
+    return (it&&it.fabrics||[]).some(function(f){ var m=f&&f.consumptionBySize; return !!m&&Object.keys(m).some(function(k){return +m[k]>0;}); }); }catch(e){ return false; }
+}
+function csSetSize(v){ window._csSize=v||''; try{renderCS();}catch(e){} }
+/* 지금 기준 공임 단가 — 사이즈를 고르면 그 사이즈, 아니면 사이즈별 중 «최대»(원단 요척과 같은 기준) */
+function csLaborRate(it){
+  try{
+    var sz=window._csSize||'';
+    if(sz&&typeof laborRate==='function'){ var v=laborRate(it,sz); if(v>0)return v; }
+    var m=(it&&it.laborBySize)||{}, vals=Object.keys(m).map(function(k){return +m[k]||0;}).filter(function(v){return v>0;});
+    if(vals.length)return Math.max.apply(null,vals);
+    return +((it&&it.laborCost)||0)||0;
+  }catch(e){ return +((it&&it.laborCost)||0)||0; }
+}
+function csLaborNote(it){
+  try{ var m=(it&&it.laborBySize)||{}, ks=Object.keys(m).filter(function(k){return +m[k]>0;});
+    if(!ks.length)return '';
+    var sz=window._csSize||'';
+    if(sz)return ' · '+sz+' 사이즈';
+    var mx=ks.reduce(function(a,b){return (+m[b]>+m[a])?b:a;},ks[0]);
+    return ' · 최대 '+mx+' 기준';
+  }catch(e){ return ''; } }
 function renderCS(){
   try{_csRestoreSet();}catch(e){} // 저장된 미니멈·판매배수·로스율·수량 복원 (최초 1회)
   const id=document.getElementById('cs-sel').value;
@@ -28866,6 +28894,8 @@ function renderCS(){
   // 순수원가: 요척×수량×단가 (로스 없음)
   // 사이즈별 요척이 있으면 가장 큰 사이즈 기준(최대)을 원가 요척으로 사용 (보수적 — 계산식 표시와 일치)
   const effConsumption=(f)=>{
+    /* 사이즈를 골랐으면 그 사이즈 요척 (2026-09-08l) */
+    try{ var _sz=window._csSize||''; if(_sz&&f.consumptionBySize&&+f.consumptionBySize[_sz]>0)return +f.consumptionBySize[_sz]; }catch(e){}
     if(f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0){
       var vals=Object.values(f.consumptionBySize).map(function(v){return +v||0;}).filter(function(v){return v>0;});
       if(vals.length>0){
@@ -28892,7 +28922,8 @@ function renderCS(){
       if(f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0){
         var _ents=Object.entries(f.consumptionBySize).map(function(e){return [e[0],+e[1]||0];});
         var _mx=_ents.reduce(function(a,b){return b[1]>a[1]?b:a;},_ents[0]); // 요척 가장 큰 사이즈 = 제일 큰 사이즈
-        _maxNote=' · 최대 '+esc(_mx[0])+' 기준';
+        var _selSz=window._csSize||'';
+        _maxNote=(_selSz&&+((f.consumptionBySize||{})[_selSz])>0)?(' · '+esc(_selSz)+' 사이즈'):(' · 최대 '+esc(_mx[0])+' 기준');
       }
       return '<div style="font-weight:700;font-size:12px">'+_effTy.toFixed(2)+'y × '+qty+(_ovr!==undefined?'':'')+'</div>'
         +'<div class="cs-hide-on-img" style="font-size:9px;color:var(--t3,#9ca3af);margin-top:1px">작지 '+_autoTy.toFixed(2)+'y'+_maxNote+'</div>'
@@ -28983,7 +29014,8 @@ function renderCS(){
   const labelHtml=_labelObjs.map(function(r){return r.html;}).join('');
   let labelTt=0,labelTtL=0;_labelObjs.forEach(function(r){if(r.inc){labelTt+=r.cost;labelTtL+=r.costL;}});
   // 가공비
-  const pArr=COST_DEFS.map(([k,l,fk])=>{const v=it[k]||0;if(!v)return null;const fcNm=it[fk]&&S.factories[it[fk]]?S.factories[it[fk]].name:'';return{ck:k,lbl:l,val:v,fcNm};}).filter(Boolean);
+  /* 공임은 사이즈별 단가까지 본다 — 기본 공임 0원이어도 사이즈별이 있으면 나온다 (2026-09-08l) */
+  const pArr=COST_DEFS.map(([k,l,fk])=>{const v=(k==='laborCost')?csLaborRate(it):(it[k]||0);if(!v)return null;const fcNm=it[fk]&&S.factories[it[fk]]?S.factories[it[fk]].name:'';return{ck:k,lbl:l+((k==='laborCost')?csLaborNote(it):''),val:v,fcNm};}).filter(Boolean);
   let pt=0;for(const p of pArr){if(!isEx('p-'+p.ck))pt+=p.val*qty;}
   // 부자재 가공비
   const tcArr=(it.trimCosts||[]).filter(tc=>(tc.costPerPcs||tc.costPerLot)>0);
@@ -29058,6 +29090,14 @@ function renderCS(){
       <div style="background:#fff;padding:9px 12px"><div style="font-size:10px;color:#9a958a;margin-bottom:3px">시즌</div><div style="font-size:14px;font-weight:700;color:#1a1a1a">${it.season?esc(it.season):'—'}</div></div>
       <div style="background:#fff;padding:9px 12px"><div style="font-size:10px;color:#9a958a;margin-bottom:3px">생산처</div><div style="font-size:14px;font-weight:700;color:#1a1a1a">${(function(){var fc=it.sewingFcId&&S.factories[it.sewingFcId];return fc?esc(fc.name):(it.client?esc(it.client):'—');})()}</div></div>
     </div>
+    ${(function(){ if(!csHasSizeCost(it))return '';
+      var szs=csSizeList(it), cur=window._csSize||'';
+      var chip=function(v,lbl){ var on=(cur===v);
+        return '<button type="button" onclick="csSetSize(\''+String(v).replace(/'/g,"\\'")+'\')" style="font-size:11.5px;font-weight:700;padding:4px 11px;border:1.5px solid '+(on?'#111':'#d1d5db')+';background:'+(on?'#111':'#fff')+';color:'+(on?'#fff':'#374151')+';border-radius:999px;cursor:pointer;font-family:inherit">'+esc(lbl)+'</button>'; };
+      return '<div class="cs-hide-on-img" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:10px 0 4px">'
+        +'<span style="font-size:11px;font-weight:700;color:#6b7280">사이즈 기준</span>'
+        +chip('','최대(가장 비싼 사이즈)')+szs.map(function(z){return chip(z,z);}).join('')
+        +'<span style="font-size:10.5px;color:#9ca3af">고른 사이즈로 공임·원단 요척이 함께 바뀌어요</span></div>'; })()}
     <div class="info-box cs-hide-on-img" style="font-size:11px;margin-bottom:10px">각 항목 앞 체크박스로 원가 계산에 포함/제외할 수 있어요. 제외한 항목은 회색으로 표시돼요.</div>
     <style>
     /* === 공식문서 디자인 (거래처 전달용 · 깔끔 톤) — 표 스타일만, 계산식 불변 === */
