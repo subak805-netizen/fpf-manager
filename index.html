@@ -4436,7 +4436,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08l';
+var APP_BUILD=/*BUILD*/'2026-09-08m';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -18151,18 +18151,21 @@ function yocheokHistory(itemId){
         var fc=(it.fabrics||[]).find(function(f){return f.id===m.fabId||f.name===m.name;});
         /* ⚠️ 2026-09-08k: 예전엔 f.consumption(대표값)만 써서 «사이즈별 요척»을 쓰는 아이템의 계획 요척이 실제와 안 맞았다
            (신고 「요척 히스토리가 왜 사이즈별 요척을 반영 안 하지」). → 그 발주에서 «재단한 사이즈 비율»로 가중평균한다. */
-        var plan=_yoPlanOf(fc,(cutGrid&&cutGrid[color])||((nCutColors===1)?_yoMergeGrid(cutGrid):null));
+        var _szQty=(cutGrid&&cutGrid[color])||((nCutColors===1)?_yoMergeGrid(cutGrid):null);
+        var plan=_yoPlanOf(fc,_szQty);   /* 계획 총 야드 계산용(사이즈별×장수) — 화면엔 «적어둔 사이즈별 값»을 그대로 보여준다 */
         var key=(m.name||'')+'|'+(m.part||'')+'|'+color;
-        if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,rows:[],sumOrd:0,sumCut:0,sumOrdQty:0};order.push(key);}
+        if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,planFlat:(fc?(+fc.consumption||0):0),planBySize:((fc&&fc.consumptionBySize)?fc.consumptionBySize:null),cutBySize:{},rows:[],sumOrd:0,sumCut:0,sumOrdQty:0};order.push(key);}
         var g=groups[key];
         g.rows.push({date:o.createdAt||'',oname:o.name||'',oid:o.id,ordered:ordered,cut:cut,ordQty:oq,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''),plan:plan});
         g.sumOrd+=ordered;g.sumCut+=cut;g.sumOrdQty+=oq;
-        g.sumPlanW=(g.sumPlanW||0)+(plan*cut);   /* 발주마다 사이즈 구성이 달라 계획도 장수 가중평균 (2026-09-08k) */
+        g.sumPlanW=(g.sumPlanW||0)+(plan*cut);   /* = 계획 총 야드(사이즈별 요척 × 그 사이즈 재단장수) */
+        try{ if(_szQty)Object.keys(_szQty).forEach(function(sz){ var q=+_szQty[sz]||0; if(q>0)g.cutBySize[sz]=(g.cutBySize[sz]||0)+q; }); }catch(e){}
       });
     });
   });
   return order.map(function(k){var g=groups[k];g.wAvg=g.sumCut?(g.sumOrd/g.sumCut):0;
-      if(g.sumCut>0&&g.sumPlanW>0)g.plan=g.sumPlanW/g.sumCut;   /* 계획 요척도 장수 가중평균 (사이즈별 요척 반영, 2026-09-08k) */
+      g.planYd=g.sumPlanW||0;   /* 계획 총 야드. ⚠️ 사이즈별 요척을 하나로 뭉개지 않는다 (2026-09-08m 사용자 지적) */
+      if(!(g.planBySize&&Object.keys(g.planBySize).some(function(k){return +g.planBySize[k]>0;}))&&g.sumCut>0&&g.sumPlanW>0)g.plan=g.sumPlanW/g.sumCut;
     g.rows.sort(function(a,b){return (typeof cmpDate==='function')?(cmpDate(a.date)-cmpDate(b.date)):String(a.date).localeCompare(String(b.date));});
     return g;});
 }
@@ -18179,12 +18182,39 @@ function openYocheokHist(itemId){
         var dm=String(r.date||'').match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);var dShort=dm?(+dm[2]+'/'+(+dm[3])):String(r.date||'');
         return '<tr><td style="text-align:left;padding:4px 4px">'+esc(dShort)+'</td><td style="padding:4px 4px">'+sw+esc(g.color||'기본')+'</td><td style="text-align:center;padding:4px 4px">'+r.cut+'</td><td style="text-align:center;padding:4px 4px;white-space:nowrap">'+_yoR1(r.ordered)+'y'+(r.override?'<sup style="color:#2563eb;font-size:8px;font-weight:800">실</sup>':'')+'</td><td style="text-align:center;padding:4px 4px;font-weight:800;color:#7c3aed">'+_yoR2(r.realYo)+'</td></tr>';
       }).join('');
+      var _pbs=g.planBySize||{}, _szKeys=Object.keys(_pbs).filter(function(k){return +_pbs[k]>0;});
+      var _bySize=_szKeys.length>0;
+      var _planTxt=_bySize?_szKeys.map(function(k){return esc(k)+' <b style="color:var(--text)">'+_yoR2(+_pbs[k])+'</b>';}).join(' · '):('<b style="color:var(--text)">'+_yoR2(g.plan)+'</b>');
+      var _ydDiff=(g.sumOrd||0)-(g.planYd||0);
       var diff=g.wAvg-(g.plan||0);
       return '<div style="margin-bottom:15px">'
-        +'<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:12.5px;margin-bottom:4px;flex-wrap:wrap;gap:4px"><span>'+esc(g.fabName)+(g.part?' <span style="color:var(--t2);font-weight:500">· '+esc(g.part)+'</span>':'')+'</span><span style="font-size:11px;color:var(--t2)">계획 요척 <b style="color:var(--text)">'+_yoR2(g.plan)+'</b></span></div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:12.5px;margin-bottom:4px;flex-wrap:wrap;gap:4px"><span>'+esc(g.fabName)+(g.part?' <span style="color:var(--t2);font-weight:500">· '+esc(g.part)+'</span>':'')+'</span><span style="font-size:11px;color:var(--t2)">계획 요척 '+_planTxt+'</span></div>'
         +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr style="color:var(--t2)"><th style="text-align:left;padding:4px 4px;font-size:10px;font-weight:700">발주</th><th style="padding:4px 4px;font-size:10px;font-weight:700">컬러</th><th style="padding:4px 4px;font-size:10px;font-weight:700">재단</th><th style="padding:4px 4px;font-size:10px;font-weight:700">실제발주</th><th style="padding:4px 4px;font-size:10px;font-weight:700">실제요척</th></tr></thead><tbody>'+rowsH
         +'<tr style="border-top:1.5px solid var(--ink)"><td colspan="2" style="padding:5px;font-weight:800">장수 가중평균</td><td style="text-align:center;font-weight:800;padding:5px">'+g.sumCut+'</td><td style="text-align:center;font-weight:800;padding:5px">'+_yoR1(g.sumOrd)+'y</td><td style="text-align:center;font-weight:800;color:#7c3aed;padding:5px">'+_yoR2(g.wAvg)+'</td></tr></tbody></table></div>'
-        +'<div style="margin-top:7px;background:#eafaf1;border:1px solid #b6e3c8;border-radius:7px;padding:8px 11px;font-size:12px;line-height:1.55"><b style="color:#1f7a4d">추천 요척: '+_yoR2(g.wAvg)+'</b>'+((Math.abs(diff)>=0.005)?' <span style="color:var(--t2)">(계획 '+_yoR2(g.plan)+'보다 '+(diff>0?'+':'')+_yoR2(diff)+')</span>':' <span style="color:var(--t2)">(계획과 같음)</span>')+'</div>'
+        +(_bySize
+          ? (function(){
+              /* 사이즈별 상세 분석 (요청 2026-09-08m 「2사이즈에 필요한 야드수, 3사이즈에 필요한 야드수, 실제 발주한 야드수 자세하게」) */
+              var szs=Object.keys(g.cutBySize||{}); if(!szs.length)szs=_szKeys.slice();
+              szs.sort(function(a,b){ var na=parseFloat(a),nb=parseFloat(b); if(isFinite(na)&&isFinite(nb))return na-nb; return String(a).localeCompare(String(b)); });
+              var rowsH=szs.map(function(sz){
+                var yo=+(_pbs[sz]||0)||(+g.planFlat||0), cutN=+(g.cutBySize[sz]||0), need=yo*cutN;
+                return '<tr><td style="padding:3px 4px;text-align:left">'+esc(sz)+'</td>'
+                  +'<td style="padding:3px 4px;text-align:center">'+_yoR2(yo)+((+_pbs[sz]>0)?'':'<span style="color:var(--t3);font-size:9px"> 기본</span>')+'</td>'
+                  +'<td style="padding:3px 4px;text-align:center">'+cutN+'장</td>'
+                  +'<td style="padding:3px 4px;text-align:right;font-weight:700">'+_yoR1(need)+'y</td></tr>'; }).join('');
+              return '<div style="margin-top:7px;background:#f7fbf9;border:1px solid #b6e3c8;border-radius:7px;padding:8px 11px;font-size:12px;line-height:1.5">'
+                +'<div style="font-weight:800;color:#1f7a4d;margin-bottom:4px">사이즈별 필요 야드</div>'
+                +'<table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr style="color:var(--t2)">'
+                +'<th style="text-align:left;padding:2px 4px;font-size:10px">사이즈</th><th style="padding:2px 4px;font-size:10px">요척</th><th style="padding:2px 4px;font-size:10px">재단</th><th style="text-align:right;padding:2px 4px;font-size:10px">필요 야드</th></tr></thead>'
+                +'<tbody>'+rowsH+'</tbody>'
+                +'<tfoot><tr style="border-top:1.5px solid var(--ink)"><td colspan="2" style="padding:4px;font-weight:800">계획 합계</td>'
+                +'<td style="text-align:center;font-weight:800;padding:4px">'+g.sumCut+'장</td>'
+                +'<td style="text-align:right;font-weight:800;padding:4px">'+_yoR1(g.planYd)+'y</td></tr>'
+                +'<tr><td colspan="3" style="padding:4px;font-weight:800">실제 발주</td><td style="text-align:right;font-weight:800;color:#7c3aed;padding:4px">'+_yoR1(g.sumOrd)+'y</td></tr>'
+                +'<tr><td colspan="3" style="padding:4px;font-weight:800">차이</td><td style="text-align:right;font-weight:800;color:'+(_ydDiff>0?'#b42318':'#1f7a4d')+';padding:4px">'+(_ydDiff>0?'+':'')+_yoR1(_ydDiff)+'y '+(_ydDiff>0?'더 씀':'덜 씀')+'</td></tr></tfoot></table>'
+                +'<div style="font-size:10.5px;color:var(--t2);margin-top:4px">요척은 <b>적어두신 사이즈별 값 그대로</b>. 원단은 통으로 발주해서 실제 야드는 사이즈로 나눌 수 없어요 — 합계로만 비교합니다.</div>'
+                +'</div>'; })()
+          : ('<div style="margin-top:7px;background:#eafaf1;border:1px solid #b6e3c8;border-radius:7px;padding:8px 11px;font-size:12px;line-height:1.55"><b style="color:#1f7a4d">추천 요척: '+_yoR2(g.wAvg)+'</b>'+((Math.abs(diff)>=0.005)?' <span style="color:var(--t2)">(계획 '+_yoR2(g.plan)+'보다 '+(diff>0?'+':'')+_yoR2(diff)+')</span>':' <span style="color:var(--t2)">(계획과 같음)</span>')+'</div>'))
         +'</div>';
     }).join('')
     +'<div style="font-size:11px;color:#9a3a2e;background:#fff5f5;border:1px solid #f0c0c0;border-radius:7px;padding:8px 10px;line-height:1.55">계획 요척(작지·원가)은 <b>안 바뀜</b>. 실제발주량 ÷ 재단장수 · <b>재단 기록 있는 발주만</b> 집계.</div>';
@@ -29084,9 +29114,10 @@ function renderCS(){
         작성일 ${typeof todayISO==='function'?todayISO():''}<br>생산수량 <b style="color:#1a1a1a">${num(qty)} pcs</b>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#e6e3da;border:1px solid #e6e3da;margin:18px 0 4px">
+    <div style="display:grid;grid-template-columns:repeat(${csHasSizeCost(it)?5:4},1fr);gap:1px;background:#e6e3da;border:1px solid #e6e3da;margin:18px 0 4px">
       <div style="background:#fff;padding:9px 12px"><div style="font-size:10px;color:#9a958a;margin-bottom:3px">품번</div><div style="font-size:14px;font-weight:700;color:#1a1a1a">${it.code?esc(it.code):'—'}</div></div>
       <div style="background:#fff;padding:9px 12px"><div style="font-size:10px;color:#9a958a;margin-bottom:3px">품명</div><div style="font-size:14px;font-weight:700;color:#1a1a1a">${esc(it.name)}</div></div>
+      ${csHasSizeCost(it)?('<div style="background:#fff;padding:9px 12px"><div style="font-size:10px;color:#9a958a;margin-bottom:3px">사이즈</div><div style="font-size:14px;font-weight:700;color:#1a1a1a">'+(window._csSize?(esc(window._csSize)+' 사이즈'):'최대 기준')+'</div></div>'):''}
       <div style="background:#fff;padding:9px 12px"><div style="font-size:10px;color:#9a958a;margin-bottom:3px">시즌</div><div style="font-size:14px;font-weight:700;color:#1a1a1a">${it.season?esc(it.season):'—'}</div></div>
       <div style="background:#fff;padding:9px 12px"><div style="font-size:10px;color:#9a958a;margin-bottom:3px">생산처</div><div style="font-size:14px;font-weight:700;color:#1a1a1a">${(function(){var fc=it.sewingFcId&&S.factories[it.sewingFcId];return fc?esc(fc.name):(it.client?esc(it.client):'—');})()}</div></div>
     </div>
