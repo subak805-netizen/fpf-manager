@@ -4381,7 +4381,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08a';
+var APP_BUILD=/*BUILD*/'2026-09-08b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4443,6 +4443,21 @@ async function fpfHardReload(){
   var u=location.href.split('#')[0].replace(/[?&]vc=\d+/,'');
   location.replace(u+(u.indexOf('?')<0?'?':'&')+'vc='+Date.now());
 }
+/* ===== 사진 저장소 검사 (2026-09-08b) — 「로고·도식화가 깨진 아이콘」 원인 가르기
+   지금 자료에서 저장소 주소 하나를 골라 ① 그대로 받아보기(토큰 주소) ② SDK 로 메타데이터 읽기 → 200/403/404/네트워크 를 사람 말로. */
+async function fpfImgStoreCheck(){
+  var urls=[]; try{ var seen={}; var walk=function(v,d){ if(urls.length>=3||d>6)return; if(typeof v==='string'){ if(v.indexOf('https://firebasestorage.googleapis.com/')===0&&!seen[v]){seen[v]=1;urls.push(v);} return; } if(Array.isArray(v)){ for(var i=0;i<v.length;i++)walk(v[i],d+1); return; } if(v&&typeof v==='object'){ for(var k in v)walk(v[k],d+1); } };
+    walk(S.items,0); if(!urls.length)walk(S.brandConfig,0); if(!urls.length)walk(S.brands,0); }catch(e){}
+  var out=['[사진 저장소 검사] '+new Date().toLocaleTimeString()];
+  out.push('로그인: '+((window.fbUser&&window.fbUser.email)||'안 됨')+' · 인터넷: '+(navigator.onLine?'연결':'끊김')+' · 저장소 SDK: '+(window.fbStorage?'있음':'없음'));
+  if(!urls.length){ out.push('이 자료엔 저장소 주소가 하나도 없어요 (사진이 전부 기기 안에만 있음)'); alert(out.join('\n')); return; }
+  var u=urls[0]; out.push('검사 주소: …'+u.slice(-60));
+  var st=null; try{ var r=await fetch(u,{mode:'cors',cache:'no-store'}); st=r.status; out.push('① 주소 그대로 받기: HTTP '+st+(st===200?' (정상 — 이 기기에서 받아져요)':st===403?' (거부 — 토큰/규칙 문제)':st===404?' (없음 — 파일이 지워짐)':'')); }catch(e){ out.push('① 주소 그대로 받기: 네트워크 실패 ('+(e&&e.message)+') — 이 기기가 구글 저장소에 접속을 못 해요'); }
+  try{ if(window.fbStorage&&window.fbStorage.refFromURL){ var m=await window.fbStorage.refFromURL(u).getMetadata(); out.push('② SDK 메타데이터: 있음 ('+Math.round((m.size||0)/1024)+'KB, '+(m.updated||'').slice(0,10)+')'); } else out.push('② SDK 없음'); }catch(e){ out.push('② SDK 메타데이터: 실패 '+((e&&e.code)||(e&&e.message)||e)); }
+  out.push(''); out.push('※ ①이 200이면 사진은 멀쩡하고 이 기기의 화면 문제, ①이 네트워크 실패면 이 기기의 인터넷/차단 문제, ②가 object-not-found 면 파일이 지워진 것, unauthorized 면 규칙 문제');
+  try{ console.log(out.join('\n')); }catch(e){}
+  alert(out.join('\n'));
+}
 /* 동기화 진단 — 클라우드 창에 표시할 내용 */
 function fpfSyncDiagHTML(){
   var lines=[];
@@ -4467,6 +4482,7 @@ function fpfSyncDiagHTML(){
   h+='<div style="font-weight:700;margin-bottom:4px">동기화 진단</div>';
   lines.forEach(function(r){ h+='<div style="display:flex;gap:8px"><span style="color:#6b7280;min-width:132px">'+r[0]+'</span><span>'+r[1]+'</span></div>'; });
   h+='<div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">'
+   +'<button onclick="fpfImgStoreCheck()" style="border:1px solid #d1d5db;background:#fff;padding:6px 11px;border-radius:6px;cursor:pointer;font-family:inherit;margin-right:6px">사진 저장소 검사</button>'
    +'<button onclick="fpfCheckAppVersion().then(function(){setTimeout(updateCloudModal,50)})" style="border:1px solid #d1d5db;background:#fff;padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit">버전 다시 확인</button>'
    +'<button onclick="fpfHardReload()" style="border:none;background:#1f2937;color:#fff;padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit">최신으로 새로고침</button>'
    +'</div>';
