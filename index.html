@@ -4436,7 +4436,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08g';
+var APP_BUILD=/*BUILD*/'2026-09-08h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7058,6 +7058,22 @@ function _pbSupKind(pb){
   if(hasT)return 'trim';
   return 'none';
 }
+/* ===== 품목 0개 거래처는 «아이템에서 어떻게 쓰이는지»로 가른다 (2026-09-08h)
+   신고: 「부자재 단가장에 왜 하나라벨이 없어?」 — 라벨 카드는 09-02부터 단가장에 품목을 안 넣어서 하나라벨은 품목 0개,
+   `_pbSupKind` 가 'none' 을 주고 부자재 단가장은 'trim'/'both' 만 보여 빠졌다(원단 단가장 쪽에 있었음).
+   → 아이템의 부자재·라벨이 그 거래처를 쓰면 부자재처로, 원단이 쓰면 원단처로 본다. 품목이 생기면 예전 규칙대로. */
+function _pbUsageKinds(){
+  var now=Date.now();
+  if(window._pbUseCache&&(now-window._pbUseCache.t)<3000)return window._pbUseCache;
+  var trim={},fab={};
+  try{ Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; if(!it)return;
+    (it.trims||[]).forEach(function(x){ var s=x&&String(x.supplier||'').trim(); if(s)trim[s]=1; });
+    (it.fabrics||[]).forEach(function(f){ var s=f&&String(f.supplier||'').trim(); if(s)fab[s]=1; }); }); }catch(e){}
+  window._pbUseCache={t:now,trim:trim,fab:fab};
+  return window._pbUseCache;
+}
+function _pbUsedAsTrimOnly(s){ var u=_pbUsageKinds(); return !!u.trim[s]&&!u.fab[s]; }
+function _pbUsedAsFabOnly(s){ var u=_pbUsageKinds(); return !!u.fab[s]&&!u.trim[s]; }
 function _pbKindMatch(s,kind){
   if(!kind||kind==='all')return true;
   var k=_pbSupKind(S.priceBook[s]);
@@ -8666,7 +8682,12 @@ function renderBookList(){
   const qBook=(window._bookSearch||'').toLowerCase().trim();
   const _scope=window._bookScope||'fabric';
   // scope로 먼저 거래처 분리: 부자재 단가장=부자재처만 / 원단 단가장=부자재만 아닌 것(원단·둘다·빈곳)
-  const scopeSups=allSups.filter(function(s){return _scope==='trim'?_pbKindMatch(s,'trim'):(_pbSupKind(S.priceBook[s])!=='trim');});
+  /* 품목 0개(kind 'none')면 아이템 사용처로 가른다 — 라벨만 쓰는 거래처(하나라벨)가 부자재 단가장에 나오게 (2026-09-08h) */
+  const scopeSups=allSups.filter(function(s){
+    var k=_pbSupKind(S.priceBook[s]);
+    if(_scope==='trim')return _pbKindMatch(s,'trim')||(k==='none'&&_pbUsedAsTrimOnly(s));
+    return k!=='trim'&&!(k==='none'&&_pbUsedAsTrimOnly(s));
+  });
   let sups=qBook?scopeSups.filter(function(s){
     if(s.toLowerCase().includes(qBook))return true;
     const mats=S.priceBook[s].materials||{};
