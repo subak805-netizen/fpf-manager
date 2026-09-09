@@ -4436,7 +4436,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-08o';
+var APP_BUILD=/*BUILD*/'2026-09-09a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -16627,8 +16627,10 @@ function genPoText(order,sn){
         var fabClr=cl.fabricColor||cl.colorName||'';
         if(!_fcG[fabClr]){_fcG[fabClr]={y:0,oy:0,kg:0,ovr:false,items:[]};_fcO.push(fabClr);}
         var grp=_fcG[fabClr];
-        var hasO=(cl.actualOrderedQty!==undefined&&cl.actualOrderedQty!=='');
-        grp.y+=hasO?(+cl.actualOrderedQty||0):(+cl.totalYards||0);
+        /* kg 원단은 실제발주 칸이 kg 이므로 야드는 «실제 야드» 칸(없으면 계산 야드)을 쓴다 (2026-09-09a) */
+        var _isKgM=(cl.pricingUnit==='kg');
+        var hasO=_isKgM?(cl.actualOrderedYards!==undefined&&cl.actualOrderedYards!==''):(cl.actualOrderedQty!==undefined&&cl.actualOrderedQty!=='');
+        grp.y+=_isKgM?((typeof matActualYards==='function')?matActualYards(cl):(+cl.totalYards||0)):(hasO?(+cl.actualOrderedQty||0):(+cl.totalYards||0));
         grp.oy+=(+cl.totalYards||0);
         if(hasO)grp.ovr=true;
         if(cl.totalKg)grp.kg+=(+cl.totalKg||0);
@@ -18158,7 +18160,8 @@ function yocheokHistory(itemId){
         var cut=cutByColor[color]||0;
         if(!cut&&nCutColors===1)cut=cutTot; // 단색/컬러 매칭 실패 시 전체 재단합 폴백
         if(cut<=0)return;
-        var ordered=(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')?+m.actualOrderedQty:(+m.totalYards||0);
+        /* kg 원단은 actualOrderedQty 가 kg 이라 야드로 쓰면 안 된다 → matActualYards (2026-09-09a) */
+        var ordered=(typeof matActualYards==='function')?matActualYards(m):((m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')?+m.actualOrderedQty:(+m.totalYards||0));
         if(ordered<=0)return;
         var oq=ordByColor[color]||0; if(!oq&&nCutColors===1)oq=ordTot;
         var fc=(it.fabrics||[]).find(function(f){return f.id===m.fabId||f.name===m.name;});
@@ -19514,6 +19517,16 @@ function renderCheckTab(o,onlySn){
               onchange="setActualOrderedQty('${o.id}','${esc(sn)}',${idx},this.value)">
             <span class="muted" style="font-size:10px">${origUnit}</span>
           </div>
+          ${isKg?(function(){
+            var _ay=(m.actualOrderedYards!==undefined&&m.actualOrderedYards!=='')?m.actualOrderedYards:'';
+            var _autoY=Math.round((+m.totalYards||0)*100)/100;
+            var _kgIn=(m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')?+m.actualOrderedQty:0;
+            var _perKg=+m.yardsPerKg||0;
+            var _hint=(_kgIn>0&&_perKg>0)?(Math.round(_kgIn*_perKg*100)/100):_autoY;
+            return '<div style="display:flex;align-items:center;gap:3px;margin-top:3px">'
+              +'<input type="number" value="'+_ay+'" placeholder="'+_hint+'" step="0.01" min="0" title="실제로 받은 야드 — 돈 계산은 kg 그대로, 이 값은 발주서 표시와 요척 계산에 쓰여요" style="width:70px;font-size:11px;padding:3px 5px;'+(_ay!==''?'background:#f0fdf4;border-color:#16a34a;font-weight:700':'')+'" onchange="setActualOrderedYards(\''+o.id+'\',\''+esc(sn)+'\','+idx+',this.value)">'
+              +'<span class="muted" style="font-size:10px">y</span>'
+              +'</div>'; })():''}
           ${actualOrd!==''&&Math.abs(costDiff)>0.5?`<div style="font-size:9px;margin-top:2px;color:${costDiff>0?'var(--red)':'var(--green)'};font-weight:600">${costDiff>0?'+':''}${num(Math.round(costDiff))}원</div>`:''}
           ${m.type==='fabric'?(function(){var _recX=(typeof yocheokRecFor==='function')?(+yocheokRecFor(m.itemId,m.name,m.colorName||'')||0):0;var _pcs=Math.round(+m.garmentPcs||0);if(_recX<=0||_pcs<=0)return '';var _sug=Math.round(_recX*_pcs*100)/100;var _recD=(typeof _yoR3==='function')?_yoR3(_recX):Math.round(_recX*1000)/1000;if(+actualOrd===_sug)return '<div style="font-size:9px;margin-top:2px;color:var(--green);font-weight:700">✓ 추천요척 '+_recD+' 적용됨</div>';return '<button type="button" onclick="applyYoRec(\''+o.id+'\',\''+esc(sn)+'\','+idx+','+_sug+')" style="margin-top:3px;font-size:9px;font-weight:800;color:#1f7a4d;background:#eafaf1;border:1px solid #b6e3c8;border-radius:5px;padding:2px 6px;cursor:pointer;white-space:nowrap" title="실제 요척 평균(정밀)으로 실제발주 채우기">추천요척 '+_recD+' → '+_sug+'y 적용</button>';})():''}
         </td>
@@ -19582,6 +19595,29 @@ function renderCheckTab(o,onlySn){
   }).join('');
 }
 
+/* ===== KG 원단의 «실제 발주 야드» (2026-09-09a)
+   요청: 「오더 발주 거래처 확인란에 KG인 원단 야드도 적을 수 있게」.
+   KG 원단은 돈이 kg×단가라 actualOrderedQty 는 **kg** 이다. 야드는 따로 적어 둔다(actualOrderedYards).
+   ⚠️ 돈 계산은 건드리지 않는다. 이 야드는 ①발주서 표시 ②요척 히스토리(실제요척=야드÷재단장수)에만 쓴다. */
+function setActualOrderedYards(oid,sn,matIdx,val){
+  var o=S.orders[oid]; if(!o||!o.suppliers||!o.suppliers[sn])return;
+  var sup=o.suppliers[sn]; if(!sup.materials||!sup.materials[matIdx])return;
+  var m=sup.materials[matIdx];
+  if(val===''||val===null||val===undefined){ delete m.actualOrderedYards; }
+  else { var v=+val; if(!isFinite(v)||v<0)return; m.actualOrderedYards=v; }
+  try{saveData();}catch(e){}
+  try{renderOrderDetail();}catch(e){}
+  try{ if(typeof showToast==='function')showToast(m.actualOrderedYards!=null?('실제 야드 '+m.actualOrderedYards+'y 저장'):'실제 야드 지움'); }catch(e){}
+}
+/* KG 원단이 실제로 받은 야드 — 적어둔 값 우선, 없으면 계산값(totalYards) */
+function matActualYards(m){
+  try{
+    if(m&&m.actualOrderedYards!==undefined&&m.actualOrderedYards!==''&&+m.actualOrderedYards>=0)return +m.actualOrderedYards;
+    if(m&&m.pricingUnit==='kg')return +m.totalYards||0;   /* kg 원단의 actualOrderedQty 는 kg 이라 야드로 쓰면 안 된다 */
+    if(m&&m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')return +m.actualOrderedQty||0;
+    return +((m&&m.totalYards)||0);
+  }catch(e){ return 0; }
+}
 function setActualOrderedQty(oid,sn,matIdx,val,opts){
   opts=opts||{};
   var o=S.orders[oid];if(!o||!o.suppliers||!o.suppliers[sn])return;
