@@ -4528,7 +4528,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-09o';
+var APP_BUILD=/*BUILD*/'2026-09-09p';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -33080,7 +33080,9 @@ function renderSampleSchedule(){
   H+='</div>';
   el.innerHTML=H;
 }
-/* 거래처 전달 텍스트 — 컨펌일·아이콘 없이, 이름 옆에 단계+전달 가능일 */
+/* 거래처 전달 텍스트 — 간단판 (2026-09-09p, 요청 「간단하게 · 전달예정일만 · 날짜 뒤 요일」)
+   머리 1~2줄 + 거래처(공장) 묶음별 「* 아이템 (단계, 전달 9/22월 예정)」 만. 촬영 불가/소요기간/패턴·샘플 날짜 줄은 뺐다. */
+function _ssMDW(iso){ if(!iso)return ''; var d=new Date(String(iso).slice(0,10)+'T00:00:00'); var w=isNaN(d)?'':['일','월','화','수','목','금','토'][d.getDay()]; return _ssMD(iso)+w; }
 function ssBuildText(gkey){
   var isFc=(window._ssGroup==='fc');
   var rows=_ssRows().filter(function(r){ return !_ssGetOff(r)&&!r.hold; })
@@ -33089,43 +33091,15 @@ function ssBuildText(gkey){
   if(!rows.length)return '';
   var bn=_ssGrpName(gkey||'_');
   var today=_ssToday();
-  var L=rows[0].L;
-  var okL=rows.filter(function(c){return c.shoot&&c.ok;});
-  var noL=rows.filter(function(c){return c.shoot&&!c.ok;});
-  var undL=rows.filter(function(c){return !c.shoot;});
   var shootMain=(function(){var m={},best='',n=0;rows.forEach(function(c){if(!c.shoot)return;m[c.shoot]=(m[c.shoot]||0)+1;if(m[c.shoot]>n){n=m[c.shoot];best=c.shoot;}});return best;})();
-  var earliest=rows.reduce(function(a,c){ return (!a||_ssDiff(a,c.earliestShoot)>0)?c.earliestShoot:a; },'');
-  var T=bn+' — 진행 현황 ('+_ssMD(today)+' 기준)';
-  if(shootMain)T+='\n촬영 예정일 '+_ssMD(shootMain);
-  T+='\n';
-  if(okL.length)T+='\n[ 촬영 가능 · '+okL.length+'건 ]\n'+okL.map(function(c){
-      return c.r.nm+((c.shoot!==shootMain)?('('+_ssMD(c.shoot)+')'):''); }).join(' · ')+'\n';
-  if(noL.length)T+='\n[ 촬영 불가 · '+noL.length+'건 — 가장 빠른 가능일 '+_ssMD(earliest)+' ]\n'
-      +noL.map(function(c){ return c.r.nm+' ('+c.stage+', 전달 '+_ssMD(c.deliv)+' 예정)'; }).join('\n')+'\n';
-  if(undL.length)T+='\n[ 촬영일 미정 · '+undL.length+'건 ]\n'
-      +undL.map(function(c){ return c.r.nm+' (전달 '+_ssMD(c.deliv)+' 예정)'; }).join('\n')+'\n';
-  T+='\n[ 샘플 소요 기간 안내 ]\n'
-   +'패턴 투입 → 패턴 완료   '+L.patDone+'일\n'
-   +'패턴 완료 → 샘플 투입   '+L.patSam+'일\n'
-   +'샘플 투입 → 샘플 완성   '+L.samDone+'일\n'
-   +'샘플 완성 → 전달        '+L.samDeliv+'일\n'
-   +'──────────────────\n'
-   +'투입한 날부터 전달까지 최소 '+_ssCycle(L)+'일이 걸립니다.\n'
-   +'원부자재가 아직 안 들어온 건은 입고된 날부터 시작됩니다.\n'
-   +'\n수정이 나오면 패턴 투입부터 다시 시작해 같은 기간이 한 번 더 걸립니다.\n'
-   +'전달 후 촬영까지는 컨펌 '+L.delivConf+'일 + 수정 투입 '+L.confFix+'일 + 재샘플 '+_ssCycle(L)+'일 + '+L.shootAfter+'일 = 총 '+_ssTail(L)+'일.\n';
+  var T=bn+' — 진행 현황 ('+_ssMDW(today)+' 기준)';
+  if(shootMain)T+='\n촬영 예정일 '+_ssMDW(shootMain);
   var byC={}; rows.forEach(function(c){ var k=_ssSubKey(c); (byC[k]=byC[k]||[]).push(c); });
   Object.keys(byC).forEach(function(cat){
     T+='\n\n'+_ssSubName(cat)+'\n';
     byC[cat].slice().sort(_ssByName).forEach(function(c){
       var done=(c.stage==='전달완료'||c.stage==='컨펌완료');
-      var mk=function(node,v){ return _ssMD(v)+(c.act[node]?'':''); };
-      T+='\n* '+c.r.nm+' ('+c.stage+', 전달 '+_ssMD(c.deliv)+(done?' 전달':' 예정')+')'
-        +(c.shoot&&c.shoot!==shootMain?(' — 촬영 '+_ssMD(c.shoot)):'')
-        +'\n   패턴 '+mk('patIn',c.plan.patIn)+' → '+mk('patOut',c.plan.patOut)+' ('+L.patDone+'일)'
-        +' · 샘플 '+mk('samIn',c.plan.samIn)+' → '+mk('samOut',c.plan.samOut)+' ('+L.samDone+'일)'
-        +' · 전달 '+_ssMD(c.deliv);
-      if(c.shoot&&!c.ok)T+='\n   ※ 촬영 '+_ssMD(c.shoot)+' 불가 — 가능일 '+_ssMD(c.earliestShoot);
+      T+='\n* '+c.r.nm+' ('+c.stage+', 전달 '+_ssMDW(c.deliv)+(done?' 전달':' 예정')+')';
     });
   });
   return T;
