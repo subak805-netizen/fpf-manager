@@ -1669,12 +1669,19 @@ function getCloudCfg(){return {firebase:true};} // 호환성 stub
 
 async function cloudGet(key){
   if(!isCloudOn())return null;
-  try{
-    const snap = await window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key).get();
-    if(!snap.exists)return null;
-    const v = snap.data().value;
-    return v ? JSON.parse(v) : null;
-  }catch(e){console.error('cloudGet '+key+':',e);return null;}
+  for(var a=0;a<3;a++){
+    try{
+      const snap = await window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key).get();
+      _cloudNoteFail(key,false);
+      if(!snap.exists)return null;
+      const v = snap.data().value;
+      return v ? JSON.parse(v) : null;
+    }catch(e){
+      if(a===2){ console.error('cloudGet '+key+':',e); _cloudNoteFail(key,true); return null; }
+      await _cloudSleep(400*(a+1));
+    }
+  }
+  return null;
 }
 
 async function cloudSet(key,value){
@@ -1705,14 +1712,55 @@ function _loadSyncBase(){ if(!window._syncBaseTs){ var v=null; try{v=JSON.parse(
 function getSyncBase(key){ return _loadSyncBase()[key]||''; }
 function setSyncBase(key,ts){ if(!ts)return; var b=_loadSyncBase(); if(b[key]===ts)return; b[key]=ts; try{localStorage.setItem('fpm_syncbase',JSON.stringify(b));}catch(e){} }
 // 문서를 값+ts로 함께 가져오기 (cloudGet은 값만 줌)
+/* ===== 클라우드 «읽기 실패» 와 «자료 없음» 구분 (2026-09-09c) ==============================
+   ⚠️ 예전엔 읽기가 실패해도 null 을 돌려줘서, 부르는 쪽이 «클라우드에 자료가 없다»로 착각했다.
+      그래서 통신이 한 번 흔들린 기기(폰 LTE)가 ①회사 목록 없음 → 빈 화면 ②아이템·할일판 상자 누락 → 자료가 사라진 것처럼 보임.
+   → 3번까지 다시 읽고, 그래도 안 되면 **실패로 기록**한다(_cloudReadFail). 실패가 하나라도 있으면 «비어 있다»고 판단하지 않고 저장(푸시)도 멈춘다. */
+window._cloudReadFail=window._cloudReadFail||{};
+/* 일부 문서를 못 받았을 때: 화면에 알리고 저장(푸시)을 멈춘다. 다시 받기가 성공하면 저절로 풀린다. */
+function fpfPartialBanner(on){
+  var b=document.getElementById('fpf-partial-banner');
+  if(!on){ if(b)b.remove(); return; }
+  if(b)return;
+  b=document.createElement('div'); b.id='fpf-partial-banner';
+  b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#b45309;color:#fff;padding:9px 14px;font-size:13px;font-weight:700;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-family:inherit';
+  b.innerHTML='<span>클라우드에서 일부 자료를 못 받았어요 — 잘못 덮어쓰지 않게 저장을 잠시 멈췄습니다</span>'
+    +'<button onclick="fpfRetryCloudRead()" style="border:none;background:#fff;color:#7c2d12;font-weight:800;padding:5px 11px;border-radius:6px;cursor:pointer;font-family:inherit">다시 받기</button>';
+  (document.body||document.documentElement).appendChild(b);
+}
+async function fpfRetryCloudRead(){
+  try{ if(typeof showToast==='function')showToast('다시 받는 중…',2500); }catch(e){}
+  try{ window._cloudReadFail={}; }catch(e){}
+  try{
+    if(typeof curCoId!=='undefined'&&curCoId){ await cloudSyncLoad(curCoId); }
+    if(!cloudReadFailed()){
+      fpfPartialBanner(false); window._cloudSyncReady=true;
+      try{ setCloudInd('ok'); }catch(e){}
+      try{ render(); }catch(e){}
+      try{ if(typeof showToast==='function')showToast('전부 받았어요 — 저장을 다시 시작합니다',3000); }catch(e){}
+    } else { try{ if(typeof showToast==='function')showToast('아직 '+cloudReadFailedKeys().length+'개를 못 받았어요 — 인터넷 확인 후 다시 시도',5000); }catch(e){} }
+  }catch(e){ console.warn('[다시 받기]',e); }
+}
+try{ window.addEventListener('online',function(){ if(cloudReadFailed())fpfRetryCloudRead(); }); }catch(e){}
+function cloudReadFailed(){ try{ return Object.keys(window._cloudReadFail||{}).length>0; }catch(e){ return false; } }
+function cloudReadFailedKeys(){ try{ return Object.keys(window._cloudReadFail||{}); }catch(e){ return []; } }
+function _cloudNoteFail(key,on){ try{ if(!window._cloudReadFail)window._cloudReadFail={}; if(on)window._cloudReadFail[key]=Date.now(); else delete window._cloudReadFail[key]; }catch(e){} }
+function _cloudSleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
 async function cloudGetDoc(key){
   if(!isCloudOn())return null;
-  try{
-    const snap=await window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key).get();
-    if(!snap.exists)return null;
-    const dd=snap.data()||{};
-    return {value: dd.value?JSON.parse(dd.value):null, ts: dd.ts||''};
-  }catch(e){console.error('cloudGetDoc '+key+':',e);return null;}
+  for(var a=0;a<3;a++){
+    try{
+      const snap=await window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key).get();
+      _cloudNoteFail(key,false);
+      if(!snap.exists)return null;
+      const dd=snap.data()||{};
+      return {value: dd.value?JSON.parse(dd.value):null, ts: dd.ts||''};
+    }catch(e){
+      if(a===2){ console.error('cloudGetDoc '+key+':',e); _cloudNoteFail(key,true); return null; }
+      await _cloudSleep(400*(a+1));
+    }
+  }
+  return null;
 }
 
 // ===ENT-MERGE-START===
@@ -2256,7 +2304,10 @@ function _auxSplit(coData,coId){
   });
   return {main:main,aux:aux};
 }
-async function _readAuxDocs(coId){ var keys=_auxKeys(coId); var docs=await Promise.all(keys.map(function(k){ return cloudGetDoc(k); })); var res={values:{},ts:{}}; docs.forEach(function(d,i){ if(d&&d.value&&!d.value._deleted){ res.values[keys[i]]=d.value; res.ts[keys[i]]=d.ts||''; } }); return res; }
+async function _readAuxDocs(coId){ var keys=_auxKeys(coId);
+  /* 상자 하나가 실패해도 나머지는 살린다. 실패는 cloudGetDoc 이 _cloudReadFail 에 기록 (2026-09-09c) */
+  var docs=await Promise.all(keys.map(function(k){ return cloudGetDoc(k).catch(function(){ _cloudNoteFail(k,true); return null; }); }));
+  var res={values:{},ts:{}}; docs.forEach(function(d,i){ if(d&&d.value&&!d.value._deleted){ res.values[keys[i]]=d.value; res.ts[keys[i]]=d.ts||''; } }); return res; }
 /* 상자 값을 메인 문서 객체 위에 덮어 합침. 아이템 조각은 items 맵에 합치고, 묘비·시각표는 union */
 function _overlayAux(d,auxValues){
   if(!d||!auxValues)return d;
@@ -2277,7 +2328,7 @@ function _splitOrdersForCloud(ordersMap,tomb){ var out=[],i; for(i=0;i<ORD_SHARD
 /* 조각 전부 읽어 합치기 → {orders, tomb, ts:{key:ts}, values:{key:value}, any, legacy} */
 async function _readOrderShards(coId){
   var keys=_ordShardKeys(coId), res={orders:{},tomb:{},ts:{},values:{},any:false,legacy:false};
-  var docs=await Promise.all(keys.map(function(k){ return cloudGetDoc(k); }));
+  var docs=await Promise.all(keys.map(function(k){ return cloudGetDoc(k).catch(function(){ _cloudNoteFail(k,true); return null; }); }));
   docs.forEach(function(d,i){ if(!d||!d.value||d.value._deleted)return; res.any=true; res.values[keys[i]]=d.value; res.ts[keys[i]]=d.ts||'';
     var o=d.value.orders||{},id; for(id in o)res.orders[id]=o[id];
     var t=(d.value._tomb&&d.value._tomb.orders)||{},k; for(k in t){ if(!res.tomb[k]||+t[k]>+res.tomb[k])res.tomb[k]=t[k]; } });
@@ -2600,6 +2651,13 @@ async function onFirebaseLogin(){
            → 2초 뒤 한 번 더 읽어보고, 그래도 없을 때만 등록 모달. */
         window._cloudSyncReady=true;
         setCloudInd('ok');
+        /* 읽기가 실패한 상태면 «회사 없음»이 아니다 — 새 사용자 취급 금지 (2026-09-09c) */
+        if(typeof cloudReadFailed==='function'&&cloudReadFailed()){
+          window._cloudSyncReady=false;   // 반쪽 자료로 클라우드를 덮지 않게 저장 멈춤
+          try{ fpfPartialBanner(true); }catch(e){}
+          setCloudInd('err','회사 목록을 못 읽었어요');
+          return;
+        }
         var _retryCos=null;
         try{ await new Promise(function(r){setTimeout(r,2000);}); _retryCos=await cloudGet('fpm_cos'); }catch(eR){ console.warn('[회사목록 재시도]',eR); }
         if(_retryCos&&Object.keys(_retryCos).length>0){
@@ -2705,6 +2763,8 @@ function buildMorningBrief(){
   return out;
 }
 async function cloudSyncSave(){
+  /* 읽기 실패가 남아 있으면 저장하지 않는다 — 반쪽 자료가 클라우드를 덮으면 다른 기기 자료가 사라진다 (2026-09-09c) */
+  if(typeof cloudReadFailed==='function'&&cloudReadFailed()){ try{ fpfPartialBanner(true); }catch(e){} console.warn('[cloudSyncSave] 못 받은 문서가 있어 저장 보류:',cloudReadFailedKeys()); return; }
   /* ★① 옛 버전 앱은 절대 올리지 않는다 */
   if(window._appStaleBlock)return;
   /* ★② 부팅 때 클라우드를 끝까지 못 받은 채 푸시가 풀렸으면, 올리기 전에 «먼저 받는다». 못 받으면 안 올린다(로컬엔 남아 있음). */
@@ -4241,6 +4301,7 @@ async function cloudSyncLoad(id,opts){
   opts=opts||{};
   if(!isCloudOn())return false;
   setCloudInd('sync');
+  try{ window._cloudReadFail={}; }catch(e){}   /* 이번 읽기의 실패만 본다 (2026-09-09c) */
   try{
     const[_coDoc,_shDocL,cosData,_ordRead,_auxReadL]=await Promise.all([
       cloudGetDoc('fpm_'+id),cloudGetDoc('fpm_shared'),cloudGet('fpm_cos'),_readOrderShards(id),_readAuxDocs(id)
@@ -4451,7 +4512,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-09b';
+var APP_BUILD=/*BUILD*/'2026-09-09c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4544,6 +4605,14 @@ function fpfSyncDiagHTML(){
                        : '<b style="color:#15803d">최신</b> — '+_esc2(APP_BUILD))
     : '이 기기 '+_esc2(APP_BUILD)+' <span style="color:#6b7280">(서버 확인 중…)</span>';
   lines.push(['앱 버전',verTxt]);
+  /* 추측 대신 «사실»을 보여준다 — 무엇이 몇 개 있고, 무엇을 못 읽었는지 (2026-09-09c) */
+  try{
+    var _nIt=Object.keys(S.items||{}).length, _nOd=Object.keys(S.orders||{}).length;
+    var _nPb=Object.keys(S.priceBook||{}).length, _nCo=Object.keys((typeof companies!=='undefined'&&companies)||{}).length;
+    lines.push(['이 기기 자료','아이템 '+_nIt+' · 오더 '+_nOd+' · 거래처 '+_nPb+' · 회사 '+_nCo]);
+    var _fk=(typeof cloudReadFailedKeys==='function')?cloudReadFailedKeys():[];
+    lines.push(['클라우드 읽기',_fk.length?('<b style="color:#b91c1c">'+_fk.length+'개 못 받음</b> — '+_esc2(_fk.join(', '))+' <button onclick="fpfRetryCloudRead()" style="border:1px solid #d1d5db;background:#fff;padding:3px 8px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px">다시 받기</button>'):'<b style="color:#15803d">전부 받음</b>']);
+  }catch(e){}
   lines.push(['계정',_esc2(acc)]);
   lines.push(['현재 업체',_esc2(coNm)]);
   lines.push(['이 업체 자료 받은 시각',_esc2(_verFmt(base))]);
