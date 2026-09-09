@@ -2373,3 +2373,8 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 신고(체크와이드팬츠): 「엠마체크 · 스트링감」 묶음이 몸판 요척(0.7/0.75)을 보여줌. 원인: 히스토리가 원단 정의를 `f.id===m.fabId||f.name===m.name` 으로 찾아 **첫 원단(몸판)** 을 집음. → `_yoFabDef`: id → 이름+용도 → 이름. `yocheokRecFor` 도 용도까지 맞춤(발주 추천 요척이 스트링감에 몸판 값을 주던 것).
 - 요청 「바뀌기 전 이름을 삭제하도록」: `_poSyncFrozenFabNames(o)` — 굳은 발주서(발송·출고·입고)에서 같은 fabId 원단의 이름이 바뀌었으면 ①새 이름 줄이 있으면 옛 이름 줄 **삭제**(그 줄 실발주 입력값도 사라짐 — 사용자 결정) ②없으면 이름만 바꿔 수량·실발주·협상가 유지, `skipBilling` 키(displayName 기반) 이관. `_refreshOrderSuppliersRaw` 동결 직후 호출(기계적 변형, 모든 기기에서 동일 결과).
 - 검증 8개(jsc, 실제 함수).
+
+## 2026-09-09o — 2단: JS 측정 → CSS container query (빈 공간이 있는데 세로로 나오던 것)
+- 사실: 스크린샷에서 카드 오른쪽에 넓은 빈 공간이 있는데도 세로. 09-09l 의 `_po2ColMeasure` 는 패널이 숨겨진 채 그려지면 `clientWidth` 0 → 창 폭 대체값으로 오판.
+- 고침: `.sr{container-type:inline-size;container-name:sr}` + `@container sr (min-width:760px)`(오른쪽 320) / `(min-width:1000px)`(440). CSS 가 실제 패널 폭으로 판단 → 그리는 시점·숨김 여부 무관. `@supports not` 에서만 JS 클래스(.po2-2col) 사용. `?v=20260909c`.
+- 검증: JS 를 끈 하네스에서 패널 폭별 grid 열 확인.
