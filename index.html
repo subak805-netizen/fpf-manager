@@ -2801,6 +2801,14 @@ async function cloudSyncSave(){
       var _ordRead=await _readOrderShards(curCoId); var _cloudOrdDoc=(_ordRead.any||_ordRead.legacy)?{orders:_ordRead.orders,_tomb:{orders:_ordRead.tomb}}:null; // 발주 조각 문서 전부(값+ts) — 없으면 옛 단일 문서 폴백 (2026-08-18)
       var _shDoc=null,_shSkipPush=false; try{ _shDoc=await cloudGetDoc('fpm_shared'); }catch(eSh){ _shSkipPush=true; console.warn('[cloudSyncSave] 공유문서 읽기 실패 → 이번엔 업체·단가장을 올리지 않음(통째 덮어쓰기 방지 2026-09-07a)',eSh); } // 업체·단가장 공유문서(값+ts) — 송신 병합용(2026-08-17)
       var _auxRead=null; try{ _auxRead=await _readAuxDocs(curCoId); }catch(eAx){} // 보조 상자(할일판·레퍼런스)
+      /* ⚠️ 2026-09-09f: 위 4개 읽기 중 하나라도 실패했으면 «클라우드가 그렇다»고 믿고 올리면 안 된다 — 반쪽 자료로 조각을 덮어써
+         다른 기기의 삭제·편집이 되돌아간다(맨 위 가드는 «지난 로드»의 실패만 보고, 여기서 새로 읽은 실패는 못 봤음). */
+      if(typeof cloudReadFailed==='function'&&cloudReadFailed()){
+        try{ fpfPartialBanner(true); }catch(e){}
+        setCloudInd('err','저장 직전 읽기 실패 — 보류');
+        console.warn('[cloudSyncSave] 저장 직전 읽기 실패 → 이번 푸시 보류:',cloudReadFailedKeys());
+        return;
+      }
       var _cloudMainRaw=''; try{ if(cloudCurrent)_cloudMainRaw=JSON.stringify(cloudCurrent); }catch(eR){}
       if(cloudCurrent&&_auxRead)_overlayAux(cloudCurrent,_auxRead.values); // 병합·가드는 합쳐진 전체를 본다
       if(cloudCurrent){
@@ -3106,12 +3114,15 @@ setTimeout(function(){ try{ if(_imgPendingCount()>0)_scheduleImgRetry(); }catch(
    ⚠️ 되살릴 때 `_mt`를 지금 시각으로 찍고 `S._tomb.orders`에서 삭제기록을 지운다.
       안 하면 _entMerge가 "삭제가 더 최신"으로 보고 다음 동기화에서 또 지운다. */
 function _ordMissingCands(){
-  var found={};
+  var found={}, deletedN=0;
   var scan=function(list,src){
     (list||[]).forEach(function(bk,i){
       var ords=bk&&bk.data&&bk.data.orders; if(!ords)return;
       Object.keys(ords).forEach(function(oid){
         if(S.orders&&S.orders[oid])return;      // 지금 살아있으면 대상 아님
+        /* ⚠️ 2026-09-09f: 삭제기록(묘비)이 있는 오더 = 내가 일부러 지운 것. 예전엔 이것도 «사라진 오더»로 떠서
+           되살리기를 누르면 _mt=now + 묘비 삭제로 모든 기기에서 되살아났다(신고 「벌룬카고팬츠 삭제했는데 왜 살아났어」 유력 경로). */
+        if(S._tomb&&S._tomb.orders&&S._tomb.orders[oid]){ deletedN++; return; }
         var o=ords[oid]; if(!o)return;
         var ts=+bk.ts||0;
         if(!found[oid]||ts>found[oid].ts)found[oid]={oid:oid,o:o,src:src,idx:i,ts:ts};
@@ -3120,7 +3131,9 @@ function _ordMissingCands(){
   };
   try{ scan(window._abkCache,'abk'); }catch(e){}
   try{ scan(window._hbkCache,'hbk'); }catch(e){}
-  return Object.keys(found).map(function(k){return found[k];}).sort(function(a,b){return b.ts-a.ts;});
+  var _arr=Object.keys(found).map(function(k){return found[k];}).sort(function(a,b){return b.ts-a.ts;});
+  _arr.deletedN=deletedN;   /* 내가 지운 오더 수 — 화면에 «제외됨» 표시용 */
+  return _arr;
 }
 function _ordSum(o){
   var n=(o&&o.orderItems||[]).length, q=0;
@@ -3189,7 +3202,7 @@ function _recoveryFallback(msg){
    +'<button onclick="var x=document.getElementById(\'recovery-overlay\');if(x)x.remove()" style="border:1px solid #d1d5db;background:#fff;padding:5px 12px;border-radius:6px;cursor:pointer">닫기</button></div>'
    +'<div style="background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:6px;padding:9px 11px;margin-bottom:12px;font-size:12px">'+_esc2(msg||'')+'</div>';
   if(cands.length){
-    h+='<div style="font-weight:700;margin-bottom:6px">사라진 오더 '+cands.length+'건을 찾았어요</div>';
+    h+='<div style="font-weight:700;margin-bottom:6px">사라진 오더 '+cands.length+'건을 찾았어요'+(cands.deletedN?' <span style="font-weight:400;color:#6b7280">(내가 지운 오더 '+cands.deletedN+'건은 제외)</span>':'')+'</div>';
     cands.forEach(function(c){
       h+='<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;margin-bottom:5px;gap:8px">'
        +'<span style="font-size:12px"><b>'+_esc2(c.o.name||c.oid)+'</b></span>'
@@ -3474,7 +3487,7 @@ async function _openRecoveryToolInner(){
     // === 사라진 오더만 되살리기 (다른 자료 안 건드리고 오더만) ===
     var _ordCands=_ordMissingCands();
     html+='<div style="border:2px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:14px">';
-    html+='<div style="font-weight:700;color:#991b1b;font-size:13px;margin-bottom:4px">사라진 오더만 되살리기 <span style="font-weight:400">(다른 자료는 그대로 둬요)</span></div>';
+    html+='<div style="font-weight:700;color:#991b1b;font-size:13px;margin-bottom:4px">사라진 오더만 되살리기 <span style="font-weight:400">(다른 자료는 그대로 둬요'+(_ordCands.deletedN?' · 내가 지운 오더 '+_ordCands.deletedN+'건은 제외':'')+')</span></div>';
     if(_ordCands.length){
       html+='<div style="font-size:11px;color:#991b1b;margin-bottom:8px">백업에는 있는데 <b>지금 목록에 없는</b> 오더예요. 되살리면 삭제기록도 지워서 다시 사라지지 않아요.</div>';
       html+='<div style="max-height:230px;overflow-y:auto;display:flex;flex-direction:column;gap:5px">';
@@ -4512,7 +4525,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-09e';
+var APP_BUILD=/*BUILD*/'2026-09-09f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4598,7 +4611,7 @@ async function fpfCloudInventory(){
   if(!co){ alert('회사가 선택되지 않았어요'); return; }
   try{ if(typeof showToast==='function')showToast('클라우드 문서를 세는 중…',3000); }catch(e){}
   var out=['[클라우드 실물 점검] '+new Date().toLocaleString(),'계정 '+((window.fbUser&&window.fbUser.email)||'-')+' · 업체 '+co,''];
-  var totItems=0,totOrders=0,miss=0;
+  var totItems=0,totOrders=0,miss=0,cloudOrd={},cloudTomb={};
   try{
     var cos=await cloudGet('fpm_cos');
     out.push('회사목록(fpm_cos): '+(cos?(Object.keys(cos).length+'개 — '+Object.keys(cos).map(function(k){return (cos[k]&&cos[k].name)||k;}).join(', ')):'없음'));
@@ -4615,10 +4628,22 @@ async function fpfCloudInventory(){
     }
     for(var j=0;j<ORD_SHARDS;j++){
       var ok2='fpm_'+co+'__orders_'+j, d2=await cloudGetDoc(ok2), n2=(d2&&d2.value&&d2.value.orders)?Object.keys(d2.value.orders).length:0;
+      try{ var _oo=(d2&&d2.value&&d2.value.orders)||{}; Object.keys(_oo).forEach(function(id){ cloudOrd[id]=_oo[id]; }); var _tt=(d2&&d2.value&&d2.value._tomb&&d2.value._tomb.orders)||{}; Object.keys(_tt).forEach(function(id){ if(!cloudTomb[id]||+_tt[id]>+cloudTomb[id])cloudTomb[id]=_tt[id]; }); }catch(e){}
       totOrders+=n2;
       if(n2||(d2&&d2.value))out.push('발주상자 '+j+': '+((d2&&d2.value)?(n2+'개 · ts '+(d2.ts||'-')):'문서 없음'));
     }
     out.push('');
+    /* 기기 ↔ 클라우드 «오더 이름» 차이 — 어느 쪽에만 있는지, 지운 기록이 있는지 (2026-09-09f) */
+    try{
+      var _nm=function(x){ return (x&&x.name)||'(이름 없음)'; }, _d=function(ms){ try{ return ms?new Date(+ms).toLocaleString():'-'; }catch(e){ return '-'; } };
+      var _lt=(S._tomb&&S._tomb.orders)||{};
+      var onlyLocal=Object.keys(S.orders||{}).filter(function(id){ return !cloudOrd[id]; });
+      var onlyCloud=Object.keys(cloudOrd).filter(function(id){ return !(S.orders||{})[id]; });
+      out.push('이 기기에만 있는 오더 '+onlyLocal.length+'건'+(onlyLocal.length?': '+onlyLocal.slice(0,8).map(function(id){ return _nm(S.orders[id])+(cloudTomb[id]?' [클라우드엔 삭제기록 '+_d(cloudTomb[id])+']':''); }).join(' · '):''));
+      out.push('클라우드에만 있는 오더 '+onlyCloud.length+'건'+(onlyCloud.length?': '+onlyCloud.slice(0,8).map(function(id){ return _nm(cloudOrd[id])+(_lt[id]?' [이 기기엔 삭제기록 '+_d(_lt[id])+']':''); }).join(' · '):''));
+      var _revived=Object.keys(cloudOrd).filter(function(id){ return (S.orders||{})[id]&&(_lt[id]||cloudTomb[id]); });
+      if(_revived.length)out.push('양쪽에 있는데 삭제기록도 있는 오더: '+_revived.slice(0,8).map(function(id){ var o2=cloudOrd[id]; return _nm(o2)+' (오더 수정시각 '+_d(o2&&o2._mt)+' / 삭제기록 '+_d(_lt[id]||cloudTomb[id])+')'; }).join(' · '));
+    }catch(e){ out.push('차이 비교 실패: '+((e&&e.message)||e)); }
     out.push('클라우드 합계: 아이템 '+totItems+' · 오더 '+totOrders);
     out.push('이 기기: 아이템 '+Object.keys(S.items||{}).length+' · 오더 '+Object.keys(S.orders||{}).length);
     out.push('못 읽은 문서: '+(cloudReadFailedKeys().length?cloudReadFailedKeys().join(', '):'없음'));
@@ -19458,6 +19483,21 @@ function poCardHTML(o,sn){
         var _per=(_bd.colors||[]).map(function(c){var r=(_bd.colorRatios&&_bd.colorRatios[c])||1;var p=Math.round((r-1)*100);if(p===0)return null;return esc(c||'기본')+' '+(p>0?'+':'')+p+'%';}).filter(Boolean).join(' / ');
         _adjHtml+='<div style="border-top:1px dashed #e2e8f0;padding:6px 0;font-size:11px"><b style="color:'+_tone+'">원단 조정 — '+esc(_nm)+' '+_bd.origTotal+'장 → '+_bd.effTotal+'장 ('+(_bd.diff>0?'+':'')+_bd.diff+'장)</b>'+(_per?'<div style="color:#475569;margin-top:2px;font-variant-numeric:tabular-nums">'+_per+'</div>':'')+'<div style="color:#94a3b8;font-size:10px;margin-top:1px">→ 아래 부자재·부속 원단 수량은 이 조정수량 기준</div></div>';
       });})();
+      /* 생산수량 조정 «근거» (2026-09-09f, 요청 「어떻게 되서 바뀐다까지 나와줘야」) — 실발주 입력이 있는 아이템은 조정이 0장이어도
+         왜 그런지(계획 kg 0 · 부속 원단 · 컬러 불일치 · 차이 없음)를 계산 함수가 남긴 추적 그대로 보여준다. 발송완료면 동결 규칙(6/26)도 표시. */
+      var _trHtml='';
+      (function(){var _seenT={};(sup.materials||[]).forEach(function(_mm){
+        if(!_mm.itemId||_seenT[_mm.itemId])return;_seenT[_mm.itemId]=true;
+        var _oi=(o.orderItems||[]).find(function(x){return x.itemId===_mm.itemId;});if(!_oi)return;
+        var _hasOvr=Object.keys(o.suppliers||{}).some(function(s2){return ((o.suppliers[s2]||{}).materials||[]).some(function(x){return x&&x.type==='fabric'&&x.itemId===_mm.itemId&&x.actualOrderedQty!==undefined&&x.actualOrderedQty!==''&&x.actualOrderedQty!==null;});});
+        if(!_hasOvr)return;
+        var _tr=[]; try{ if(typeof getEffectivePcsByColor==='function')getEffectivePcsByColor(o,_oi,_tr); }catch(e){}
+        var _nm=(S.items[_mm.itemId]&&S.items[_mm.itemId].name)||_oi.itemName||'';
+        _trHtml+='<div style="border-top:1px dashed #e2e8f0;padding:6px 0;font-size:11px;color:#475569;line-height:1.55"><b style="color:#334155">조정 계산 — '+esc(_nm)+'</b>'
+          +(sent?'<div style="color:#b45309;font-weight:700">이 발주서는 발송완료라 자재 수량이 동결돼 있어요 — 실발주를 바꿔도 여기 배색·시보리·부자재는 안 바뀝니다 (미발송 발주서·추가발주에만 반영)</div>':'')
+          +(_tr.length?'<div>'+_tr.map(function(s){return '· '+esc(s);}).join('<br>')+'</div>':'<div>실발주 입력은 있지만 조정 계산에 쓰인 항목이 없어요</div>')
+          +'</div>';
+      });})();
       // 요척 작은 아이템(0.1 미만) 재단 초과 주의 — 원단 넉넉히 사면 재단이 확 늘어 부자재 모자랄 위험. 실발주 미입력분만 안내(입력하면 기존 파이프라인이 부자재 자동반영).
       var _warnHtml='';
       (function(){var _sw={};(sup.materials||[]).forEach(function(_mm){
@@ -19469,7 +19509,7 @@ function poCardHTML(o,sn){
         _warnHtml+='<div style="border-top:1px dashed #f0d090;padding:6px 8px;font-size:11px;background:#fffbeb;color:#92580b;line-height:1.55"><b>재단 초과 주의 — 요척 '+_minYo+' (작음)</b><br>원단을 넉넉히 사면 재단장수가 크게 늘어 <b>부자재가 모자랄 수</b> 있어요. 실제 산 원단량을 <b>원단 실발주칸</b>에 넣으면 부자재도 그 장수로 자동 반영돼요.</div>';
       });})();
       // 계산식은 자재 요약 행 안으로 합쳐짐(별도 계산식 섹션 제거). 원단조정은 표 상단 배너로.
-      var _adjBanner=(_warnHtml||_adjHtml)?'<div class="mr-adj">'+_warnHtml+_adjHtml+'</div>':'';
+      var _adjBanner=(_warnHtml||_adjHtml||_trHtml)?'<div class="mr-adj">'+_warnHtml+_adjHtml+_trHtml+'</div>':'';
       // 자재 요약 표(원단·부자재 + 단가 + 줄 펼치면 계산식) — 카드 상단
       var _matSumHtml=(fHtml+tHtml)?('<div class="po-mtbl">'+_adjBanner+fHtml+tHtml+'</div>'):'';
       var _optCount=PO_OPT_DEFS.filter(function(d){return opts[d.key];}).length;
@@ -19750,7 +19790,12 @@ function setActualOrderedYards(oid,sn,matIdx,val){
 function matActualYards(m){
   try{
     if(m&&m.actualOrderedYards!==undefined&&m.actualOrderedYards!==''&&+m.actualOrderedYards>=0)return +m.actualOrderedYards;
-    if(m&&m.pricingUnit==='kg')return +m.totalYards||0;   /* kg 원단의 actualOrderedQty 는 kg 이라 야드로 쓰면 안 된다 */
+    if(m&&m.pricingUnit==='kg'){   /* kg 원단의 actualOrderedQty 는 kg → 계획 비율(y/kg)로 환산 (2026-09-09f) */
+      var _kgA=(m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''&&m.actualOrderedQty!==null)?+m.actualOrderedQty:NaN;
+      var _ypk=(+m.totalKg>0&&+m.totalYards>0)?(+m.totalYards/+m.totalKg):(+m.yardsPerKg||0);
+      if(isFinite(_kgA)&&_kgA>=0&&_ypk>0)return Math.round(_kgA*_ypk*100)/100;
+      return +m.totalYards||0;
+    }
     if(m&&m.actualOrderedQty!==undefined&&m.actualOrderedQty!=='')return +m.actualOrderedQty||0;
     return +((m&&m.totalYards)||0);
   }catch(e){ return 0; }
@@ -19924,8 +19969,10 @@ function calcEffectivePcsFromFabric(m,origPcs){
 // 컬러별로 원단이 다르므로, 한 컬러는 부족이고 다른 컬러는 초과일 수 있음
 // 반환: {colorA: effPcsA, colorB: effPcsB, ...} 또는 null (변경 없음)
 // 예: 소라/아이 100→110, 소라/레드 100→105 → {소라/아이:110, 소라/레드:105}
-function getEffectivePcsByColor(o,oi){
-  var it=S.items[oi.itemId];if(!it)return null;
+function getEffectivePcsByColor(o,oi,trace){
+  /* trace(선택): 배열을 주면 «왜 이렇게 조정됐는지/안 됐는지»를 한 줄씩 담아 준다 (2026-09-09f). 계산은 불변. */
+  var _tr=function(s){ try{ if(trace&&trace.push)trace.push(s); }catch(e){} };
+  var it=S.items[oi.itemId];if(!it){ _tr('아이템 없음'); return null; }
   var colors=it.colors&&it.colors.length?it.colors:[''];
   var sizes=it.sizes&&it.sizes.length?it.sizes:['free'];
   // 컬러별 원래 pcs (의뢰수량)
@@ -19950,7 +19997,7 @@ function getEffectivePcsByColor(o,oi){
       var m=sup.materials[mi];
       if(m.type!=='fabric'||m.itemId!==oi.itemId)continue;
       if(m.actualOrderedQty===undefined||m.actualOrderedQty===''||m.actualOrderedQty===null)continue;
-      if(_hasMainFab&&!_isMainPart(m.part))continue; // 부속(소매 등) override는 생산조정 주도 안 함
+      if(_hasMainFab&&!_isMainPart(m.part)){ _tr((m.name||'')+' #'+(m.fabricColor||m.colorName||'')+': 부속 원단('+(m.part||'용도 없음')+')이라 생산수량은 안 바꿈 (몸판만 주도)'); continue; } // 부속(소매 등) override는 생산조정 주도 안 함
       hasAnyActual=true;
       // 이 원단이 어느 아이템 컬러에 속하는지 결정
       // - colorName 비어있으면(공용 원단) 전체 적용 (의도된 케이스)
@@ -19973,23 +20020,27 @@ function getEffectivePcsByColor(o,oi){
         }
         targets=_mapped?[_mapped]:null;
       }
-      if(!targets){continue;}
+      var _lbl=(m.name||'')+' #'+(m.fabricColor||m.colorName||'');
+      var _u=(m.pricingUnit==='kg')?'kg':'y';
+      if(!targets){ _tr(_lbl+': 컬러 «'+(m.colorName||'')+'» 가 아이템 컬러('+colors.join('/')+')와 안 맞아 건너뜀'); continue; }
       var origQty=m.pricingUnit==='kg'?(m.totalKg||0):(m.totalYards||0);
-      if(!origQty||origQty<=0)continue;
+      if(!origQty||origQty<=0){ _tr(_lbl+': 계획 수량이 0 '+_u+' 이라 비율을 못 냄'+(m.pricingUnit==='kg'?' (kg 원단은 계획 kg 가 있어야 함)':'')); continue; }
       var actualQty=+m.actualOrderedQty;
-      if(actualQty===origQty)continue;
+      if(actualQty===origQty){ _tr(_lbl+': 실발주 '+actualQty+_u+' = 계획 → 변화 없음'); continue; }
       var ratio=actualQty/origQty;
+      _tr(_lbl+': 실발주 '+actualQty+_u+' ÷ 계획 '+(Math.round(origQty*100)/100)+_u+' = '+Math.round(ratio*1000)/10+'%');
       targets.forEach(function(c){
         var origPcs=origByColor[c]||0;
-        if(!origPcs)return;
+        if(!origPcs){ _tr('  → '+(c||'기본')+': 오더 0장이라 해당 없음'); return; }
         var rounder=ratio<1?Math.floor:Math.round;
         var newEff=rounder(origPcs*ratio);
+        _tr('  → '+(c||'기본')+' '+origPcs+'장 × '+Math.round(ratio*1000)/10+'% = '+newEff+'장 (이 장수로 부속 원단·부자재 계산)');
         // 병목: 더 작은 값 우선
         if(effByColor[c]===undefined||newEff<effByColor[c])effByColor[c]=newEff;
       });
     }
   }
-  if(!hasAnyActual)return null;
+  if(!hasAnyActual){ _tr('실발주가 입력된 몸판 원단이 없어 조정 없음'); return null; }
   // 변경 없는 컬러는 origPcs 그대로 채워서 완전한 map 반환
   var result={};
   var anyChange=false;
