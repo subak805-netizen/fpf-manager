@@ -4525,7 +4525,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-09f';
+var APP_BUILD=/*BUILD*/'2026-09-09g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -19489,7 +19489,7 @@ function poCardHTML(o,sn){
       (function(){var _seenT={};(sup.materials||[]).forEach(function(_mm){
         if(!_mm.itemId||_seenT[_mm.itemId])return;_seenT[_mm.itemId]=true;
         var _oi=(o.orderItems||[]).find(function(x){return x.itemId===_mm.itemId;});if(!_oi)return;
-        var _hasOvr=Object.keys(o.suppliers||{}).some(function(s2){return ((o.suppliers[s2]||{}).materials||[]).some(function(x){return x&&x.type==='fabric'&&x.itemId===_mm.itemId&&x.actualOrderedQty!==undefined&&x.actualOrderedQty!==''&&x.actualOrderedQty!==null;});});
+        var _hasOvr=Object.keys(o.suppliers||{}).some(function(s2){return ((o.suppliers[s2]||{}).materials||[]).some(function(x){ if(!x||x.type!=='fabric'||x.itemId!==_mm.itemId)return false; var a=x.actualOrderedQty,b=x.actualOrderedYards; return (a!==undefined&&a!==''&&a!==null)||(b!==undefined&&b!==''&&b!==null); });});
         if(!_hasOvr)return;
         var _tr=[]; try{ if(typeof getEffectivePcsByColor==='function')getEffectivePcsByColor(o,_oi,_tr); }catch(e){}
         var _nm=(S.items[_mm.itemId]&&S.items[_mm.itemId].name)||_oi.itemName||'';
@@ -19701,7 +19701,7 @@ function renderCheckTab(o,onlySn){
             var _perKg=+m.yardsPerKg||0;
             var _hint=(_kgIn>0&&_perKg>0)?(Math.round(_kgIn*_perKg*100)/100):_autoY;
             return '<div style="display:flex;align-items:center;gap:3px;margin-top:3px">'
-              +'<input type="number" value="'+_ay+'" placeholder="'+_hint+'" step="0.01" min="0" title="실제로 받은 야드 — 돈 계산은 kg 그대로, 이 값은 발주서 표시와 요척 계산에 쓰여요" style="width:70px;font-size:11px;padding:3px 5px;'+(_ay!==''?'background:#f0fdf4;border-color:#16a34a;font-weight:700':'')+'" onchange="setActualOrderedYards(\''+o.id+'\',\''+esc(sn)+'\','+idx+',this.value)">'
+              +'<input type="number" value="'+_ay+'" placeholder="'+_hint+'" step="0.01" min="0" title="실제로 받은 야드 — 재단 장수(생산수량)·부속 원단·부자재는 이 야드로 다시 계산돼요. 돈은 kg 그대로" style="width:70px;font-size:11px;padding:3px 5px;'+(_ay!==''?'background:#f0fdf4;border-color:#16a34a;font-weight:700':'')+'" onchange="setActualOrderedYards(\''+o.id+'\',\''+esc(sn)+'\','+idx+',this.value)">'
               +'<span class="muted" style="font-size:10px">y</span>'
               +'</div>'; })():''}
           ${actualOrd!==''&&Math.abs(costDiff)>0.5?`<div style="font-size:9px;margin-top:2px;color:${costDiff>0?'var(--red)':'var(--green)'};font-weight:600">${costDiff>0?'+':''}${num(Math.round(costDiff))}원</div>`:''}
@@ -19782,9 +19782,10 @@ function setActualOrderedYards(oid,sn,matIdx,val){
   var m=sup.materials[matIdx];
   if(val===''||val===null||val===undefined){ delete m.actualOrderedYards; }
   else { var v=+val; if(!isFinite(v)||v<0)return; m.actualOrderedYards=v; }
+  try{ if(m.type==='fabric'&&m.itemId&&typeof propagateEffectiveRatio==='function')propagateEffectiveRatio(oid,m.itemId); }catch(e){}   /* 야드가 생산수량을 정하므로 부속·부자재 도미노 (2026-09-09g) */
   try{saveData();}catch(e){}
   try{renderOrderDetail();}catch(e){}
-  try{ if(typeof showToast==='function')showToast(m.actualOrderedYards!=null?('실제 야드 '+m.actualOrderedYards+'y 저장'):'실제 야드 지움'); }catch(e){}
+  try{ if(typeof showToast==='function')showToast(m.actualOrderedYards!=null?('실제 야드 '+m.actualOrderedYards+'y 저장 — 생산수량·부속·부자재 재계산 (발주서 탭 「조정 계산」 참고)'):'실제 야드 지움 — 계획 기준으로 복원',5000); }catch(e){}
 }
 /* KG 원단이 실제로 받은 야드 — 적어둔 값 우선, 없으면 계산값(totalYards) */
 function matActualYards(m){
@@ -19996,7 +19997,11 @@ function getEffectivePcsByColor(o,oi,trace){
     for(var mi=0;mi<(sup.materials||[]).length;mi++){
       var m=sup.materials[mi];
       if(m.type!=='fabric'||m.itemId!==oi.itemId)continue;
-      if(m.actualOrderedQty===undefined||m.actualOrderedQty===''||m.actualOrderedQty===null)continue;
+      /* 2026-09-09g: kg 원단은 «실제 야드»(actualOrderedYards) 칸이 있으면 그것이 생산수량을 정한다 — 재단 장수는 kg 가 아니라 야드가 정함.
+         09-09a 에 야드 칸을 만들면서 여기(조정 계산)에는 연결하지 않아, 야드를 줄여도 배색·시보리·부자재가 그대로였다(신고 09-09). */
+      var _hasKg=!(m.actualOrderedQty===undefined||m.actualOrderedQty===''||m.actualOrderedQty===null);
+      var _hasYd=(m.pricingUnit==='kg')&&!(m.actualOrderedYards===undefined||m.actualOrderedYards===''||m.actualOrderedYards===null);
+      if(!_hasKg&&!_hasYd)continue;
       if(_hasMainFab&&!_isMainPart(m.part)){ _tr((m.name||'')+' #'+(m.fabricColor||m.colorName||'')+': 부속 원단('+(m.part||'용도 없음')+')이라 생산수량은 안 바꿈 (몸판만 주도)'); continue; } // 부속(소매 등) override는 생산조정 주도 안 함
       hasAnyActual=true;
       // 이 원단이 어느 아이템 컬러에 속하는지 결정
@@ -20021,11 +20026,11 @@ function getEffectivePcsByColor(o,oi,trace){
         targets=_mapped?[_mapped]:null;
       }
       var _lbl=(m.name||'')+' #'+(m.fabricColor||m.colorName||'');
-      var _u=(m.pricingUnit==='kg')?'kg':'y';
+      var _u=_hasYd?'y':((m.pricingUnit==='kg')?'kg':'y');
       if(!targets){ _tr(_lbl+': 컬러 «'+(m.colorName||'')+'» 가 아이템 컬러('+colors.join('/')+')와 안 맞아 건너뜀'); continue; }
-      var origQty=m.pricingUnit==='kg'?(m.totalKg||0):(m.totalYards||0);
-      if(!origQty||origQty<=0){ _tr(_lbl+': 계획 수량이 0 '+_u+' 이라 비율을 못 냄'+(m.pricingUnit==='kg'?' (kg 원단은 계획 kg 가 있어야 함)':'')); continue; }
-      var actualQty=+m.actualOrderedQty;
+      var origQty=_hasYd?(m.totalYards||0):(m.pricingUnit==='kg'?(m.totalKg||0):(m.totalYards||0));
+      if(!origQty||origQty<=0){ _tr(_lbl+': 계획 수량이 0 '+_u+' 이라 비율을 못 냄'+((m.pricingUnit==='kg'&&!_hasYd)?' (kg 원단은 계획 kg 가 있어야 함)':'')); continue; }
+      var actualQty=_hasYd?+m.actualOrderedYards:+m.actualOrderedQty;
       if(actualQty===origQty){ _tr(_lbl+': 실발주 '+actualQty+_u+' = 계획 → 변화 없음'); continue; }
       var ratio=actualQty/origQty;
       _tr(_lbl+': 실발주 '+actualQty+_u+' ÷ 계획 '+(Math.round(origQty*100)/100)+_u+' = '+Math.round(ratio*1000)/10+'%');
