@@ -2595,14 +2595,29 @@ async function onFirebaseLogin(){
         setCloudInd('ok');
         showToast('✓ 로컬 데이터를 클라우드에 업로드 완료', 3000);
       } else {
-        // 양쪽 다 비어 있으면 진짜 새 사용자 — 회사 등록 모달을 띄운다.
+        /* ⚠️ 2026-09-09b: 여기서 바로 «첫 회사 등록»을 띄우면, 통신이 잠깐 흔들려 회사 목록만 못 읽은 기기(폰)가
+           «회사 없음 = 새 사용자» 로 오인돼 빈 화면이 된다(신고 「폰에서 로그인 칸이 없다」 — 실은 회사 목록이 비었던 것).
+           → 2초 뒤 한 번 더 읽어보고, 그래도 없을 때만 등록 모달. */
         window._cloudSyncReady=true;
         setCloudInd('ok');
-        showToast('첫 회사를 등록해 주세요', 3000);
-        setTimeout(function(){
-          const regModal=document.getElementById('add-co-modal');
-          if(regModal)regModal.style.display='flex';
-        }, 400);
+        var _retryCos=null;
+        try{ await new Promise(function(r){setTimeout(r,2000);}); _retryCos=await cloudGet('fpm_cos'); }catch(eR){ console.warn('[회사목록 재시도]',eR); }
+        if(_retryCos&&Object.keys(_retryCos).length>0){
+          companies={...(companies||{}), ..._retryCos};
+          lsSet('fpm_cos', companies);
+          var _ids2=Object.keys(companies);
+          if(!curCoId||!companies[curCoId]){ curCoId=_ids2[0]; try{if(_ls)localStorage.setItem('fpm_last',curCoId);}catch(e){} }
+          loadCoData(curCoId);
+          try{ await cloudSyncLoad(curCoId); }catch(e){}
+          renderCoSel(); render(); startRealtimeSync();
+          showToast('회사 목록을 다시 가져왔어요 — '+(companies[curCoId]&&companies[curCoId].name||''), 3500);
+        }else{
+          showToast('첫 회사를 등록해 주세요', 3000);
+          setTimeout(function(){
+            const regModal=document.getElementById('add-co-modal');
+            if(regModal)regModal.style.display='flex';
+          }, 400);
+        }
       }
     }
   }catch(e){
@@ -4436,7 +4451,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-09a';
+var APP_BUILD=/*BUILD*/'2026-09-09b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5351,7 +5366,11 @@ function importData(file){
 }
 
 /* ===== COMPANY ===== */
-function renderCoSel(){const s=document.getElementById('co-sel');if(!s)return;s.innerHTML=Object.values(companies).map(c=>`<option value="${c.id}"${c.id===curCoId?' selected':''}>${esc(c.name)}</option>`).join('');}
+function renderCoSel(){const s=document.getElementById('co-sel');if(!s)return;
+  var _list=Object.values(companies||{});
+  /* 비어 있으면 빈 칸 대신 이유를 보여준다 — 폰에서 «아무것도 없는 작은 칸»으로 보이던 것 (2026-09-09b) */
+  if(!_list.length){ s.innerHTML='<option value="">회사 없음 — 「새로고침」을 눌러주세요</option>'; return; }
+  s.innerHTML=_list.map(c=>`<option value="${c.id}"${c.id===curCoId?' selected':''}>${esc(c.name)}</option>`).join('');}
 function onCoChange(id){curCoId=id;try{if(_ls)localStorage.setItem('fpm_last',id);}catch(e){}loadCoData(id);renderCoSel();render();startRealtimeSync();}
 function showModal(id){const el=document.getElementById(id);if(!el)return;el.style.display=(id==='o-new-modal'?'block':'flex');if(id==='o-new-modal'){window._onPage=0;window._ncChecked={};window._ncQtyCache={};const bs=document.getElementById('on-brand-flt');if(bs)bs.dataset.populated='';renderOrderNewItems();var b=document.getElementById('o-new-btn');if(b){b.textContent='✕ 발주 생성 닫기';}}if(id==='cloud-modal')updateCloudModal();}
 function closeModal(id){const el=document.getElementById(id);if(el)el.style.display='none';if(id==='o-new-modal'){var b=document.getElementById('o-new-btn');if(b){b.textContent='＋ 발주 생성';}}}
