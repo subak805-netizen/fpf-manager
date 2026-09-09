@@ -2354,3 +2354,6 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - `poChangePanelHTML(o)`: 발송·출고·입고로 고정된 거래처의 `o.suppliers[sn].materials`(스냅샷) vs `calcSups(o.orderItems)`(지금 계산)를 `_poMatKey`(propagate 와 같은 식별: type|name|colorName|itemId|part|fabId)로 대조 → 바뀐 줄(전→후·증감)·새로 필요·필요 없음. 미발송 거래처는 「자동 반영됨」. 근거 = `getEffectivePcsByColor(o,oi,trace)`. 변화 없으면 패널 없음. 자료 불변.
 - 원값 기준(5단위 올림은 표시 단계) — 패널에 명시. `renderPoTab` 에서 로스 패널 다음, 카드 트레이 앞에 삽입.
 - 검증 9개(jsc, 실제 함수). 다음 단계 = 「정정 카드 만들기」(추가발주 카드 틀 재사용) — 결정 후.
+
+## 2026-09-09k — 원가계산서 사이즈 기준에서 요척 수정 칸이 최대 기준 값(1.25)을 보여주던 것
+- 계산(`fabPure`)은 09-09n 부터 `csFabKey(f)`(사이즈별 키)를 읽는데, 표시 칸 `_ovr`(29248)은 `f.id` 그대로라 0 사이즈에서도 최대 기준 수정값이 보였다. 원단비(0.42×9,000=3,780)는 맞았고 표시만 틀림. 표시도 `csFabKey` 로. 검증 2개(jsc).
