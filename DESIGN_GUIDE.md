@@ -2348,3 +2348,9 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - `poCardHTML` 의 `.sc-b` 를 `.po2-main`(출고처·단위·자재표·발주서 본문) + `.po2-side`(발주 내용 선택 + 거래처 확인)로 감쌈. 마크업 순서·기능 불변(div 균형 검사 동일).
 - CSS `@media(min-width:1100px)`: `.po2 .sc-b` grid `minmax(0,1fr) 440px`, 트레이·카드 max-width 1120, `.po2` overflow visible(sticky 위해), `.po2-side` sticky top 48(.sr 스크롤 기준). 좁은 화면은 예전 그대로. `?v=20260909a`.
 - 검증: 실제 main.css 를 그대로 불러온 하네스(`/tmp/fpf-j-preview/po2col-real.html`)로 1280/900 렌더 확인. 라이브 화면은 로그인이 필요해 사용자 확인 대기.
+
+## 2026-09-09j — 정정 카드 C · 1단계: 「변경 사항」 패널(읽기 전용)
+- 사용자 선택(미리보기 fix.html): 배치 C = 오더 맨 위 패널. 본문 형식(차이만/전체)·감량 통보·결제 줄 처리는 미결.
+- `poChangePanelHTML(o)`: 발송·출고·입고로 고정된 거래처의 `o.suppliers[sn].materials`(스냅샷) vs `calcSups(o.orderItems)`(지금 계산)를 `_poMatKey`(propagate 와 같은 식별: type|name|colorName|itemId|part|fabId)로 대조 → 바뀐 줄(전→후·증감)·새로 필요·필요 없음. 미발송 거래처는 「자동 반영됨」. 근거 = `getEffectivePcsByColor(o,oi,trace)`. 변화 없으면 패널 없음. 자료 불변.
+- 원값 기준(5단위 올림은 표시 단계) — 패널에 명시. `renderPoTab` 에서 로스 패널 다음, 카드 트레이 앞에 삽입.
+- 검증 9개(jsc, 실제 함수). 다음 단계 = 「정정 카드 만들기」(추가발주 카드 틀 재사용) — 결정 후.
