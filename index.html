@@ -1466,6 +1466,9 @@ const COST_DEFS=[
    ⚠️ 공임 단가가 필요한 곳은 결제·거래명세서·원가계산서 전부 이 함수 하나만 쓴다.
       it.laborCost를 직접 곱하면 세 화면 금액이 갈라진다.
    ⚠️ 사이즈별 값이 하나도 없으면 laborRate는 기존과 100% 같은 값을 돌려준다(옛 아이템 불변). */
+/* 사이즈별 값(요척·공임)에서 «지금 사이즈 목록에 있는 키»만 남긴다 (2026-09-09m).
+   사이즈를 S/M → 0/1 로 갈아끼우면 옛 키(S 0.37·M 1.16)가 남아 화면·최대값 계산에 섞이던 것. 자료는 안 지운다(표시·계산에서만 제외). */
+function _bySizeCurrent(map,it){ try{ var m=map||{}; var sz=(it&&it.sizes||[]).map(function(s){return String(s);}); if(!sz.length)return m; var out={}; Object.keys(m).forEach(function(k){ if(sz.indexOf(String(k))>=0)out[k]=m[k]; }); return out; }catch(e){ return map||{}; } }
 function laborRate(it,size){
   if(!it)return 0;
   var m=it.laborBySize;
@@ -4525,7 +4528,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-09l';
+var APP_BUILD=/*BUILD*/'2026-09-09m';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -18325,9 +18328,9 @@ function yocheokHistory(itemId){
         var _szQty=(cutGrid&&cutGrid[color])||((nCutColors===1)?_yoMergeGrid(cutGrid):null);
         var plan=_yoPlanOf(fc,_szQty);   /* 계획 총 야드 계산용(사이즈별×장수) — 화면엔 «적어둔 사이즈별 값»을 그대로 보여준다 */
         var key=(m.name||'')+'|'+(m.part||'')+'|'+color;
-        if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,planFlat:(fc?(+fc.consumption||0):0),planBySize:((fc&&fc.consumptionBySize)?fc.consumptionBySize:null),cutBySize:{},rows:[],sumOrd:0,sumCut:0,sumOrdQty:0};order.push(key);}
+        if(!groups[key]){groups[key]={fabName:m.name||'원단',part:m.part||'',color:color,plan:plan,planFlat:(fc?(+fc.consumption||0):0),planBySize:((fc&&fc.consumptionBySize)?_bySizeCurrent(fc.consumptionBySize,it):null),cutBySize:{},rows:[],sumOrd:0,sumCut:0,sumOrdQty:0};order.push(key);}
         var g=groups[key];
-        g.rows.push({date:o.createdAt||'',oname:o.name||'',oid:o.id,ordered:ordered,cut:cut,ordQty:oq,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''),plan:plan});
+        g.rows.push({date:o.createdAt||'',oname:o.name||'',oid:o.id,sup:sn,ordered:ordered,cut:cut,ordQty:oq,realYo:ordered/cut,override:(m.actualOrderedQty!==undefined&&m.actualOrderedQty!==''),plan:plan});
         g.sumOrd+=ordered;g.sumCut+=cut;g.sumOrdQty+=oq;
         g.sumPlanW=(g.sumPlanW||0)+(plan*cut);   /* = 계획 총 야드(사이즈별 요척 × 그 사이즈 재단장수) */
         try{ if(_szQty)Object.keys(_szQty).forEach(function(sz){ var q=+_szQty[sz]||0; if(q>0)g.cutBySize[sz]=(g.cutBySize[sz]||0)+q; }); }catch(e){}
@@ -18351,15 +18354,17 @@ function openYocheokHist(itemId){
       var rowsH=g.rows.map(function(r){
         var sw=(typeof colorToHex==='function')?'<span style="display:inline-block;width:9px;height:9px;border:1px solid #999;border-radius:2px;vertical-align:-1px;margin-right:3px;background:'+colorToHex(g.color)+'"></span>':'';
         var dm=String(r.date||'').match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);var dShort=dm?(+dm[2]+'/'+(+dm[3])):String(r.date||'');
-        return '<tr><td style="text-align:left;padding:4px 4px">'+esc(dShort)+'</td><td style="padding:4px 4px">'+sw+esc(g.color||'기본')+'</td><td style="text-align:center;padding:4px 4px">'+r.cut+'</td><td style="text-align:center;padding:4px 4px;white-space:nowrap">'+_yoR1(r.ordered)+'y'+(r.override?'<sup style="color:#2563eb;font-size:8px;font-weight:800">실</sup>':'')+'</td><td style="text-align:center;padding:4px 4px;font-weight:800;color:#7c3aed">'+_yoR2(r.realYo)+'</td></tr>';
+        return '<tr><td style="text-align:left;padding:4px 4px">'+esc(dShort)+'<div style="font-size:9.5px;color:var(--t3,#9ca3af);white-space:nowrap">'+esc((r.oname||'')+(r.sup?' · '+r.sup:''))+'</div></td><td style="padding:4px 4px">'+sw+esc(g.color||'기본')+'</td><td style="text-align:center;padding:4px 4px">'+r.cut+'</td><td style="text-align:center;padding:4px 4px;white-space:nowrap">'+_yoR1(r.ordered)+'y'+(r.override?'<sup style="color:#2563eb;font-size:8px;font-weight:800">실</sup>':'')+'</td><td style="text-align:center;padding:4px 4px;font-weight:800;color:#7c3aed">'+_yoR2(r.realYo)+'</td></tr>';
       }).join('');
       var _pbs=g.planBySize||{}, _szKeys=Object.keys(_pbs).filter(function(k){return +_pbs[k]>0;});
+      /* 같은 발주·같은 용도·같은 컬러에 원단 묶음이 2개면 = 발주 안에 원단 줄이 2개(이름만 다름). 발송으로 굳은 발주서는 아이템에서 원단을 지우거나 이름을 바꿔도 옛 줄이 남는다 (2026-09-09m) */
+      var _dupNote=(function(){ try{ var oids={}; g.rows.forEach(function(r){oids[r.oid]=1;}); var others=hist.filter(function(h){ return h!==g&&h.part===g.part&&h.color===g.color&&h.rows.some(function(r){return oids[r.oid];}); }); if(!others.length)return ''; return '<div style="font-size:11px;color:#b45309;background:#fff7ed;border:1px solid #f0d090;border-radius:6px;padding:6px 9px;margin:4px 0 6px">같은 발주에 «'+esc(g.part||'')+' · '+esc(g.color||'기본')+'» 원단 줄이 '+(others.length+1)+'개예요 (이름: '+esc(g.fabName)+' / '+others.map(function(h){return esc(h.fabName);}).join(', ')+'). 발송으로 굳은 발주서는 아이템에서 원단 이름을 바꾸거나 지워도 옛 줄이 남습니다 — 발주서 탭 「변경 사항」에 «필요 없음»으로 뜨는 줄이 그것이에요.</div>'; }catch(e){ return ''; } })();
       var _bySize=_szKeys.length>0;
       var _planTxt=_bySize?_szKeys.map(function(k){return esc(k)+' <b style="color:var(--text)">'+_yoR2(+_pbs[k])+'</b>';}).join(' · '):('<b style="color:var(--text)">'+_yoR2(g.plan)+'</b>');
       var _ydDiff=(g.sumOrd||0)-(g.planYd||0);
       var diff=g.wAvg-(g.plan||0);
       return '<div style="margin-bottom:15px">'
-        +'<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:12.5px;margin-bottom:4px;flex-wrap:wrap;gap:4px"><span>'+esc(g.fabName)+(g.part?' <span style="color:var(--t2);font-weight:500">· '+esc(g.part)+'</span>':'')+'</span><span style="font-size:11px;color:var(--t2)">계획 요척 '+_planTxt+'</span></div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:12.5px;margin-bottom:4px;flex-wrap:wrap;gap:4px"><span>'+esc(g.fabName)+(g.part?' <span style="color:var(--t2);font-weight:500">· '+esc(g.part)+'</span>':'')+'</span><span style="font-size:11px;color:var(--t2)">계획 요척 '+_planTxt+'</span></div>'+_dupNote
         +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr style="color:var(--t2)"><th style="text-align:left;padding:4px 4px;font-size:10px;font-weight:700">발주</th><th style="padding:4px 4px;font-size:10px;font-weight:700">컬러</th><th style="padding:4px 4px;font-size:10px;font-weight:700">재단</th><th style="padding:4px 4px;font-size:10px;font-weight:700">실제발주</th><th style="padding:4px 4px;font-size:10px;font-weight:700">실제요척</th></tr></thead><tbody>'+rowsH
         +'<tr style="border-top:1.5px solid var(--ink)"><td colspan="2" style="padding:5px;font-weight:800">장수 가중평균</td><td style="text-align:center;font-weight:800;padding:5px">'+g.sumCut+'</td><td style="text-align:center;font-weight:800;padding:5px">'+_yoR1(g.sumOrd)+'y</td><td style="text-align:center;font-weight:800;color:#7c3aed;padding:5px">'+_yoR2(g.wAvg)+'</td></tr></tbody></table></div>'
         +(_bySize
@@ -29200,13 +29205,13 @@ function csLaborRate(it){
   try{
     var sz=window._csSize||'';
     if(sz&&typeof laborRate==='function'){ var v=laborRate(it,sz); if(v>0)return v; }
-    var m=(it&&it.laborBySize)||{}, vals=Object.keys(m).map(function(k){return +m[k]||0;}).filter(function(v){return v>0;});
+    var m=_bySizeCurrent((it&&it.laborBySize)||{},it), vals=Object.keys(m).map(function(k){return +m[k]||0;}).filter(function(v){return v>0;});
     if(vals.length)return Math.max.apply(null,vals);
     return +((it&&it.laborCost)||0)||0;
   }catch(e){ return +((it&&it.laborCost)||0)||0; }
 }
 function csLaborNote(it){
-  try{ var m=(it&&it.laborBySize)||{}, ks=Object.keys(m).filter(function(k){return +m[k]>0;});
+  try{ var m=_bySizeCurrent((it&&it.laborBySize)||{},it), ks=Object.keys(m).filter(function(k){return +m[k]>0;});
     if(!ks.length)return '';
     var sz=window._csSize||'';
     if(sz)return ' · '+sz+' 사이즈';
@@ -29233,8 +29238,9 @@ function renderCS(){
   const effConsumption=(f)=>{
     /* 사이즈를 골랐으면 그 사이즈 요척 (2026-09-08l) */
     try{ var _sz=window._csSize||''; if(_sz&&f.consumptionBySize&&+f.consumptionBySize[_sz]>0)return +f.consumptionBySize[_sz]; }catch(e){}
-    if(f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0){
-      var vals=Object.values(f.consumptionBySize).map(function(v){return +v||0;}).filter(function(v){return v>0;});
+    var _cbs=_bySizeCurrent(f.consumptionBySize,it);   /* 옛 사이즈 키 제외 (2026-09-09m) */
+    if(_cbs&&Object.keys(_cbs).length>0){
+      var vals=Object.values(_cbs).map(function(v){return +v||0;}).filter(function(v){return v>0;});
       if(vals.length>0){
         return Math.max.apply(null,vals);
       }
@@ -29257,7 +29263,7 @@ function renderCS(){
       var _effTy=+cp.ty||0;        // 수정값 있으면 그 값
       var _maxNote='';
       if(f.consumptionBySize&&Object.keys(f.consumptionBySize).length>0){
-        var _ents=Object.entries(f.consumptionBySize).map(function(e){return [e[0],+e[1]||0];});
+        var _ents=Object.entries(_bySizeCurrent(f.consumptionBySize,it)).map(function(e){return [e[0],+e[1]||0];});
         var _mx=_ents.reduce(function(a,b){return b[1]>a[1]?b:a;},_ents[0]); // 요척 가장 큰 사이즈 = 제일 큰 사이즈
         var _selSz=window._csSize||'';
         _maxNote=(_selSz&&+((f.consumptionBySize||{})[_selSz])>0)?(' · '+esc(_selSz)+' 사이즈'):(' · 최대 '+esc(_mx[0])+' 기준');
