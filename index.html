@@ -4528,7 +4528,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-10i';
+var APP_BUILD=/*BUILD*/'2026-09-10j';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9117,16 +9117,29 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
     try{ _tombArr('pbMat',s+'\u001f'+oldKey); _untombArr('pbMat',s+'\u001f'+newKey); }catch(e){}
   }
   // Update all items referencing this material in S.items
+  /* 2026-09-10j: ⚠️ 예전엔 «색상까지 같을 때만» 아이템을 따라 바꿔서, 단가장 항목엔 색상이 비고 아이템 부자재엔 색상이 있으면
+     아이템이 옛 이름으로 남았다 → 카드에 미등록 → 다시 고르면 새 줄 → 적용컬러(발주용 이름) 소실(신고 「이름만 바꿨는데 컬러명도 다시 입력」).
+     단가장 색상이 비어 있으면 색상 무관하게 이름으로 따라간다. 적용컬러·단가·잠금 등 나머지 칸은 그대로(줄을 새로 만들지 않음). */
+  var _nItems=0,_nOrders=0;
+  var _clMatch=function(c){ return !oldCl||(c||'')===oldCl; };
   for(var iid in S.items){
-    var it=S.items[iid];
-    if(field==='name'&&it.fabrics)for(var fi=0;fi<it.fabrics.length;fi++)if(it.fabrics[fi].supplier===s&&it.fabrics[fi].name===oldNm)it.fabrics[fi].name=newNm;
+    var it=S.items[iid]; var _hit=false;
+    if(field==='name'&&it.fabrics)for(var fi=0;fi<it.fabrics.length;fi++)if(it.fabrics[fi].supplier===s&&it.fabrics[fi].name===oldNm){it.fabrics[fi].name=newNm;_hit=true;}
     if(it.trims)for(var ti=0;ti<it.trims.length;ti++){
       var tr=it.trims[ti];
-      if(tr.supplier===s&&tr.name===oldNm&&(tr.color||'')===oldCl){
-        tr.name=newNm;tr.color=newCl;
+      if(tr.supplier===s&&tr.name===oldNm&&_clMatch(tr.color)){
+        tr.name=newNm; if(oldCl||newCl)tr.color=newCl; _hit=true;
       }
     }
+    if(_hit)_nItems++;
   }
+  /* 발주서 자재도 같이 — 미발송은 재계산이 처리하지만 발송·출고·입고로 굳은 발주서는 이름만 바꿔 수량·실발주·결제 제외 표시 유지 (2026-09-10j) */
+  try{ Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; if(!o||!o.suppliers||!o.suppliers[s])return; var sp=o.suppliers[s]; var ch=false;
+    (sp.materials||[]).forEach(function(m){ if(!m||m.name!==oldNm)return; if(m.type==='trim'&&!_clMatch(m.color||m.itemColorName))return; if(m.type==='fabric'&&field!=='name')return;
+      var oldKeyS=(typeof matSkipKey==='function')?matSkipKey(s,m):null; m.name=newNm; if(typeof m.displayName==='string'&&m.displayName.indexOf(oldNm)>=0)m.displayName=m.displayName.replace(oldNm,newNm);
+      if(oldKeyS&&o.skipBilling&&o.skipBilling[oldKeyS]){ var nk=matSkipKey(s,m); o.skipBilling[nk]=o.skipBilling[oldKeyS]; if(nk!==oldKeyS)delete o.skipBilling[oldKeyS]; }
+      ch=true; });
+    if(ch)_nOrders++; }); }catch(e){ console.warn('[이름 변경→발주서]',e); }
   // 컬러별 단가(colorPrices: 이름|사이즈|발주명)도 이름 변경 따라가게 — 안 그러면 컬러단가 자동채움이 끊김
   if(field==='name'&&oldNm!==newNm&&pb.colorPrices){
     var _ncp={};
@@ -9138,7 +9151,7 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
   /* 표를 다시 그리면 지금 옮겨 간 칸이 사라진다 → 줄의 «키»만 갈아끼우고 다시 그리기는 미룬다 */
   if(typeof _pbRekeyRow==='function'&&_pbRekeyRow(s,oldKey,newKey)){ if(typeof pbSoftRender==='function')pbSoftRender(); }
   else renderBook();
-  showToast(field==='color'?'색상 변경':'이름 변경');
+  showToast((field==='color'?'색상 변경':'이름 변경')+(_nItems||_nOrders?(' — 아이템 '+_nItems+'개 · 발주서 '+_nOrders+'장 같이 바뀜'):''),4000);
 }
 
 function updatePBOrderType(supEnc,nmEnc,newType){
