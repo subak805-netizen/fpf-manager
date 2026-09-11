@@ -2410,3 +2410,6 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 ## 2026-09-10m — 작지 코멘트 창에도 사이즈 체크리스트
 - 요청 「코멘트에 사이즈도 불러오지게」. 샘플 코멘트 탭의 사이즈 표를 `_scSizeTableHTML(it,rr,_id,ri)` 로 빼서 두 곳(샘플 코멘트 탭 `renderSampleComment`·작지 코멘트 창 `tpCmtRender`)이 공유. 같은 회차 자료(`it.smpRounds[ri]`)라 어디서 적어도 동일.
 - 부위 추가·삭제·불러오기 뒤 재렌더는 `_scRerenderAll()`(샘플 코멘트 탭 + 열려 있으면 작지 코멘트 창). CSS 는 `#sccm-body` 규칙을 `#tp-cmt-body` 로 복제. `?v=20260910h`. 검증 4개.
+
+## 2026-09-11a — 2단 마지막 원인: 오더 상세 본문 래퍼 `max-width:540px`
+- `renderOrderDetail` 이 탭 아래 본문을 `<div style="max-width:540px">` 로 감쌈 → 10k 로 패널은 창을 채웠지만(탭만 길어짐) 본문은 540 고정. `.od-body{max-width:1160px}` 로. 검증: 실제 구조(.sr > .dtabs + .od-body > .po2-cq) 하네스.
