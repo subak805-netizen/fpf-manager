@@ -14,7 +14,7 @@ OUT=sys.argv[1]
 src=open('index.html',encoding='utf-8').read()
 
 # 이름 목록: 검산에 필요한 계산 함수/상수 (index.html에서 원문 그대로 추출)
-FUNCS=['orderFc','snapshotOrderFc','calcFabAdditionForColor','calcFabShrinkForColor',
+FUNCS=['laborBase','hasLaborRule','_laborCtx','orderFc','snapshotOrderFc','calcFabAdditionForColor','calcFabShrinkForColor',
 'getFabRound','roundYards','calcFabYards','trimExtrasCost','calcTrimNeed','_calcTrimNeedRaw','_pcsPG',
 'getMatActualQty','getMatActualCost','getMatOrigQty','hasMatOverride','getMatBaseQty',
 '_trimWeightedPrice','ensureOrderLoss','_ensureOrderLossRaw','_entMech','_entPre','_entMechAbsorb','_entJson','orderLabelBuffer','calcSups','mkSup','mkSupWithDefaults',

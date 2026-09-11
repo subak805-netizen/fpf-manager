@@ -651,7 +651,7 @@ tryInitFirebase();
   </div>
 </div>
 </div>
-<datalist id="dl-sup"></datalist><datalist id="dl-fnm"></datalist><datalist id="dl-cutdir"><option value="양방향"><option value="일방향 ↓"><option value="일방향 ↑"><option value="결 맞춤"><option value="무늬 맞춤"><option value="스트라이프 맞춤"><option value="체크 맞춤"></datalist><datalist id="dl-tnm"></datalist><datalist id="dl-carelabel"></datalist><datalist id="dl-omude"></datalist><datalist id="dl-loop"></datalist><datalist id="dl-fabpart"><option value="몸판"><option value="스트링감"><option value="에리감"><option value="배색"><option value="안감"><option value="시보리"></datalist><datalist id="dl-labelpart"><option value="상의"><option value="하의"><option value="셋업"></datalist><datalist id="dl-trimpart"><option value="몸판"><option value="허리"><option value="소매"><option value="밑단"><option value="에리"><option value="접착"><option value="스트링"><option value="장식"><option value="안감"></datalist><datalist id="dl-clr"><option value="흰색"><option value="검정"><option value="아이보리"><option value="블랙"><option value="네이비"><option value="베이지"><option value="회색"><option value="갈색"><option value="와인"><option value="카키"></datalist><datalist id="dl-fiber"><option>cotton</option><option>polyester</option><option>nylon</option><option>rayon</option><option>wool</option><option>tencel</option><option>span</option><option>linen</option><option>acrylic</option><option>viscose</option><option>modal</option><option>silk</option><option>cashmere</option><option>acetate</option><option>lyocell</option><option>hemp</option><option>ramie</option><option>cupra</option></datalist>
+<datalist id="dl-sup"></datalist><datalist id="dl-fnm"></datalist><datalist id="dl-cutdir"><option value="양방향"><option value="결방향 ↓"><option value="결방향 ↑"><option value="결 맞춤"><option value="무늬 맞춤"><option value="스트라이프 맞춤"><option value="체크 맞춤"></datalist><datalist id="dl-tnm"></datalist><datalist id="dl-carelabel"></datalist><datalist id="dl-omude"></datalist><datalist id="dl-loop"></datalist><datalist id="dl-fabpart"><option value="몸판"><option value="스트링감"><option value="에리감"><option value="배색"><option value="안감"><option value="시보리"></datalist><datalist id="dl-labelpart"><option value="상의"><option value="하의"><option value="셋업"></datalist><datalist id="dl-trimpart"><option value="몸판"><option value="허리"><option value="소매"><option value="밑단"><option value="에리"><option value="접착"><option value="스트링"><option value="장식"><option value="안감"></datalist><datalist id="dl-clr"><option value="흰색"><option value="검정"><option value="아이보리"><option value="블랙"><option value="네이비"><option value="베이지"><option value="회색"><option value="갈색"><option value="와인"><option value="카키"></datalist><datalist id="dl-fiber"><option>cotton</option><option>polyester</option><option>nylon</option><option>rayon</option><option>wool</option><option>tencel</option><option>span</option><option>linen</option><option>acrylic</option><option>viscose</option><option>modal</option><option>silk</option><option>cashmere</option><option>acetate</option><option>lyocell</option><option>hemp</option><option>ramie</option><option>cupra</option></datalist>
 <datalist id="dl-mkt"><option value="동대문시장"><option value="동화시장"><option value="기타"></datalist><datalist id="dl-bldg"><option value="A동"><option value="B동"><option value="C동"><option value="D동"><option value="N동"><option value="기타"></datalist><datalist id="dl-flr"><option value="B1"><option value="1F"><option value="2F"><option value="3F"><option value="4F"><option value="5F"><option value="6F"></datalist>
 
     <!-- 원단 사진 AI 분석 기능 제거됨 -->
@@ -1450,7 +1450,7 @@ let companies={},curCoId='';
 let S={items:{},orders:{},factories:{},priceBook:{}};
 let curOid=null,curOTab='po',curPayTab='all';
 let editFcId=null,editItemId=null,_itemListScrollY=0;
-let formColors=[],formSizes=[],formFabs=[],formTrims=[],formTrimCosts=[],formLaborBySize={};
+let formColors=[],formSizes=[],formFabs=[],formTrims=[],formTrimCosts=[],formLaborBySize={},formLaborTiers=[],formLaborReorder=0;
 
 const COST_DEFS=[
   ['laborCost','공임','sewingFcId','봉제공임공장'],
@@ -1469,11 +1469,36 @@ const COST_DEFS=[
 /* 사이즈별 값(요척·공임)에서 «지금 사이즈 목록에 있는 키»만 남긴다 (2026-09-09m).
    사이즈를 S/M → 0/1 로 갈아끼우면 옛 키(S 0.37·M 1.16)가 남아 화면·최대값 계산에 섞이던 것. 자료는 안 지운다(표시·계산에서만 제외). */
 function _bySizeCurrent(map,it){ try{ var m=map||{}; var sz=(it&&it.sizes||[]).map(function(s){return String(s);}); if(!sz.length)return m; var out={}; Object.keys(m).forEach(function(k){ if(sz.indexOf(String(k))>=0)out[k]=m[k]; }); return out; }catch(e){ return map||{}; } }
-function laborRate(it,size){
+/* ===== 수량별·리오더 공임 (2026-09-11b, 사용자 결정 09-10) =====
+   규칙: 리오더(2차~)면 «리오더 공임»(있을 때) 무조건 → 아니면 오더 수량이 구간 이상이면 «수량별 공임» → 아니면 기본 공임.
+   · 수량은 그 오더의 «아이템 오더 수량»(컬러·사이즈 합, 원단부족 조정수량 아님) · 아이템별(합산 아님) · 회차별(누적 아님)
+   · 옛 오더 그대로: 규칙을 처음 넣은 날(laborRuleSince) 이후에 만든 오더에만 적용
+   · 사이즈별 공임과 같이 있으면 사이즈 값에 (구간/리오더 공임 − 기본) 만큼 가감
+   · 원가계산서는 ctx 없이 불러 «기본(제일 비싼) 공임» — 사용자 결정 */
+function laborBase(it,ctx){
+  var base=+((it&&it.laborCost)||0)||0;
+  if(!it||!ctx||ctx.eligible===false)return base;
+  if(ctx.reorder&&+it.laborReorder>0)return +it.laborReorder;
+  var tiers=Array.isArray(it.laborTiers)?it.laborTiers.filter(function(x){return x&&+x.min>0&&+x.rate>0;}):[];
+  if(tiers.length&&+ctx.qty>0){ var best=null; tiers.forEach(function(x){ if(+ctx.qty>=+x.min&&(!best||+x.min>+best.min))best=x; }); if(best)return +best.rate; }
+  return base;
+}
+function hasLaborRule(it){ try{ return !!(it&&((Array.isArray(it.laborTiers)&&it.laborTiers.some(function(x){return x&&+x.min>0&&+x.rate>0;}))||+it.laborReorder>0)); }catch(e){ return false; } }
+function _laborCtx(o,it){
+  try{ if(!o||!it)return null;
+    var oi=(o.orderItems||[]).find(function(x){return x&&x.itemId===it.id;}); var qty=0;
+    if(oi&&oi.qtyGrid){ for(var c in oi.qtyGrid){ var g=oi.qtyGrid[c]||{}; for(var s in g)qty+=+g[s]||0; } }
+    var rn=(typeof getItemReorderNum==='function'&&oi)?getItemReorderNum(o.id,oi.itemId):null; var reorder=!!(rn&&+rn.num>1);
+    var since=String(it.laborRuleSince||''); var eligible=!since||String(o.createdAt||'').slice(0,10)>=since;
+    return {qty:qty,reorder:reorder,eligible:eligible};
+  }catch(e){ return null; }
+}
+function laborRate(it,size,ctx){
   if(!it)return 0;
+  var base0=+it.laborCost||0, base=laborBase(it,ctx);
   var m=it.laborBySize;
-  if(m&&size!=null&&size!==''&&size!=='free'){var v=+m[size];if(v>0)return v;}
-  return +it.laborCost||0;
+  if(m&&size!=null&&size!==''&&size!=='free'){var v=+m[size];if(v>0)return v+(base-base0);}
+  return base;
 }
 function hasLaborBySize(it){var m=it&&it.laborBySize;if(!m)return false;for(var k in m){if(+m[k]>0)return true;}return false;}
 // 오더별 공장 스냅샷 — 오더 생성 시점의 공장을 오더에 얼려둠(아이템 공장을 나중에 바꿔도 옛 오더 결제/명세서 안 꼬임).
@@ -4528,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-11a';
+var APP_BUILD=/*BUILD*/'2026-09-11c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5032,6 +5057,8 @@ function loadCoData(id){
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
 function migrateData(){
+  /* 재단 방향 「일방향」→「결방향」 (2026-09-11c 사용자 요청 — 「일방향이라는 단어가 있어?」). 옛 저장값도 바꿔 표·작지에 새 이름으로 */
+  try{ Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; (it&&it.fabrics||[]).forEach(function(f){ if(f&&typeof f.cutDir==='string'&&f.cutDir.indexOf('일방향')===0){ f.cutDir=f.cutDir.replace('일방향','결방향'); } }); }); }catch(e){}
   /* 이미 적어둔 「수선중」 출고 회차 → 불량 관리에 1회 소급 반영 (2026-08-10).
      pdSyncRepairDefects는 고정 id로 덮어쓰기라 여러 번 돌아도 줄이 안 늘어남. */
   try{ if(!S._migRepairDf&&S.orders&&typeof pdSyncRepairDefects==='function'){
@@ -9704,25 +9731,46 @@ function renderColorChips(){const el=document.getElementById('color-chips');if(!
    접혀 있으면 DOM에 입력칸이 없으므로 colLaborBySize는 메모리(formLaborBySize) 값을 지킨다. */
 function renderLaborSizes(){
   var el=document.getElementById('labor-size-wrap');if(!el)return;
+  var h='';
   if(!formSizes.length){
     // 사이즈 미등록 아이템: 예전엔 빈칸이라 기능 자체가 없는 줄 알게 됐다 → 왜 안 보이는지 알려준다
-    el.innerHTML='<div style="font-size:11px;color:#9aa0a8">위 「사이즈」에 사이즈를 추가하면 여기서 사이즈별 공임을 따로 넣을 수 있어요</div>';
-    return;
+    h+='<div style="font-size:11px;color:#9aa0a8">위 「사이즈」에 사이즈를 추가하면 여기서 사이즈별 공임을 따로 넣을 수 있어요</div>';
+  }else{
+    var on=!!window._laborSzOn;
+    h+='<button type="button" class="btn s" onclick="toggleLaborBySize()" style="font-size:11px;padding:3px 10px">'+(on?'사이즈별 공임 접기':'사이즈별로 다르게')+'</button>';
+    if(on){
+      h+='<div class="tx-extras" style="margin-top:6px;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">'
+        +'<div style="width:100%;font-size:11px;color:#6b7280;margin-bottom:2px">비워둔 사이즈는 위의 기본 공임으로 계산돼요</div>'
+        +formSizes.map(function(sz){
+          var v=+formLaborBySize[sz]||0;
+          return '<div style="width:96px"><label style="font-size:11px">'+esc(sz)+'</label>'
+            +'<input type="number" min="0" inputmode="numeric" data-labor-sz="'+encodeURIComponent(sz)+'" value="'+(v>0?v:'')+'" placeholder="기본" oninput="onLaborSizeIn(this)" style="width:100%"></div>';
+        }).join('')
+        +'</div>';
+    }
   }
-  var on=!!window._laborSzOn;
-  var h='<button type="button" class="btn s" onclick="toggleLaborBySize()" style="font-size:11px;padding:3px 10px">'+(on?'사이즈별 공임 접기':'사이즈별로 다르게')+'</button>';
-  if(on){
-    h+='<div class="tx-extras" style="margin-top:6px;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">'
-      +'<div style="width:100%;font-size:11px;color:#6b7280;margin-bottom:2px">비워둔 사이즈는 위의 기본 공임으로 계산돼요</div>'
-      +formSizes.map(function(sz){
-        var v=+formLaborBySize[sz]||0;
-        return '<div style="width:96px"><label style="font-size:11px">'+esc(sz)+'</label>'
-          +'<input type="number" min="0" inputmode="numeric" data-labor-sz="'+encodeURIComponent(sz)+'" value="'+(v>0?v:'')+'" placeholder="기본" oninput="onLaborSizeIn(this)" style="width:100%"></div>';
-      }).join('')
-      +'</div>';
-  }
+  /* 수량별·리오더 공임 (2026-09-11b) — 기본 공임 아래. 구간이 없으면 지금과 완전히 같다. */
+  h+='<div class="tx-extras" style="margin-top:8px;padding:8px 10px">'
+    +'<div style="font-size:11px;font-weight:800;color:#6b7280;margin-bottom:4px">수량별 공임 <span style="font-weight:400">— 오더 수량이 이 장수 이상이면 이 공임 (아이템별·회차별 · 조정수량 아닌 오더 수량 기준)</span></div>'
+    +(formLaborTiers||[]).map(function(x,i){
+      return '<div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap">'
+        +'<input type="number" min="1" inputmode="numeric" value="'+(+x.min>0?+x.min:'')+'" placeholder="100" data-lt-i="'+i+'" data-lt-k="min" oninput="onLaborTierIn(this)" style="width:80px">'
+        +'<span style="font-size:12px">장 이상 →</span>'
+        +'<input type="number" min="0" inputmode="numeric" value="'+(+x.rate>0?+x.rate:'')+'" placeholder="50000" data-lt-i="'+i+'" data-lt-k="rate" oninput="onLaborTierIn(this)" style="width:110px">'
+        +'<span style="font-size:12px">원</span>'
+        +'<button type="button" class="btn s d" onclick="laborTierDel('+i+')" style="font-size:11px;padding:2px 8px">×</button></div>';
+    }).join('')
+    +'<button type="button" class="btn s" onclick="laborTierAdd()" style="font-size:11px;padding:3px 10px;margin-top:4px">+ 구간 추가</button>'
+    +'<div style="margin-top:10px"><label style="font-size:11px;font-weight:800;color:#6b7280">리오더 공임 <span style="font-weight:400">— 2차 리오더부터는 무조건 이 공임 (비우면 수량 구간·기본 공임)</span></label>'
+    +'<div style="display:flex;gap:6px;align-items:center;margin-top:3px"><input type="number" min="0" inputmode="numeric" id="f-laborReorder" value="'+(+formLaborReorder>0?+formLaborReorder:'')+'" placeholder="예: 18000" oninput="onLaborReorderIn(this)" style="width:140px"><span style="font-size:12px">원</span></div></div>'
+    +'<div style="font-size:10.5px;color:#9aa0a8;margin-top:6px">규칙을 처음 넣은 날 이후에 만든 오더부터 적용돼요 (옛 오더는 그대로). 원가계산서는 기본(제일 비싼) 공임으로 냅니다.</div>'
+    +'</div>';
   el.innerHTML=h;
 }
+function onLaborTierIn(el){ var i=+el.dataset.ltI, k=el.dataset.ltK; if(!formLaborTiers[i])formLaborTiers[i]={min:0,rate:0}; formLaborTiers[i][k]=+el.value||0; try{scheduleDraft();}catch(e){} }
+function laborTierAdd(){ formLaborTiers.push({min:0,rate:0}); renderLaborSizes(); try{scheduleDraft();}catch(e){} }
+function laborTierDel(i){ formLaborTiers.splice(i,1); renderLaborSizes(); try{scheduleDraft();}catch(e){} }
+function onLaborReorderIn(el){ formLaborReorder=+el.value||0; try{scheduleDraft();}catch(e){} }
 function toggleLaborBySize(){window._laborSzOn=!window._laborSzOn;renderLaborSizes();}
 function onLaborSizeIn(el){
   var sz=decodeURIComponent(el.dataset.laborSz||'');
@@ -11961,6 +12009,7 @@ function collectFormData(){
   };
   COST_DEFS.forEach(([ck,,fk])=>{d[ck]=+document.getElementById('f-'+ck)?.value||0;d[fk]=document.getElementById('f-'+fk)?.value||'';});
   d.laborBySize=colLaborBySize();
+  d.laborTiers=(formLaborTiers||[]).map(function(x){return {min:+x.min||0,rate:+x.rate||0};}); d.laborReorder=+formLaborReorder||0;   /* 수량별·리오더 공임 (2026-09-11b) */
   d.workRoute=document.getElementById('f-workRoute')?.value||'';
   return d;
 }
@@ -11995,6 +12044,7 @@ function loadDraft(){
   const ic=document.getElementById('f-inclOnce');if(ic)ic.checked=!!d.inclOnce;
   COST_DEFS.forEach(([ck,,fk])=>{s('f-'+ck,d[ck]||0);s('f-'+fk,d[fk]||'');});
   formLaborBySize=Object.assign({},d.laborBySize||{});
+  formLaborTiers=Array.isArray(d.laborTiers)?d.laborTiers.map(function(x){return {min:+x.min||0,rate:+x.rate||0};}):[]; formLaborReorder=+d.laborReorder||0;
   window._laborSzOn=Object.keys(formLaborBySize).length>0;
   formColors=[...(d.colors||[])];formSizes=[...(d.sizes||[])];
   try{_migrateFabBias(d);}catch(e){}
@@ -12116,6 +12166,7 @@ function showItemForm(id){
   formTrims=it?.trims?JSON.parse(JSON.stringify(it.trims)):[];
   formTrimCosts=it?.trimCosts?JSON.parse(JSON.stringify(it.trimCosts)):[];
   formLaborBySize=(it&&it.laborBySize)?Object.assign({},it.laborBySize):{};
+  formLaborTiers=(it&&Array.isArray(it.laborTiers))?it.laborTiers.map(function(x){return {min:+x.min||0,rate:+x.rate||0};}):[]; formLaborReorder=+((it&&it.laborReorder)||0);
   window._laborSzOn=hasLaborBySize(it); // 이미 쓰던 아이템이면 펼친 채로 연다
   document.getElementById('if-t').textContent=id?'아이템 수정':'아이템 추가';
   _itemListScrollY=window.scrollY||0;
@@ -14981,6 +15032,16 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
     (item.sizes||[]).forEach(function(sz){if(+_lb[sz]>0){_keep[sz]=+_lb[sz];_any=true;}});
     if(_any)item.laborBySize=_keep;else delete item.laborBySize; // 없으면 칸 자체를 안 만든다(옛 아이템과 동일)
   })();
+  (function(){ /* 수량별·리오더 공임 저장 (2026-09-11b) */
+    var tiers=(formLaborTiers||[]).filter(function(x){return x&&+x.min>0&&+x.rate>0;}).map(function(x){return {min:+x.min,rate:+x.rate};}).sort(function(a,b){return a.min-b.min;});
+    var reorder=+formLaborReorder||0;
+    var _pv=(typeof _prev!=='undefined'&&_prev)||{};
+    var since=item.laborRuleSince||_pv.laborRuleSince||'';
+    if(tiers.length)item.laborTiers=tiers; else delete item.laborTiers;
+    if(reorder>0)item.laborReorder=reorder; else delete item.laborReorder;
+    if(tiers.length||reorder>0){ item.laborRuleSince=since||todayISO(); }   /* 옛 오더 그대로: 처음 규칙을 넣은 날 이후 오더부터 */
+    else delete item.laborRuleSince;
+  })();
   item.workRoute=document.getElementById('f-workRoute')?.value?.trim()||'';item.workRouteManual=!!window._wrManual;
   item.defaultTrimSup=document.getElementById('f-defaultsup')?.value?.trim()||'';
   /* ⚠️ 화면에서 긁어오는 값은 **그 칸이 없으면** 0·빈배열로 저장돼 자료가 통째로 날아간다
@@ -17686,7 +17747,7 @@ function bgUnitPrice(rate,dc){ dc=(dc==null||dc==='')?50:+dc; if(!(dc>=0))dc=50;
 // 출고 회차 목록 → 공임 기본액: 정상수량×공임 + Σ(비품수량×비품단가). {base, normalQty, bgQty, bgAmt}
 /* 봉제 공임 합계. it을 주고 그 아이템에 사이즈별 공임이 있으면 회차의 사이즈 단가로 계산한다.
    it이 없거나 사이즈별 공임이 하나도 없으면 예전 식(rate×수량)과 결과가 완전히 같다. */
-function sewLaborBase(rate,recs,it){ var nq=0,bq=0,amt=0,norm=0; var bySz=(typeof hasLaborBySize==='function')&&hasLaborBySize(it); (recs||[]).forEach(function(r){ if(!r)return; var q=+r.qty||0; if(!(q>0))return; var u=bySz?laborRate(it,r.size):(+rate||0); if(r.bg){ bq+=q; amt+=bgUnitPrice(u,r.bgDc)*q; } else { nq+=q; norm+=u*q; } }); return {base:norm+amt,normalQty:nq,bgQty:bq,bgAmt:amt}; }
+function sewLaborBase(rate,recs,it,o,ctxOpt){ var nq=0,bq=0,amt=0,norm=0; var bySz=(typeof hasLaborBySize==='function')&&hasLaborBySize(it); var ctx=ctxOpt||((typeof _laborCtx==='function')?_laborCtx(o,it):null); var useFn=bySz||(ctx&&typeof hasLaborRule==='function'&&hasLaborRule(it)); (recs||[]).forEach(function(r){ if(!r)return; var q=+r.qty||0; if(!(q>0))return; var u=useFn?laborRate(it,r.size,ctx):(+rate||0); if(r.bg){ bq+=q; amt+=bgUnitPrice(u,r.bgDc)*q; } else { nq+=q; norm+=u*q; } }); return {base:norm+amt,normalQty:nq,bgQty:bq,bgAmt:amt}; }
 // 검색 input 공용 디바운스 — IME 조합·이벤트 호환성 안전. 입력 멈추고 120ms 후 검색 발동.
 window._searchTimers=window._searchTimers||{};
 function debounceSearch(key,fn,delay){
@@ -21935,14 +21996,14 @@ function renderPayShtTab(o){
         /* 사이즈별 공임: 사이즈별 수량 × 그 사이즈 단가로 합산(결제·명세서와 같은 기준).
            사이즈 분해가 안 되는 경우(그리드도 오더수량도 없음)엔 아래 기본식으로 떨어진다. */
         var _lbDone=false;
-        if(ck==='laborCost'&&hasLaborBySize(it)){
+        if(ck==='laborCost'&&(hasLaborBySize(it)||hasLaborRule(it))){
           var _lbBase=0,_lbQty=0;
           const _lcs=it.colors&&it.colors.length?it.colors:[''];
           const _lss=it.sizes&&it.sizes.length?it.sizes:['free'];
           const _lsg=sch.shippingGrid&&sch.shippingGrid[oi.itemId];
           _lcs.forEach(function(c2){_lss.forEach(function(sz2){
             var q2=_lsg?(+((_lsg[c2]&&_lsg[c2][sz2])||0)):(+((oi.qtyGrid&&oi.qtyGrid[c2]&&oi.qtyGrid[c2][sz2])||0));
-            if(q2>0){_lbBase+=laborRate(it,sz2)*q2;_lbQty+=q2;}
+            if(q2>0){_lbBase+=laborRate(it,sz2,_laborCtx(o,it))*q2;_lbQty+=q2;}
           });});
           if(_lbBase>0){base+=_lbBase;qtySum+=_lbQty;_lbDone=true;}
         }
@@ -22305,7 +22366,7 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
               var iso=toISO(s.date)||_shipISO||'';
               // 비품 출고 회차 = 봉제 공임만 할인 단가(bgUnitPrice). 완성·검품 등 다른 비용은 정상 단가 유지.
               var _u=rate,_bgTag='';
-              if(ck==='laborCost'&&_isSew&&hasLaborBySize(it))_u=laborRate(it,s.size); // 사이즈별 공임
+              if(ck==='laborCost'&&_isSew&&(hasLaborBySize(it)||hasLaborRule(it)))_u=laborRate(it,s.size,_laborCtx(o,it)); // 사이즈별·수량별·리오더 공임
               if(s.bg&&ck==='laborCost'&&_isSew){_u=bgUnitPrice(_u,s.bgDc);_bgTag=' (비품 '+(((s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50))+'%할인)';}
               rows.push({
                 date:iso?(typeof fmtKoDate==='function'?fmtKoDate(iso):iso):_rowDate,
@@ -22322,7 +22383,7 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
                 // 출고수량(이 공장→봉제공장) 있으면 그걸, 없으면 오더수량
                 var q=_srcGrid?(+((_srcGrid[c]&&_srcGrid[c][sz])||0)):(+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0));
                 if(!q)continue;
-                var _ug=(ck==='laborCost'&&_isSew&&hasLaborBySize(it))?laborRate(it,sz):rate; // 사이즈별 공임
+                var _ug=(ck==='laborCost'&&_isSew&&(hasLaborBySize(it)||hasLaborRule(it)))?laborRate(it,sz,_laborCtx(o,it)):rate; // 사이즈별·수량별·리오더 공임
                 rows.push({date:_rowDate,_iso:_shipISO||'',itemName:it.name,color:c||'',size:sz==='free'?'':sz,qty:q,unitPrice:_ug,amount:_ug*q,costType:lbl,oid:o.id,payKey:payKey,orderName:o.name});
               }
             }
@@ -27975,7 +28036,7 @@ function renderItemPay(opts){
         const qty=sewShipQty;
         let base=rate*qty,bgQty=0,bgAmt=0;
         // 비품 출고 공임 할인: 봉제 공임에만 — 비품 회차는 bgDc%(기본 50) 할인 단가로 계산
-        if(ck==='laborCost'&&isSewing&&rate>0){const _lb=sewLaborBase(rate,sewShipRecs,it);base=_lb.base;bgQty=_lb.bgQty;bgAmt=_lb.bgAmt;}
+        if(ck==='laborCost'&&isSewing&&rate>0){const _lb=sewLaborBase(rate,sewShipRecs,it,o);base=_lb.base;bgQty=_lb.bgQty;bgAmt=_lb.bgAmt;}
         const feeKey='fc:'+fcId;
         const fees=(o.payFees||{})[feeKey]||[];
         const taxFeeTot=fees.reduce((s,f)=>f.noVat?s:s+payFeeAmt(f),0);

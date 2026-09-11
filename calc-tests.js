@@ -323,3 +323,27 @@ if(_fails.length){
 }else{
   print('CALC TESTS: OK — ' + _testCount + '문제 전부 통과 (검사 ' + _okCount + '개)');
 }
+
+
+// ── 문제 15. 수량별·리오더 공임 (2026-09-11) ─────────────────────────────
+// 기본 55,000 / 100장 이상 50,000 / 리오더 18,000 / 1사이즈만 58,000.
+// 손계산: 99장 메인 → 55,000 · 100장 메인 → 50,000 · 1사이즈는 58,000−5,000=53,000 · 리오더 → 18,000(사이즈1은 21,000)
+// 규칙 없는 아이템은 예전 그대로. 규칙 넣은 날 이전 오더(eligible=false)는 기본.
+TEST('문제 15. 수량별·리오더 공임 = 99장 55,000 / 100장 50,000 / 리오더 18,000 · 미사용 불변', function(){
+  var it = { id:'i1', sizes:['0','1'], laborCost:55000, laborBySize:{'1':58000}, laborTiers:[{min:100,rate:50000}], laborReorder:18000, laborRuleSince:'2026-09-11' };
+  var itNo = { id:'i2', sizes:['0','1'], laborCost:55000 };
+  CHECK('99장 메인 → 기본 55,000', laborRate(it,'0',{qty:99,reorder:false,eligible:true}), 55000);
+  CHECK('100장 메인 → 50,000', laborRate(it,'0',{qty:100,reorder:false,eligible:true}), 50000);
+  CHECK('100장 메인 1사이즈 → 58,000−5,000=53,000', laborRate(it,'1',{qty:100,reorder:false,eligible:true}), 53000);
+  CHECK('리오더 → 무조건 18,000', laborRate(it,'0',{qty:500,reorder:true,eligible:true}), 18000);
+  CHECK('리오더 1사이즈 → 18,000+3,000=21,000', laborRate(it,'1',{qty:500,reorder:true,eligible:true}), 21000);
+  CHECK('옛 오더(규칙 전) → 기본', laborRate(it,'0',{qty:500,reorder:true,eligible:false}), 55000);
+  CHECK('ctx 없이(원가계산서) → 기본(제일 비싼)', laborRate(it,'0'), 55000);
+  CHECK('규칙 없는 아이템 불변', laborRate(itNo,'0',{qty:500,reorder:true,eligible:true}), 55000);
+  CHECK('규칙 판정', hasLaborRule(it)&&!hasLaborRule(itNo), true);
+  var recs=[{size:'0',qty:60},{size:'1',qty:40}];
+  var lb=sewLaborBase(55000,recs,it,null,{qty:100,reorder:false,eligible:true});
+  CHECK('결제 기본액 100장: 60×50,000 + 40×53,000 = 5,120,000', lb.base, 5120000);
+  var lbNo=sewLaborBase(55000,recs,itNo,null,{qty:100,reorder:false,eligible:true});
+  CHECK('규칙 없는 아이템 결제 불변 100×55,000', lbNo.base, 5500000);
+});

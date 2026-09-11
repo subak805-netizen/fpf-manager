@@ -2413,3 +2413,11 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 
 ## 2026-09-11a — 2단 마지막 원인: 오더 상세 본문 래퍼 `max-width:540px`
 - `renderOrderDetail` 이 탭 아래 본문을 `<div style="max-width:540px">` 로 감쌈 → 10k 로 패널은 창을 채웠지만(탭만 길어짐) 본문은 540 고정. `.od-body{max-width:1160px}` 로. 검증: 실제 구조(.sr > .dtabs + .od-body > .po2-cq) 하네스.
+
+## 2026-09-11b — 수량별·리오더 공임 (사용자 결정 09-10: 아이템별·회차별·오더수량 기준·옛 오더 그대로·원가는 제일 비싼 공임)
+- 자료: `it.laborTiers=[{min,rate}…]`, `it.laborReorder`, `it.laborRuleSince`(규칙을 처음 넣은 날). 폼: 공임 아래 「수량별 공임」 줄(+구간 추가)·「리오더 공임」 칸. draft·저장·불러오기 3곳 모두 연결.
+- 계산: `laborBase(it,ctx)` — 리오더(2차~)&리오더 공임 → 무조건 그 값 / 오더 수량 ≥ 구간 → 구간 값 / 기본. `laborRate(it,size,ctx)` 는 사이즈별 값에 (base−기본) 가감. ctx 는 `_laborCtx(o,it)`(아이템 오더 수량·`getItemReorderNum`·`createdAt>=laborRuleSince`).
+- 소비처: `sewLaborBase(rate,recs,it,o)`(결제) · 결제 분해·명세서 2곳은 `laborRate(it,sz,_laborCtx(o,it))` + 게이트 `hasLaborBySize||hasLaborRule`. 원가계산서 `csLaborRate` 는 ctx 없이 → 기본. 검산 문제 15(11검사) 추가, FUNCS 에 laborBase/hasLaborRule/_laborCtx.
+- 미구현(다음): 명세서·원가 줄에 「100장 이상 구간」 라벨 표시.
+## 2026-09-11c — 재단 방향 「일방향」→「결방향」
+- datalist 옵션 이름 변경 + `migrateData` 에서 저장된 `f.cutDir` 이관.
