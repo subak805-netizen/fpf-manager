@@ -314,17 +314,6 @@ TEST('문제 14. 바이어스 이관: 모스트 110y · 메이드 재단 10y 0�
   CHECK('발주서 블록: 남의 집엔 없음', _poProcBlocks({ colors:(sups3['모스트'].materials) }, '메이드'), []);
 });
 
-// ---- 결과 ----
-print('');
-if(_fails.length){
-  print('CALC TESTS: FAIL — ' + _fails.length + '건 실패 (통과 ' + _okCount + ')');
-  print('실패 목록: ' + _fails.join(' / '));
-  print('>>> 고치기 전에는 push 금지. (검사 자체를 건너뛰려면 SKIP_CALC=1 ./safe-push.sh)');
-}else{
-  print('CALC TESTS: OK — ' + _testCount + '문제 전부 통과 (검사 ' + _okCount + '개)');
-}
-
-
 // ── 문제 15. 수량별·리오더 공임 (2026-09-11) ─────────────────────────────
 // 기본 55,000 / 100장 이상 50,000 / 리오더 18,000 / 1사이즈만 58,000.
 // 손계산: 99장 메인 → 55,000 · 100장 메인 → 50,000 · 1사이즈는 58,000−5,000=53,000 · 리오더 → 18,000(사이즈1은 21,000)
@@ -347,3 +336,14 @@ TEST('문제 15. 수량별·리오더 공임 = 99장 55,000 / 100장 50,000 / �
   var lbNo=sewLaborBase(55000,recs,itNo,null,{qty:100,reorder:false,eligible:true});
   CHECK('규칙 없는 아이템 결제 불변 100×55,000', lbNo.base, 5500000);
 });
+
+// ---- 결과 ----
+print('');
+if(_fails.length){
+  print('CALC TESTS: FAIL — ' + _fails.length + '건 실패 (통과 ' + _okCount + ')');
+  print('실패 목록: ' + _fails.join(' / '));
+  print('>>> 고치기 전에는 push 금지. (검사 자체를 건너뛰려면 SKIP_CALC=1 ./safe-push.sh)');
+}else{
+  print('CALC TESTS: OK — ' + _testCount + '문제 전부 통과 (검사 ' + _okCount + '개)');
+}
+
