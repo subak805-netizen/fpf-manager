@@ -2443,3 +2443,7 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - `renderCheckTab(o,onlySn)`: 카드 안(onlySn)에서는 안쪽 `.sc` 카드 머리(이름·원단처·배지) 없이 `.po2-ckb` 본문만. 상태·협상가 건수는 머리띠 오른쪽 `.po2-sh-sum`.
 - 오른쪽 세 섹션 머리띠 통일: `.po2-check-h / .po2-matfold-h / .po-details>summary` 같은 패딩·글꼴·배경(`--po2-band`: 기본 #eef1f4 / 레트로 #F4ECD8), 테두리·그림자 없음, 섹션 사이 `border-top 2px var(--po2-line)`. 거래처 확인 표 머리글 `white-space:nowrap`.
 - css `?v=20260911d`. 매핑(없어진 기능 0): 상단 출고처 → 거래처 확인 안 / 부자재 단위 → 발주 내용 선택 / 안쪽 카드 머리 → 머리띠 요약.
+
+## 2026-09-11j — 발주 카드: 본문·거래처 확인 기본 열림, 미리보기 색·선으로
+- `_poDetGet(store,oid,sn,def)` 에 기본값 인자 — 본문은 처음부터 열림(`_poBodyOpen` 기본 true). 거래처 확인도 키가 없으면 열림(`togglePoCheckInline` 도 같은 기준).
+- 본문: 레트로 올리브 머리(#6B7A3F)·2px 테두리 제거 → 크림 머리띠(`--po2-band`) + 종이색 본문(`--po2-paper` #FFFCF7). 머리 버튼 복사=#B0DBF0·발송완료=#A5E6BA(파스텔). 원단 조정 쪽지=노랑 #FFF6B8 점선. 거래처 확인: 회색 상자·굵은 표선 제거(속성 선택자 `div[style*="var(--bg2)"]` 로 인라인 상자 무력화), 입력칸 1.5px, 라벨 88px 정렬. css `?v=20260911e`.
