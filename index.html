@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-11d';
+var APP_BUILD=/*BUILD*/'2026-09-11e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -6431,6 +6431,9 @@ function pbCheckUnits(item){
   (item.trims||[]).forEach(function(t){ if(!t.supplier||!t.name)return; var mm=S.priceBook[t.supplier]&&S.priceBook[t.supplier].materials; if(!mm)return; var e=mm[pbKey(t.name,t.color||'',t.size||'')]||mm[pbKey(t.name,t.color||'')]||mm[t.name]; if(e&&e.type==='trim'&&e.orderType&&t.orderType&&e.orderType!==t.orderType){ w.push('부자재 "'+t.name+'": 단가장 '+_otLabel(e.orderType)+' ↔ 지금 '+_otLabel(t.orderType)); } });
   return w;
 }
+/* 같은 동·층·호수를 가진 «다른» 거래처 (2026-09-11e — 사용자 규칙 「동층호수는 중복될 수 없음」) */
+function _pbAddrOwner(b,fl,rm,except){ try{ var nb=(typeof _normBuilding==='function')?_normBuilding(b||''):String(b||'').trim(); rm=String(rm||'').trim(); if(!nb||!rm)return ''; var hit=''; Object.keys(S.priceBook||{}).forEach(function(s){ if(hit||s===except)return; var pb=S.priceBook[s]||{}; var pb_b=(typeof _normBuilding==='function')?_normBuilding(pb.building||''):String(pb.building||'').trim(); if(pb_b===nb&&String(pb.room||'').trim()===rm&&String(pb.floor||'').trim()===String(fl||'').trim())hit=s; }); return hit; }catch(e){ return ''; } }
+function _pbAddrDupOf(sup){ try{ var pb=S.priceBook[sup]||{}; var o=_pbAddrOwner(pb.building,pb.floor,pb.room,sup); return o; }catch(e){ return ''; } }
 function saveToPB(item){
   for(const f of item.fabrics||[]){
     if(!f.supplier)continue;
@@ -6439,10 +6442,15 @@ function saveToPB(item){
     /* ⚠️ 주소는 «거래처의 정보»다. 아이템 줄이 덮어쓰면 한 아이템의 실수가 그 거래처를 쓰는
           모든 아이템·발주서 출고처로 번진다(신고 2026-08-24). → **비어 있을 때만** 채운다.
           바꾸려면 단가장(거래처 카드)에서 직접 고친다. floor 는 원래부터 이 규칙이었다. */
-    if(f.building&&!pbSup.building)pbSup.building=f.building;
-    if(f.floorRoom&&!pbSup.room)pbSup.room=f.floorRoom;
-    if(f.market&&!pbSup.market)pbSup.market=f.market;   /* 시장·층도 같은 규칙으로 (2026-09-07l) */
-    if(f.floor&&!pbSup.floor)pbSup.floor=f.floor;
+    /* 2026-09-11e: 카드 주소가 «다른 거래처»의 주소면 이 거래처에 복사하지 않는다 (원단처를 바꾼 직후 옛 주소가 남아 새 거래처를 오염시키던 사고) */
+    var _own=_pbAddrOwner(f.building,f.floor,f.floorRoom,f.supplier);
+    if(_own){ try{ if(typeof showToast==='function')showToast('「'+f.supplier+'」 주소 저장 안 함 — '+[f.building,f.floor,f.floorRoom].filter(Boolean).join(' ')+' 는 「'+_own+'」 주소예요. 단가장에서 확인하세요',7000); }catch(e){} }
+    else{
+      if(f.building&&!pbSup.building)pbSup.building=f.building;
+      if(f.floorRoom&&!pbSup.room)pbSup.room=f.floorRoom;
+      if(f.market&&!pbSup.market)pbSup.market=f.market;   /* 시장·층도 같은 규칙으로 (2026-09-07l) */
+      if(f.floor&&!pbSup.floor)pbSup.floor=f.floor;
+    }
     if(!f.name)continue;
     const _pbF=getPB(f.supplier);
     if(!_pbF.materials[f.name])continue; // 단가장 미등록 소재는 자동 생성 안 함 — 수동 등록 버튼 사용
@@ -6603,7 +6611,9 @@ function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.t
         _fabPutLoc 이 단가장의(대개 빈) 주소로 갈아끼웠다 = 적어 둔 동·층·호수가 자꾸 사라진 원인(신고 「원단처 동호수 써도 왜 자꾸 사라져」).
         옛 거래처는 formFabs 에서 보고, 옛 값이 «있고» 다른 때만 갈아끼운다. 처음 고르는 거래처는 빈 칸만 채운다. */
   var _afIdx=(r.id||'').replace('fr-','');
-  var _afOldSup=(function(){ var f=(typeof formFabs!=='undefined'&&formFabs[_afIdx])||null; return (f&&f.supplier)||''; })();
+  /* 2026-09-11e: 옛 원단처는 «줄 자체(data-af-sup)»에서 읽는다. 임시저장 타이머가 colFR() 로 메모리를 먼저 갱신해 버리면
+     formFabs 의 값이 이미 새 원단처라 «안 바뀐 것»으로 오인 → 옛 주소가 남고 saveToPB 가 새 거래처에 옛 주소를 써넣던 사고(신고 치우→유니콘). */
+  var _afOldSup=(r.dataset&&r.dataset.afSup!==undefined)?String(r.dataset.afSup||''):(function(){ var f=(typeof formFabs!=='undefined'&&formFabs[_afIdx])||null; return (f&&f.supplier)||''; })();
   var _supChanged=!!String(_afOldSup||'').trim()&&(String(_afOldSup||'').trim()!==String(sup||''));
   if(_supChanged){ _fabPutLoc(r,sup,flash); try{ if(typeof formFabs!=='undefined'&&formFabs[_afIdx])formFabs[_afIdx].supplier=sup; }catch(e){} }
   else if(sup&&S.priceBook[sup]){const pb=S.priceBook[sup];
@@ -6612,6 +6622,7 @@ function autofillFab(r){const sup=r.querySelector('[data-f=supplier]')?.value?.t
     const flEl=r.querySelector('[data-f=floor]');if(flEl&&!flEl.value&&pb.floor){flEl.value=pb.floor;flash(flEl);}
     const frEl=r.querySelector('[data-f=floorRoom]');const loc=pb.room||'';if(frEl&&!frEl.value&&loc){frEl.value=loc;flash(frEl);}
   }
+  try{ if(r.dataset)r.dataset.afSup=String(sup||''); }catch(e){}
   const nm=r.querySelector('[data-f=name]')?.value?.trim();
   var filled=false;
   // 1) 거래처+이름 (단가장)
@@ -8753,6 +8764,7 @@ function renderPbTrimTable(lst,sups){
     if(!list.length&&(q||o.cat||o.old))return;
     nAll+=list.length;
     var loc=[_normBuilding(pb.building||''),pb.floor,pb.room].filter(Boolean).join(' ');
+    var _dupS=(typeof _pbAddrDupOf==='function')?_pbAddrDupOf(s):''; if(_dupS)loc+=' <span style="color:#b42318;font-weight:800">· 주소 중복: '+esc(_dupS)+'와 같음</span>';   /* 2026-09-11e */
     var open=(window._pbSupOpen===s);
     /* ⚠️ 버튼을 float 로 오른쪽에 붙이면 표가 가로로 넓어 **화면 밖으로 잘린다**(신고).
           이름 바로 옆에 나란히 둔다. */
@@ -12556,7 +12568,7 @@ function fabRowHTML(f,i){
         <input data-fab-col-all value="${esc(f.fabricColor||'')}" placeholder="예: 오프화이트 #A01"></div>
     </div>`;
   }
-  return`<div class="fab-row${isKg?' kg':''}" id="fr-${i}">
+  return`<div class="fab-row${isKg?' kg':''}" id="fr-${i}" data-af-sup="${esc(f.supplier||'')}">
   <div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:6px;flex-wrap:wrap">
     <select data-f="pricingUnit" style="width:auto;font-size:11px;padding:3px 5px" onchange="onFabPU(${i},this.value)"><option value="yard"${!isKg?' selected':''}>야드 단가</option><option value="kg"${isKg?' selected':''}>KG 단가</option></select>
     ${isKg?'<span class="badge b2" style="font-size:10px">KG</span>':''}
