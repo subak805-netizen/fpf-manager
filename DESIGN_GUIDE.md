@@ -2494,3 +2494,4 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 규칙: `fabColorPrice(f,컬러).unit` = (컬러별 단가>0 ? 그 값 : 기본[야드 unitPrice / KG pricePerKg]) + 그 컬러 가산 항목 합. 컬러 모를 때 `fabMaxPrice(f)` = 컬러들 중 MAX(보수적 원가). KG 원단의 컬러별 단가 칸은 원/kg.
 - 적용: calcFabYards 금액 · calcSups 원단 자재 unitPrice/pricePerKg(결제·발주서 @단가) · 원가계산서 fabBasePrice/KG · 원가 요약 · 분석 원가 비교 · 추가발주 원장. 보낸(고정) 발주서는 불변.
 - 검산 문제 16(12검사: 컬러 단가·MAX·금액·KG·불변·결제 자재 단가/금액). calc-check FUNCS 에 fabColorPrice·fabMaxPrice 추가. 카드 컬러별 단가 칸 KG 면 「원/kg」 표시.
+- 2026-09-14d: 발주서 「단가 표시」 항상 켜짐(`_poShowPrice` 항상 true, 칩은 켜진 모양 고정·누름 없음). 옛 발주서의 showPrice:false 도 무시.
