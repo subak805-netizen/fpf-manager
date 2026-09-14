@@ -397,6 +397,34 @@ TEST('문제 17. 메인라벨 발주처 = 브랜드 (옛 부자재처 무시)', 
   CHECK('카드 브랜드 없음 → 메이드엔 없음', !sups['메이드'] || names('메이드').indexOf('mainLabel')<0, true);
 });
 
+// ── 문제 18. 컬러 이름 가산 (2026-09-14) ─────────────
+// 단가장 팝콘 「30수싱글」 규칙: 멜란지 +500 · 형광 +500 · 차콜 +300. 기본 4,500원/y. 요척 1 · 로스 0.
+// 손계산: 겨자(#12 멜란지그레이)=5,000 · 차콜(#31 차콜 — 우리 컬러명·원단처 둘 다 차콜, 한 번만)=4,800 · 라임(#55형광 라임)=5,000
+//         카키(#40 멜란지카키, 직접 5,200)=5,200(가산 안 붙음) · 네온(형광 멜란지)=5,500 · 아이보리=4,500 · 원가용 MAX=5,500.
+//         겨자 10장 결제 10y × 5,000 = 50,000. 단가장에 없는 원단은 아이템 원단 규칙(f.colorKwAdds)으로.
+TEST('문제 18. 컬러 이름 가산 — 원단처 색상명·컬러명 · 직접 단가 우선 · 겹침 합산', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{ '팝콘':{ materials:{ '30수싱글':{ type:'fabric', name:'30수싱글', colorKwAdds:[{kw:'멜란지',add:500},{kw:'형광',add:500},{kw:'차콜',add:300}] } } } }, brands:[] };
+  var f = { id:'fp', supplier:'팝콘', name:'30수싱글', pricingUnit:'yard', unitPrice:4500, consumption:1, buffer:0,
+    colorLinks:[{itemColor:'겨자',fabricColor:'#12 멜란지그레이'},{itemColor:'차콜',fabricColor:'#31 차콜'},{itemColor:'라임',fabricColor:'#55형광 라임'},
+                {itemColor:'카키',fabricColor:'#40 멜란지카키',price:5200},{itemColor:'네온',fabricColor:'형광 멜란지'},{itemColor:'아이보리',fabricColor:'#01 아이보리'}] };
+  CHECK('겨자 멜란지', fabColorPrice(f,'겨자').unit, 5000);
+  CHECK('차콜 한 번만', fabColorPrice(f,'차콜').unit, 4800);
+  CHECK('라임 형광', fabColorPrice(f,'라임').unit, 5000);
+  CHECK('카키 직접 단가 우선', fabColorPrice(f,'카키').unit, 5200);
+  CHECK('네온 형광+멜란지', fabColorPrice(f,'네온').unit, 5500);
+  CHECK('아이보리 해당 없음', fabColorPrice(f,'아이보리').unit, 4500);
+  CHECK('원가용 MAX', fabMaxPrice(f), 5500);
+  S.items.itP = { id:'itP', name:'싱글', colors:['겨자','아이보리'], sizes:['S'], trims:[], trimCosts:[], fabrics:[f] };
+  var oP = { id:'oP', orderItems:[{ itemId:'itP', qtyGrid:{ '겨자':{S:10}, '아이보리':{S:10} } }], suppliers:{} };
+  S.orders.oP = oP;
+  var mP = ((calcSups(oP.orderItems)['팝콘']||{}).materials)||[]; var byP = {}; mP.forEach(function(m){ byP[m.colorName]=m; });
+  CHECK('결제: 겨자 10장 50,000', [byP['겨자']&&byP['겨자'].unitPrice, Math.round(getMatActualCost(byP['겨자']))], [5000, 50000]);
+  var loose = { supplier:'없는처', name:'없는원단', pricingUnit:'yard', unitPrice:3000, colorKwAdds:[{kw:'형광',add:700}] };
+  CHECK('단가장에 없는 원단 규칙', fabColorPrice(loose,'형광핑크').unit, 3700);
+  var noRule = { supplier:'팝콘', name:'다른원단', pricingUnit:'yard', unitPrice:3000 };
+  CHECK('규칙 없는 원단 불변', fabColorPrice(noRule,'멜란지').unit, 3000);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){

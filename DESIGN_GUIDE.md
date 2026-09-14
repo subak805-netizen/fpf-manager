@@ -2506,3 +2506,9 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 아루드: `_isArudeBrand(bid)`·`_arCareNone()`(아이템 폼 #f-brand). 새 케어라벨 줄·타입 바꾸기 기본 manufactureYM='none'. 카드 선택칸: 아루드는 빈 값을 「표시 안 함」으로 보이고 「자동」은 'auto' 로 저장. 발주서: 아루드 아이템의 빈 값 = 표시 안 함(09-?? 1회 일괄 정리 뒤 새로 만든 줄 대비).
 - 치수 가져오기(`tpSpecPick/Filter/Opts/tpSpSetMode`): 한 창(#tp-sp-pick) 안에서 목록 → 옵션(‹ 목록), 레트로 `.tpsp-*`(css). 방식은 버튼 두 개·기본 「빈 칸만 채우기」(예전 기본=통째로). 통째로 = 빨간 안내(지워질 값 칸 수)+빨간 버튼, 브라우저 confirm 삭제. `tpSpecTake` 는 `window._tpSpMode` 로 판단. 입력 id(tp-sp-from/to/pat/fin/grd) 그대로.
 - 연동됨: `setCloudInd` 가 data-state 기록, CSS 로 버튼(2px·그림자·›, 동기화중 노랑·오류 빨강·연동 흰색). 자동 저장됨은 글자 유지. css `?v=20260914a`.
+
+## 2026-09-14h — 원단 카드: 컬러 이름 가산 · 스와치 사진 (사용자 승인 「진행해줘」)
+- 컬러 이름 가산: 원단마다 규칙 `colorKwAdds:[{kw,add}]` — 단가장 원단 항목에 저장(없으면 아이템 원단 f.colorKwAdds). `_fabKwHits` 가 원단처 색상명(colorLinks.fabricColor / f.fabricColor)과 우리 컬러명을 띄어쓰기·대소문자 무시로 봄, 같은 규칙 한 번, 여러 규칙 합산. `fabColorPrice` = (직접 컬러 단가 ? 그 값 : 기본+이름가산) + 가산 항목. 직접 컬러 단가엔 이름 가산 안 붙음. `fabMaxPrice` 는 컬러 연결 없는 원단이면 아이템 컬러 전부로 MAX.
+- 카드: 적용 컬러 밑 노란 점선 블록 「컬러 이름 가산」 — 칩(×), 「＋ 규칙」(appPrompt 「멜란지 500」), 컬러별 결과 줄(걸린 규칙·단가).
+- 스와치: 원단명 옆 34px 칸(첫 사진·장수). 누르면 레트로 창(큰 사진·썸네일·×·＋ 사진 올리기). 저장 = 소재 관리 탭과 같은 단가장 원단 항목 swatches(`mtAddPhotos(key,files,after)` 에 콜백 추가). 단가장에 없는 원단은 등록 뒤.
+- 검산 문제 18(11검사). calc-check FUNCS 에 _fabE·_fabKwRules·_fabKwNorm·_fabKwHits. css `?v=20260914b`.

@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260914a">
+<link rel="stylesheet" href="css/main.css?v=20260914b">
 </head>
 <body>
 
@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-14g';
+var APP_BUILD=/*BUILD*/'2026-09-14h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7881,7 +7881,7 @@ function mtPickPhoto(key){
   inp.onchange=function(){if(this.files&&this.files.length)mtAddPhotos(key,this.files);this.value='';};
   inp.click();
 }
-function mtAddPhotos(key,files){
+function mtAddPhotos(key,files,after){
   var r=_mtRec(key); if(!r)return;
   var list=Array.prototype.filter.call(files,function(f){return /^image\//.test(f.type);});
   if(!list.length){showToast('이미지 파일만 올릴 수 있어요');return;}
@@ -7905,11 +7905,11 @@ function mtAddPhotos(key,files){
   seq.then(function(){
     _mtSave(key); if(typeof tpHideUp==='function')tpHideUp(ov);
     showToast(done?(done+'장 추가됐어요'+((!useCloud||fell)?' (이 기기에만 저장 — 연동 로그인하면 모든 기기에서 보여요)':'')):'사진을 추가하지 못했어요');
-    _mtReopen();
+    if(typeof after==='function')after(); else _mtReopen();
   }).catch(function(err){
     if(typeof tpHideUp==='function')tpHideUp(ov);
     console.error('mt photo',err); showToast('사진 올리기 실패 — 다시 시도해주세요');
-    _mtSave(key); _mtReopen();
+    _mtSave(key); if(typeof after==='function')after(); else _mtReopen();
   });
 }
 function mtDelPhoto(key,i){
@@ -12474,17 +12474,35 @@ function calcFabAdditionForColor(f,colorName){
    결제(발주 자재 unitPrice)=컬러별 단가 or 기본·가산 빠짐·KG는 컬러별 단가 무시 / 오더 원가 띠(calcFabYards)=기본+가산·컬러별 단가 무시.
    규칙: 컬러 단가 = (직접 적은 컬러별 단가 > 0 ? 그 값 : 기본 단가) + 그 컬러에 걸린 가산 항목 합.
          KG 원단은 원/kg (컬러별 단가 칸도 원/kg 로 본다). 컬러를 모를 때(아이템 전체 원가)는 컬러들 중 가장 비싼 값(보수적 원가). */
+/* 컬러 이름 가산 (2026-09-14h 사용자 승인) — 원단마다 「멜란지 +500」 같은 규칙. 저장 자리 = 단가장 원단 항목(colorKwAdds), 단가장에 없으면 아이템 원단(f.colorKwAdds).
+   원단처 색상명 또는 우리 컬러명에 그 글자가 들어가면 더한다(띄어쓰기·대소문자 무시, 같은 규칙은 한 번). 컬러별 단가를 직접 적은 컬러엔 안 붙는다. */
+function _fabKwRules(f){ try{ var e=(f&&f.supplier&&f.name)?_fabE(f.supplier,f.name):null; var a=(e&&Array.isArray(e.colorKwAdds))?e.colorKwAdds:((f&&Array.isArray(f.colorKwAdds))?f.colorKwAdds:[]); return a.filter(function(r){return r&&String(r.kw||'').trim()&&+r.add>0;}); }catch(e){ return []; } }
+function _fabKwNorm(s){ return String(s==null?'':s).replace(/\s+/g,'').toLowerCase(); }
+function _fabKwHits(f,itemColor,fabricColor){
+  var hay=_fabKwNorm(itemColor)+'|'+_fabKwNorm(fabricColor), seen={}, out=[];
+  _fabKwRules(f).forEach(function(r){ var k=_fabKwNorm(r.kw); if(!k||seen[k])return; if(hay.indexOf(k)>=0){ seen[k]=1; out.push({kw:String(r.kw).trim(),add:+r.add}); } });
+  return out;
+}
 function fabColorPrice(f,colorName){
   f=f||{}; var isKg=(f.pricingUnit==='kg');
   var base=isKg?(+f.pricePerKg||0):(+f.unitPrice||0);
   var lk=(colorName&&Array.isArray(f.colorLinks))?f.colorLinks.find(function(l){return l&&l.itemColor===colorName;}):null;
   var manual=(lk&&lk.price!==undefined&&lk.price!==null&&lk.price!==''&&+lk.price>0)?+lk.price:0;
   var add=calcFabAdditionForColor(f,colorName||'');
-  return {isKg:isKg,base:base,manual:manual,add:add,unit:(manual>0?manual:base)+add};
+  var kwHits=manual>0?[]:_fabKwHits(f,colorName||'',lk?(lk.fabricColor||''):(f.fabricColor||''));
+  var kw=kwHits.reduce(function(s,h){return s+h.add;},0);
+  return {isKg:isKg,base:base,manual:manual,add:add,kw:kw,kwHits:kwHits,unit:(manual>0?manual:base+kw)+add};
 }
 function fabMaxPrice(f){
   var best=fabColorPrice(f,'').unit;
   (Array.isArray(f&&f.colorLinks)?f.colorLinks:[]).forEach(function(l){ if(!l||!l.itemColor)return; var u=fabColorPrice(f,l.itemColor).unit; if(u>best)best=u; });
+  /* 컬러 연결이 없는 원단은 아이템 컬러 전부에 쓰인다 — 이름 가산이 걸린 컬러도 원가에 반영 */
+  if(!(Array.isArray(f&&f.colorLinks)&&f.colorLinks.length)&&_fabKwRules(f).length){
+    var cols=[];
+    try{ if(typeof formFabs!=='undefined'&&formFabs.indexOf(f)>=0&&typeof formColors!=='undefined')cols=formColors.slice(); }catch(e){}
+    if(!cols.length){ try{ Object.keys(S.items||{}).some(function(id){ var it=S.items[id]; if(it&&(it.fabrics||[]).some(function(x){return x===f||(f.id&&x&&x.id===f.id);})){ cols=(it.colors||[]).slice(); return true; } return false; }); }catch(e){} }
+    cols.forEach(function(c){ var u=fabColorPrice(f,c).unit; if(u>best)best=u; });
+  }
   (Array.isArray(f&&f.priceAdditions)?f.priceAdditions:[]).forEach(function(a){ if(!a||a.applyTo!=='colors'||!Array.isArray(a.colors))return; a.colors.forEach(function(c){ var u=fabColorPrice(f,c).unit; if(u>best)best=u; }); });
   return best;
 }
@@ -12616,6 +12634,7 @@ function fabRowHTML(f,i){
       </div>
       <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
         <div style="flex:1.6;min-width:128px"><label>원단명 <span class="muted" style="font-size:9px">↔ 넓어짐</span></label><input list="dl-fnm" data-f="name" value="${esc(f.name||'')}" onfocus="updFnmDLRow(this)" onchange="autofillFab(document.getElementById('fr-${i}'))" placeholder="20수 옥스포드 (이름 길어도 넉넉히)"></div>
+        <div style="flex:0 0 auto"><label>스와치</label>${_fabSwThumb(f,i)}</div>
         <div style="flex:.8;min-width:78px"><label>폭 (인치)</label><input data-f="width" type="number" value="${f.width||''}" min="0" step="0.5" placeholder="58"></div>
         <div style="flex:.55;min-width:74px"><label>오무데 <span class="muted" style="font-size:9px">방향</span></label><input list="dl-omude" data-f="omude" value="${esc(f.omude||'')}" placeholder="우상 · 좌상 · 직접 입력" onfocus="buildOmudeDL()" style="width:100%;font-size:12px;padding:5px 4px"></div>
         <div style="flex:.75;min-width:100px"><label>재단 <span class="muted" style="font-size:9px">방향 · 작지 원부자재 줄에 크게</span></label><input list="dl-cutdir" data-f="cutDir" value="${esc(f.cutDir||'')}" placeholder="결방향 ↓ · 무늬 맞춤" title="이 원단의 재단 방향 — 작업지시서 원·부자재 줄에 크게 찍혀요 (요청 2026-09-07)" style="width:100%;font-size:12px;padding:5px 4px"></div>
@@ -12641,10 +12660,101 @@ function fabRowHTML(f,i){
     </div>
   </div>
   ${colorSec}
+  ${fabKwSecHTML(f,i)}
   ${inlineFabCostsHTML(f)}
   <div style="margin-top:6px"><button type="button" class="btn s" onclick="addFabCostFor(${i})" style="font-size:11.5px;padding:4px 10px;background:#fffbeb;border-color:#fcd34d;color:#854f0b">＋ 가공비 (염색·재단 등)</button></div>
   ${mkPriceAdditionsSec(i,f,formColors)}
 </div>`;}
+
+/* ===== 원단 카드 — 스와치 사진(원단 하나에 한 묶음) · 컬러 이름 가산 (2026-09-14h) =====
+   사진 저장 자리 = 소재 관리 탭과 같은 단가장 원단 항목(swatches) — 이중 저장 없음. 단가장에 없는 원단은 등록 뒤에. */
+function _fabSwThumb(f,i){
+  var e=(f&&f.supplier&&f.name)?_fabE(f.supplier,f.name):null;
+  if(!e)return '<button type="button" class="fabsw fabsw-empty" onclick="fabSwOpen('+i+')" title="단가장에 등록된 원단만 사진을 붙일 수 있어요">사진</button>';
+  var ph=Array.isArray(e.swatches)?e.swatches:[];
+  if(!ph.length)return '<button type="button" class="fabsw fabsw-empty" onclick="fabSwOpen('+i+')" title="스와치 사진 올리기">＋</button>';
+  return '<button type="button" class="fabsw" onclick="fabSwOpen('+i+')" title="스와치 사진 '+ph.length+'장" style="background-image:url(\''+String(ph[0]).replace(/'/g,'%27')+'\')"><span>'+ph.length+'</span></button>';
+}
+function fabSwOpen(i,big){
+  try{colFR();}catch(e){}
+  var f=(formFabs||[])[i]; if(!f)return;
+  if(!f.supplier||!f.name){ showToast('원단처와 원단명을 먼저 적어주세요'); return; }
+  var e=_fabE(f.supplier,f.name);
+  if(!e){ showToast('단가장에 등록된 원단만 사진을 붙일 수 있어요 — 「단가장 등록」 먼저'); return; }
+  var ph=Array.isArray(e.swatches)?e.swatches:[];
+  var cur=(big!=null&&ph[big])?big:0;
+  var o=document.getElementById('fabsw-ov'); if(!o){ o=document.createElement('div'); o.id='fabsw-ov'; o.className='tpsp-ov'; document.body.appendChild(o); }
+  o.innerHTML='<div class="tpsp-dlg" style="width:640px">'
+    +'<div class="tpsp-hd"><h2>스와치 사진 <small>'+esc(f.supplier)+' · '+esc(f.name)+'</small></h2><button type="button" class="tpsp-bt" onclick="fabSwClose()">닫기</button></div>'
+    +'<div class="tpsp-bd">'
+      +(ph.length?('<div class="fabsw-big"><img src="'+esc(ph[cur])+'" alt=""></div>'
+        +'<div class="fabsw-thumbs">'+ph.map(function(u,k){ return '<div class="fabsw-th'+(k===cur?' on':'')+'" style="background-image:url(\''+String(u).replace(/'/g,'%27')+'\')" onclick="fabSwOpen('+i+','+k+')"><button type="button" onclick="event.stopPropagation();fabSwDel('+i+','+k+')" title="이 사진 지우기">×</button></div>'; }).join('')+'</div>')
+        :'<div class="tpsp-empty">아직 사진이 없어요.</div>')
+      +'<button type="button" class="tpsp-go" style="margin-top:12px" onclick="fabSwPick('+i+')">＋ 사진 올리기</button>'
+      +'<div class="tpsp-foot">소재 관리 탭 사진과 같은 자리예요. 이 원단을 쓰는 다른 아이템에도 같은 사진이 보여요.</div>'
+    +'</div></div>';
+}
+function fabSwClose(){ var o=document.getElementById('fabsw-ov'); if(o)o.remove(); }
+function fabSwPick(i){
+  var f=(formFabs||[])[i]; if(!f)return;
+  var key=_mtKeyPB(f.supplier,f.name);
+  var inp=document.getElementById('fabsw-file');
+  if(!inp){ inp=document.createElement('input'); inp.type='file'; inp.id='fabsw-file'; inp.accept='image/*'; inp.multiple=true; inp.style.display='none'; document.body.appendChild(inp); }
+  inp.onchange=function(){ if(this.files&&this.files.length)mtAddPhotos(key,this.files,function(){ fabSwOpen(i); try{renderFabRows();}catch(e){} }); this.value=''; };
+  inp.click();
+}
+function fabSwDel(i,k){
+  var f=(formFabs||[])[i]; if(!f)return;
+  var e=_fabE(f.supplier,f.name); if(!e||!Array.isArray(e.swatches)||!e.swatches[k])return;
+  if(!confirm('이 스와치 사진을 지울까요?\n(소재 관리 탭에서도 같이 지워져요)'))return;
+  e.swatches.splice(k,1); _mtSave(_mtKeyPB(f.supplier,f.name));
+  fabSwOpen(i); try{renderFabRows();}catch(e2){}
+}
+function fabKwSecHTML(f,i){
+  var rules=_fabKwRules(f);
+  var inPB=!!((f&&f.supplier&&f.name)?_fabE(f.supplier,f.name):null);
+  var isKg=f.pricingUnit==='kg', unit=isKg?'원/kg':'원';
+  var chips=rules.map(function(r,k){ return '<span class="fabkw-chip">'+esc(r.kw)+' <b>+'+num(+r.add)+'</b><button type="button" onclick="fabKwDel('+i+','+k+')" title="규칙 지우기">×</button></span>'; }).join('');
+  var hasLinks=Array.isArray(f.colorLinks)&&f.colorLinks.length>0;
+  var cols=hasLinks?f.colorLinks.map(function(l){return l.itemColor;}).filter(Boolean):((typeof formColors!=='undefined')?formColors.slice():[]);
+  var rows=(rules.length&&cols.length)?cols.map(function(c){
+    var cp=fabColorPrice(f,c);
+    var why=cp.manual>0?'직접 적은 컬러 단가':(cp.kwHits.length?cp.kwHits.map(function(h){return h.kw+' +'+num(h.add);}).join(' · '):'해당 없음');
+    return '<div class="fabkw-row"><span class="c">'+esc(c)+'</span><span class="w'+(cp.kwHits.length?' hit':'')+'">'+esc(why)+(cp.add?' · 가산 항목 +'+num(cp.add):'')+'</span><span class="p">'+num(cp.unit)+unit+'</span></div>';
+  }).join(''):'';
+  return '<div class="fabkw">'
+    +'<div class="fabkw-hd">컬러 이름 가산 <span>원단처 색상명·우리 컬러명에 이 글자가 있으면 단가에 더해요'+(inPB?' · 단가장에 저장':'')+'</span></div>'
+    +'<div class="fabkw-chips">'+chips+'<button type="button" class="fabkw-add" onclick="fabKwAdd('+i+')">＋ 규칙</button></div>'
+    +rows
+    +'</div>';
+}
+async function fabKwAdd(i){
+  try{colFR();}catch(e){}
+  var f=(formFabs||[])[i]; if(!f)return;
+  var v=await appPrompt('컬러 이름 가산 규칙\n글자와 더할 금액을 띄어서 적어요 (예: 멜란지 500)','', '멜란지 500');
+  if(v==null)return;
+  var m=String(v).trim().match(/^(.+?)\s*\+?\s*([\d,]+)\s*원?$/);
+  if(!m){ showToast('「멜란지 500」처럼 글자와 금액을 적어주세요'); return; }
+  var kw=m[1].trim(), add=+m[2].replace(/,/g,'');
+  if(!kw||!(add>0)){ showToast('글자와 금액을 확인해주세요'); return; }
+  var e=(f.supplier&&f.name)?_fabE(f.supplier,f.name):null;
+  var holder=e||f; if(!Array.isArray(holder.colorKwAdds))holder.colorKwAdds=[];
+  var nk=_fabKwNorm(kw), ex=holder.colorKwAdds.find(function(r){return r&&_fabKwNorm(r.kw)===nk;});
+  if(ex)ex.add=add; else holder.colorKwAdds.push({kw:kw,add:add});
+  if(e){ e.lastUpdated=(typeof todayISO==='function'?todayISO():''); savePB(); } else { try{saveData();}catch(e2){} }
+  renderFabRows(); showToast(kw+' +'+num(add)+'원 규칙 저장됨');
+}
+function fabKwDel(i,k){
+  try{colFR();}catch(e){}
+  var f=(formFabs||[])[i]; if(!f)return;
+  var e=(f.supplier&&f.name)?_fabE(f.supplier,f.name):null; var holder=e||f;
+  var list=_fabKwRules(f); var r=list[k]; if(!r||!Array.isArray(holder.colorKwAdds))return;
+  var idx=holder.colorKwAdds.indexOf(r); if(idx<0)return;
+  if(!confirm('「'+r.kw+' +'+num(r.add)+'」 규칙을 지울까요?\n(이 원단을 쓰는 모든 아이템에서 빠져요)'))return;
+  holder.colorKwAdds.splice(idx,1);
+  if(e)savePB(); else { try{saveData();}catch(e2){} }
+  renderFabRows();
+}
 
 // 컬러 체크박스 토글
 function onFabColorSel(fabIdx,el){
