@@ -390,6 +390,11 @@ TEST('문제 17. 메인라벨 발주처 = 브랜드 (옛 부자재처 무시)', 
   CHECK('더프루토 발주서에 메인라벨', names('더프루토').indexOf('mainLabel')>=0, true);
   CHECK('메이드 발주서엔 없음', !sups['메이드'] || names('메이드').indexOf('mainLabel')<0, true);
   CHECK('브랜드 없는 메인라벨은 적힌 부자재처', names('하나라벨').indexOf('mainLabel')>=0, true);
+  // 카드에서 브랜드를 안 골랐어도 아이템 브랜드가 있으면 그 브랜드로
+  S.items.itM.brandId = 'b1'; S.items.itM.trims[0].brandId = '';
+  sups = calcSups(oM.orderItems);
+  CHECK('카드 브랜드 없음 → 아이템 브랜드(더프루토)', names('더프루토').filter(function(x){return x==='mainLabel';}).length, 2);
+  CHECK('카드 브랜드 없음 → 메이드엔 없음', !sups['메이드'] || names('메이드').indexOf('mainLabel')<0, true);
 });
 
 // ---- 결과 ----
