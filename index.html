@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-14d';
+var APP_BUILD=/*BUILD*/'2026-09-14e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5057,6 +5057,8 @@ function loadCoData(id){
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
 function migrateData(){
+  /* 메인라벨 발주처 = 브랜드 (2026-09-14e) — 다른 부자재를 메인라벨로 바꾼 줄에 남은 옛 부자재처(메이드 등) 정리 */
+  try{ var _brs=(typeof getBrands==='function')?getBrands():[]; Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; (it&&it.trims||[]).forEach(function(tr){ if(!tr||tr.orderType!=='mainLabel'||!tr.brandId)return; var b=_brs.find(function(x){return x&&x.id===tr.brandId;}); if(b&&b.name&&tr.supplier!==b.name)tr.supplier=b.name; }); }); }catch(e){}
   /* 재단 방향 「일방향」→「결방향」 (2026-09-11c 사용자 요청 — 「일방향이라는 단어가 있어?」). 옛 저장값도 바꿔 표·작지에 새 이름으로 */
   try{ Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; (it&&it.fabrics||[]).forEach(function(f){ if(f&&typeof f.cutDir==='string'&&f.cutDir.indexOf('일방향')===0){ f.cutDir=f.cutDir.replace('일방향','결방향'); } }); }); }catch(e){}
   /* 치수 시트 겹친 부위 자동 정리 (2026-09-11n) — 09-08e 회차 합치기 오류가 남긴 자료. 첫 줄만 남기고 빈 칸은 뒷줄 값으로. */
@@ -13105,7 +13107,7 @@ function snapCardNew(t,i,colorSec){
 function labelShell(t,i,o,inner){
   var st=trimUIState(t);
   var h='<div class="fab-row tcd'+(st.open?' tcd-open':'')+'" id="tr-'+i+'" style="border-left:3px solid '+o.border+'">';
-  h+='<div class="tcd-row" onclick="trimToggleOpen('+i+')"><span class="tcd-typ" style="background:'+o.bg+';color:'+o.fg+'">'+o.chip+'</span><span class="tcd-nm">'+esc(o.nm||o.chip)+'</span><span class="tcd-sup">'+esc(t.supplier||'거래처 미정')+'</span><span class="tcd-spec">'+o.spec+'</span><span class="tcd-car">'+(st.open?'▾':'▸')+'</span></div>';
+  h+='<div class="tcd-row" onclick="trimToggleOpen('+i+')"><span class="tcd-typ" style="background:'+o.bg+';color:'+o.fg+'">'+o.chip+'</span><span class="tcd-nm">'+esc(o.nm||o.chip)+'</span><span class="tcd-sup">'+esc(o.sup!=null?o.sup:(t.supplier||'거래처 미정'))+'</span><span class="tcd-spec">'+o.spec+'</span><span class="tcd-car">'+(st.open?'▾':'▸')+'</span></div>';
   h+='<div class="tcd-edit"><input type="hidden" data-f="orderType" value="'+t.orderType+'">';
   h+='<div class="tcd-tabs"><span class="tcd-tact" style="margin-left:0">'+trimMoveBtns(i)+'<button type="button" onclick="trimDup('+i+')">복제</button><button type="button" class="del" onclick="rmTrimRow('+i+')">🗑</button></span></div>';
   var _gcN=(formTrimCosts||[]).filter(function(x){return x.trimId===t.id;}).length;
@@ -13176,6 +13178,7 @@ function careLabelCardNew(t,i){
 // 메인라벨 새 카드 (브랜드 라벨명 칩·완성부자재 IIFE 그대로 재사용)
 function mainLabelCardNew(t,i){
   var e=esc;
+  var _mlBrandNm=(function(){ try{ var b=t.brandId?getBrands().find(function(x){return x.id===t.brandId;}):null; return b?(b.name||''):''; }catch(_e){ return ''; } })();   /* 2026-09-14e */
   var priceWarn=!trimHasPrice(t);
   var spec=(t.labelName?e(t.labelName)+' · ':'')+(priceWarn?'<span class="warn">단가 없음</span>':('단가 '+num(trimDispPrice(t))+'원'));
   var brandSel='<div class="tcd-fld tcd-grow"><label>브랜드 <span class="muted" style="font-weight:400;font-size:10px">발주처</span></label><select data-f="brandId" onchange="onMainLabelBrandChange('+i+',this.value)"><option value="">— 브랜드 —</option>'+getBrands().map(function(b){return '<option value="'+b.id+'"'+(t.brandId===b.id?' selected':'')+'>'+e(b.name)+'</option>';}).join('')+'</select></div>';
@@ -13196,12 +13199,12 @@ function mainLabelCardNew(t,i){
     return _names.map(function(nm){var on=_sel.indexOf(nm)>=0;return '<label style="display:flex;align-items:center;gap:3px;cursor:pointer;padding:4px 8px;border-radius:4px;background:'+(on?'#fde68a':'transparent')+'"><input type="checkbox" data-finish-name="'+e(nm)+'" '+(on?'checked':'')+' onchange="toggleFinishSel(this,'+i+')"> '+e(nm)+'</label>';}).join('');
   })();
   var inner='<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="몸판/소매"></div></div>'
-    +'<div class="tcd-frow"><input type="hidden" data-f="supplier" value="'+e(t.supplier||'')+'">'+brandSel+'</div>'
+    +'<div class="tcd-frow"><input type="hidden" data-f="supplier" value="'+e(_mlBrandNm||t.supplier||'')+'">'+brandSel+'</div>'
     +'<div class="tcd-frow">'+labelChips+'</div>'
     +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>부위</label><input list="dl-labelpart" data-f="labelPart" value="'+e(t.labelPart||'')+'" placeholder="상의/하의"></div>'+wgTrimFlds(t)+'<div class="tcd-fld" style="flex:0 0 90px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div><div class="tcd-fld" style="flex:0 0 90px"><label>요척(벌당)</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece!=null?t.qtyPerPiece:1)+'" min="1" step="1" title="옷 1벌당 메인라벨 개수. 여분은 발주서 로스에서"></div><input type="hidden" data-f="qtyBuffer" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"></div>'
     +'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px"><div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">포함 항목 <span class="muted" style="font-size:9px;font-weight:400">(체크한 항목만 발주서에 표시)</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">'+finishSel+'</div></div>'
     +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>비고</label><input data-trim-memo value="'+e(t.memo||'')+'" placeholder="발주 메모"></div></div>';
-  return labelShell(t,i,{chip:'메인라벨',bg:'#fef9c3',fg:'#854d0e',border:'#ca8a04',nm:t.labelName||'메인라벨',spec:spec},inner);
+  return labelShell(t,i,{chip:'메인라벨',bg:'#fef9c3',fg:'#854d0e',border:'#ca8a04',nm:t.labelName||'메인라벨',spec:spec,sup:(_mlBrandNm||'브랜드 미정')},inner);
 }
 // 단추 새 카드 (기본/디테일/적용/옵션)
 function buttonCardNew(t,i,colorSec){
@@ -15015,7 +15018,7 @@ function onTrimType(i,v){
   else if(v==='zipper')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name||'지퍼',size:t.size,orderType:'zipper',zipperSize:'',zipperLength:'',zipperDirection:'오픈',toothColor:'',sliderModel:'',sliderColor:'',hasSliderLogo:false,sliderLogoText:'',sliderCost:0,sliderLogoCost:0,qtyPerPiece:1,unitPrice:0,buffer:3,sizeRates:t.sizeRates||[]};
   else if(v==='button')formTrims[i]={id:t.id,supplier:t.supplier,name:t.name||'단추',size:t.size,orderType:'button',buttonSize:'',buttonStyle:'',unitPrice:0,qtyPerPiece:1,buffer:3,sizeRates:t.sizeRates||[]};
   else if(v==='careLabel')formTrims[i]={id:t.id,supplier:t.supplier,name:'케어라벨',orderType:'careLabel',labelName:'',labelPart:'',unitPrice:0,qtyBuffer:10,manufactureYM:'',madeIn:'',autoComposition:true,autoFactory:true,buffer:0,sizeRates:[]};
-  else if(v==='mainLabel')formTrims[i]={id:t.id,supplier:t.supplier,name:'메인라벨',orderType:'mainLabel',brandId:t.brandId||'',labelName:'',labelPart:'',midSize:'',unitPrice:0,qtyBuffer:10,includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,includeDenimSizeTab:false,includeDenimCareLabel:false,autoFactory:true,buffer:0,sizeRates:[]};
+  else if(v==='mainLabel')formTrims[i]={id:t.id,supplier:'',name:'메인라벨',orderType:'mainLabel',brandId:t.brandId||'',labelName:'',labelPart:'',midSize:'',unitPrice:0,qtyBuffer:10,includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,includeDenimSizeTab:false,includeDenimCareLabel:false,autoFactory:true,buffer:0,sizeRates:[]};
   else if(v==='bias')formTrims[i]={id:t.id,supplier:t.supplier,name:'바이어스재단',orderType:'bias',biasSpec:'',fabricSource:'',consumptionPerPiece:0,unitPrice:0,buffer:2,colorLinks:t.colorLinks||[],sizeRates:[]};
   else formTrims[i]={id:t.id,supplier:t.supplier,name:t.name,size:t.size,orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:1,buffer:3,sizeRates:t.sizeRates||[]};
   renderTrimRows();
@@ -16242,9 +16245,11 @@ function calcSups(orderItems,opts){
     }
     for(const t of it.trims||[]){
       // 메인라벨은 부자재처 대신 브랜드명을 발주처로 사용 (브랜드에 요청)
-      if(t.orderType==='mainLabel'&&!t.supplier&&t.brandId){
+      /* 2026-09-14e 신고 「메인라벨이 왜 메이드라고 되어 있지?」 — 예전엔 부자재처가 비었을 때만 브랜드로 채워서,
+         다른 부자재(메이드)를 메인라벨로 타입만 바꾼 줄은 메이드 발주서로 들어갔다. 브랜드가 있으면 항상 브랜드. */
+      if(t.orderType==='mainLabel'&&t.brandId){
         const _br=getBrands().find(function(b){return b.id===t.brandId;});
-        if(_br)t.supplier=_br.name;
+        if(_br&&t.supplier!==_br.name)t.supplier=_br.name;
       }
       if(!t.supplier)continue;
       if(!sups[t.supplier])sups[t.supplier]=mkSupWithDefaults(t.supplier);
@@ -30812,6 +30817,7 @@ function onMainLabelBrandChange(i,brandId){
   try{colTR();}catch(e){} // 재렌더 전 폼 값 수집
   if(!formTrims[i])return;
   formTrims[i].brandId=brandId;
+  try{ var _mb=getBrands().find(function(b){return b.id===brandId;}); formTrims[i].supplier=_mb?_mb.name:''; }catch(e){}   /* 2026-09-14e 메인라벨 발주처 = 브랜드 */
   formTrims[i].labelName=''; // 브랜드 바뀌면 라벨 초기화
   formTrims[i].labelNames=[]; // 다중 라벨 초기화
   formTrims[i].finishSel=[];  // 브랜드 바뀌면 완성부자재 선택 초기화

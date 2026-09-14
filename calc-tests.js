@@ -375,6 +375,23 @@ TEST('문제 16. 원단 컬러 단가 = 가산 포함 · KG 컬러별 단가', f
   CHECK('결제: KG 블랙 원/kg·금액', [mK[0]&&mK[0].pricePerKg, Math.round(getMatActualCost(mK[0]))], [9500, 95000]);
 });
 
+// ── 문제 17. 메인라벨 발주처 = 브랜드 (2026-09-14) ─────────────
+// 메이드 부자재를 메인라벨로 타입만 바꿔 부자재처가 「메이드」로 남은 줄 · 브랜드 더프루토 · 20장.
+// 기대: 더프루토 발주서에 메인라벨이 들어가고 메이드 발주서엔 없음. 브랜드 없는 메인라벨은 적힌 부자재처 그대로.
+TEST('문제 17. 메인라벨 발주처 = 브랜드 (옛 부자재처 무시)', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[{ id:'b1', name:'더프루토' }] };
+  S.items.itM = { id:'itM', name:'가방', colors:['아이'], sizes:['F'], fabrics:[], trimCosts:[],
+    trims:[{ id:'m1', supplier:'메이드', name:'메인라벨', orderType:'mainLabel', brandId:'b1', labelName:'자수라벨', unitPrice:300, qtyBuffer:0, qtyPerPiece:1, buffer:0 },
+           { id:'m2', supplier:'하나라벨', name:'메인라벨', orderType:'mainLabel', brandId:'', labelName:'직접', unitPrice:100, qtyBuffer:0, qtyPerPiece:1, buffer:0 }] };
+  var oM = { id:'oM', orderItems:[{ itemId:'itM', qtyGrid:{ '아이':{ F:20 } } }], suppliers:{} };
+  S.orders.oM = oM;
+  var sups = calcSups(oM.orderItems);
+  var names = function(sn){ return (((sups[sn]||{}).materials)||[]).map(function(m){ return m.orderType; }); };
+  CHECK('더프루토 발주서에 메인라벨', names('더프루토').indexOf('mainLabel')>=0, true);
+  CHECK('메이드 발주서엔 없음', !sups['메이드'] || names('메이드').indexOf('mainLabel')<0, true);
+  CHECK('브랜드 없는 메인라벨은 적힌 부자재처', names('하나라벨').indexOf('mainLabel')>=0, true);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){
