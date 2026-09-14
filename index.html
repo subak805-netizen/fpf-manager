@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-14a';
+var APP_BUILD=/*BUILD*/'2026-09-14b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9171,12 +9171,16 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
       if(tr.supplier===s&&tr.name===oldNm&&_clMatch(tr.color)){
         tr.name=newNm; if(oldCl||newCl)tr.color=newCl; _hit=true;
       }
+      /* 2026-09-14b 라벨은 이름이 labelName 에 있다(name 은 「케어라벨」 고정) → 단가장 품명을 바꾸면 라벨 이름도 같이 */
+      else if(field==='name'&&tr.supplier===s&&(tr.orderType==='careLabel'||tr.orderType==='mainLabel')&&String(tr.labelName||'').trim()===oldNm){
+        tr.labelName=newNm; _hit=true;
+      }
     }
     if(_hit)_nItems++;
   }
   /* 발주서 자재도 같이 — 미발송은 재계산이 처리하지만 발송·출고·입고로 굳은 발주서는 이름만 바꿔 수량·실발주·결제 제외 표시 유지 (2026-09-10j) */
   try{ Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; if(!o||!o.suppliers||!o.suppliers[s])return; var sp=o.suppliers[s]; var ch=false;
-    (sp.materials||[]).forEach(function(m){ if(!m||m.name!==oldNm)return; if(m.type==='trim'&&!_clMatch(m.color||m.itemColorName))return; if(m.type==='fabric'&&field!=='name')return;
+    (sp.materials||[]).forEach(function(m){ if(m&&field==='name'&&(m.orderType==='careLabel'||m.orderType==='mainLabel')&&String(m.labelName||'').trim()===oldNm){ m.labelName=newNm; ch=true; return; } /* 2026-09-14b 라벨 이름 */ if(!m||m.name!==oldNm)return; if(m.type==='trim'&&!_clMatch(m.color||m.itemColorName))return; if(m.type==='fabric'&&field!=='name')return;
       var oldKeyS=(typeof matSkipKey==='function')?matSkipKey(s,m):null; m.name=newNm; if(typeof m.displayName==='string'&&m.displayName.indexOf(oldNm)>=0)m.displayName=m.displayName.replace(oldNm,newNm);
       if(oldKeyS&&o.skipBilling&&o.skipBilling[oldKeyS]){ var nk=matSkipKey(s,m); o.skipBilling[nk]=o.skipBilling[oldKeyS]; if(nk!==oldKeyS)delete o.skipBilling[oldKeyS]; }
       ch=true; });
@@ -9223,7 +9227,8 @@ function showPBUsage(supEnc,keyEnc){
   Object.values(S.items||{}).forEach(function(it){
     var used=false;
     (it.fabrics||[]).forEach(function(f){if(f.supplier===s&&f.name===nm)used=true;});
-    (it.trims||[]).forEach(function(t){if(t.supplier===s&&t.name===nm&&(!cl||(t.color||'')===cl))used=true;});
+    (it.trims||[]).forEach(function(t){if(t.supplier===s&&t.name===nm&&(!cl||(t.color||'')===cl))used=true;
+      if(t.supplier===s&&(t.orderType==='careLabel'||t.orderType==='mainLabel')&&String(t.labelName||'').trim()===nm)used=true;});   /* 2026-09-14b 라벨은 labelName 으로 */
     if(used)hits.push(it.code?('['+it.code+'] '+it.name):it.name);
   });
   var title=nm+(cl?' ('+cl+')':'');
@@ -14288,7 +14293,11 @@ function pbRegisterLabel(i){
       라벨은 단가장 이름 칸에서 골라 쓰고, 등록은 단가장 화면에서 한다.
       함수는 남겨둔다 — 부르는 자리가 여러 군데라 지우면 깨진다. */
 function _pbLabelBadge(t,i){
-  return '';
+  /* 2026-09-14b 적어둔 라벨 이름이 그 부자재처 단가장에 없으면 알려준다(예전에 적은 이름·오타) — 목록에서 다시 고르면 단가·규격이 단가장 값으로 채워진다 */
+  try{ var sup=String((t&&t.supplier)||'').trim(), nm=_pbLabelName(t);
+    if(!sup||!nm||!S.priceBook[sup])return '';
+    return _pbHasTrim(sup,t)?'':'<span style="font-size:10px;font-weight:700;color:#b45309;white-space:nowrap" title="이 이름은 '+esc(sup)+' 단가장에 없어요. 목록에서 다시 골라 주세요">단가장에 없는 이름</span>';
+  }catch(e){ return ''; }
 }
 function _pbLabelBadgeOld(t,i){
   try{
@@ -30817,18 +30826,33 @@ function buildLoopDB(){
    ③은 거래처가 안 정해졌을 때만 — 브랜드 라벨엔 거래처가 없어서 섞이면 또 남의 것이 뜬다. */
 function buildCareLabelDB(sup){  var db={};
   var only=String(sup||'').trim();
-  /* ① 단가장 */
+  /* 2026-09-14b 단가장과 통일 (신고 「하나라벨 단가장이랑 아이템에 불러와지는 거랑 서로 다른데」).
+     원인 ① 단가장 「＋품목」은 orderType 'count' 로 만든다 → orderType 이 라벨인 것만 받던 필터에 하나라벨 품목이 전부 걸러졌다.
+     원인 ② 아이템에 예전에 적었던 라벨 이름(오타·옛 이름)을 계속 섞어 단가장에 없는 이름이 떴다.
+     이제: 부자재처를 고르면 **그 부자재처 단가장 품명만** (라벨로 표시된 품목이 있으면 그것만, 없으면 그 집 부자재 전부).
+     이름은 단가장 화면에 보이는 품명(m.name) — 카드가 단가장을 찾을 때(_pbFindTrimMat)도 품명으로 찾는다. */
+  var _isLbl=function(m){ return m&&(m.orderType==='careLabel'||m.orderType==='mainLabel'||/라벨/.test(String(m.category||''))); };
+  var _nmOf=function(m,k){ return String((m&&m.name)||(typeof pbDecodeKey==='function'?pbDecodeKey(k)[0]:k)||'').trim(); };
+  if(only){
+    var _mats=((S.priceBook||{})[only]||{}).materials||{};
+    var _ks=Object.keys(_mats).filter(function(k){ var m=_mats[k]; return m&&m.type!=='fabric'; });
+    var _lk=_ks.filter(function(k){ return _isLbl(_mats[k]); });
+    (_lk.length?_lk:_ks).forEach(function(k){ var nm=_nmOf(_mats[k],k); if(!nm||db[nm])return; db[nm]={price:+_mats[k].unitPrice||0,supplier:only}; });
+    window._careLabelDB=db;
+    var _dl=document.getElementById('dl-carelabel');
+    if(_dl)_dl.innerHTML=Object.keys(db).sort(function(a,b){return a.localeCompare(b,'ko');}).map(function(n){return '<option value="'+esc(n)+'">'+esc(n)+(db[n].price?' ('+num(db[n].price)+'원)':'')+'</option>';}).join('');
+    return db;
+  }
+  /* 부자재처를 아직 안 골랐을 때만 — 예전처럼 여러 곳에서 모은다 */
   Object.keys(S.priceBook||{}).forEach(function(sn){
-    if(only&&sn!==only)return;
     var mats=(S.priceBook[sn]||{}).materials||{};
     Object.keys(mats).forEach(function(k){
-      var m=mats[k]; if(!m||m.type==='fabric')return;
-      if(m.orderType!=='careLabel'&&m.orderType!=='mainLabel')return;
-      var nm=String(m.labelName||m.name||'').trim(); if(!nm||db[nm])return;
+      var m=mats[k]; if(!m||m.type==='fabric'||!_isLbl(m))return;
+      var nm=_nmOf(m,k); if(!nm||db[nm])return;
       db[nm]={price:+m.unitPrice||0,supplier:sn};
     });
   });
-  /* ② 다른 아이템이 쓴 이름 (그 거래처 것만) */
+  /* ② 다른 아이템이 쓴 이름 (부자재처 미선택일 때만) */
   Object.values(S.items||{}).forEach(function(it){
     (it.trims||[]).forEach(function(t){
       if(t.orderType!=='careLabel'||!t.labelName)return;

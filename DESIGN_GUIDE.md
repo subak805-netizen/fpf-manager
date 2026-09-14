@@ -2481,3 +2481,9 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 ## 2026-09-14a — 작지 치수 「불러오기」에 이 아이템의 다른 지시서(샘플·패턴 회차 ↔ 지시서)
 - 사용자: 「치수 불러오는 거 샘플 지시서에서 불러오기」. `tpSpecPick` 목록 맨 위에 「이 아이템의 다른 지시서」(현재 시트 제외, `_scSpecSources`) → `tpSpecOpts(id,sheet)` → `tpSpecTake` 가 `src.techpack[sheet].spec` 에서 가져옴(`window._tpSpSheet`). 같은 시트면 막음. 다른 아이템은 예전처럼 sew.spec.
 - 하네스: 샘플 1차 → 지시서 「빈 칸만 채우기」 2칸, 적힌 값 유지, 같은 시트 차단.
+
+## 2026-09-14b — 케어라벨 「라벨 이름」 목록 = 부자재처 단가장 품명 (단가장과 통일)
+- 신고: 하나라벨 단가장 품목(4개)과 아이템 케어라벨 카드 목록이 다름(단가장에 없는 옛 이름이 뜨고, 단가장 품목은 빠짐).
+- 원인(코드 확인): ① `pbSaveNewMat`(단가장 ＋품목)은 부자재를 `orderType:'count'` 로 만든다 → `buildCareLabelDB` 가 orderType 라벨만 받아 전부 걸러짐. ② 같은 함수가 아이템에 예전에 적은 `labelName`(오타·옛 이름)을 섞음. ③ 라벨의 진짜 이름은 `labelName`(name 은 「케어라벨」 고정)인데 `renamePBMaterial`·`showPBUsage` 는 `name` 만 봐서 단가장 이름을 바꿔도 아이템이 안 따라가고 「쓰는 곳」도 못 찾음.
+- 수정: `buildCareLabelDB(sup)` 부자재처가 있으면 **그 집 단가장 품명만**(라벨 표시 품목—orderType 라벨 또는 종류에 「라벨」—이 있으면 그것만, 없으면 그 집 부자재 전부), 이름=단가장 품명(m.name). 부자재처 없을 때만 예전 모음. `renamePBMaterial` 이 라벨 아이템 `labelName`·발주서 자재 `labelName` 도 바꿈. `showPBUsage` 라벨은 labelName 으로 찾음. 카드에 단가장에 없는 이름이면 「단가장에 없는 이름」 표시(`_pbLabelBadge`). 이름이 맞으면 기존 잠금(`_lockTrimPbFields`)이 단가·규격을 단가장 값으로 채움.
+- 검증: JSC 하네스 6항목(하나라벨 4개만·라벨 표시 우선·미선택 예전 동작·배지·쓰는 곳·이름 변경 전파).
