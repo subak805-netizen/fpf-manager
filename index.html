@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-14b';
+var APP_BUILD=/*BUILD*/'2026-09-14c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -12466,6 +12466,27 @@ function calcFabAdditionForColor(f,colorName){
   return add;
 }
 
+/* ===== 원단 컬러 단가 — 원가·결제·발주서가 모두 이 값 하나를 쓴다 (2026-09-14c) =====
+   신고: 「가산 항목(워싱 +1,000)은 원가계산서·결제 금액 둘 다 반영해야 해 · KG 원단도 컬러별 단가 봐야 해」.
+   코드 확인한 예전 상태: 원가계산서=MAX(기본, 컬러별 단가)·가산 빠짐·KG는 컬러별 단가 무시 /
+   결제(발주 자재 unitPrice)=컬러별 단가 or 기본·가산 빠짐·KG는 컬러별 단가 무시 / 오더 원가 띠(calcFabYards)=기본+가산·컬러별 단가 무시.
+   규칙: 컬러 단가 = (직접 적은 컬러별 단가 > 0 ? 그 값 : 기본 단가) + 그 컬러에 걸린 가산 항목 합.
+         KG 원단은 원/kg (컬러별 단가 칸도 원/kg 로 본다). 컬러를 모를 때(아이템 전체 원가)는 컬러들 중 가장 비싼 값(보수적 원가). */
+function fabColorPrice(f,colorName){
+  f=f||{}; var isKg=(f.pricingUnit==='kg');
+  var base=isKg?(+f.pricePerKg||0):(+f.unitPrice||0);
+  var lk=(colorName&&Array.isArray(f.colorLinks))?f.colorLinks.find(function(l){return l&&l.itemColor===colorName;}):null;
+  var manual=(lk&&lk.price!==undefined&&lk.price!==null&&lk.price!==''&&+lk.price>0)?+lk.price:0;
+  var add=calcFabAdditionForColor(f,colorName||'');
+  return {isKg:isKg,base:base,manual:manual,add:add,unit:(manual>0?manual:base)+add};
+}
+function fabMaxPrice(f){
+  var best=fabColorPrice(f,'').unit;
+  (Array.isArray(f&&f.colorLinks)?f.colorLinks:[]).forEach(function(l){ if(!l||!l.itemColor)return; var u=fabColorPrice(f,l.itemColor).unit; if(u>best)best=u; });
+  (Array.isArray(f&&f.priceAdditions)?f.priceAdditions:[]).forEach(function(a){ if(!a||a.applyTo!=='colors'||!Array.isArray(a.colors))return; a.colors.forEach(function(c){ var u=fabColorPrice(f,c).unit; if(u>best)best=u; }); });
+  return best;
+}
+
 // 축률 계산: 특정 컬러에 적용되는 가산항목의 축률(%) 합 — 발주 수량 증가용
 function calcFabShrinkForColor(f,colorName){
   if(!f.priceAdditions||f.priceAdditions.length===0)return 0;
@@ -12560,13 +12581,13 @@ function fabRowHTML(f,i){
         <span style="color:#854f0b;flex-shrink:0;font-size:11px;font-weight:600">→</span>
         <input data-fab-col="${encodeURIComponent(c)}" value="${esc(fabName)}" placeholder="${on?'원단처 색상명 (예: #OW)':'(체크 후 입력)'}" ${on?'':'disabled'} style="flex:1.3;min-width:90px;padding:4px 7px;font-size:11px;${on?'':'background:var(--bg2);opacity:.5;cursor:not-allowed'}">
         <span style="color:#854f0b;font-size:11px;flex-shrink:0">·</span>
-        <input data-fab-col-price="${encodeURIComponent(c)}" type="number" value="${linked&&linked.price!=null&&linked.price!==''?linked.price:''}" placeholder="단가" ${on?'':'disabled'} style="flex:.8;min-width:100px;padding:4px 8px;font-size:12px;text-align:right;${on?'':'background:var(--bg2);opacity:.5'}"><span style="font-size:10px;color:#854f0b;flex-shrink:0">원</span>
+        <input data-fab-col-price="${encodeURIComponent(c)}" type="number" value="${linked&&linked.price!=null&&linked.price!==''?linked.price:''}" placeholder="${isKg?'원/kg':'단가'}" ${on?'':'disabled'} style="flex:.8;min-width:100px;padding:4px 8px;font-size:12px;text-align:right;${on?'':'background:var(--bg2);opacity:.5'}"><span style="font-size:10px;color:#854f0b;flex-shrink:0">${isKg?'원/kg':'원'}</span>
       </div>`;
     }).join('');
     colorSec=`<div class="tx-colors" style="margin-top:8px;padding:8px 10px;background:#fef9c3;border:0.5px solid #fde68a;border-radius:6px">
       <div style="font-size:11px;font-weight:600;color:#854f0b;margin-bottom:6px">적용 컬러 <span style="font-weight:400">(체크 = 발주 / 미체크 = 제외)</span> · 컬러별 단가</div>
       ${rows}
-      <div style="font-size:10px;color:#854f0b;opacity:.7;margin-top:5px">색상명 비우면 우리 컬러명 그대로 발주 · <b>컬러 단가 비우면 위 기본 야드단가 적용</b></div>
+      <div style="font-size:10px;color:#854f0b;opacity:.7;margin-top:5px">색상명 비우면 우리 컬러명 그대로 발주 · <b>컬러 단가 비우면 위 기본 ${isKg?'kg단가':'야드단가'} 적용</b> · 가산 항목은 컬러 단가에 더해져 원가·결제에 들어가요</div>
     </div>`;
   }else{
     // 컬러 없으면 단일 컬러명 입력
@@ -15914,6 +15935,7 @@ function calcFabYards(f,qty,qtyBySize,colorName){
   // === 가산 단가 계산 ===
   // 해당 컬러에 적용되는 가산항목 합산
   const addPerUnit=calcFabAdditionForColor(f,colorName||'');
+  const _pu=colorName?fabColorPrice(f,colorName).unit:fabMaxPrice(f);   /* 2026-09-14c 컬러 단가(가산·컬러별 단가·KG 포함) */
   const shrinkPct=calcFabShrinkForColor(f,colorName||'');
   const shrinkF=1+(shrinkPct/100);
   
@@ -15935,10 +15957,10 @@ function calcFabYards(f,qty,qtyBySize,colorName){
     if(f.pricingUnit==='kg'){
       const tkS=parseFloat((tyS/(f.yardsPerKg||1)).toFixed(2));
       result.tk=tkS;
-      result.cost=tkS*((f.pricePerKg||0)+addPerUnit);
+      result.cost=tkS*_pu;
       result.isKg=true;
     }else{
-      result.cost=tyS*((f.unitPrice||0)+addPerUnit);
+      result.cost=tyS*_pu;
     }
     return result;
   }
@@ -15948,9 +15970,9 @@ function calcFabYards(f,qty,qtyBySize,colorName){
   const ty=roundYards(raw);
   if(f.pricingUnit==='kg'){
     const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(2));
-    return{ty,tk,cost:tk*((f.pricePerKg||0)+addPerUnit),isKg:true,addPerUnit:addPerUnit};
+    return{ty,tk,cost:tk*_pu,isKg:true,addPerUnit:addPerUnit};
   }
-  return{ty,cost:ty*((f.unitPrice||0)+addPerUnit),isKg:false,addPerUnit:addPerUnit};
+  return{ty,cost:ty*_pu,isKg:false,addPerUnit:addPerUnit};
 }
 function trimExtrasCost(t,qty){
   // 로고 + 팁 비용 (벌당 단가 × 개수)
@@ -16171,7 +16193,8 @@ function calcSups(orderItems,opts){
         const _calcBase=(qty===(colorQtys[c]||0))?calc:calcFabYards(ff,colorQtys[c]||0,colorSizeQtys[c],c);
         const _fl=useLinks?f.colorLinks.find(l=>l.itemColor===c):null;
         const fabColorName=_fl?(_fl.fabricColor||''):(f.fabricColor||'');
-        const _clPriceF=(_fl&&_fl.price!==undefined&&_fl.price!==''&&+_fl.price>0)?+_fl.price:0; // 컬러별 단가(야드)
+        const _clPriceF=(_fl&&_fl.price!==undefined&&_fl.price!==''&&+_fl.price>0)?+_fl.price:0; // 컬러별 단가(야드·KG는 원/kg)
+        const _fcpF=fabColorPrice(f,c); const _upF=_fcpF.isKg?(f.unitPrice||0):_fcpF.unit, _pkF=_fcpF.isKg?_fcpF.unit:(f.pricePerKg||0);   /* 2026-09-14c 결제·발주서 단가 = 컬러 단가(가산 포함) */
         const dispNm=colors.length>1&&colors[0]!==''?`${f.name} (${c})`:f.name;
         // 중복 가드: 같은 거래처+원단+컬러+용도 조합이 이미 있으면 skip.
         // 키를 fabId가 아니라 원단'이름'으로 비교 — 같은 원단을 아이템에 실수로 두 줄 넣으면(id 다름) 발주량이 2배로 뜨던 버그(2026-07-22)
@@ -16189,15 +16212,15 @@ function calcSups(orderItems,opts){
         const _fbz=(it.trimCosts||[]).filter(function(tc){return tc&&tc.fabId===f.id&&+tc.biasYo>0;});
         const _bzYdOf=function(tc){return Math.round(+tc.biasYo*qty*100)/100;};
         let _bzAdd=0; _fbz.forEach(function(tc){ if(tc.biasFold!==false)_bzAdd+=_bzYdOf(tc); }); _bzAdd=Math.round(_bzAdd*100)/100;
-        sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,totalYards:(calc.ty||0)+_bzAdd,totalKg:calc.tk||null,baseTotalYards:(_calcBase.ty||0)+_bzAdd,baseTotalKg:_calcBase.tk||null,biasYards:_bzAdd||undefined,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',part:f.part||'',fabId:f.id,itemId:oi.itemId,itemName:it.name,memo:f.memo||'',addPerUnit:calc.addPerUnit||0,appliedAdditions:appliedAdditions,effectivePcsApplied:effectivePcsForTrim});
+        sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:_upF,colorPrice:(_clPriceF||undefined),pricePerKg:_pkF,yardsPerKg:f.yardsPerKg||1,totalYards:(calc.ty||0)+_bzAdd,totalKg:calc.tk||null,baseTotalYards:(_calcBase.ty||0)+_bzAdd,baseTotalKg:_calcBase.tk||null,biasYards:_bzAdd||undefined,sizeBreakdown:calc.bySize||null,isSizeCalc:!!calc.isSizeCalc,fabricColor:fabColorName,width:f.width||null,composition:f.composition||'',part:f.part||'',fabId:f.id,itemId:oi.itemId,itemName:it.name,memo:f.memo||'',addPerUnit:calc.addPerUnit||0,appliedAdditions:appliedAdditions,effectivePcsApplied:effectivePcsForTrim});
         _fbz.forEach(function(tc){
           const _bzYd=_bzYdOf(tc); if(!(_bzYd>0))return;
           const _kindNm=String(tc.procKind||'바이어스 재단').trim();
           // 「합쳐서」 끄면 원단처 발주서에 「○○용」 줄을 따로 뺀다
           if(tc.biasFold===false){
             sups[f.supplier].materials.push({type:'fabric',fabId:f.id,name:f.name,colorName:c,garmentPcs:qty,
-              displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:(_clPriceF||f.unitPrice||0),
-              colorPrice:(_clPriceF||undefined),pricePerKg:f.pricePerKg||0,yardsPerKg:f.yardsPerKg||1,
+              displayName:dispNm,pricingUnit:f.pricingUnit||'yard',unitPrice:_upF,
+              colorPrice:(_clPriceF||undefined),pricePerKg:_pkF,yardsPerKg:f.yardsPerKg||1,
               totalYards:_bzYd,baseTotalYards:_bzYd,fabricColor:fabColorName,width:f.width||null,
               composition:f.composition||'',part:((f.part?f.part+' ':'')+_kindNm.replace(/\s*재단$/,'')+'용'),isBiasCut:true,
               itemId:oi.itemId,itemName:it.name,memo:'',appliedAdditions:[],effectivePcsApplied:effectivePcsForTrim});
@@ -21171,7 +21194,7 @@ function extraOrderBySupplier(oid,itemId,extraQty){
     var loss=(f.buffer!=null?+f.buffer:0)/100;
     var fy=Math.ceil(per*extraQty*(1+loss)*10)/10;if(fy<=0)return;
     var sup=f.supplier||'미지정';if(!bySup[sup])bySup[sup]={lines:[],total:0};
-    var up=+f.unitPrice||0;var amt=Math.round(fy*up);
+    var up=(f.pricingUnit==='kg')?(fabMaxPrice(f)/(+f.yardsPerKg||1)):fabMaxPrice(f);var amt=Math.round(fy*up);   /* 2026-09-14c 야드 기준 금액 — 가산·KG 환산 포함 */
     bySup[sup].lines.push({name:(f.part?f.part+' ':'')+(f.name||'원단'),qty:fy,unit:'y',amount:amt,fabId:f.id,up:up});
     bySup[sup].total+=amt;
   });
@@ -24705,7 +24728,7 @@ function renderTrack(onlyOid,targetId){
     let costHtml='';
     if(it&&it.fabrics.length){
       // 원단 단가/y 계산
-      const fabPricePerY=(f)=>f.pricingUnit==='kg'?(f.pricePerKg||0)/(f.yardsPerKg||1):(f.unitPrice||0);
+      const fabPricePerY=(f)=>f.pricingUnit==='kg'?fabMaxPrice(f)/(f.yardsPerKg||1):fabMaxPrice(f);   /* 2026-09-14c */
       // 계획 요척 per pcs
       const planYardPerPcs=it.fabrics.reduce((s,f)=>s+f.consumption*(1+((f.buffer??FAB_LOSS_PCT)/100)),0);
       // 총 원단 단가 (all fabrics combined)
@@ -29426,10 +29449,10 @@ function renderCS(){
     return +f.consumption||0;
   };
   // 원가용 원단 단가 = 기본 야드단가 vs 컬러별 단가 중 MAX (보수적 원가). 부자재 trimUnitPrice와 동일 원칙
-  const fabBasePrice=(f)=>{var base=+f.unitPrice||0;if(f.colorLinks&&f.colorLinks.length){var ps=f.colorLinks.map(function(l){return +l.price||0;}).filter(function(p){return p>0;});if(ps.length)return Math.max(base,Math.max.apply(null,ps));}return base;};
-  const fabPure=(f,q)=>{const cons=effConsumption(f);const orig=parseFloat((cons*q).toFixed(3));const override=csGetOverride(id,'fab',csFabKey(f));const ty=override!==undefined?override:orig;const isOverride=override!==undefined;const _po=csGetPriceOverride(id,'fab',f.id);if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(3));const _pk=_po!==undefined?_po:(f.pricePerKg||0);return{ty,tk,cost:tk*_pk,isKg:true,origTy:orig,isOverride};}const _up=_po!==undefined?_po:fabBasePrice(f);return{ty,cost:ty*_up,isKg:false,origTy:orig,isOverride};};
+  const fabBasePrice=(f)=>fabMaxPrice(f);   /* 2026-09-14c 컬러 단가 중 MAX — 가산 항목·KG 컬러별 단가 포함 (보수적 원가) */
+  const fabPure=(f,q)=>{const cons=effConsumption(f);const orig=parseFloat((cons*q).toFixed(3));const override=csGetOverride(id,'fab',csFabKey(f));const ty=override!==undefined?override:orig;const isOverride=override!==undefined;const _po=csGetPriceOverride(id,'fab',f.id);if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(3));const _pk=_po!==undefined?_po:fabBasePrice(f);return{ty,tk,cost:tk*_pk,isKg:true,origTy:orig,isOverride};}const _up=_po!==undefined?_po:fabBasePrice(f);return{ty,cost:ty*_up,isKg:false,origTy:orig,isOverride};};
   // 로스율 반영: 요척×수량×(1+로스%)×단가
-  const fabWithLoss=(f,q,lp)=>{const cons=effConsumption(f);const override=csGetOverride(id,'fab',csFabKey(f));const ty=override!==undefined?override:parseFloat((cons*q*(1+lp/100)).toFixed(3));const _po=csGetPriceOverride(id,'fab',f.id);if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(3));const _pk=_po!==undefined?_po:(f.pricePerKg||0);return{ty,tk,cost:tk*_pk,isKg:true};}const _up=_po!==undefined?_po:fabBasePrice(f);return{ty,cost:ty*_up,isKg:false};};
+  const fabWithLoss=(f,q,lp)=>{const cons=effConsumption(f);const override=csGetOverride(id,'fab',csFabKey(f));const ty=override!==undefined?override:parseFloat((cons*q*(1+lp/100)).toFixed(3));const _po=csGetPriceOverride(id,'fab',f.id);if(f.pricingUnit==='kg'){const tk=parseFloat((ty/(f.yardsPerKg||1)).toFixed(3));const _pk=_po!==undefined?_po:fabBasePrice(f);return{ty,tk,cost:tk*_pk,isKg:true};}const _up=_po!==undefined?_po:fabBasePrice(f);return{ty,cost:ty*_up,isKg:false};};
   const fr=it.fabrics.map(f=>{
     const cp=fabPure(f,qty);const cl={...cp,cost:cp.cost*(1+fabLoss/100)};
     const k='f-'+f.id;const inc=!isEx(k);if(inc){tf+=cp.cost;tfL+=cl.cost;}
@@ -29450,7 +29473,7 @@ function renderCS(){
         +'<div class="cs-hide-on-img" style="font-size:9px;color:var(--t3,#9ca3af);margin-top:1px">작지 '+_autoTy.toFixed(2)+'y'+_maxNote+'</div>'
         +'<input type="number" class="cs-hide-on-img" value="'+(_ovr!==undefined?_ovr:'')+'" placeholder="'+_autoTy.toFixed(2)+'" min="0" step="0.01" style="width:62px;font-size:10px;padding:1px 4px;margin-top:2px;'+(_ovr!==undefined?'background:#ecfdf5;border-color:#10b981;font-weight:700':'')+'" onchange="csSetOverride(\''+id+'\',\'fab\',\''+csFabKey(f)+'\',this.value)" title="요척 원가용 (비우면 작지 요척 적용)">';
     })()}</td><td style="text-align:right;font-size:12px">${(function(){
-      const storePrice=cp.isKg?(f.pricePerKg||0):fabBasePrice(f);
+      const storePrice=fabBasePrice(f);
       const nego=getNegotiatedForMat(f.name,f.id);
       const poVal=csGetPriceOverride(id,'fab',f.id);
       const unit=cp.isKg?'/kg':'/y';
@@ -29806,7 +29829,7 @@ function downloadCostExcel(){
       const buf=1+((f.buffer??FAB_LOSS_PCT)/100);
       const net=(f.consumption||0)*qty;
       const ord=net*buf;
-      const price=f.pricingUnit==='kg'?(f.pricePerKg||0):(f.unitPrice||0);
+      const price=fabMaxPrice(f);   /* 2026-09-14c */
       const netAmt=Math.round(net*price);
       const ordAmt=Math.round(ord*price);
       totalNet1+=netAmt;totalOrd1+=ordAmt;

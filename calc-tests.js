@@ -337,6 +337,44 @@ TEST('문제 15. 수량별·리오더 공임 = 99장 55,000 / 100장 50,000 / �
   CHECK('규칙 없는 아이템 결제 불변 100×55,000', lbNo.base, 5500000);
 });
 
+// ── 문제 16. 원단 컬러 단가 = (컬러별 단가 or 기본) + 가산 항목 · KG 컬러별 단가 (2026-09-14) ─────────────
+// 야드 원단: 기본 4,500 · 카키 직접 5,200 · 가산 「워싱 +1,000」(전체) · 「형광 +500」(라임만). 요척 1, 로스 0.
+// 손계산: 겨자 4,500+1,000=5,500 · 라임 4,500+1,000+500=6,000 · 카키 5,200+1,000=6,200 · 원가용 MAX=6,200.
+//         겨자 10장 → 10y × 5,500 = 55,000 · 컬러 모름(아이템 원가) 10y × 6,200 = 62,000.
+// KG 원단: 기본 9,000/kg · 블랙 직접 9,500/kg · 1kg=3y · 요척 1 · 로스 0 · 30장 → 30y → 10kg.
+// 손계산: 블랙 10kg × 9,500 = 95,000 · 화이트(직접 없음) 10kg × 9,000 = 90,000.
+TEST('문제 16. 원단 컬러 단가 = 가산 포함 · KG 컬러별 단가', function(){
+  var f = { pricingUnit:'yard', unitPrice:4500, consumption:1, buffer:0,
+    colorLinks:[{itemColor:'겨자'},{itemColor:'라임'},{itemColor:'카키',price:5200}],
+    priceAdditions:[{name:'워싱',price:1000,applyTo:'all'},{name:'형광',price:500,applyTo:'colors',colors:['라임']}] };
+  CHECK('겨자 단가', fabColorPrice(f,'겨자').unit, 5500);
+  CHECK('라임 단가', fabColorPrice(f,'라임').unit, 6000);
+  CHECK('카키 직접 단가+가산', fabColorPrice(f,'카키').unit, 6200);
+  CHECK('원가용 MAX', fabMaxPrice(f), 6200);
+  CHECK('겨자 10장 금액', Math.round(calcFabYards(f,10,null,'겨자').cost), 55000);
+  CHECK('컬러 모름 10장 금액(MAX)', Math.round(calcFabYards(f,10,null,'').cost), 62000);
+  var k = { pricingUnit:'kg', pricePerKg:9000, yardsPerKg:3, consumption:1, buffer:0, colorLinks:[{itemColor:'블랙',price:9500},{itemColor:'화이트'}] };
+  CHECK('KG 블랙 30장 금액', Math.round(calcFabYards(k,30,null,'블랙').cost), 95000);
+  CHECK('KG 화이트 30장 금액', Math.round(calcFabYards(k,30,null,'화이트').cost), 90000);
+  var plain = { pricingUnit:'yard', unitPrice:3000, consumption:1, buffer:0 };
+  CHECK('가산·컬러 없는 원단 불변', Math.round(calcFabYards(plain,10,null,'').cost), 30000);
+  // 결제 금액(발주 자재): 겨자 10장·카키 10장 → 겨자 10y × 5,500 = 55,000 · 카키 10y × 6,200 = 62,000. KG 블랙 30장 → 10kg × 9,500 = 95,000.
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  S.items.itY = { id:'itY', name:'야드', colors:['겨자','카키'], sizes:['S'], trims:[], trimCosts:[],
+    fabrics:[Object.assign({ id:'fy', name:'30수싱글', supplier:'팝콘' }, f)] };
+  S.items.itK = { id:'itK', name:'키로', colors:['블랙'], sizes:['S'], trims:[], trimCosts:[],
+    fabrics:[Object.assign({ id:'fk', name:'잭콕쭈리', supplier:'엠케이' }, k, { colorLinks:[{itemColor:'블랙',price:9500}] })] };
+  var oY = { id:'oY', orderItems:[{ itemId:'itY', qtyGrid:{ '겨자':{S:10}, '카키':{S:10} } }], suppliers:{} };
+  var oK = { id:'oK', orderItems:[{ itemId:'itK', qtyGrid:{ '블랙':{S:30} } }], suppliers:{} };
+  S.orders.oY = oY; S.orders.oK = oK;
+  var mY = ((calcSups(oY.orderItems)['팝콘']||{}).materials)||[];
+  var byC = {}; mY.forEach(function(m){ byC[m.colorName] = m; });
+  CHECK('결제: 겨자 단가·금액', [byC['겨자']&&byC['겨자'].unitPrice, Math.round(getMatActualCost(byC['겨자']))], [5500, 55000]);
+  CHECK('결제: 카키 단가·금액', [byC['카키']&&byC['카키'].unitPrice, Math.round(getMatActualCost(byC['카키']))], [6200, 62000]);
+  var mK = ((calcSups(oK.orderItems)['엠케이']||{}).materials)||[];
+  CHECK('결제: KG 블랙 원/kg·금액', [mK[0]&&mK[0].pricePerKg, Math.round(getMatActualCost(mK[0]))], [9500, 95000]);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){

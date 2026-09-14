@@ -2487,3 +2487,10 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 원인(코드 확인): ① `pbSaveNewMat`(단가장 ＋품목)은 부자재를 `orderType:'count'` 로 만든다 → `buildCareLabelDB` 가 orderType 라벨만 받아 전부 걸러짐. ② 같은 함수가 아이템에 예전에 적은 `labelName`(오타·옛 이름)을 섞음. ③ 라벨의 진짜 이름은 `labelName`(name 은 「케어라벨」 고정)인데 `renamePBMaterial`·`showPBUsage` 는 `name` 만 봐서 단가장 이름을 바꿔도 아이템이 안 따라가고 「쓰는 곳」도 못 찾음.
 - 수정: `buildCareLabelDB(sup)` 부자재처가 있으면 **그 집 단가장 품명만**(라벨 표시 품목—orderType 라벨 또는 종류에 「라벨」—이 있으면 그것만, 없으면 그 집 부자재 전부), 이름=단가장 품명(m.name). 부자재처 없을 때만 예전 모음. `renamePBMaterial` 이 라벨 아이템 `labelName`·발주서 자재 `labelName` 도 바꿈. `showPBUsage` 라벨은 labelName 으로 찾음. 카드에 단가장에 없는 이름이면 「단가장에 없는 이름」 표시(`_pbLabelBadge`). 이름이 맞으면 기존 잠금(`_lockTrimPbFields`)이 단가·규격을 단가장 값으로 채움.
 - 검증: JSC 하네스 6항목(하나라벨 4개만·라벨 표시 우선·미선택 예전 동작·배지·쓰는 곳·이름 변경 전파).
+
+## 2026-09-14c — 원단 컬러 단가 한 곳(`fabColorPrice`) — 가산 항목·KG 컬러별 단가를 원가계산서·결제에
+- 신고: 가산 항목(워싱 +1,000 등, 원단처에 내는 돈)이 원가계산서·결제 금액에 안 들어감 / KG 원단은 컬러별 단가를 안 봄 / 야드 원단도 가산 빠짐.
+- 예전(코드 확인): 원가계산서=MAX(기본, 컬러별 단가)·가산 없음·KG는 pricePerKg 만 / 결제(calcSups 원단 자재)=컬러별 단가 or 기본·가산 없음·KG 컬러별 단가 무시 / calcFabYards(오더 원가 띠·아이템 목록)=기본+가산·컬러별 단가 무시.
+- 규칙: `fabColorPrice(f,컬러).unit` = (컬러별 단가>0 ? 그 값 : 기본[야드 unitPrice / KG pricePerKg]) + 그 컬러 가산 항목 합. 컬러 모를 때 `fabMaxPrice(f)` = 컬러들 중 MAX(보수적 원가). KG 원단의 컬러별 단가 칸은 원/kg.
+- 적용: calcFabYards 금액 · calcSups 원단 자재 unitPrice/pricePerKg(결제·발주서 @단가) · 원가계산서 fabBasePrice/KG · 원가 요약 · 분석 원가 비교 · 추가발주 원장. 보낸(고정) 발주서는 불변.
+- 검산 문제 16(12검사: 컬러 단가·MAX·금액·KG·불변·결제 자재 단가/금액). calc-check FUNCS 에 fabColorPrice·fabMaxPrice 추가. 카드 컬러별 단가 칸 KG 면 「원/kg」 표시.
