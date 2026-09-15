@@ -5161,6 +5161,7 @@ function migrateData(){
   for(const it of Object.values(S.items||{})){
     if(!it.colors)it.colors=[];if(!it.sizes)it.sizes=[];if(!it.fabrics)it.fabrics=[];if(!it.trims)it.trims=[];if(!it.notes)it.notes='';if(!it.careInstructions)it.careInstructions='';if(!it.trimCosts)it.trimCosts=[];
     try{_migrateFabBias(it);}catch(e){}   /* 옛 「바이어스 재단 보내기」 → 원단 가공비 줄 (2026-09-04l) */
+    try{ var _ym=_migrateFabProcYo(it); if(_ym){ window._fabYoMigN=(window._fabYoMigN||0)+_ym; var _ymSeen=false; try{ _ymSeen=!!localStorage.getItem('fpm_fabYoMigToast'); }catch(e){} if(!_ymSeen&&!window._fabYoMigT)window._fabYoMigT=setTimeout(function(){ try{ localStorage.setItem('fpm_fabYoMigToast','1'); }catch(e){} try{ showToast('원단 가공비 '+window._fabYoMigN+'줄: 「1y」로 적혀 있던 걸 원단 요척으로 계산하게 바꿨어요',7000); }catch(e){} },2500); } }catch(e){}   /* 2026-09-15l */
     try{ (it.fabrics||[]).forEach(_wgFixJunkOz); (it.trims||[]).forEach(_wgFixJunkOz); }catch(e){}   /* 온즈 0.1 같은 쓰레기값 비움 (2026-09-07d) */
     COST_DEFS.forEach(([ck,,fk])=>{if(it[ck]===undefined)it[ck]=0;if(fk&&it[fk]===undefined)it[fk]='';});
     if(it.patternCost===undefined)it.patternCost=0;if(it.sampleCost===undefined)it.sampleCost=0;if(it.gradingCost===undefined)it.gradingCost=0;
@@ -12071,6 +12072,7 @@ function loadDraft(){
   window._laborSzOn=Object.keys(formLaborBySize).length>0;
   formColors=[...(d.colors||[])];formSizes=[...(d.sizes||[])];
   try{_migrateFabBias(d);}catch(e){}
+  try{_migrateFabProcYo(d);}catch(e){}
   formFabs=JSON.parse(JSON.stringify(d.fabrics||[]));
   formTrims=JSON.parse(JSON.stringify(d.trims||[]));
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
@@ -14795,13 +14797,14 @@ function _tcPer(tc,mode){var amt=(mode==='perPcs')?(+tc.costPerPcs||0):(+tc.cost
   // 개당(perPcs·조건부 초과) = 부자재 1개당 단가 → 옷 1장 원가 = 단가 × 벌당 개수 (단추 4개면 ×4).
   // 2026-07-28: 원가계산서 본체(_tcQtyPerPiece 사용)는 이미 곱하는데 이 칩만 안 곱해서 "40원인데 +40원/장"으로 보였음.
   var _tr=(typeof formTrims!=='undefined'?formTrims:[]);
-  var _qpp=(typeof _tcQtyPerPiece==='function')?_tcQtyPerPiece(tc,_tr):1;
+  var _ff=(typeof formFabs!=='undefined')?formFabs:null;
+  var _qpp=(typeof _tcQtyPerPiece==='function')?_tcQtyPerPiece(tc,_tr,_ff):1;
   // 조건부: 미니멈(TC_MIN장) 만들 때 부자재 총개수로 판정 — 기준 이하면 정액÷미니멈, 넘으면 개당×벌당개수
-  if(mode==='tier'&&typeof _tcTierIsFlat==='function'&&_tcTierIsFlat(tc,_tr,TC_MIN)){
+  if(mode==='tier'&&typeof _tcTierIsFlat==='function'&&_tcTierIsFlat(tc,_tr,TC_MIN,_ff)){
     var _tu=+tc.tierUnder||0;
     return {per:Math.round(_tu/TC_MIN),sub:_tu?'('+num(_tu)+'÷'+TC_MIN+'장 · '+(TC_MIN*_qpp)+'개≤'+(+tc.tierQty||300)+'개)':''};
   }
-  var _eff=(typeof _tcEffPcs==='function')?_tcEffPcs(tc,_tr,TC_MIN):(TC_MIN*_qpp);
+  var _eff=(typeof _tcEffPcs==='function')?_tcEffPcs(tc,_tr,TC_MIN,_ff):(TC_MIN*_qpp);
   var _mn=+(tc&&tc.minQty)||0, _minOn=(_mn>0&&(TC_MIN*_qpp)<_mn);
   return {per:Math.round(amt*_eff/TC_MIN),
           sub:_minOn?('('+num(amt)+'×최소'+num(_mn)+'÷'+TC_MIN+'장)')
@@ -14849,6 +14852,36 @@ function trimCostRowHTML(tc,i){
     :'';
   /* 원단에 붙은 가공비(fabId)만: 「원단 더 시킴」 벌당 야드 + 「원단 발주에 합쳐서」 — 옛 바이어스 체크칸 대체 (2026-09-04l) */
   const fabSec=tc.fabId?`<div class="tcl-fabline" style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:4px;font-size:11.5px;color:#5b4a12"><span style="font-weight:800">원단 더 시킴</span><span class="tcl-u">벌당</span><input class="tcl-amt" data-f="biasYo" type="number" min="0" step="0.01" value="${(+tc.biasYo>0)?tc.biasYo:''}" placeholder="—" title="바이어스처럼 이 가공용으로 원단을 더 시켜야 하면 벌당 야드 (예: 0.1)&#10;염색·본딩처럼 원단 그대로면 비움" oninput="colTrimCosts()" style="width:56px"><span class="tcl-u">y</span><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-weight:600"><input type="checkbox" data-f="biasFold" ${tc.biasFold===false?'':'checked'} onchange="colTrimCosts()">원단 발주에 합쳐서</label><span style="color:#9aa0a6">끄면 원단처 발주서에 「○○용」 줄 따로 · 담당 업체가 원단처와 다르면 그쪽엔 재단 발주서(컬러별 야드)가 따로 나가요</span></div>`:'';
+  if(tc.fabId){
+    /* 2026-09-15l 원단 가공비 줄 — 세 덩어리(누가·무슨 가공 / 가공비 / 원단 더 시키기) + 계산 결과를 말로 (사용자 승인 미리보기).
+       칸(data-f)은 부자재 줄과 같다 → colTrimCosts 그대로. 「개당」=원단에선 야드당, 「y/장」=요척(비우면 원단 요척). */
+    const _ffs=(typeof formFabs!=='undefined')?formFabs:null;
+    const _fyo=_tcFabYo(tc,_ffs);
+    const _own=(tc.qtyPerPiece!=null&&tc.qtyPerPiece!==''&&+tc.qtyPerPiece>0);
+    const _segs=[['perPcs','야드당'],['perLot','컬러별'],['once','한번에'],['tier','조건부']].map(function(x){return '<button type="button" class="tcf-seg'+(mode===x[0]?' on':'')+'" onclick="setTcMode('+i+',\''+x[0]+'\')">'+x[1]+'</button>';}).join('');
+    const _amtF=(mode==='tier')?amtSec.replace('개 이하는','y 이하는').replace('>개당<','>야드당<'):amtSec;
+    const _yoLine=(mode==='perPcs'||mode==='tier')
+      ?'<div class="tcf-line"><span class="tcf-lab">요척</span><input class="tcl-amt tcf-yo'+(_own?' own':'')+'" data-f="tcQpp" type="number" min="0" step="0.01" value="'+(_own?tc.qtyPerPiece:'')+'" placeholder="'+(_fyo>0?(Math.round(_fyo*100)/100):'1')+'" title="비우면 원단 요척 그대로 · 바이어스처럼 원단 일부만 가공할 때만 적어요" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">y</span><span class="tcf-hint">'+(_fyo>0?'비우면 원단 요척 '+(Math.round(_fyo*100)/100)+'y 그대로':'원단 카드에 요척을 적으면 따라와요')+' · 일부만 가공할 때만 적기</span>'
+        +'<span class="tcf-lab" style="margin-left:6px">가공집 최소</span><input class="tcl-amt" data-f="tcMinQty" type="number" min="0" step="0.01" value="'+(tc.minQty!=null&&tc.minQty!==''?tc.minQty:'')+'" placeholder="없음" title="이 야드 아래로는 안 받는 가공집만 적어요 (예: 5야드 미만 안 받음)" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">y</span></div>'
+      :'';
+    const _by=+tc.biasYo||0;
+    return `<div class="tcl-row tcf-row" id="tc-${i}" data-tcid="${tc.id}" data-fab="1">
+    <input type="hidden" data-f="costType" value="${mode}">
+    <div class="tcf-sec"><div class="tcf-hd">누가 · 무슨 가공<button class="tcl-x" type="button" onclick="rmTrimCostRow(${i})" title="이 가공비 줄 지우기">×</button></div>
+      <div class="tcf-line"><span class="tcf-lab">이름</span><input class="tcl-nm" data-f="name" list="dl-proc" value="${esc(tc.name||'')}" placeholder="예: 염색, 바이어스 재단" onchange="tcAutoFillRate(this)"><span class="tcf-lab">종류</span>${kindSel}<span class="tcf-lab">가공하는 집</span><input class="tcl-fac" data-f="factory" list="dl-sup" value="${esc(tc.factory||'')}" placeholder="담당 업체" onchange="tcAutoFillRate(this)"></div></div>
+    <div class="tcf-sec"><div class="tcf-hd">가공비 <span>원가·결제에 들어가는 돈</span></div>
+      <div class="tcf-line">${_amtF}<span class="tcf-segs">${_segs}</span></div>
+      ${_yoLine}
+      <div class="tcf-say tcf-cost-say">${_tcFabSay(tc,mode)}</div>
+      ${mode==='tier'?`<div class="tcl-tiersum" style="font-size:11.5px;color:#3f3f46;background:#f8fafc;border:1px solid #e2e8f0;padding:5px 9px;margin-top:5px;line-height:1.6">${_tcTierSumText(tc)}</div>`:''}
+      ${colorSec?`<div class="tcl-colors">${colorSec}</div>`:''}
+    </div>
+    <div class="tcf-sec"><div class="tcf-hd">원단 더 시키기 <span>가공하느라 원단이 더 필요할 때만</span></div>
+      <div class="tcf-line"><span class="tcf-lab">옷 1장마다</span><input class="tcl-amt" data-f="biasYo" type="number" min="0" step="0.01" value="${_by>0?tc.biasYo:''}" placeholder="—" title="바이어스처럼 이 가공용으로 원단을 더 시켜야 하면 옷 1장마다 몇 야드 (예: 0.1)&#10;염색·본딩처럼 원단 그대로면 비움" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">y 더</span><label class="tcf-ck"><input type="checkbox" data-f="biasFold" ${tc.biasFold===false?'':'checked'} onchange="colTrimCosts()">원단 컬러 줄에 합쳐서</label><span class="tcf-hint">끄면 원단처 발주서에 「○○용」 줄 따로 · 가공하는 집이 원단처와 다르면 그쪽엔 재단 발주서가 따로 나가요</span></div>
+      <div class="tcf-say y tcf-bias-say"${_by>0?'':' hidden'}>= 100장이면 원단 +${Math.round(_by*10000)/100}y</div>
+    </div>
+  </div>`;
+  }
   return`<div class="tcl-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
     <input class="tcl-nm" data-f="name" list="dl-proc" value="${esc(tc.name||'')}" placeholder="예: 코팅, 염색, 로고" onchange="tcAutoFillRate(this)">
@@ -14865,6 +14898,20 @@ function trimCostRowHTML(tc,i){
     ${mode==='tier'?`<div class="tcl-tiersum" style="flex-basis:100%;font-size:11.5px;color:#3f3f46;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;padding:5px 9px;margin-top:4px;line-height:1.6">${_tcTierSumText(tc)}</div>`:''}
     ${colorSec?`<div class="tcl-colors">${colorSec}</div>`:''}
   </div>`;}
+/* 원단 가공비 줄의 계산 결과 한 줄 (2026-09-15l) — 「= 2,000원 × 요척 2.55y = 옷 1장당 5,100원 · 100장이면 510,000원」 */
+function _tcFabSay(tc,mode){
+  var amt=(mode==='perLot'||mode==='once')?(+tc.costPerLot||0):(mode==='tier'?(+tc.tierOver||0):(+tc.costPerPcs||0));
+  if(!amt)return '금액을 적으면 여기에 계산이 나와요';
+  var fabs=(typeof formFabs!=='undefined')?formFabs:null, trs=(typeof formTrims!=='undefined')?formTrims:[];
+  var r2=function(v){return Math.round(v*100)/100;};
+  if(mode==='perPcs'){
+    var yo=_tcQtyPerPiece(tc,trs,fabs), eff=_tcEffPcs(tc,trs,100,fabs), mn=+tc.minQty||0;
+    return '= '+num(amt)+'원 × 요척 '+r2(yo)+'y = 옷 1장당 <b>'+num(Math.round(amt*yo))+'원</b> · 100장이면 '+num(Math.round(amt*eff))+'원'+((mn>0&&100*yo<mn)?' (가공집 최소 '+r2(mn)+'y)':'');
+  }
+  if(mode==='perLot')return '= 컬러마다 '+num(amt)+'원 · 원가는 '+TC_MIN+'장 기준 옷 1장당 <b>'+num(_tcPer(tc,'perLot').per)+'원</b>';
+  if(mode==='once')return '= 이 오더에 한 번 '+num(amt)+'원 · 원가는 '+TC_MIN+'장 기준 옷 1장당 <b>'+num(_tcPer(tc,'once').per)+'원</b>';
+  return '원가 옷 1장당 <b>'+num(_tcPer(tc,'tier').per)+'원</b> (넘을 때 야드당 '+num(amt)+'원 × 요척 '+r2(_tcQtyPerPiece(tc,trs,fabs))+'y)';
+}
 /* 조건부 가공비를 사람 말로 요약 — "300개 이하면 13,000원(컬러당) · 300개 넘으면 개당 40원" (2026-07-28)
    칸 이름만으론 어디에 뭘 넣는지 헷갈린다는 피드백. 계산은 안 바뀌고 안내만 추가. */
 function _tcTierSumText(tc){
@@ -14917,7 +14964,11 @@ function setTcMode(i,next){
   renderTrimAndCosts();
 }
 // 금액 입력 시 원가 칩만 실시간 갱신(포커스 유지)
-function tclRecost(el){var row=el.closest('.tcl-row');if(!row)return;var i=+row.id.replace('tc-','');var tc=formTrimCosts[i];if(!tc)return;var mode=(row.querySelector('[data-f=costType]')||{}).value||'perPcs';var c=_tcPer(tc,mode);var chip=row.querySelector('.tcl-cost');if(chip)chip.innerHTML='원가 +'+num(c.per)+'원/장'+(c.sub?' <span class="tcl-sub">'+c.sub+'</span>':'');}
+function tclRecost(el){var row=el.closest('.tcl-row');if(!row)return;var i=+row.id.replace('tc-','');var tc=formTrimCosts[i];if(!tc)return;var mode=(row.querySelector('[data-f=costType]')||{}).value||'perPcs';var c=_tcPer(tc,mode);var chip=row.querySelector('.tcl-cost');if(chip)chip.innerHTML='원가 +'+num(c.per)+'원/장'+(c.sub?' <span class="tcl-sub">'+c.sub+'</span>':'');
+  /* 원단 가공비 줄(2026-09-15l): 계산 한 줄 · 원단 더 시킴 야드 · 요척 직접 적음 표시 */
+  var say=row.querySelector('.tcf-cost-say');if(say)say.innerHTML=_tcFabSay(tc,mode);
+  var bs=row.querySelector('.tcf-bias-say');if(bs){var _b=+tc.biasYo||0;bs.hidden=!(_b>0);bs.textContent='= 100장이면 원단 +'+(Math.round(_b*10000)/100)+'y';}
+  var yo=row.querySelector('.tcf-yo');if(yo)yo.classList.toggle('own',String(yo.value).trim()!=='');}
 function onTcTypeChange(i,val){cycleTcMode(i);}
 // 가공비 컬러 기준 토글 (염색 켠 색만 / 전체 컬러)
 function setTcBasis(i,b){colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;tc.colorBasis=b;renderTrimAndCosts();}
@@ -16945,7 +16996,7 @@ function _poProcBlocks(g,sup){
       if(!hdr)hdr='가공';
       var key=tc.id||hdr;
       if(seen[key])return; seen[key]=1;
-      var qpp=(typeof _tcQtyPerPiece==='function')?_tcQtyPerPiece(tc,it.trims):1;
+      var qpp=(typeof _tcQtyPerPiece==='function')?_tcQtyPerPiece(tc,it.trims,it.fabrics):1;
       var _mnQ=+(tc&&tc.minQty)||0;   /* 최소 작업수량 — 합계가 이보다 적으면 이 개수로 청구 */
       /* 컬러별 개수 — 같은 발주색끼리 합친다 */
       var byC={},ord=[];
@@ -17855,10 +17906,40 @@ function addProcKind(i){var nm=(prompt('새 가공 종류 이름 (예: 스티치
   colTrimCosts();var tc=formTrimCosts[i];if(tc)tc.procKind=nm;_procKindRerender();}
 function setProcKind(i,v){colTrimCosts();var tc=formTrimCosts[i];if(!tc)return;if(v==='__add__'){addProcKind(i);return;}tc.procKind=v;_procKindRerender();}
 /* 가공 1건이 옷 1장에 몇 개 붙나. 가공비 줄에 적은 값이 **먼저**, 없으면 부자재의 벌당개수, 그것도 없으면 1 */
-function _tcQtyPerPiece(tc,trims){
+function _tcQtyPerPiece(tc,trims,fabs){
   var own=+(tc&&tc.qtyPerPiece); if(own>0)return own;
+  /* 2026-09-15l 원단 가공비(fabId)는 비우면 **원단 요척** — 신고 「야드당 2,000원인데 원가 +2,000원/장이면 안 되지, 요척에 맞게」.
+     예전엔 비우면 1(야드)로 곱해서 요척 2.55y 원단도 1장당 2,000원으로 잡혔다(원가·결제·발주서 전부). */
+  if(tc&&tc.fabId){ var yo=_tcFabYo(tc,fabs); if(yo>0)return yo; }
   var t=(trims||[]).find(function(x){return x&&x.id&&x.id===tc.trimId;});
   var q=t?+t.qtyPerPiece:0; return q>0?q:1;
+}
+/* 원단 가공비 줄이 붙은 원단 찾기 — fabs 를 넘기면 거기서, 아니면 폼(formFabs) → 아이템(S.items)에서 */
+function _tcFabOf(tc,fabs){
+  if(!tc||!tc.fabId)return null;
+  var arr=Array.isArray(fabs)?fabs:null;
+  if(!arr){ try{ if(typeof formTrimCosts!=='undefined'&&Array.isArray(formTrimCosts)&&formTrimCosts.indexOf(tc)>=0&&typeof formFabs!=='undefined')arr=formFabs; }catch(e){} }
+  if(!arr){ try{ var ks=Object.keys((typeof S!=='undefined'&&S&&S.items)||{}); for(var i=0;i<ks.length;i++){ var x=S.items[ks[i]]; if(x&&Array.isArray(x.trimCosts)&&x.trimCosts.indexOf(tc)>=0){ arr=x.fabrics||[]; break; } } }catch(e){} }
+  return (arr||[]).find(function(f){return f&&f.id===tc.fabId;})||null;
+}
+/* 원단 요척(1장당 야드) — 원가계산서 원단비와 같은 기준: consumption(사이즈별이면 폼이 가장 큰 값을 넣어둠), 없으면 사이즈별 중 가장 큰 값 */
+function _tcFabYo(tc,fabs){
+  var f=_tcFabOf(tc,fabs); if(!f)return 0;
+  var c=+f.consumption||0; if(c>0)return c;
+  var m=0, cb=f.consumptionBySize||{}; Object.keys(cb).forEach(function(k){ var v=+cb[k]||0; if(v>m)m=v; });
+  return m;
+}
+/* 2026-09-15l 옛 자료: 원단 가공비(개당·조건부) 「y/장」에 1 이 적힌 줄 → 비움(=원단 요척).
+   예전엔 비우면 1로 계산돼 1을 적어둔 줄이 요척을 못 따라간다. 옛 값은 tc._qppOld 에 남긴다. 줄마다 한 번만(tc._yoMig). */
+function _migrateFabProcYo(it){
+  var n=0;
+  try{ (Array.isArray(it&&it.trimCosts)?it.trimCosts:[]).forEach(function(tc){
+    if(!tc||!tc.fabId||tc._yoMig)return;
+    tc._yoMig=1;
+    var ct=tc.costType||'perPcs'; if(ct!=='perPcs'&&ct!=='tier')return;
+    if(tc.qtyPerPiece!==''&&tc.qtyPerPiece!=null&&+tc.qtyPerPiece===1){ tc._qppOld=1; tc.qtyPerPiece=''; n++; }
+  }); }catch(e){}
+  return n;
 }
 /* 원자재 필요량에 곱할 개수 — 새 이름이라 기존 자료엔 없다(=1). */
 function _pcsPG(t){ var v=+(t&&t.pcsPerGarment); return v>0?v:1; }
@@ -17871,15 +17952,15 @@ function _pcsPG(t){ var v=+(t&&t.pcsPerGarment); return v>0?v:1; }
    ⚠️ 개당·조건부만 수량으로 센다. 한번에(once)·컬러별(perLot)은 정액이라 여기 안 온다.
    ⚠️ 원가계산서·수량별총액·발주서·결제·폼표시가 **모두 이 함수 하나만** 쓴다.
       한 군데라도 직접 곱하면 화면마다 금액이 갈라진다. */
-function _tcEffPcs(tc,trims,qty){
-  var raw=Math.max(0,+qty||0)*_tcQtyPerPiece(tc,trims);
+function _tcEffPcs(tc,trims,qty,fabs){
+  var raw=Math.max(0,+qty||0)*_tcQtyPerPiece(tc,trims,fabs);
   var mn=+(tc&&tc.minQty)||0;
   return (mn>0&&raw<mn)?mn:raw;
 }
-function _tcTierIsFlat(tc,trims,qty){
+function _tcTierIsFlat(tc,trims,qty,fabs){
   if(!tc||tc.costType!=='tier')return false;
   var q=Math.max(1,+qty||1);
-  return _tcEffPcs(tc,trims,q)<=(+tc.tierQty||300);
+  return _tcEffPcs(tc,trims,q,fabs)<=(+tc.tierQty||300);
 }
 // 부자재의 사이즈·규격별 단가표(priceMatrix)에서, 이 트림의 값에 맞는 단가 찾기. 없으면 null(=기본단가 유지)
 var _PB_AXIS_FIELDS={'호수':['zipperSize','buttonSize','snapSize','size'],'길이':['zipperLength'],'컬러':['color'],'사이즈':['size','buttonSize','snapSize','zipperSize']};
@@ -17904,7 +17985,7 @@ function trimCostPerPcs(it,minQty){
     if(tc.costType==='once')return s+(tc.costPerLot||0)/minQty; // 한번에: 컬러 무관 ÷미니멈
     if(tc.costType==='perLot'){var dyeC=tcEffColors(tc,(it&&it.trims),all);return s+(tc.costPerLot||0)*(dyeC.length||1)/minQty;} // 컬러별: ×염색켠색수÷미니멈
     /* 개당 × 벌당개수(요척) — 최소 작업수량이 있으면 그 개수로 (÷장수로 1장당 환산) */
-    return s+(tc.costPerPcs||0)*(_tcEffPcs(tc,(it&&it.trims),minQty)/minQty)*(active.length/(all.length||1));
+    return s+(tc.costPerPcs||0)*(_tcEffPcs(tc,(it&&it.trims),minQty,(it&&it.fabrics))/minQty)*(active.length/(all.length||1));
   },0);
 }
 /* ===== 오더 총 원가 ===== */
@@ -22349,7 +22430,7 @@ function getTrimCostRows(o,sn){
       var nm=(tc.name||'가공비')+' ('+(it.name||'')+')';
       if(tc.costType==='once'){var oFee=tc.costPerLot||0;if(!oFee)return;out.push({name:nm,color:'가공',qty:1,unit:'회',price:oFee,amount:oFee,part:'가공'});}
       else if(tc.costType==='perLot'){var lotFee=tc.costPerLot||0;if(!lotFee)return;var nC=tcEffColors(tc,it.trims,allColors).length||1;out.push({name:nm,color:'가공',qty:nC,unit:'컬러',price:lotFee,amount:lotFee*nC,part:'가공'});}
-      else{var ppFee=tc.costPerPcs||0;if(!ppFee)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;var _eff=_tcEffPcs(tc,it.trims,totQty);out.push({name:nm,color:'가공',qty:_eff,unit:'개',price:ppFee,amount:ppFee*_eff,part:'가공'});}
+      else{var ppFee=tc.costPerPcs||0;if(!ppFee)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;var _eff=_tcEffPcs(tc,it.trims,totQty,it.fabrics);out.push({name:nm,color:'가공',qty:(tc.fabId?Math.round(_eff*100)/100:_eff),unit:(tc.fabId?'y':'개'),price:ppFee,amount:Math.round(ppFee*_eff),part:'가공'});}
     });
   });
   return out;
@@ -25015,7 +25096,7 @@ function initTrackBlocks(oid){
   });
 }
 // 개당 가공비는 '부자재 1개당' → 옷 1장당 = 단가 × 벌당 개수(_tcQtyPerPiece). 2026-07-28 원가계산서 본체와 일치시킴
-function calcTrimPerQty(it,qty){if(!qty)return 0;return(it.trims||[]).reduce((s,t)=>s+calcTrimNeed(t,qty).cost,0)+(it.trimCosts||[]).reduce((s,tc)=>s+(_tcTierIsFlat(tc,it.trims,qty)?(+tc.tierUnder||0):(tc.costPerPcs||0)*_tcEffPcs(tc,it.trims,qty)),0);}
+function calcTrimPerQty(it,qty){if(!qty)return 0;return(it.trims||[]).reduce((s,t)=>s+calcTrimNeed(t,qty).cost,0)+(it.trimCosts||[]).reduce((s,tc)=>s+(_tcTierIsFlat(tc,it.trims,qty,it.fabrics)?(+tc.tierUnder||0):(tc.costPerPcs||0)*_tcEffPcs(tc,it.trims,qty,it.fabrics)),0);}
 function getSizes(b){return b.colors[0]?.orderQty?Object.keys(b.colors[0].orderQty):['free'];}
 function renderTrackFilter(){
   const sel=document.getElementById('tk-filter');
@@ -26713,7 +26794,7 @@ function trimLedgerAuto(){
         var qty,unit,price,amount;
         if(tc.costType==='once'){price=+tc.costPerLot||0;if(!price)return;qty=1;unit='회';amount=price;}
         else if(tc.costType==='perLot'){price=+tc.costPerLot||0;if(!price)return;var nC=activeColors.length||1;qty=nC;unit='컬러';amount=price*nC;}
-        else{price=+tc.costPerPcs||0;if(!price)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;qty=totQty;unit='pcs';amount=price*totQty;}
+        else{price=+tc.costPerPcs||0;if(!price)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;if(tc.fabId){qty=Math.round(_tcEffPcs(tc,it.trims,totQty,it.fabrics)*100)/100;unit='y';amount=price*qty;}else{qty=totQty;unit='pcs';amount=price*totQty;}}   /* 2026-09-15l 원단 가공비 = 장수 × 요척(야드) */
         var brand=it.brandId?_tlBrandName(it.brandId):'';
         var L={name:(tc.name||'가공비'),spec:'가공',qty:qty,unit:unit,price:price,amount:Math.round(amount),itemName:it.name||'',brand:brand,date:dISO,src:'auto',orderId:oid,orderName:o.name||'',inout:'out',isProc:true};
         L.key='p|'+oid+'|'+(tc.id||tc.name||'')+'|'+(it.id||'');
@@ -29281,6 +29362,7 @@ function renderSpPay(){
             const qty=sizes.reduce((s,sz)=>s+(+oi.qtyGrid?.[c]?.[sz]||0),0);
             if(!qty)return;
             const clNm=tc.colorLinks?.find(l=>l.itemColor===c)?.colorName||c;
+            if(tc.fabId){ const _yq=Math.round(qty*_tcQtyPerPiece(tc,it.trims,it.fabrics)*100)/100; base+=Math.round(ppFee*_yq); dets.push(`${esc(clNm||c)} ${num(qty)}pcs×요척=${_yq}y×${num(ppFee)}원`); return; }   /* 2026-09-15l 원단 가공비 = 야드 */
             base+=ppFee*qty;
             dets.push(`${esc(clNm||c)} ${num(qty)}pcs×${num(ppFee)}원`);
           });
@@ -29938,8 +30020,8 @@ function renderCS(){
     const activeColors=hasLinks?allColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):allColors;
     if(tc.costType==='once')tct+=(tc.costPerLot||0)/LOT_MIN*qty;
     else if(tc.costType==='perLot')tct+=(tc.costPerLot||0)*activeColors.length/LOT_MIN*qty;
-    else if(_tcTierIsFlat(tc,it.trims,qty))tct+=(tc.tierUnder||0)/LOT_MIN*qty; // 조건부·기준 이하 = 정액을 미니멈으로 나눠 장당
-    else tct+=(tc.costPerPcs||0)*qty*_tcQtyPerPiece(tc,it.trims)*(activeColors.length/(allColors.length||1));
+    else if(_tcTierIsFlat(tc,it.trims,qty,it.fabrics))tct+=(tc.tierUnder||0)/LOT_MIN*qty; // 조건부·기준 이하 = 정액을 미니멈으로 나눠 장당
+    else tct+=(tc.costPerPcs||0)*qty*_tcQtyPerPiece(tc,it.trims,it.fabrics)*(activeColors.length/(allColors.length||1));
   }
   // 일회비
   const onceParts=[];
@@ -30044,7 +30126,7 @@ function renderCS(){
     ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:13%"><col style="width:19%"><col style="width:16%"><col style="width:18%"><col style="width:9%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">원단처</th><th style="text-align:left">원단명</th><th style="text-align:left">계산식</th><th style="text-align:right">단가<br><span class="cs-hide-on-img" style="font-size:10px;font-weight:400;color:var(--green)">원가용</span></th><th style="text-align:center">미니멈</th><th style="text-align:right">원단비</th><th style="text-align:right">로스포함</th></tr></thead><tbody>${fr}</tbody></table><div class="cs-subtotal-box"><span>소계 <span style="font-size:11px;font-weight:400;color:var(--t2)">(로스 미포함)</span></span><span class="cs-amt">${num(Math.round(tf))}원 <span style="font-size:12px;font-weight:600;color:var(--blue)">· 로스포함 ${num(Math.round(tfL))}원</span></span></div>${_csFabMixWarn?`<div class="cs-hide-on-img" style="margin-top:6px;padding:9px 12px;background:#FFF8E1;border:1.5px solid #F0C24B;border-radius:8px;font-size:12px;color:#7a5310;line-height:1.65"><b>확인 필요</b> — 컬러별로 다른 원단(${esc(_csMixNames)})이 <b>전부 합산</b>돼 있어요. 이 원단비는 모든 컬러의 원단을 한 벌에 다 넣은 값이라 실제 1벌 원가보다 클 수 있어요. 한 컬러 기준으로 보려면 그 컬러가 안 쓰는 원단의 <b>사용량을 0으로 수정</b>하세요.</div>`:''}`:''}
     ${_basicObjs.length?`<div class="sec">부자재비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:13%"><col style="width:19%"><col style="width:16%"><col style="width:18%"><col style="width:9%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">부자재처</th><th style="text-align:left">부자재명</th><th style="text-align:left">계산식</th><th style="text-align:right">단가</th><th style="text-align:center">미니멈</th><th style="text-align:right">부자재비</th><th style="text-align:right">로스포함</th></tr></thead><tbody>${tr}</tbody></table><div class="cs-subtotal-box"><span>소계 <span style="font-size:11px;font-weight:400;color:var(--t2)">(로스 미포함)</span></span><span class="cs-amt">${num(Math.round(tt))}원 <span style="font-size:12px;font-weight:600;color:var(--blue)">· 로스포함 ${num(Math.round(ttL))}원</span></span></div>`:''}
     ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${num(p.val)}원/pcs×${qty}</td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(pt))}원</span></div>`:''}
-    ${tcArr.length?`<div class="sec">부자재 가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${tcArr.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const isOnce=tc.costType==='once';const tcAllColors=it.colors?.length?it.colors:[''];const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const _qpp=_tcQtyPerPiece(tc,it.trims);const _tcFlat=_tcTierIsFlat(tc,it.trims,qty);const tcAmt=isOnce?(tc.costPerLot||0)/LOT_MIN:isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:_tcFlat?(tc.tierUnder||0)/LOT_MIN*qty:(tc.costPerPcs||0)*qty*_qpp*(tcActive.length/(tcAllColors.length||1));return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isOnce?`${num(tc.costPerLot)}원÷${LOT_MIN} (한번에)`:isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:_tcFlat?`${num(tc.tierUnder)}원÷${LOT_MIN}장 (${num(qty*_qpp)}개 ≤ ${num(tc.tierQty||300)}개)`:`${num(tc.costPerPcs)}원/개×${_qpp}개${qty>1?'×'+qty:''}`}</td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tct))}원</span></div>`:''}
+    ${tcArr.length?`<div class="sec">부자재 가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${tcArr.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const isOnce=tc.costType==='once';const tcAllColors=it.colors?.length?it.colors:[''];const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const _qpp=_tcQtyPerPiece(tc,it.trims,it.fabrics);const _tcFlat=_tcTierIsFlat(tc,it.trims,qty,it.fabrics);const tcAmt=isOnce?(tc.costPerLot||0)/LOT_MIN:isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:_tcFlat?(tc.tierUnder||0)/LOT_MIN*qty:(tc.costPerPcs||0)*qty*_qpp*(tcActive.length/(tcAllColors.length||1));return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isOnce?`${num(tc.costPerLot)}원÷${LOT_MIN} (한번에)`:isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:_tcFlat?`${num(tc.tierUnder)}원÷${LOT_MIN}장 (${num(qty*_qpp)}개 ≤ ${num(tc.tierQty||300)}개)`:(tc.fabId?`${num(tc.costPerPcs)}원/y×요척 ${Math.round(_qpp*100)/100}y${qty>1?'×'+qty:''}`:`${num(tc.costPerPcs)}원/개×${_qpp}개${qty>1?'×'+qty:''}`)}</td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(tct))}원</span></div>`:''}
     <div class="sec">
       <span>완성 부자재 비용 <span class="muted" style="font-size:10px;font-weight:400">(라벨·택·케어라벨·포장 등)</span></span>
       <button class="btn s p" type="button" onclick="addCsFinishCost('${id}')">+ 추가</button>
@@ -30259,7 +30341,7 @@ function downloadCostExcel(){
       const allColors=it.colors?.length?it.colors:[''];
       const hasLinks=tc.colorLinks&&tc.colorLinks.length>0;
       const activeColors=hasLinks?allColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):allColors;
-      const amt=isOnce?Math.round((tc.costPerLot||0)/minQty*qty):isLot?Math.round((tc.costPerLot||0)*activeColors.length/minQty*qty):Math.round((tc.costPerPcs||0)*qty*(activeColors.length/(allColors.length||1)));
+      const amt=isOnce?Math.round((tc.costPerLot||0)/minQty*qty):isLot?Math.round((tc.costPerLot||0)*activeColors.length/minQty*qty):Math.round((tc.costPerPcs||0)*qty*(tc.fabId?_tcQtyPerPiece(tc,it.trims,it.fabrics):1)*(activeColors.length/(allColors.length||1)));   /* 2026-09-15l 원단 가공비 × 요척 */
       totalNet5+=amt;
       p(['',tc.name||'가공비','',1,1,(isLot||isOnce)?tc.costPerLot:tc.costPerPcs,amt,amt,tc.factory||'','']);
     });

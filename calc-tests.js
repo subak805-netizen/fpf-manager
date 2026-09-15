@@ -492,6 +492,37 @@ TEST('문제 21. 정정 카드 줄 · 자동 채움 · 본문', function(){
   CHECK('전체 다시 본문 첫 3줄', ft.split('\n').slice(0,3), ['상호 아루드','품명 배색 파이핑 맨투맨 (9/2) 정정 (9/15)','※ 9/2 보낸 발주서를 아래 수량으로 바꿔 주세요. (전체)']);
 });
 
+// ── 문제 22. 원단 가공비 야드당 = 원단 요척 (2026-09-15) ─────────────────────
+// 신고: 「야드당 2,000원인데 원가 +2,000원/장이면 안 되지 — 요척에 맞게」. 예전엔 y/장 칸이 비면 1로 곱했다.
+// 원단 맥스(요척 2.55·로스 0) · 염색 야드당 2,000 · 담당 은성 · 100장 → 1장당 5,100원 · 발주서 255y.
+TEST('문제 22. 원단 가공비 야드당 = 요척 · 옛 1 이관', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  S.items.itY = { id:'itY', name:'요척', colors:['브라운'], sizes:['FREE'],
+    fabrics:[{ id:'fy', name:'맥스', supplier:'은성', part:'몸판', consumption:2.55, buffer:0, unitPrice:12000 }],
+    trims:[], trimCosts:[{ id:'ty', fabId:'fy', name:'맥스', procKind:'염색', costType:'perPcs', costPerPcs:2000, qtyPerPiece:'', factory:'은성' }] };
+  var it = S.items.itY, tc = it.trimCosts[0];
+  CHECK('비우면 요척', _tcQtyPerPiece(tc, it.trims, it.fabrics), 2.55);
+  CHECK('원단 목록 안 넘겨도 아이템에서 찾음', _tcQtyPerPiece(tc, it.trims), 2.55);
+  CHECK('1장당 원가 5,100', Math.round(trimCostPerPcs(it, 30)), 5100);
+  var o = { id:'oY', orderItems:[{ itemId:'itY', qtyGrid:{ '브라운':{ FREE:100 } } }], suppliers:{} };
+  S.orders.oY = o;
+  var sups = calcSups(o.orderItems);
+  CHECK('발주서 블록 255y', _poProcBlocks({ colors:(sups['은성'].materials) }, '은성'), [['맥스 염색 (2000원/y)', '#브라운 - 255y']]);
+  tc.qtyPerPiece = 1.2;
+  CHECK('직접 적은 값은 그대로', _tcQtyPerPiece(tc, it.trims, it.fabrics), 1.2);
+  tc.qtyPerPiece = 1;
+  it.trimCosts.push({ id:'tt', trimId:'t1', name:'로고', costType:'perPcs', costPerPcs:40, qtyPerPiece:1 });
+  it.trimCosts.push({ id:'tl', fabId:'fy', name:'바이어스', costType:'perLot', costPerLot:20000, qtyPerPiece:1 });
+  CHECK('옛 1 이관: 원단 개당 줄만 1줄', _migrateFabProcYo(it), 1);
+  CHECK('이관 결과 (원단 개당 비움·옛값 보관 / 부자재·컬러별 그대로)', [tc.qtyPerPiece, tc._qppOld, it.trimCosts[1].qtyPerPiece, it.trimCosts[2].qtyPerPiece], ['', 1, 1, 1]);
+  CHECK('두 번 돌려도 0', _migrateFabProcYo(it), 0);
+  CHECK('이관 뒤 요척', _tcQtyPerPiece(tc, it.trims, it.fabrics), 2.55);
+  tc.minQty = 30;
+  CHECK('10장 = 25.5y < 가공집 최소 30y → 30y', _tcEffPcs(tc, it.trims, 10, it.fabrics), 30);
+  var it2 = { id:'itZ', fabrics:[{ id:'fz', consumption:0, consumptionBySize:{ S:1.2, M:1.4 } }], trims:[], trimCosts:[{ id:'tz', fabId:'fz', costType:'perPcs', costPerPcs:100, qtyPerPiece:'' }] };
+  CHECK('사이즈별 요척만 있으면 가장 큰 값', _tcQtyPerPiece(it2.trimCosts[0], it2.trims, it2.fabrics), 1.4);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){
