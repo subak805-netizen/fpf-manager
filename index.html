@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-15e';
+var APP_BUILD=/*BUILD*/'2026-09-15g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5059,6 +5059,8 @@ function loadCoData(id){
 function migrateData(){
   /* 메인라벨 발주처 = 브랜드 (2026-09-14e) — 다른 부자재를 메인라벨로 바꾼 줄에 남은 옛 부자재처(메이드 등) 정리 */
   try{ var _brs=(typeof getBrands==='function')?getBrands():[]; Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; (it&&it.trims||[]).forEach(function(tr){ if(!tr||tr.orderType!=='mainLabel')return; var _bid=tr.brandId||it.brandId; if(!_bid)return; var b=_brs.find(function(x){return x&&x.id===_bid;}); if(b&&b.name&&tr.supplier!==b.name)tr.supplier=b.name; }); }); }catch(e){}
+  /* 옛 출고 기록 회차 풀기 (2026-09-15g) — 저장 한 번 단위로 bid 부여 */
+  try{ Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; Object.keys((o&&o.factorySchedules)||{}).forEach(function(fc){ var sc=o.factorySchedules[fc]; if(sc&&Array.isArray(sc.shipments))_pdSplitLegacyRounds(sc.shipments); }); }); }catch(e){}
   /* 재단 방향 「일방향」→「결방향」 (2026-09-11c 사용자 요청 — 「일방향이라는 단어가 있어?」). 옛 저장값도 바꿔 표·작지에 새 이름으로 */
   try{ Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; (it&&it.fabrics||[]).forEach(function(f){ if(f&&typeof f.cutDir==='string'&&f.cutDir.indexOf('일방향')===0){ f.cutDir=f.cutDir.replace('일방향','결방향'); } }); }); }catch(e){}
   /* 치수 시트 겹친 부위 자동 정리 (2026-09-11n) — 09-08e 회차 합치기 오류가 남긴 자료. 첫 줄만 남기고 빈 칸은 뒷줄 값으로. */
@@ -16425,6 +16427,25 @@ function calcSups(orderItems,opts){
         sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:t.sliderModel||'',sliderColor:t.sliderColor||'',hasSliderLogo:!!t.hasSliderLogo,sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelNames:Array.isArray(t.labelNames)?t.labelNames.slice():undefined,labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:(_isLabelT?_lbuf:t.qtyBuffer),finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
       }
     }
+    /* 2026-09-15f 부자재 가공비 담당(tc.factory)이 부자재 산 집과 다르면 → 담당 집 발주서에 「가공」 카드 (사용자 결정 D).
+       돈은 0 — 가공비 금액은 원가(trimCostPerPcs)·가공비 결제 줄에서 이미 집계되므로 이 카드는 발주 통보용(이중 계산 금지). */
+    for(const tc of (it.trimCosts||[])){
+      if(!tc||!tc.trimId)continue;
+      const _tr=(it.trims||[]).find(function(x){return x&&x.id===tc.trimId;}); if(!_tr)continue;
+      const _fac=String(tc.factory||'').trim(), _ts=String(_tr.supplier||'').trim();
+      if(!_fac||_fac===_ts)continue;
+      const _act=colors.filter(function(c){return (effColorQtys[c]||0)>0;}); if(!_act.length)continue;
+      let _cols=(typeof tcEffColors==='function')?tcEffColors(tc,it.trims,_act):_act;
+      if(_tr.colorLinks&&_tr.colorLinks.length)_cols=_cols.filter(function(c){return _tr.colorLinks.find(function(l){return l.itemColor===c;});});
+      if(!_cols.length)continue;
+      if(!sups[_fac])sups[_fac]=mkSupWithDefaults(_fac);
+      const _mode=tc.costType||'perPcs';
+      const _qpp=(typeof _tcQtyPerPiece==='function')?_tcQtyPerPiece(tc,it.trims):1;
+      const _pc=_cols.map(function(c){ var lk=(_tr.colorLinks||[]).find(function(l){return l.itemColor===c;}); return {itemColor:c,colorName:(lk&&lk.colorName)||c,qty:Math.round((effColorQtys[c]||0)*_qpp)}; });
+      const _nm=String(tc.name||'가공').trim();
+      sups[_fac].materials.push({type:'proc',name:_nm,displayName:_nm,procKind:tc.procKind||'',tcId:tc.id,itemId:oi.itemId,itemName:it.name,srcName:_tr.name||'',srcSupplier:_ts,
+        procMode:_mode,procFee:+(_mode==='tier'?tc.tierOver:(_mode==='perPcs'?tc.costPerPcs:tc.costPerLot))||0,procColors:_pc,unitPrice:0,colorName:''});
+    }
   }return sups;
 }
 // === 자재 동기화: 아이템 변경 사항을 진행 중인 오더에 반영 ===
@@ -16810,7 +16831,7 @@ function schedMarkSent(){var ids=schedSelectedIds();if(!ids.length){showToast('�
 
 // 발주서: 부자재 그룹에 연결된 가공·염색(trimCosts) 내용 이름 모으기 (바이어스처럼 부자재 줄 아래 표시용)
 // 발주 자재엔 trimId가 없어 아이템의 trim을 이름(+규격·타입)으로 역매칭 → 그 trim의 trimCosts 이름
-function _poTrimProcNotes(g){
+function _poTrimProcNotes(g,sup){
   var out=[],seen={};
   ((g&&g.colors)||[]).forEach(function(t){
     if(!t||!t.itemId)return;
@@ -16822,6 +16843,11 @@ function _poTrimProcNotes(g){
     var tid=tr&&tr.id;if(!tid)return;
     it.trimCosts.forEach(function(tc){
       if(!tc||tc.trimId!==tid)return;
+      /* 2026-09-15f 담당이 이 발주서 거래처가 아니면 그 집 「가공」 카드로 가므로 여기선 뺀다. 담당이 비면 부자재 산 집(이 발주서). */
+      if(sup!=null){ var _facN=String(tc.factory||'').trim(); if(_facN&&_facN!==String(sup).trim())return; }
+      var _modeN=tc.costType||'perPcs', _feeN=+(_modeN==='tier'?tc.tierOver:(_modeN==='perPcs'?tc.costPerPcs:tc.costPerLot))||0;
+      if((_modeN==='perPcs'||_modeN==='tier')&&_feeN>0)return;   /* 개당·조건부 금액은 _poProcBlocks 가 컬러별 개수와 함께 찍는다 */
+      var _feeTxtN=_feeN>0?(' ('+num(_feeN)+'원'+(_modeN==='perLot'?' · 컬러당':' · 한번에')+')'):'';
       var nm=(tc.name||'').trim();
       if(tc.procKind){ // 「가공: 이름 종류 규격」 한 줄 — 청구방식과 무관(2026-07-28 사용자 확정)
         // 요척·수량 줄은 안 씀 — 그 자재(예: 186TC) 요척과 같고, 컬러·수량은 아래 줄에 이미 나옴
@@ -16830,11 +16856,11 @@ function _poTrimProcNotes(g){
         var _lbl=[(nm||''),_kind,_sp].filter(Boolean).join(' ');
         if(!_lbl)return;
         var _k='b|'+_lbl; if(seen[_k])return; seen[_k]=1;
-        out.push(_lbl);
+        out.push(_lbl+_feeTxtN);
         return;
       }
       if(!nm||seen[nm])return;
-      seen[nm]=1;out.push(nm);
+      seen[nm]=1;out.push(nm+_feeTxtN);
     });
   });
   return out;
@@ -16890,7 +16916,8 @@ function _poProcBlocks(g,sup){
       if(_fid?(tc.fabId!==_fid):(tc.trimId!==tid))return;
       var mode=tc.costType||'perPcs';
       if(mode!=='perPcs'&&mode!=='tier')return;
-      if(String(tc.factory||'').trim()!==String(sup||'').trim())return;
+      var _facB=String(tc.factory||'').trim(); if(!_fid&&!_facB)_facB=String(sup||'').trim();   /* 2026-09-15f 부자재 가공 담당 비면 부자재 산 집 */
+      if(_facB!==String(sup||'').trim())return;
       var fee=+(mode==='tier'?tc.tierOver:tc.costPerPcs)||0;
       if(!fee)return;
       /* 이름과 종류가 사실상 같으면(「스트링 제작」/「스트링제작」) 한 번만 */
@@ -16970,6 +16997,7 @@ function genPoText(order,sn){
   const fc=sup.deliveryFcId&&S.factories[sup.deliveryFcId]?S.factories[sup.deliveryFcId]:null;
   const fabs=sup.materials.filter(m=>m.type==='fabric');
   const trims=sup.materials.filter(m=>m.type==='trim');
+  const _procs=sup.materials.filter(m=>m&&m.type==='proc');   /* 2026-09-15f 가공 담당 집 카드 */
   const L=[];
   const _poAutoFcNames=new Set(); // 봉제공장 자동표기로 이미 찍은 공장명 — 하단 출고처 중복 방지
   // 헤더 - 상호는 브랜드명 우선 (없으면 회사명 폴백)
@@ -17601,7 +17629,7 @@ function genPoText(order,sn){
         if(t.effectivePcsApplied){
           L.push('※ 원단 재고에 맞춰 '+t.effectivePcsApplied+'장 기준 발주');
         }
-        _poTrimProcNotes(g).forEach(function(nm){L.push('가공: '+nm);});
+        _poTrimProcNotes(g,sn).forEach(function(nm){L.push('가공: '+nm);});
         L.push('');
         continue;
       }
@@ -17669,10 +17697,22 @@ function genPoText(order,sn){
          나머지(한번에·컬러별)는 예전처럼 「가공: 이름」 한 줄. */
       var _pbs=(typeof _poProcBlocks==='function')?_poProcBlocks(g,sn):[];
       var _pbHdrs={}; _pbs.forEach(function(b){ _pbHdrs[String(b[0]).replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
-      _poTrimProcNotes(g).forEach(function(nm){ if(_pbHdrs[String(nm).trim()])return; L.push('가공: '+nm); });
+      _poTrimProcNotes(g,sn).forEach(function(nm){ if(_pbHdrs[String(nm).trim()])return; L.push('가공: '+nm); });
       if(_pbs.length){ _pbs.forEach(function(b){ L.push(''); b.forEach(function(x){L.push(x);}); }); }
       L.push(''); // 부자재 그룹 사이 항상 줄바꿈
     }
+  }
+  /* 2026-09-15f 가공 담당 집 발주서 — 「가공: 이름 (금액)」 + 어디서 받은 자재 + 컬러 */
+  if(_procs.length){
+    _procs.forEach(function(pm){
+      var _kd=String(pm.procKind||'').trim(); if(_kd&&_kd.replace(/\s+/g,'')===String(pm.name||'').replace(/\s+/g,''))_kd='';
+      var hdr=[pm.name,_kd].filter(Boolean).join(' ');
+      var _ft=(showPrice&&+pm.procFee>0)?(' ('+num(+pm.procFee)+'원'+(pm.procMode==='perLot'?' · 컬러당':(pm.procMode==='once'?' · 한번에':' · 개당'))+')'):'';
+      L.push('가공: '+hdr+_ft);
+      if(pm.srcName)L.push('('+pm.srcName+(pm.srcSupplier?(' — '+pm.srcSupplier+'에서 받음'):'')+')');
+      (pm.procColors||[]).forEach(function(c){ L.push('#'+(c.colorName||c.itemColor||'')+(((pm.procMode==='perPcs'||pm.procMode==='tier')&&c.qty)?(' - '+num(c.qty)+'개'):'')); });
+      L.push('');
+    });
   }
   // 요청사항
   const reqs=PO_OPT_DEFS.filter(d=>d.cat==='req'&&opts[d.key]&&d.text).map(d=>d.text);
@@ -20074,7 +20114,7 @@ function renderCheckTab(o,onlySn){
     // 협상 단가 섹션 - 자재별
     const matPriceRows=(sup.materials||[]).map((m,idx)=>{
       const matName=m.displayName||m.name||''; // ← 결제제외 키(matSkipKey)와 일치해야 하므로 절대 변경 금지
-      if(!matName)return'';
+      if(!matName||m.type==='proc')return'';   /* 2026-09-15f 가공 카드 줄은 금액 0 통보용 — 협상단가 표에서 뺌 */
       // 자재명(괄호)=아이템 컬러 그대로 유지. # 줄=원단처 컬러명(fabricColor) — 둘 다 보이게
       const _dispName=matName;
       const _vColor=(m.type==='fabric'&&m.fabricColor)?m.fabricColor:(m.colorName||'');
@@ -23700,6 +23740,23 @@ function _pdRecKind(r){ return (r&&r.bg)?'bg':((r&&r.lv)?'lv':((r&&r.repair)?'rp
    bid 없는 옛 기록만 예전처럼 날짜+구분으로 묶는다. */
 function _pdRoundKey(r){ if(r&&r.bid)return 'b:'+r.bid; return String((r&&r.date)||'')+'|'+_pdRecKind(r); }
 function _pdKeyMatch(r,key){ key=String(key||''); if(!r)return false; if(key.indexOf('b:')===0)return r.bid===key.slice(2); if(r.bid)return false; var i=key.lastIndexOf('|'); if(i<0)return r.date===key; return String(r.date||'')===key.slice(0,i)&&_pdRecKind(r)===key.slice(i+1); }
+/* 2026-09-15g 옛 출고 기록 풀기 (사용자 「다 풀어줘」) — 회차 번호(bid) 없이 저장된 기록을 «저장 한 번» 단위로 되돌린다.
+   저장은 한 번에 컬러×사이즈 순서로 이어 붙으므로: 같은 칸이 다시 나오거나 칸 순서가 뒤로 가거나 날짜·구분·메모가 바뀌면 새 회차. */
+function _pdSplitLegacyRounds(arr){
+  if(!Array.isArray(arr))return 0; var n=0, cur=null;
+  for(var i=0;i<arr.length;i++){
+    var r=arr[i]; if(!r||r.bid){ cur=null; continue; }
+    var it=(r.itemId&&S.items)?S.items[r.itemId]:null;
+    var cols=(it&&it.colors&&it.colors.length)?it.colors:[''], szs=(it&&it.sizes&&it.sizes.length)?it.sizes:['free'];
+    var ci=cols.indexOf(r.color||''), si=szs.indexOf(r.size||''); var idx=(ci<0||si<0)?-1:(ci*szs.length+si);
+    var ck=(r.color||'')+'\u0001'+(r.size||'');
+    var sig=[r.itemId||'',r.date||'',_pdRecKind(r),r.memo||'',r.bgDc==null?'':r.bgDc,r.lvMemo||'',r.repairMemo||''].join('\u0001');
+    if(!cur||cur.sig!==sig||cur.seen[ck]||(idx>=0&&cur.last>=0&&idx<=cur.last)){ cur={sig:sig,seen:{},last:-1,bid:'L'+(r.id||('x'+i))}; }
+    cur.seen[ck]=1; if(idx>=0)cur.last=idx;
+    r.bid=cur.bid; n++;
+  }
+  return n;
+}
 function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
   const o=S.orders[oid];const it=S.items[itemId];
   if(!o||!it){showToast('데이터 없음');return;}
@@ -23720,6 +23777,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
   //  - 재단(cut): 기존 회차를 새 그리드로 교체
   //  - 출고/봉제/완성/검품/외주(ship): 새 회차로 추가(append)
   const mode='grid';
+  try{ if(recsKey!=='cuttingShipments'&&_pdSplitLegacyRounds(sch[recsKey])>0&&typeof saveData==='function')saveData(); }catch(e){}   /* 2026-09-15g 옛 기록 회차 풀기 */
   window._pdQtyCtx={oid,itemId,fcId,role,recsKey,sch,mode,saveMode:isCut?'replace':'append',editDate:(!isCut&&editDate)?editDate:''};
   // 오더수량
   const oi=(o.orderItems||[]).find(x=>x.itemId===itemId);
@@ -23778,7 +23836,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
       ?'칸을 클릭해서 수량 입력·정정 가능. 비우면 0으로 저장됨.'
       :(editGrid
         ?'이 회차를 수정 중이에요. 저장하면 이 날짜 회차가 교체돼요. (모두 비우고 저장하면 이 회차 삭제)'
-        :('한 날짜에 한 번에 입력 가능. 저장하면 새 회차로 추가됩니다. 기존 회차 합계: '+curTotal+'장'));
+        :('저장하면 새 회차로 따로 추가돼요 (같은 날짜여도 한 줄씩). 기존 회차 합계: '+curTotal+'장'));
     // 헤더 행 (사이즈명)
     const sizeHdrs=sizes.map(sz=>`<th style="padding:8px 6px;font-size:11px;font-weight:700;color:#4b5563;background:#f9fafb;border:1px solid #e5e7eb">${esc(sz)}</th>`).join('');
     // 컬러별 행 (cut 모드는 기존 값 prefill, ship 모드는 빈칸)

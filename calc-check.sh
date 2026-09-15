@@ -20,7 +20,7 @@ FUNCS=['laborBase','hasLaborRule','_laborCtx','orderFc','snapshotOrderFc','calcF
 '_trimWeightedPrice','ensureOrderLoss','_ensureOrderLossRaw','_entMech','_entPre','_entMechAbsorb','_entJson','orderLabelBuffer','calcSups','mkSup','mkSupWithDefaults',
 'lossParse','lossEnc','getEffectivePcsByColor','getEffectivePcsForOrderItem','getEffectivePcsBreakdown',
 'getPayFees','payFeeAmt','payFeeBlock','bgUnitPrice','sewLaborBase','laborRate','hasLaborBySize',
-'_migrateFabBias','_poProcBlocks','_poFabProcNotes','_tcQtyPerPiece']
+'_migrateFabBias','_poProcBlocks','_poFabProcNotes','_poTrimProcNotes','_tcQtyPerPiece','tcEffColors','_tcColorBasis']
 CONSTS=['COST_DEFS']
 
 def find_def(name):

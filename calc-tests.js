@@ -443,6 +443,31 @@ TEST('문제 19. 협상가 새 오더 자동 · 결제 14,000 · 원가 15,000',
   CHECK('원가 10kg(30y) × 매장가 15,000', Math.round(calcFabYards(fItem,30,null,'').cost), 150000);
 });
 
+// ── 문제 20. 부자재 가공비 — 담당 집 발주서 · 금액 표시 · 돈 0 카드 (2026-09-15) ─────────────
+// 메이드 186TC(부자재, 벌당 1y)를 가나염색이 염색 · 컬러당 2,300원 · 밤색 30장.
+// 기대: 가나염색 발주 카드(type proc, 금액 0, 수수료 2,300 컬러당, #밤색) 생김 · 메이드 발주서 가공 줄엔 안 나옴.
+//       담당을 비우면 카드 없음 · 메이드 발주서에 「186TC 염색 (2,300원 · 컬러당)」.
+TEST('문제 20. 부자재 가공비 담당 집 카드 · 금액 줄', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  S.items.itG = { id:'itG', name:'가방', colors:['밤색'], sizes:['F'], fabrics:[],
+    trims:[{ id:'t1', supplier:'메이드', name:'186TC', orderType:'yard', consumptionPerPiece:1, buffer:0, unitPrice:1000 }],
+    trimCosts:[{ id:'c1', trimId:'t1', name:'186TC 염색', factory:'가나염색', costType:'perLot', costPerLot:2300, colorLinks:[] }] };
+  var oG = { id:'oG', orderItems:[{ itemId:'itG', qtyGrid:{ '밤색':{ F:30 } } }], suppliers:{} };
+  S.orders.oG = oG;
+  var sups = calcSups(oG.orderItems);
+  var pm = (((sups['가나염색']||{}).materials)||[])[0] || {};
+  CHECK('가나염색 가공 카드', [pm.type, pm.procFee, pm.procMode, pm.unitPrice, (pm.procColors||[]).map(function(c){return c.colorName;}).join()], ['proc', 2300, 'perLot', 0, '밤색']);
+  CHECK('가공 카드 결제 0', Math.round(getMatActualCost(pm)), 0);
+  var mm = ((sups['메이드']||{}).materials)||[];
+  var g = { colors: mm.filter(function(m){return m.type==='trim';}) };
+  CHECK('메이드 발주서엔 가공 줄 없음', _poTrimProcNotes(g,'메이드').length, 0);
+  S.items.itG.trimCosts[0].factory = '';
+  sups = calcSups(oG.orderItems);
+  CHECK('담당 비움 → 카드 없음', !sups['가나염색'], true);
+  g = { colors: (((sups['메이드']||{}).materials)||[]).filter(function(m){return m.type==='trim';}) };
+  CHECK('담당 비움 → 메이드 발주서 금액 줄', _poTrimProcNotes(g,'메이드'), ['186TC 염색 ('+num(2300)+'원 · 컬러당)']);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){
