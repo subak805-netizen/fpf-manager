@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260915b">
+<link rel="stylesheet" href="css/main.css?v=20260915c">
 </head>
 <body>
 
@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-15g';
+var APP_BUILD=/*BUILD*/'2026-09-15h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -19697,6 +19697,126 @@ function _poChangeDiff(frozen,fresh){
   Object.keys(fr).forEach(function(k){ if(!fz[k])out.added.push({m:fr[k],q:_poMatQty(fr[k])}); });
   return out;
 }
+/* ===== 정정 카드 2단계 (2026-09-15h 사용자 「진행해」 · C=발송완료 시 실제 발주 칸 자동 채움 · 본문 차이만/전체 다시 옵션) =====
+   저장 자리: o.poCorr[거래처] = [{id,n,createdAt,status:'draft'|'sent',sentAt,mode:'delta'|'full',lines:[…]}]
+   o.suppliers 는 건드리지 않는다 → 결제·재계산 경로 불변. 결제는 실제 발주 칸(C 자동 채움)으로만 바뀐다.
+   변경 사항 패널 비교 기준 = 보낸 발주서 + 보낸 정정들(_poCorrBase). */
+function _poMD(s){ var iso=(typeof toISO==='function')?toISO(s):''; if(!iso)return ''; var p=iso.split('-'); return (+p[1])+'/'+(+p[2]); }
+function _poSetMatQty(m,q){ if(!m||!q)return; if(m.type==='fabric'){ m.totalYards=q.v; if(q.kg!=null&&m.pricingUnit==='kg')m.totalKg=q.kg; return; } m.calc=Object.assign({},m.calc||{}); if(m.calc.isRoll)m.calc.rolls=q.v; else if(m.calc.isJeol)m.calc.jeol=q.v; else m.calc.qty=q.v; }
+function _poCorrApplyTo(mats,corrs){
+  var arr=JSON.parse(JSON.stringify(mats||[]));
+  (corrs||[]).forEach(function(c){ if(!c||c.status!=='sent')return;
+    (c.lines||[]).forEach(function(ln){
+      var i=arr.findIndex(function(m){return m&&_poMatKey(m)===ln.key;});
+      if(ln.type==='removed'){ if(i>=0)arr.splice(i,1); return; }
+      if(ln.type==='added'&&i<0){ if(ln.mat)arr.push(JSON.parse(JSON.stringify(ln.mat))); return; }
+      if(i>=0)_poSetMatQty(arr[i],ln.to);
+    });
+  });
+  return arr;
+}
+function _poCorrBase(o,sn){ var s=(o&&o.suppliers&&o.suppliers[sn])||{}; return _poCorrApplyTo(s.materials,(o&&o.poCorr&&o.poCorr[sn])||[]); }
+function _poCorrLines(base,freshMats){
+  var d=_poChangeDiff(base,freshMats), out=[];
+  var info=function(m){ return {key:_poMatKey(m),label:_poMatLabel(m),part:m.part||'',name:m.name||'',color:m.fabricColor||m.colorName||''}; };
+  d.changed.forEach(function(c){ if(c.m.type==='proc')return; out.push(Object.assign(info(c.m),{type:'changed',from:c.from,to:c.to})); });
+  d.added.forEach(function(a){ if(a.m.type==='proc')return; out.push(Object.assign(info(a.m),{type:'added',to:a.q,mat:JSON.parse(JSON.stringify(a.m))})); });
+  d.removed.forEach(function(r){ if(r.m.type==='proc')return; out.push(Object.assign(info(r.m),{type:'removed',from:r.q})); });
+  return out;
+}
+/* C: 발송완료 → 1차 카드 실제 발주 칸 = 정정 수량. 비어 있거나 직전 수량(from) 그대로일 때만 — 직접 적은 숫자는 안 건드린다 */
+function _poCorrFill(mats,lines){
+  var n=0;
+  (lines||[]).forEach(function(ln){
+    var i=(mats||[]).findIndex(function(m){return m&&_poMatKey(m)===ln.key;});
+    if(ln.type==='added'){ if(i<0&&ln.mat){ mats.push(JSON.parse(JSON.stringify(ln.mat))); n++; } return; }
+    if(i<0)return; var m=mats[i];
+    var isKg=(m.type==='fabric'&&m.pricingUnit==='kg');
+    var cur=m.actualOrderedQty, empty=(cur===undefined||cur===''||cur===null);
+    var fromV=ln.from?(isKg?ln.from.kg:ln.from.v):null;
+    if(!empty&&!(fromV!=null&&Math.abs((+cur)-(+fromV))<0.005))return;
+    if(ln.type==='removed'){ m.actualOrderedQty=0; n++; return; }
+    var toV=ln.to?(isKg?ln.to.kg:ln.to.v):null; if(toV==null)return;
+    m.actualOrderedQty=Math.round((+toV)*100)/100;
+    if(isKg&&ln.to.v!=null)m.actualOrderedYards=Math.round((+ln.to.v)*100)/100;
+    n++;
+  });
+  return n;
+}
+function _poCorrCompose(fullText,corr,sentMD,nowMD){
+  var lines=String(fullText||'').split('\n');
+  var head=[],i=0; while(i<lines.length&&lines[i].trim()!==''){ head.push(lines[i]); i++; }
+  var tag=' 정정'+(nowMD?(' ('+nowMD+')'):'');
+  var pi=head.findIndex(function(x){return /^품명 /.test(x);}); if(pi>=0)head[pi]+=tag; else head.push(tag.trim());
+  if(corr&&corr.mode==='full')return head.concat(['※ '+(sentMD?sentMD+' ':'')+'보낸 발주서를 아래 수량으로 바꿔 주세요. (전체)']).concat(lines.slice(i)).join('\n');
+  var out=head.concat(['※ '+(sentMD?sentMD+' ':'')+'보낸 발주서 수량 정정입니다. 아래 줄만 바뀌고 나머지는 그대로예요.','']);
+  var r2=function(v){ return Math.round((+v||0)*100)/100; };
+  var fmt=function(q){ if(!q)return ''; return q.kg?(Math.round(q.kg*10)/10+'kg ('+r2(q.v)+'y)'):(r2(q.v)+(q.u||'')); };
+  var grp={},ord=[];
+  ((corr&&corr.lines)||[]).forEach(function(ln){ var k=(ln.part||'')+'|'+(ln.name||''); if(!grp[k]){grp[k]=[];ord.push(k);} grp[k].push(ln); });
+  ord.forEach(function(k){ var g=grp[k], f=g[0];
+    out.push((f.part?'('+f.part+') ':'')+(f.name||''));
+    g.forEach(function(ln){ var c=ln.color?('#'+ln.color+' - '):'';
+      if(ln.type==='changed'){ var d=r2((+ln.to.v)-(+ln.from.v)); out.push(c+fmt(ln.from)+' → '+fmt(ln.to)+' ('+(d>0?'+':'')+d+(ln.to.u||'')+')'); }
+      else if(ln.type==='added')out.push(c+fmt(ln.to)+' (새로 추가)');
+      else out.push(c+fmt(ln.from)+' → 취소');
+    });
+    out.push('');
+  });
+  var j=lines.indexOf('[출고처]'); if(j>=0)out=out.concat(lines.slice(j));
+  return out.join('\n').replace(/\n+$/,'');
+}
+function poCorrText(o,sn,corr){
+  var sup=o&&o.suppliers&&o.suppliers[sn]; if(!sup||!corr)return '';
+  var list=(o.poCorr&&o.poCorr[sn])||[]; var idx=list.indexOf(corr);
+  var upto=(idx>=0?list.slice(0,idx+1):[corr]).map(function(c){ return c===corr?Object.assign({},c,{status:'sent'}):c; });
+  var tmp=Object.assign({},o,{suppliers:Object.assign({},o.suppliers)}); tmp.suppliers[sn]=Object.assign({},sup,{materials:_poCorrApplyTo(sup.materials,upto)});
+  var full=''; try{ full=genPoText(tmp,sn); }catch(e){ console.warn('[정정 본문]',e); }
+  return _poCorrCompose(full,corr,_poMD(sup.sentAt||sup.orderDate||''),_poMD(corr.createdAt||''));
+}
+function _poCorrRerender(){ if(typeof _renderOTabKeepScroll==='function')_renderOTabKeepScroll(); else if(typeof renderOTab==='function')renderOTab(); }
+function _poCorrFind(oid,sn,id){ var o=S.orders[oid]; var list=(o&&o.poCorr&&o.poCorr[sn])||[]; return {o:o,list:list,c:list.find(function(x){return x&&x.id===id;})}; }
+function poCorrCreate(oid,sn){
+  var o=S.orders[oid]; if(!o||!o.suppliers||!o.suppliers[sn])return;
+  var fresh=null; try{ fresh=(calcSups(o.orderItems)||{})[sn]; }catch(e){}
+  var lines=_poCorrLines(_poCorrBase(o,sn),(fresh&&fresh.materials)||[]);
+  if(!lines.length){ showToast('보낸 발주서와 달라진 수량이 없어요'); return; }
+  if(!o.poCorr||typeof o.poCorr!=='object')o.poCorr={}; if(!Array.isArray(o.poCorr[sn]))o.poCorr[sn]=[];
+  var list=o.poCorr[sn], draft=list.find(function(c){return c&&c.status!=='sent';});
+  if(draft){ draft.lines=lines; draft.createdAt=todayISO(); }
+  else { draft={id:uid(),n:list.length+2,createdAt:todayISO(),status:'draft',mode:(((o.suppliers[sn].poOpts||{}).corrMode)==='full'?'full':'delta'),lines:lines}; list.push(draft); }
+  saveData(); _poCorrRerender(); showToast('정정 '+draft.n+'차 카드 — '+sn+' 카드 아래에 있어요',4000);
+}
+function poCorrSetMode(oid,sn,id,mode){ var r=_poCorrFind(oid,sn,id); if(!r.c||r.c.status==='sent')return; r.c.mode=(mode==='full')?'full':'delta'; var s=r.o.suppliers[sn]; if(s){ s.poOpts=s.poOpts||{}; s.poOpts.corrMode=r.c.mode; } saveData(); _poCorrRerender(); }
+function poCorrCopy(oid,sn,id){ var r=_poCorrFind(oid,sn,id); if(!r.c)return; var txt=poCorrText(r.o,sn,r.c); try{ navigator.clipboard.writeText(txt).then(function(){showToast('정정 발주서 복사 완료');}).catch(function(){alert('복사 실패');}); }catch(e){ alert(e.message); } }
+function poCorrShare(oid,sn,id){ var r=_poCorrFind(oid,sn,id); if(!r.c)return; var txt=poCorrText(r.o,sn,r.c); if(navigator.share){ navigator.share({text:txt}).catch(function(){}); } else poCorrCopy(oid,sn,id); }
+function poCorrSend(oid,sn,id){
+  var r=_poCorrFind(oid,sn,id); if(!r.c||r.c.status==='sent')return; var s=r.o.suppliers[sn]; if(!s)return;
+  r.c.status='sent'; r.c.sentAt=todayISO();
+  var n=_poCorrFill(s.materials,r.c.lines);
+  var its={}; (r.c.lines||[]).forEach(function(ln){ var m=(s.materials||[]).find(function(x){return x&&_poMatKey(x)===ln.key;}); if(m&&m.type==='fabric'&&m.itemId)its[m.itemId]=1; });
+  Object.keys(its).forEach(function(iid){ try{ propagateEffectiveRatio(oid,iid); }catch(e){} });
+  saveData(); _poCorrRerender(); showToast('정정 '+r.c.n+'차 발송완료 — 실제 발주 칸 '+n+'개 자동 채움',4500);
+}
+function poCorrDel(oid,sn,id){ var r=_poCorrFind(oid,sn,id); if(!r.c)return; if(r.c.status==='sent'){ showToast('발송한 정정 카드는 지울 수 없어요'); return; } if(!confirm('정정 '+r.c.n+'차 카드를 지울까요?'))return; r.list.splice(r.list.indexOf(r.c),1); saveData(); _poCorrRerender(); }
+function poCorrCardsHTML(o,sn){
+  var list=(o&&o.poCorr&&o.poCorr[sn])||[]; if(!list.length)return '';
+  return list.map(function(c){
+    var sent=c.status==='sent', txt=poCorrText(o,sn,c);
+    var a="'"+o.id+"','"+esc(sn).replace(/'/g,"\\'")+"','"+c.id+"'";
+    var q=function(x){ return x?(Math.round((+x.v||0)*100)/100+(x.u||'')):''; };
+    var ln=(c.lines||[]).map(function(l){ var right=l.type==='changed'?(q(l.from)+' → <b>'+q(l.to)+'</b>'):(l.type==='added'?('<b>'+q(l.to)+'</b> 새로'):(q(l.from)+' → 취소')); return '<div class="pocorr-ln"><span>'+esc(l.label)+'</span><span>'+right+'</span></div>'; }).join('');
+    var chip=function(m,lb){ return '<button type="button" class="po2-chip'+(c.mode===m?' on':'')+'"'+(sent?' disabled':'')+' onclick="poCorrSetMode('+a+',\''+m+'\')">'+lb+'</button>'; };
+    return '<div class="sc po2 pocorr"><div class="sc-h"><div class="po2-hd"><span class="po2-nm">'+esc(sn)+'</span><span class="badge pocorr-badge">정정 '+c.n+'차 · '+(sent?'발송':'미발송')+'</span><span class="pocorr-date">'+esc(_poMD(c.createdAt))+(sent?(' → 발송 '+esc(_poMD(c.sentAt))):'')+'</span>'
+      +'<span class="po2-acts"><button class="po2-ab copy" onclick="poCorrCopy('+a+')">복사</button><button class="po2-ab kakao" onclick="poCorrShare('+a+')">카톡</button>'
+      +(sent?'':('<button class="po2-ab done" onclick="poCorrSend('+a+')">발송완료</button><button class="po2-ab" onclick="poCorrDel('+a+')">지우기</button>'))+'</span></div></div>'
+      +'<div class="sc-b"><div class="po2-main"><details class="po-body" open><summary>정정 발주서 본문 <span class="hint">거래처에 보낼 내용</span></summary><div class="mono">'+esc(txt)+'</div></details></div>'
+      +'<div class="po2-side"><details class="po-details" open><summary>바뀐 자재 <span class="po2-cnt">'+(c.lines||[]).length+'건</span></summary><div class="po-opts-b">'+ln+'</div></details>'
+      +'<details class="po-details" open><summary>발주 내용 선택</summary><div class="po-opts-b"><div class="po2-og"><div class="gl">정정 본문</div><div class="po2-chips">'+chip('delta','차이만')+chip('full','전체 다시')+'</div></div>'
+      +'<div class="po2-tip">'+(sent?'발송완료 때 거래처 확인의 실제 발주 칸에 정정 수량을 넣었어요.':'「발송완료」를 누르면 위 카드 거래처 확인의 실제 발주 칸에 정정 수량이 자동으로 들어가요 (직접 적어 둔 숫자는 그대로).')+'</div></div></details></div>'
+      +'</div></div>';
+  }).join('');
+}
 function poChangePanelHTML(o,freshOpt){
   try{
     if(!o||!o.suppliers)return '';
@@ -19704,7 +19824,7 @@ function poChangePanelHTML(o,freshOpt){
     if(!frozenSns.length)return '';
     var fresh=freshOpt||calcSups(o.orderItems)||{};
     var blocks=[];
-    frozenSns.forEach(function(sn){ var d=_poChangeDiff((o.suppliers[sn]||{}).materials,(fresh[sn]||{}).materials); if(!(d.changed.length+d.added.length+d.removed.length))return; blocks.push({sn:sn,d:d,st:o.suppliers[sn].status}); });
+    frozenSns.forEach(function(sn){ var d=_poChangeDiff(_poCorrBase(o,sn),(fresh[sn]||{}).materials); if(!(d.changed.length+d.added.length+d.removed.length))return; blocks.push({sn:sn,d:d,st:o.suppliers[sn].status}); });
     if(!blocks.length)return '';
     var traces=[];
     (o.orderItems||[]).forEach(function(oi){
@@ -19719,7 +19839,7 @@ function poChangePanelHTML(o,freshOpt){
     var h='<div class="po-chg" style="background:#fff7ed;border:2px solid #b45309;box-shadow:3px 3px 0 #b45309;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12.5px;line-height:1.5">';
     h+='<div style="font-weight:800;color:#b45309;margin-bottom:4px">변경 사항 — 발송한 발주서와 지금 계산이 다른 거래처 '+blocks.length+'곳 <span style="font-weight:400;color:#6b7280;font-size:11px">(보낸 발주서는 그대로 · 원값 기준)</span></div>';
     blocks.forEach(function(b){
-      h+='<div style="border-top:1px dashed #f0d090;padding:6px 0"><div style="font-weight:800">'+esc(b.sn)+' <span style="font-size:10.5px;color:#6b7280">'+(stTxt[b.st]||'')+' · 고정</span></div>';
+      h+='<div style="border-top:1px dashed #f0d090;padding:6px 0"><div style="font-weight:800">'+esc(b.sn)+' <span style="font-size:10.5px;color:#6b7280">'+(stTxt[b.st]||'')+' · 고정</span> <button type="button" class="pocorr-mk" onclick="poCorrCreate(\''+o.id+'\',\''+esc(b.sn).replace(/'/g,"\\'")+'\')">'+(((o.poCorr&&o.poCorr[b.sn])||[]).some(function(c){return c&&c.status!=='sent';})?'정정 카드 다시 계산':'정정 카드 만들기')+'</button></div>';
       b.d.changed.forEach(function(c){ h+=row(esc(_poMatLabel(c.m)), fmt(c.from)+' → <b>'+fmt(c.to)+'</b> <span style="color:'+(c.d<0?'#b42318':'#1d4ed8')+';font-weight:800">'+(c.d>0?'+':'')+(Math.round(c.d*100)/100)+c.to.u+'</span>'); });
       b.d.added.forEach(function(a){ h+=row(esc(_poMatLabel(a.m)), '<b>'+fmt(a.q)+'</b> <span style="color:#1d4ed8;font-weight:800">새로 필요</span>'); });
       b.d.removed.forEach(function(r){ h+=row(esc(_poMatLabel(r.m)), fmt(r.q)+' → <span style="color:#b42318;font-weight:800">필요 없음</span>'); });
@@ -19727,7 +19847,7 @@ function poChangePanelHTML(o,freshOpt){
     });
     if(unsent.length)h+='<div style="border-top:1px dashed #f0d090;padding:6px 0;color:#15803d;font-size:11.5px">미발송 '+unsent.map(function(s){return esc(s);}).join(' · ')+' — 자동 반영됨</div>';
     if(traces.length){ h+='<div style="margin-top:6px;background:#fff;border:1px solid #f0d090;border-radius:6px;padding:7px 9px;font-size:11.5px;color:#475569">'; traces.forEach(function(x){ h+='<div><b style="color:#334155">근거 — '+esc(x.nm)+'</b><br>'+x.tr.map(function(s){return '· '+esc(s);}).join('<br>')+'</div>'; }); h+='</div>'; }
-    h+='<div style="margin-top:6px;font-size:11px;color:#6b7280">1단계: 보여주기만 합니다. 다음 단계에서 「정정 카드 만들기」가 여기 붙어요.</div>';
+    h+='<div style="margin-top:6px;font-size:11px;color:#6b7280">「정정 카드 만들기」를 누르면 그 거래처 카드 바로 아래에 정정 카드가 생겨요. 보내고 「발송완료」하면 실제 발주 칸이 자동으로 바뀌어요.</div>';
     h+='</div>';
     return h;
   }catch(e){ console.warn('[변경사항 패널]',e); return ''; }
@@ -19755,7 +19875,7 @@ function renderPoTab(o){
   // 일반 거래처 vs (추가발주) 거래처 — 점선으로 구분
   var _reg=sns.filter(function(sn){return sn.indexOf('(추가발주)')<0;});
   var _ex=sns.filter(function(sn){return sn.indexOf('(추가발주)')>=0;});
-  var _tray=_reg.map(function(sn){return poCardHTML(o,sn);}).join('');
+  var _tray=_reg.map(function(sn){return poCardHTML(o,sn)+(typeof poCorrCardsHTML==='function'?poCorrCardsHTML(o,sn):'');}).join('');   /* 2026-09-15h 정정 카드는 원래 카드 바로 아래 */
   if(_ex.length)_tray+='<div class="po2-extra-div">＋ 추가발주 <span>· 첫 발주와 별도 거래처</span></div>'+_ex.map(function(sn){return poCardHTML(o,sn);}).join('');
   var _c2=_po2ColMeasure();
   return orderLossPanelHTML(o)+poChangePanelHTML(o)+'<div class="po2-cq"><div class="po2-tray'+(_c2.on?' po2-2col':'')+'" style="--po2-side:'+_c2.side+'px">'+_tray+'</div></div>'+(typeof extraOrdersSectionHTML==='function'?extraOrdersSectionHTML(o):'');  // 로스 패널 + 발주서 카드들(일반→추가발주 점선구분) + 재단 추가 발주

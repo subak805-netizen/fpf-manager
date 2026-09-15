@@ -468,6 +468,30 @@ TEST('문제 20. 부자재 가공비 담당 집 카드 · 금액 줄', function(
   CHECK('담당 비움 → 메이드 발주서 금액 줄', _poTrimProcNotes(g,'메이드'), ['186TC 염색 ('+num(2300)+'원 · 컬러당)']);
 });
 
+// ── 문제 21. 정정 카드 — 줄 계산 · 발송완료 자동 채움 · 본문 (2026-09-15) ─────────────
+// 잭콕쭈리 배색 #C105올리브 15y(11,500원) 보냄 → 지금 계산 14y. 정정 2차: 15y → 14y (-1y).
+// 발송완료: 실제 발주 칸 비어 있음 → 14 자동 → 결제 14 × 11,500 = 161,000. 보낸 정정 반영 뒤엔 차이 없음.
+// 직접 15.5 적어 둔 경우 → 안 건드림.
+TEST('문제 21. 정정 카드 줄 · 자동 채움 · 본문', function(){
+  var sent = [{ type:'fabric', name:'잭콕쭈리', part:'배색', colorName:'네이비/올리브', fabricColor:'C105올리브', itemId:'i1', fabId:'f2', pricingUnit:'yard', unitPrice:11500, totalYards:15 }];
+  var fresh = [Object.assign({}, sent[0], { totalYards:14 })];
+  var lines = _poCorrLines(sent, fresh);
+  CHECK('줄 1개 · 15 → 14', [lines.length, lines[0].type, lines[0].from.v, lines[0].to.v], [1, 'changed', 15, 14]);
+  var corr = { id:'c1', n:2, createdAt:'2026-09-15', status:'draft', mode:'delta', lines:lines };
+  var mats = JSON.parse(JSON.stringify(sent));
+  CHECK('발송완료 자동 채움 1칸', _poCorrFill(mats, lines), 1);
+  CHECK('결제 14y × 11,500', Math.round(getMatActualCost(mats[0])), 161000);
+  corr.status = 'sent';
+  CHECK('보낸 정정 반영 뒤 차이 없음', _poCorrLines(_poCorrApplyTo(sent,[corr]), fresh).length, 0);
+  var mine = JSON.parse(JSON.stringify(sent)); mine[0].actualOrderedQty = 15.5;
+  CHECK('직접 적은 15.5 는 그대로', [_poCorrFill(mine, lines), mine[0].actualOrderedQty], [0, 15.5]);
+  var full = '상호 아루드\n품명 배색 파이핑 맨투맨 (9/2)\n\n(배색) 잭콕쭈리\n#C105올리브 - 14y\n\n[요청사항]\n재고 확인 부탁드립니다.\n\n[출고처]\n투케이';
+  var dt = _poCorrCompose(full, { mode:'delta', lines:lines }, '9/2', '9/15');
+  CHECK('차이만 본문', dt, '상호 아루드\n품명 배색 파이핑 맨투맨 (9/2) 정정 (9/15)\n※ 9/2 보낸 발주서 수량 정정입니다. 아래 줄만 바뀌고 나머지는 그대로예요.\n\n(배색) 잭콕쭈리\n#C105올리브 - 15y → 14y (-1y)\n\n[출고처]\n투케이');
+  var ft = _poCorrCompose(full, { mode:'full', lines:lines }, '9/2', '9/15');
+  CHECK('전체 다시 본문 첫 3줄', ft.split('\n').slice(0,3), ['상호 아루드','품명 배색 파이핑 맨투맨 (9/2) 정정 (9/15)','※ 9/2 보낸 발주서를 아래 수량으로 바꿔 주세요. (전체)']);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){
