@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-15d';
+var APP_BUILD=/*BUILD*/'2026-09-15e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -23696,8 +23696,10 @@ window._pdQtyCtx=null;
 /* 2026-09-15d 출고 회차 = 날짜 + 구분(정상·비품·잔량·수선). 신고 「같은 날짜에 출고되면 비품 체크하면 전부 다 비품이 돼」 —
    예전엔 날짜만으로 묶어 같은 날 정상+비품이 한 회차가 됐고, 수정하면 비품 체크가 전체에 걸린 채 그 날짜 기록이 통째로 교체됐다. */
 function _pdRecKind(r){ return (r&&r.bg)?'bg':((r&&r.lv)?'lv':((r&&r.repair)?'rp':'n')); }
-function _pdRoundKey(r){ return String((r&&r.date)||'')+'|'+_pdRecKind(r); }
-function _pdKeyMatch(r,key){ key=String(key||''); var i=key.lastIndexOf('|'); if(i<0)return !!r&&r.date===key; return !!r&&String(r.date||'')===key.slice(0,i)&&_pdRecKind(r)===key.slice(i+1); }
+/* 2026-09-15e 사용자 「날짜별로 묶어버리는 것 좀 없애줘」 — 저장할 때마다 회차 번호(bid)를 붙여 **저장 한 번 = 회차 하나**.
+   bid 없는 옛 기록만 예전처럼 날짜+구분으로 묶는다. */
+function _pdRoundKey(r){ if(r&&r.bid)return 'b:'+r.bid; return String((r&&r.date)||'')+'|'+_pdRecKind(r); }
+function _pdKeyMatch(r,key){ key=String(key||''); if(!r)return false; if(key.indexOf('b:')===0)return r.bid===key.slice(2); if(r.bid)return false; var i=key.lastIndexOf('|'); if(i<0)return r.date===key; return String(r.date||'')===key.slice(0,i)&&_pdRecKind(r)===key.slice(i+1); }
 function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
   const o=S.orders[oid];const it=S.items[itemId];
   if(!o||!it){showToast('데이터 없음');return;}
@@ -23749,7 +23751,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
     const byDate={};const dOrder=[];
     if(!isCut){
       itRecs.forEach(function(r){ if(!r||!(+r.qty))return; var d=_pdRoundKey(r); if(!byDate[d]){byDate[d]={total:0,grid:{},date:(r.date||'')};dOrder.push(d);} var c=r.color||'',sz=r.size||''; byDate[d].total+=(+r.qty||0); if(!byDate[d].grid[c])byDate[d].grid[c]={}; byDate[d].grid[c][sz]=(byDate[d].grid[c][sz]||0)+(+r.qty||0); if(r.bg){byDate[d].bg=true;byDate[d].bgDc=(r.bgDc!=null&&r.bgDc!=='')?(+r.bgDc||0):50;} if(r.lv){byDate[d].lv=true;if(r.lvMemo&&!byDate[d].lvMemo)byDate[d].lvMemo=r.lvMemo;if(r.lvShipped)byDate[d].lvShipped=r.lvShipped;} if(r.repair){byDate[d].repair=true;if(r.repairMemo&&!byDate[d].repairMemo)byDate[d].repairMemo=r.repairMemo;if(r.repairType&&!byDate[d].repairType)byDate[d].repairType=r.repairType;} });
-      dOrder.sort(_cmpDateFn);
+      dOrder.sort(function(a,b){ return _cmpDateFn(byDate[a].date,byDate[b].date); });   /* 날짜순, 같은 날은 입력한 순서 */
     }
     // 수정 모드: 그 회차(editDate) 값을 그리드에 미리 채움 + 날짜 그 회차로
     const editGrid=(!isCut&&editDate&&byDate[editDate])?byDate[editDate].grid:null;
@@ -23794,7 +23796,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
     const prevSummary=(!isCut&&dOrder.length)
       ?('<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:#065f46;margin-bottom:6px">지난 회차 '+dOrder.length+'회 · 누적 '+curTotal+'장 <span style="font-weight:400;color:#16a34a">(수정 / 삭제)</span></div>'
         +dOrder.map(function(d){
-          var g=byDate[d];var dd=(typeof fmtKoDate==='function'?fmtKoDate(toISO(d)):d);
+          var g=byDate[d];var dd=(typeof fmtKoDate==='function'?fmtKoDate(toISO(g.date)):g.date);
           var cs=colors.filter(function(c){return g.grid[c];}).map(function(c){var t=sizes.reduce(function(s,sz){return s+(+(g.grid[c]&&g.grid[c][sz])||0);},0);return esc(c||'-')+' '+t;}).join(' · ');
           var isEd=(editDate===d);var dEnc=encodeURIComponent(d);
           return '<div style="display:flex;align-items:center;gap:6px;padding:7px 9px;background:'+(isEd?'#fef9c3':'#f0fdf4')+';border:1px solid '+(isEd?'#fde047':'#bbf7d0')+';border-radius:6px;margin-bottom:5px;font-size:12px">'
@@ -24005,10 +24007,12 @@ function pdGridSave(){
   const _rpTyEl=document.getElementById('pd-grid-repairtype');
   const _rpTy=(_rpTyEl&&_rpTyEl.value)||'기타';
   const newRecs=[];
+  const _bid=(typeof uid==='function'?uid():('b'+Date.now()));   /* 2026-09-15e 이번 저장 = 회차 하나 */
   inputs.forEach(inp=>{
     const c=inp.dataset.color,sz=inp.dataset.size,q=+inp.value||0;
     if(!q)return;
     const rec={id:(typeof uid==='function'?uid():'cs'+Date.now()+Math.random()),date:date||todayISO(),color:c,size:sz,qty:q,memo:memo,itemId:ctx.itemId};
+    if(ctx.saveMode!=='replace')rec.bid=_bid;
     if(_bgOn){rec.bg=1;rec.bgDc=_bgDc;}
     if(_lvOn){rec.lv=1;if(_lvMemo)rec.lvMemo=_lvMemo;}
     if(_rpOn){rec.repair=1;if(_rpMemo)rec.repairMemo=_rpMemo;rec.repairType=_rpTy;}
@@ -24057,7 +24061,8 @@ function pdDeleteShipBatch(oid,itemId,role,fcId,dEnc){
   var single=(o.orderItems&&o.orderItems.length===1);
   var mineOf=function(r){return !r?false:(!r.itemId?single:(r.itemId===itemId));};
   var cnt=sch[recsKey].filter(function(r){return mineOf(r)&&_pdKeyMatch(r,date);}).reduce(function(a,r){return a+(+r.qty||0);},0);
-  var dd=(typeof fmtKoDate==='function'?fmtKoDate(toISO(date)):date);
+  var _r0=sch[recsKey].find(function(r){return mineOf(r)&&_pdKeyMatch(r,date);});
+  var dd=(typeof fmtKoDate==='function'?fmtKoDate(toISO((_r0&&_r0.date)||'')):((_r0&&_r0.date)||''));
   if(!confirm(dd+' 회차('+cnt+'장)를 삭제할까요?'))return;
   sch[recsKey]=sch[recsKey].filter(function(r){return !(mineOf(r)&&_pdKeyMatch(r,date));});
   if(recsKey==='shipments'&&typeof recomputeShipping==='function')recomputeShipping(sch);
