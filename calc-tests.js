@@ -523,6 +523,39 @@ TEST('문제 22. 원단 가공비 야드당 = 요척 · 옛 1 이관', function(
   CHECK('사이즈별 요척만 있으면 가장 큰 값', _tcQtyPerPiece(it2.trimCosts[0], it2.trims, it2.fabrics), 1.4);
 });
 
+// ── 문제 23. 가산 항목 금액 기준(야드당·컬러별·한번에) · 더 시킬 야드 (2026-09-15) ─────────────
+// 제로원(요척 0.6·로스 0·5,000원/y) · 네이비 50장·카키 30장.
+// 바이오워싱 야드당 1,000 → 컬러 단가 6,000 / 코팅 컬러별 20,000 · 샘플비 한번에 30,000(카키만) → 원단처 정액(가공비 줄처럼)
+// 앞뒤 여유 +2y → 네이비 30+2=32y · 카키 18+2=20y. 역산: 네이비 실제 26y → (26-2)/(32-2)=80% → 40장.
+TEST('문제 23. 가산 항목 금액 기준 · 더 시킬 야드', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  var f = { id:'fx', name:'제로원', supplier:'대광', part:'몸판', consumption:0.6, buffer:0, unitPrice:5000,
+    colorLinks:[{ itemColor:'네이비', fabricColor:'16번 네이비' }, { itemColor:'카키', fabricColor:'1번 카키' }],
+    priceAdditions:[
+      { id:'a1', name:'바이오워싱', price:1000, applyTo:'all', basis:'yard' },
+      { id:'a2', name:'코팅', price:20000, applyTo:'all', basis:'lot' },
+      { id:'a3', name:'앞뒤 여유', price:0, applyTo:'all', extraYd:2 },
+      { id:'a4', name:'샘플비', price:30000, applyTo:'colors', colors:['카키'], basis:'once' } ] };
+  S.items.iX = { id:'iX', name:'가산', colors:['네이비','카키'], sizes:['FREE'], fabrics:[f], trims:[], trimCosts:[] };
+  var it = S.items.iX;
+  CHECK('야드 단가엔 야드당만 +1,000', calcFabAdditionForColor(f, '네이비'), 1000);
+  CHECK('컬러 단가 6,000', fabColorPrice(f, '네이비').unit, 6000);
+  CHECK('50장 30y + 여유 2y = 32y', calcFabYards(f, 50, null, '네이비').ty, 32);
+  CHECK('컬러 모를 때(원가용)는 여유 안 더함', calcFabYards(f, 50).ty, 30);
+  CHECK('정액 2줄 → 원단처 가공비 줄', _fabAddTcs(it).map(function(t){ return [t.name, t.costType, t.costPerLot, t.factory]; }), [['코팅','perLot',20000,'대광'], ['샘플비','once',30000,'대광']]);
+  CHECK('원가 1장당 = 20,000×2색÷30 + 30,000÷30', Math.round(trimCostPerPcs(it, 30)), Math.round(20000*2/30 + 30000/30));
+  var o = { id:'oX', orderItems:[{ itemId:'iX', qtyGrid:{ '네이비':{ FREE:50 }, '카키':{ FREE:30 } } }], suppliers:{} };
+  S.orders.oX = o;
+  var sups = calcSups(o.orderItems); o.suppliers = sups;
+  var ms = sups['대광'].materials;
+  CHECK('발주 야드 네이비 32 · 카키 20', ms.map(function(m){ return m.totalYards; }), [32, 20]);
+  CHECK('자재에 더 시킬 야드', ms.map(function(m){ return m.extraYards; }), [2, 2]);
+  CHECK('발주서 가산 줄', _poFabProcNotes({ colors:ms }, '대광'), ['가산: 코팅 (20000원 · 컬러당)', '가산: 샘플비 (30000원 · 한번에)']);
+  ms[0].actualOrderedQty = 26;
+  var eff = getEffectivePcsByColor(o, o.orderItems[0]);
+  CHECK('역산은 여유 빼고: 26y → 40장', eff && eff['네이비'], 40);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){

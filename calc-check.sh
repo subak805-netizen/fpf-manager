@@ -20,7 +20,7 @@ FUNCS=['laborBase','hasLaborRule','_laborCtx','orderFc','snapshotOrderFc','calcF
 '_trimWeightedPrice','ensureOrderLoss','_ensureOrderLossRaw','_entMech','_entPre','_entMechAbsorb','_entJson','orderLabelBuffer','calcSups','mkSup','mkSupWithDefaults',
 'lossParse','lossEnc','getEffectivePcsByColor','getEffectivePcsForOrderItem','getEffectivePcsBreakdown',
 'getPayFees','payFeeAmt','payFeeBlock','bgUnitPrice','sewLaborBase','laborRate','hasLaborBySize',
-'_migrateFabBias','_poProcBlocks','_poFabProcNotes','_poTrimProcNotes','_tcQtyPerPiece','tcEffColors','_tcColorBasis','_tcFabOf','_tcFabYo','_migrateFabProcYo','_tcEffPcs','_tcTierIsFlat','trimCostPerPcs']
+'_migrateFabBias','_poProcBlocks','_poFabProcNotes','_poTrimProcNotes','_tcQtyPerPiece','tcEffColors','_tcColorBasis','_tcFabOf','_tcFabYo','_migrateFabProcYo','_tcEffPcs','_tcTierIsFlat','trimCostPerPcs','calcFabExtraYdForColor','_fabAddTcs','_tcAll']
 CONSTS=['COST_DEFS']
 
 def find_def(name):
