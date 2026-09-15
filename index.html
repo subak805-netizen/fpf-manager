@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260915a">
+<link rel="stylesheet" href="css/main.css?v=20260915b">
 </head>
 <body>
 
@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-15b';
+var APP_BUILD=/*BUILD*/'2026-09-15c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -22946,7 +22946,7 @@ function renderProdDash(){
         }
       }catch(e){}
       // 출고 수량 (컬러 합계 + 컬러×사이즈 그리드)
-      let shipTotal=0;const shipColors={};const shipDates=[];const shipSizeGrid={};
+      let shipTotal=0;const shipColors={};const shipDates=[];const shipSizeGrid={};let bgTotal=0;const bgColors={};const bgSizeGrid={};   /* 2026-09-15c 비품(bg) 출고 따로 — 재단 수량과 맞춰 보기용 */
       /* 출고기록이 대표공장 일정에 없으면 그 오더의 다른 공장 일정에서 찾는다 (2026-09-08j) */
       const _shipSch=(sewSch&&Array.isArray(sewSch.shipments)&&sewSch.shipments.length)?sewSch:((typeof _pdSchList==='function'?_pdSchList(it,o):[]).find(x=>x&&Array.isArray(x.shipments)&&x.shipments.length)||sewSch);
       if(_shipSch&&_shipSch.shipments){
@@ -22960,11 +22960,12 @@ function renderProdDash(){
           shipColors[c]=(shipColors[c]||0)+q;
           if(!shipSizeGrid[c])shipSizeGrid[c]={};
           shipSizeGrid[c][sz]=(shipSizeGrid[c][sz]||0)+q;
+          if(s.bg){ bgTotal+=q; bgColors[c]=(bgColors[c]||0)+q; if(!bgSizeGrid[c])bgSizeGrid[c]={}; bgSizeGrid[c][sz]=(bgSizeGrid[c][sz]||0)+q; }
           if(s.date)shipDates.push(s.date);
         });
       }
       shipDates.sort((a,b)=>cmpDate(a).localeCompare(cmpDate(b)));
-      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,effTotal,effColors,effSizeGrid,shipTotal,shipColors,shipSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped,dashDone:!!(oi&&oi._dashDone)});
+      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,effTotal,effColors,effSizeGrid,shipTotal,shipColors,shipSizeGrid,bgTotal,bgColors,bgSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped,dashDone:!!(oi&&oi._dashDone)});
     }
   }
   if(!rows.length){
@@ -23434,6 +23435,7 @@ function renderProdDashRow(r){
         var oT=useEff?r.effTotal:r.orderTotal;
         var oG=useEff?(r.effSizeGrid||{}):(r.orderSizeGrid||{});
         var sC=r.shipColors||{},sT=r.shipTotal||0,sG=r.shipSizeGrid||{};
+        var bC=r.bgColors||{},bT=r.bgTotal||0,bG=r.bgSizeGrid||{};
         var cutG=(typeof pdCutCSGrid==='function')?pdCutCSGrid(r.it,r.o):{};
         var cutColor={},cutT=0;Object.keys(cutG).forEach(function(c){var t=0;Object.keys(cutG[c]||{}).forEach(function(z){t+=+cutG[c][z]||0;});cutColor[c]=t;cutT+=t;});
         var pct=oT?Math.round(sT/oT*100):0;
@@ -23442,31 +23444,33 @@ function renderProdDashRow(r){
         var single=!realSizes.length;
         var sizeCols=single?['수량']:realSizes;
         // 한 칸: 오더›재단›출고 (재단=주황, 출고=파랑, 출고가 오더보다 모자라면 빨강)
-        var cell=function(o,ct,sp){
-          o=+o||0;ct=+ct||0;sp=+sp||0;
+        var cell=function(o,ct,sp,bg){
+          o=+o||0;ct=+ct||0;sp=+sp||0;bg=+bg||0;
           if(!o&&!ct&&!sp)return '<span class="pdc-iv"><span class="miss">—</span></span>';
+          var nor=sp-bg;   /* sp = 정상+비품 전체 출고 → 파랑은 정상만, 비품은 빨강으로 따로 */
           var oT2='<span class="o">'+(o||'—')+'</span>';
           var ctT=ct>0?'<span class="ct">'+ct+'</span>':'<span class="miss">—</span>';
-          var spT=sp>0?'<span class="sp" style="color:#3182f6">'+sp+'</span>':'<span class="miss">—</span>';
-          return '<span class="pdc-iv">'+oT2+'<span class="ar">›</span>'+ctT+'<span class="ar">›</span>'+spT+'</span>';
+          var spT=nor>0?'<span class="sp" style="color:#3182f6">'+nor+'</span>':'<span class="miss">—</span>';
+          var bgT2=bg>0?'<span class="ar">·</span><span class="bgq">비'+bg+'</span>':'';
+          return '<span class="pdc-iv">'+oT2+'<span class="ar">›</span>'+ctT+'<span class="ar">›</span>'+spT+bgT2+'</span>';
         };
         var chipOf=function(c){return (typeof qsColorChip==='function')?qsColorChip(c):'';};
         var body=cols.map(function(c){
           var tds;
-          if(single){tds='<td>'+cell(oC[c],cutColor[c],sC[c])+'</td>';}
-          else{var og=oG[c]||{},cg=cutG[c]||{},sg=sG[c]||{};tds=realSizes.map(function(z){return '<td>'+cell(og[z],cg[z],sg[z])+'</td>';}).join('');}
-          return '<tr><td class="c">'+chipOf(c)+esc(c||'-')+'</td>'+tds+'<td class="tot">'+cell(oC[c],cutColor[c],sC[c])+'</td></tr>';
+          if(single){tds='<td>'+cell(oC[c],cutColor[c],sC[c],bC[c])+'</td>';}
+          else{var og=oG[c]||{},cg=cutG[c]||{},sg=sG[c]||{},bg2=bG[c]||{};tds=realSizes.map(function(z){return '<td>'+cell(og[z],cg[z],sg[z],bg2[z])+'</td>';}).join('');}
+          return '<tr><td class="c">'+chipOf(c)+esc(c||'-')+'</td>'+tds+'<td class="tot">'+cell(oC[c],cutColor[c],sC[c],bC[c])+'</td></tr>';
         }).join('');
         var footTds;
-        if(single){footTds='<td>'+cell(oT,cutT,sT)+'</td>';}
-        else{footTds=realSizes.map(function(z){var so=0,sc=0,ss=0;cols.forEach(function(c){so+=+((oG[c]||{})[z])||0;sc+=+((cutG[c]||{})[z])||0;ss+=+((sG[c]||{})[z])||0;});return '<td>'+cell(so,sc,ss)+'</td>';}).join('');}
+        if(single){footTds='<td>'+cell(oT,cutT,sT,bT)+'</td>';}
+        else{footTds=realSizes.map(function(z){var so=0,sc=0,ss=0,sb=0;cols.forEach(function(c){so+=+((oG[c]||{})[z])||0;sc+=+((cutG[c]||{})[z])||0;ss+=+((sG[c]||{})[z])||0;sb+=+((bG[c]||{})[z])||0;});return '<td>'+cell(so,sc,ss,sb)+'</td>';}).join('');}
         var hdr='<tr><th>컬러</th>'+sizeCols.map(function(z){return '<th>'+esc(z)+'</th>';}).join('')+'<th class="tot">합계</th></tr>';
         return '<div class="pdc-sum">'
           +'<div class="pdc-sum-date">오더일 '+esc(orderDateStr)+(useEff&&r.effTotal!==r.orderTotal?' · <span style="color:#dc2626">원단부족 조정</span>':'')+'</div>'
-          +'<div class="pdc-sum-top"><span class="o">오더 <b>'+oT+'</b></span><span class="ar">→</span><span class="cut">재단 <b>'+cutT+'</b></span><span class="ar">→</span><span class="s">출고 <b>'+sT+'</b></span><span class="pct">'+pct+'%</span></div>'
+          +'<div class="pdc-sum-top"><span class="o">오더 <b>'+oT+'</b></span><span class="ar">→</span><span class="cut">재단 <b>'+cutT+'</b></span><span class="ar">→</span><span class="s">출고 <b>'+(sT-bT)+'</b></span>'+(bT?'<span class="ar">·</span><span class="bgs">비품 <b>'+bT+'</b></span>':'')+'<span class="pct">'+pct+'%</span></div>'
           +'<div class="pdc-pbar"><i style="width:'+pct+'%"></i></div>'
-          +'<div style="overflow-x:auto"><table class="pdc-mtx"><thead>'+hdr+'</thead><tbody>'+body+'</tbody><tfoot><tr><td>합계</td>'+footTds+'<td class="tot">'+cell(oT,cutT,sT)+'</td></tr></tfoot></table></div>'
-          +'<div style="font-size:10.5px;color:#9aa0a6;margin-top:7px"><b style="color:#191f28">오더</b> › <b style="color:#e8920c">재단</b> › <b style="color:#3182f6">출고</b> 순서</div>'
+          +'<div style="overflow-x:auto"><table class="pdc-mtx"><thead>'+hdr+'</thead><tbody>'+body+'</tbody><tfoot><tr><td>합계</td>'+footTds+'<td class="tot">'+cell(oT,cutT,sT,bT)+'</td></tr></tfoot></table></div>'
+          +'<div style="font-size:10.5px;color:#9aa0a6;margin-top:7px"><b style="color:#191f28">오더</b> › <b style="color:#e8920c">재단</b> › <b style="color:#3182f6">출고</b> · <b style="color:#dc2626">비품</b> 순서 — 출고(정상)+비품이 재단과 같으면 다 만든 것</div>'
           +'</div>';
       })()}
       <div class="pdc-track">${_trackHtml}</div>
