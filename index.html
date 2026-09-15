@@ -4553,7 +4553,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-14h';
+var APP_BUILD=/*BUILD*/'2026-09-15a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -19407,6 +19407,21 @@ function _poSyncFrozenFabNames(o){
   });
   return n;
 }
+/* 새 오더에 단가장 협상가 자동 채움 (2026-09-15a) — 협상가를 정한 날(negoAt) 이후에 만든 오더만. 결제만 협상가, 원가는 아이템 매장가 그대로. */
+function _pbNegoFor(o,sn,m){
+  try{
+    if(!o||!m)return 0;
+    var sup=String(sn||'').replace(/\s*\(추가발주\)\s*$/,'');
+    var e=(m.type==='fabric')?_fabE(sup,m.name):((typeof _pbFindTrimMat==='function')?_pbFindTrimMat(sup,{name:m.name,color:'',size:m.size||'',orderType:m.orderType,labelName:m.labelName}):null);
+    if(!e||!(+e.negotiatedPrice>0)||!e.negoAt)return 0;
+    var isKg=(m.type==='fabric'&&m.pricingUnit==='kg');
+    if((e.negoUnit||'')!==(isKg?'kg':'unit'))return 0;
+    if(cmpDate(o.createdAt)<cmpDate(e.negoAt))return 0;
+    var base=isKg?(+m.pricePerKg||0):(+m.unitPrice||0);
+    if(+e.negotiatedPrice===base)return 0;
+    return +e.negotiatedPrice;
+  }catch(err){ return 0; }
+}
 function _refreshOrderSuppliersRaw(o){
   if(!o||!o.orderItems||!o.suppliers)return;
   // 1) 수동 입력값 백업 — 키에 용도(part)+fabId 포함 (같은 원단 몸판/스트링감 구분)
@@ -19465,6 +19480,7 @@ function _refreshOrderSuppliersRaw(o){
       if(overrides[k]!==undefined)m.actualOrderedQty=overrides[k];
       // 협상가는 사용자가 직접 입력한 값(백업)만 복원 — 단가장 자동 추론은 협상가 아님
       if(negoOverrides[k]!==undefined)m.negotiatedPrice=negoOverrides[k];
+      else { var _pn=_pbNegoFor(o,sn,m); if(_pn>0){ m.negotiatedPrice=_pn; m.negoFromPB=true; } }   /* 2026-09-15a 새 오더 = 단가장 협상가 */
     }
   }
   // ★발송된 거래처는 동결 — 재계산 결과로 덮지 않음 (실제 발주한 수량 그대로 보존)
@@ -20548,20 +20564,26 @@ function setNegotiatedPrice(oid,sn,matIdx,matName,isKg,price,opts){
   if(shouldConfirm){
     const matNm=matName||'자재';
     const oldPrice=hasOldNego?+oldNego:(isKg?(sup.materials[matIdx].pricePerKg||0):(sup.materials[matIdx].unitPrice||0));
-    const msg='이 자재의 단가를 변경합니다.\n\n자재: '+matNm+'\n기존 단가: '+num(oldPrice)+'원 → 새 단가: '+num(price)+'원\n\n이 오더의 결제금액이 다시 계산됩니다.\n단가장에도 동시에 반영됩니다.\n\n진행하시겠습니까?';
+    const msg='이 자재의 단가를 변경합니다.\n\n자재: '+matNm+'\n기존 단가: '+num(oldPrice)+'원 → 새 단가: '+num(price)+'원\n\n이 오더의 결제금액이 다시 계산됩니다.\n다음 새 오더에 협상가로 자동 들어갑니다 (매장가·원가는 그대로).\n\n진행하시겠습니까?';
     if(!confirm(msg))return false;
   }
   sup.materials[matIdx].negotiatedPrice=price;
-  // 2. 단가장에도 자동 저장 (다음 발주 시 자동 로드)
-  if(!S.priceBook[sn])S.priceBook[sn]={email:'',phone:'',kakaoId:'',bank:'',materials:{}};
-  if(!S.priceBook[sn].materials[matName]){
-    S.priceBook[sn].materials[matName]={type:sup.materials[matIdx].type||'trim',pricingUnit:isKg?'kg':'yard'};
+  // 2. 단가장에 «협상가»를 따로 기억 — 매장가(unitPrice/pricePerKg)는 덮지 않는다 (2026-09-15a 사용자:
+  //    「새 오더에는 네고가 자동, 발주서 @15,000>14,000, 결제는 14,000, 원가는 매장가 15,000 그대로」).
+  //    예전엔 매장가를 협상가로 덮어써서 리오더엔 협상가 칸이 비고 매장가 기록이 사라졌다.
+  const _pbSn=String(sn).replace(/\s*\(추가발주\)\s*$/,'');
+  const _mm=sup.materials[matIdx];
+  let mat=(_mm.type==='fabric')?_fabE(_pbSn,matName):((typeof _pbFindTrimMat==='function')?_pbFindTrimMat(_pbSn,{name:_mm.name,color:'',size:_mm.size||'',orderType:_mm.orderType,labelName:_mm.labelName}):null);
+  if(!mat){
+    if(!S.priceBook[_pbSn])S.priceBook[_pbSn]={email:'',phone:'',kakaoId:'',bank:'',materials:{}};
+    if(!S.priceBook[_pbSn].materials[matName])S.priceBook[_pbSn].materials[matName]={type:_mm.type||'trim',pricingUnit:isKg?'kg':'yard'};
+    mat=S.priceBook[_pbSn].materials[matName];
   }
-  const mat=S.priceBook[sn].materials[matName];
-  if(isKg){mat.pricePerKg=price;mat.pricingUnit='kg';}else{mat.unitPrice=price;}
+  if(+price>0){ mat.negotiatedPrice=+price; mat.negoUnit=(isKg?'kg':'unit'); mat.negoAt=todayISO(); }
+  else { delete mat.negotiatedPrice; delete mat.negoUnit; delete mat.negoAt; }
   mat.lastUpdated=todayISO();
   saveData();savePB();
-  showToast(`${matName} 협상단가 저장됨 (단가장 반영)`);
+  showToast((+price>0)?(matName+' 협상가 '+num(+price)+'원 저장 — 다음 새 오더에 자동으로 들어가요 (매장가·원가는 그대로)'):(matName+' 협상가 지움'),4500);
 }
 
 function promptNegoPrice(oid,sn,matIdx){

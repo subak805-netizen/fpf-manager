@@ -425,6 +425,24 @@ TEST('문제 18. 컬러 이름 가산 — 원단처 색상명·컬러명 · 직�
   CHECK('규칙 없는 원단 불변', fabColorPrice(noRule,'멜란지').unit, 3000);
 });
 
+// ── 문제 19. 협상가 — 새 오더 자동 · 결제는 협상가 · 원가는 매장가 (2026-09-15) ─────────────
+// 엠케이 잭콕쭈리: 아이템 매장가 15,000원/kg · 단가장 협상가 14,000(kg) · 9/14 에 정함. 10kg 발주.
+// 손계산: 9/15 에 만든 오더 → 협상가 14,000 자동 → 결제 10kg × 14,000 = 140,000 · 원가 10kg × 15,000 = 150,000.
+//         9/10 에 만든(협상가 전) 오더 → 자동 안 들어감. 야드 자재엔 kg 협상가 안 씀. 매장가와 같으면 안 넣음.
+TEST('문제 19. 협상가 새 오더 자동 · 결제 14,000 · 원가 15,000', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{ '엠케이':{ materials:{ '잭콕쭈리':{ type:'fabric', name:'잭콕쭈리', pricePerKg:15000, pricingUnit:'kg', negotiatedPrice:14000, negoUnit:'kg', negoAt:'2026-09-14' } } } }, brands:[] };
+  var mKg = { type:'fabric', name:'잭콕쭈리', pricingUnit:'kg', pricePerKg:15000, totalKg:10 };
+  CHECK('9/15 새 오더 → 14,000 자동', _pbNegoFor({ createdAt:'2026. 09. 15.' }, '엠케이', mKg), 14000);
+  CHECK('9/10 옛 오더 → 자동 안 함', _pbNegoFor({ createdAt:'2026-09-10' }, '엠케이', mKg), 0);
+  CHECK('추가발주 거래처 이름도 같은 단가장', _pbNegoFor({ createdAt:'2026-09-20' }, '엠케이 (추가발주)', mKg), 14000);
+  CHECK('야드 자재엔 kg 협상가 안 씀', _pbNegoFor({ createdAt:'2026-09-20' }, '엠케이', { type:'fabric', name:'잭콕쭈리', pricingUnit:'yard', unitPrice:15000 }), 0);
+  CHECK('매장가와 같으면 안 넣음', _pbNegoFor({ createdAt:'2026-09-20' }, '엠케이', { type:'fabric', name:'잭콕쭈리', pricingUnit:'kg', pricePerKg:14000 }), 0);
+  var paid = Object.assign({}, mKg, { negotiatedPrice:14000 });
+  CHECK('결제 10kg × 14,000', Math.round(getMatActualCost(paid)), 140000);
+  var fItem = { pricingUnit:'kg', pricePerKg:15000, yardsPerKg:3, consumption:1, buffer:0 };
+  CHECK('원가 10kg(30y) × 매장가 15,000', Math.round(calcFabYards(fItem,30,null,'').cost), 150000);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){
