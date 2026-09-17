@@ -2634,3 +2634,6 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 ### 17m. 작지 치수표 「순서」 칸 좁게 (2026-09-17)
 - 순서 th 44→26px(치수표 3곳), td `tp-ordc` 패딩 2px 1px, 그립·× 버튼 축소. 남는 폭은 자동으로 숫자 칸에 감.
 
+### 17n. 작지 「라벨 위치」 2줄 칸 (2026-09-17)
+- `tpInpL` → `tpMemo('sew.labelPos',…,'tp-lblpos-ta')` (저장 자리 동일). CSS `textarea.tp-memo.tp-lblpos-ta` 높이 42px·13px 굵게 빨강·테두리 없음·resize 없음.
+
