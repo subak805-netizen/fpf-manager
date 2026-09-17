@@ -4583,7 +4583,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-17s';
+var APP_BUILD=/*BUILD*/'2026-09-17t';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -17210,8 +17210,10 @@ function _poProcBlocks(g,sup){
         var pcs=+((x.calc&&(x.calc.needPcs!=null?x.calc.needPcs:x.calc.basePcs))||x.garmentPcs||0);
         if(!pcs)return;
         var c=_fid?(x.fabricColor||x.colorName||''):(x.colorName||'');
-        if(byC[c]==null){byC[c]=_fid?_tcBiasOnceYd(tc):0;ord.push(c);}   /* 09-17q 컬러마다 한 번 더 시킨 야드는 가공 야드에도 */
-        byC[c]+=_fid?Math.round(pcs*qpp*100)/100:Math.round(pcs*qpp);
+        /* 09-17t 요척 비운 원단 가공(원단 전체) = 그 원단 줄의 발주 야드 그대로 → 원단 줄과 합포 줄이 같은 수 */
+        var _whole=!!(_fid&&x.type==='fabric'&&!x.isBiasCut&&!(tc.qtyPerPiece!==''&&tc.qtyPerPiece!=null&&+tc.qtyPerPiece>0));
+        if(byC[c]==null){byC[c]=(_fid&&!_whole)?_tcBiasOnceYd(tc):0;ord.push(c);}   /* 09-17q 컬러마다 한 번 더 시킨 야드는 가공 야드에도 */
+        byC[c]+=_whole?(Math.round((x.pricingUnit==='kg'?(+x.totalYards||0):(+getMatActualQty(x)||0))*100)/100):(_fid?Math.round(pcs*qpp*100)/100:Math.round(pcs*qpp));
       });
       if(!ord.length)return;
       /* 최소 작업수량 — 전체 합계가 모자라면 그 개수로 올린다(가장 큰 컬러에 몰아주지 않고 «최소 N» 로 적는다) */
@@ -18161,6 +18163,20 @@ function _tcBiasYd(tc,pcs){ var by=+(tc&&tc.biasYo)||0; if(!(by>0))return 0; ret
 /* 컬러마다 한 번 더 시킨 야드는 이 가공(합포 등)도 거친다 → 가공 야드에도 컬러마다 더한다. 옷 1장마다(바이어스)는 예전대로 안 더함 */
 function _tcBiasOnceYd(tc){ return (tc&&tc.fabId&&tc.biasYoMode==='once')?(+tc.biasYo||0):0; }
 function _tcBiasSay(tc){ var b=+(tc&&tc.biasYo)||0; if(!(b>0))return ''; var v=Math.round(b*100)/100; return (tc.biasYoMode==='once')?('= 컬러마다 원단 +'+v+'y · 이 가공 야드에도 컬러마다 +'+v+'y'):('= 100장이면 원단 +'+(Math.round(b*10000)/100)+'y'); }
+/* 09-17t 요척을 비운 원단 가공(=원단 전체를 거침)의 야드 = 그 원단 줄의 발주 야드(올림·더 시키기·실제발주 반영) 합.
+   원단 줄 79y 인데 합포 줄 78.5y 로 달랐던 것(신고) → 같은 수. 요척을 적은 줄(일부만 가공)이나 원단 줄이 없으면 null(예전 계산) */
+function _tcFabOrderedYd(o,it,tc,colors){ try{
+  if(!o||!tc||!tc.fabId)return null;
+  if(tc.qtyPerPiece!==''&&tc.qtyPerPiece!=null&&+tc.qtyPerPiece>0)return null;
+  var sum=0,hit=false;
+  Object.keys(o.suppliers||{}).forEach(function(sn){ ((o.suppliers[sn]||{}).materials||[]).forEach(function(m){
+    if(!m||m.type!=='fabric'||m.fabId!==tc.fabId||m.isBiasCut)return;
+    if(it&&it.id&&m.itemId&&m.itemId!==it.id)return;
+    if(colors&&colors.length&&colors.indexOf(m.colorName)<0)return;
+    hit=true; sum+=(m.pricingUnit==='kg')?(+m.totalYards||0):(+getMatActualQty(m)||0);
+  }); });
+  return hit?Math.round(sum*100)/100:null;
+}catch(e){ return null; } }
 function _tcEffPcs(tc,trims,qty,fabs,nCol){
   var raw=Math.max(0,+qty||0)*_tcQtyPerPiece(tc,trims,fabs)+_tcBiasOnceYd(tc)*(+nCol||0);
   var mn=+(tc&&tc.minQty)||0;
@@ -22649,7 +22665,7 @@ function getTrimCostRows(o,sn){
       var nm=(tc.name||'가공비')+' ('+(it.name||'')+')';
       if(tc.costType==='once'){var oFee=tc.costPerLot||0;if(!oFee)return;out.push({name:nm,color:'가공',qty:1,unit:'회',price:oFee,amount:oFee,part:'가공'});}
       else if(tc.costType==='perLot'){var lotFee=tc.costPerLot||0;if(!lotFee)return;var nC=tcEffColors(tc,it.trims,allColors).length||1;out.push({name:nm,color:'가공',qty:nC,unit:'컬러',price:lotFee,amount:lotFee*nC,part:'가공'});}
-      else{var ppFee=tc.costPerPcs||0;if(!ppFee)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;var _eff=_tcEffPcs(tc,it.trims,totQty,it.fabrics,activeColors.length);out.push({name:nm,color:'가공',qty:(tc.fabId?Math.round(_eff*100)/100:_eff),unit:(tc.fabId?'y':'개'),price:ppFee,amount:Math.round(ppFee*_eff),part:'가공'});}
+      else{var ppFee=tc.costPerPcs||0;if(!ppFee)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;var _eff=_tcFabOrderedYd(o,it,tc,activeColors);if(_eff==null)_eff=_tcEffPcs(tc,it.trims,totQty,it.fabrics,activeColors.length);   /* 09-17t 원단 전체 가공 = 원단 발주 야드 */out.push({name:nm,color:'가공',qty:(tc.fabId?Math.round(_eff*100)/100:_eff),unit:(tc.fabId?'y':'개'),price:ppFee,amount:Math.round(ppFee*_eff),part:'가공'});}
     });
   });
   return out;
@@ -27013,7 +27029,7 @@ function trimLedgerAuto(){
         var qty,unit,price,amount;
         if(tc.costType==='once'){price=+tc.costPerLot||0;if(!price)return;qty=1;unit='회';amount=price;}
         else if(tc.costType==='perLot'){price=+tc.costPerLot||0;if(!price)return;var nC=activeColors.length||1;qty=nC;unit='컬러';amount=price*nC;}
-        else{price=+tc.costPerPcs||0;if(!price)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;if(tc.fabId){qty=Math.round(_tcEffPcs(tc,it.trims,totQty,it.fabrics,activeColors.length)*100)/100;unit='y';amount=price*qty;}else{qty=totQty;unit='pcs';amount=price*totQty;}}   /* 2026-09-15l 원단 가공비 = 장수 × 요척(야드) */
+        else{price=+tc.costPerPcs||0;if(!price)return;var totQty=0;activeColors.forEach(function(c){totQty+=sizes.reduce(function(s,sz){return s+(+(oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0);},0);});if(!totQty)return;if(tc.fabId){var _fy=_tcFabOrderedYd(o,it,tc,activeColors);qty=(_fy!=null)?_fy:Math.round(_tcEffPcs(tc,it.trims,totQty,it.fabrics,activeColors.length)*100)/100;unit='y';amount=price*qty;}   /* 09-17t */else{qty=totQty;unit='pcs';amount=price*totQty;}}   /* 2026-09-15l 원단 가공비 = 장수 × 요척(야드) */
         var brand=it.brandId?_tlBrandName(it.brandId):'';
         var L={name:(tc.name||'가공비'),spec:'가공',qty:qty,unit:unit,price:price,amount:Math.round(amount),itemName:it.name||'',brand:brand,date:dISO,src:'auto',orderId:oid,orderName:o.name||'',inout:'out',isProc:true};
         L.key='p|'+oid+'|'+(tc.id||tc.name||'')+'|'+(it.id||'');

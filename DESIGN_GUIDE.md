@@ -2656,3 +2656,6 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 ### 17s. 오더 목록 폭 470px + 거래처 발송 현황 줄 (2026-09-17, 미리보기 A안 승인)
 - `#pane-orders .sl` 360→470px(데스크탑). 카드 맨 아래 `.o-sups`: 거래처 칩(`.o-sc`, 보냄=`.on` 초록 ✓ / 아직=점선 흰) + `.o-sc-cnt` 「n/N 발송」(전부=초록 all, 0=빨강 none). 판정 = `o.suppliers[sn].status` ∈ sent·shipped·arrived. 순서 = `Object.keys(o.suppliers)`(발주서 카드와 동일). css v=20260917f.
 
+### 17t. 원단 줄과 합포(가공) 줄 야드 같게 (2026-09-17)
+- 신고: 원단 79y(올림) vs 합포 78.5y. 요척을 비운 원단 가공(=원단 전체를 거침)은 `_tcFabOrderedYd(o,it,tc,colors)` 로 그 원단 줄의 발주 야드(올림·더 시키기·실제발주 반영)를 그대로 씀 — 발주서 가공 줄(`_poProcBlocks`, 원단 자재 줄 자체의 `getMatActualQty`)·결제(`getTrimCostRows`)·원장(`trimLedgerAuto`). 요척을 적은 줄(일부만 가공)·원단 줄 없음·다른 집 재단 발주는 예전 계산. 원가(1장당)는 그대로. 검산 25 갱신.
+

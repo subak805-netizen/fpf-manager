@@ -593,7 +593,9 @@ TEST('문제 25. 원단 더 시키기 — 컬러마다 한 번 +2y (원단·가�
   var ms = sups['윈'].materials.filter(function(m){ return m.type==='fabric'; });
   CHECK('원단 컬러마다 76.5 + 2 = 78.5 → 올림 79y (원단은 원래 올림)', ms.map(function(m){ return Math.round(m.totalYards*100)/100; }), [79, 79]);
   var blocks = _poProcBlocks({ colors:sups['윈'].materials }, '윈');
-  CHECK('합포 줄도 컬러마다 78.5y', blocks[0].slice(1), ['#1브라운 - 78.5y', '#4블랙 - 78.5y', '합계 157y']);
+  CHECK('합포 줄 = 원단 줄과 같은 79y (요척 비움 = 원단 전체 가공, 09-17t)', blocks[0].slice(1), ['#1브라운 - 79y', '#4블랙 - 79y', '합계 158y']);
+  CHECK('결제·원장 야드 = 원단 발주 야드 합 158', _tcFabOrderedYd(o, it, tcQ, ['브라운','블랙']), 158);
+  CHECK('요척을 적은(일부 가공) 줄은 예전 계산(null)', _tcFabOrderedYd(o, it, { id:'tq2', fabId:'fq', qtyPerPiece:0.5 }, ['브라운','블랙']), null);
   CHECK('가공 야드(결제·원장) 60장·2색 = 153 + 4 = 157', Math.round(_tcEffPcs(tcQ, [], 60, [f], 2)*100)/100, 157);
   CHECK('원가 1장당 = 2000×2.55 + 2000×2y×2색÷30', Math.round(trimCostPerPcs(it, 30)), Math.round(2000*2.55 + 2000*2*2/30));
   tcQ.biasYoMode = 'perPcs';
