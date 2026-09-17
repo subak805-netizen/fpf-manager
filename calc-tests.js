@@ -579,6 +579,29 @@ TEST('문제 24. 미니멈 발주 — 라벨도 적용 · 단가장 계산 방�
   CHECK('미니멈 발주 단위: 바이어스 y', _pbMinUnit({ orderType:'bias' }), 'y');
 });
 
+// 09-17q 「원단 더 시키기」 컬러마다 한 번 +2y — 원단 야드와 이 가공(합포) 야드 둘 다 76.5+2 (신고: 137y·76.5y 로 나옴).
+TEST('문제 25. 원단 더 시키기 — 컬러마다 한 번 +2y (원단·가공 둘 다)', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  var f = { id:'fq', name:'맥스460s', supplier:'윈', part:'몸판', consumption:2.55, buffer:0, unitPrice:12000,
+    colorLinks:[{ itemColor:'브라운', fabricColor:'1브라운' }, { itemColor:'블랙', fabricColor:'4블랙' }] };
+  var tcQ = { id:'tq', fabId:'fq', name:'인타록 합포 100g', procKind:'본딩', factory:'윈', costType:'perPcs', costPerPcs:2000, qtyPerPiece:'', biasYo:2, biasYoMode:'once', biasFold:true, colorLinks:[] };
+  S.items.iQ = { id:'iQ', name:'스웨이드 자켓', colors:['브라운','블랙'], sizes:['FREE'], fabrics:[f], trims:[], trimCosts:[tcQ] };
+  var it = S.items.iQ;
+  var o = { id:'oQ', orderItems:[{ itemId:'iQ', qtyGrid:{ '브라운':{ FREE:30 }, '블랙':{ FREE:30 } } }], suppliers:{} };
+  S.orders.oQ = o;
+  var sups = calcSups(o.orderItems); o.suppliers = sups;
+  var ms = sups['윈'].materials.filter(function(m){ return m.type==='fabric'; });
+  CHECK('원단 컬러마다 76.5 + 2 = 78.5 → 올림 79y (원단은 원래 올림)', ms.map(function(m){ return Math.round(m.totalYards*100)/100; }), [79, 79]);
+  var blocks = _poProcBlocks({ colors:sups['윈'].materials }, '윈');
+  CHECK('합포 줄도 컬러마다 78.5y', blocks[0].slice(1), ['#1브라운 - 78.5y', '#4블랙 - 78.5y', '합계 157y']);
+  CHECK('가공 야드(결제·원장) 60장·2색 = 153 + 4 = 157', Math.round(_tcEffPcs(tcQ, [], 60, [f], 2)*100)/100, 157);
+  CHECK('원가 1장당 = 2000×2.55 + 2000×2y×2색÷30', Math.round(trimCostPerPcs(it, 30)), Math.round(2000*2.55 + 2000*2*2/30));
+  tcQ.biasYoMode = 'perPcs';
+  var ms2 = calcSups(o.orderItems)['윈'].materials.filter(function(m){ return m.type==='fabric'; });
+  CHECK('옷 1장마다면 예전대로 76.5 + 2×30 = 136.5 → 137y', ms2.map(function(m){ return Math.round(m.totalYards*100)/100; }), [137, 137]);
+  CHECK('옷 1장마다는 가공 야드에 안 더함(예전 그대로 153)', Math.round(_tcEffPcs(tcQ, [], 60, [f], 2)*100)/100, 153);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){

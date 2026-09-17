@@ -2645,3 +2645,8 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 원인: `setTcMode/setTcBasis/setTcTierBasis` 가 `renderTrimAndCosts()`(부자재 카드만)로 다시 그려서 원단 카드 안 가공비 줄은 옛 화면 그대로 → 숨은 `data-f=costType` 이 perPcs 로 남고 다음 `colTrimCosts()` 가 데이터를 되돌림.
 - 고침: `_tcRerender(tc)` — fabId 있으면 `renderFabRows()` 도 같이. 원단 줄의 방식·컬러 기준·조건부 기준 세 버튼 모두 적용.
 
+### 17q. 원단 더 시키기 「컬러마다 한 번」 (2026-09-17)
+- 신고: 옷 1장마다 2y → 30장이면 +60y(137y). 원하는 건 컬러마다 +2y(78.5y), 원단 줄과 합포 줄 둘 다.
+- `tc.biasYoMode` perPcs(옷 1장마다·예전 그대로) / once(컬러마다 한 번). 헬퍼 `_tcBiasYd(tc,pcs)`(원단 발주 야드) · `_tcBiasOnceYd(tc)`(가공 야드에 컬러마다 더함) · `_tcBiasSay`. `_tcEffPcs(tc,trims,qty,fabs,nCol)` 5번째 인자 = 색 수(결제·원장·원가계산서가 넘김), 원가 `trimCostPerPcs` 는 따로 더함. 발주서 가공 줄 `_poProcBlocks` 컬러 첫 등장 때 더함. 검산 문제 25.
+- 옷 1장마다(바이어스 몫)는 가공 야드에 안 더함(예전과 같음).
+
