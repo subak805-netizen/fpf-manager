@@ -2641,3 +2641,7 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - `_ensureOrderLossRaw`: 새 발주서의 부자재(라벨 제외) 로스는 카드 로스와 무관하게 0 으로 시작. 라벨은 그대로 +10개. `TRIM_LOSS_PCT` 2→0, 카드 로스 칸 기본값 `t.buffer??0`. 검산 문제 1 기대값 97→95.
 - 이미 만든 발주서(o.loss 채워진 것)는 안 바뀜.
 
+### 17p. 원단 가공비 줄 방식 버튼(야드당·컬러별·한번에·조건부) 안 눌리던 것 (2026-09-17)
+- 원인: `setTcMode/setTcBasis/setTcTierBasis` 가 `renderTrimAndCosts()`(부자재 카드만)로 다시 그려서 원단 카드 안 가공비 줄은 옛 화면 그대로 → 숨은 `data-f=costType` 이 perPcs 로 남고 다음 `colTrimCosts()` 가 데이터를 되돌림.
+- 고침: `_tcRerender(tc)` — fabId 있으면 `renderFabRows()` 도 같이. 원단 줄의 방식·컬러 기준·조건부 기준 세 버튼 모두 적용.
+
