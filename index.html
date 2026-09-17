@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260917d">
+<link rel="stylesheet" href="css/main.css?v=20260917e">
 </head>
 <body>
 
@@ -4579,7 +4579,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-17j';
+var APP_BUILD=/*BUILD*/'2026-09-17k';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -8538,18 +8538,20 @@ function updatePBUnit(supEnc,nmEnc,unit){
 var PB_CALC_MODES=[['single','낱개'],['jeol','절'],['thread','실']];
 var _PB_CALC_LEGACY={roll:'롤',lace:'레이스'};
 var _PB_CALC_FIXED={zipper:'지퍼',button:'단추',snap:'스냅',careLabel:'케어라벨',mainLabel:'메인라벨',bias:'바이어스',loop:'단추고리'};
-function _pbCalcKey(o){ var ot=(o&&o.orderType)||'count'; if(ot==='roll')return o.isLace?'lace':(o.rollUnit==='절'?'jeol':'roll'); if(ot==='yard')return (o.isButtonLoop||+o.loopPerYard>0)?'loop':'single'; if(ot==='count')return 'single'; return ot; }
+function _pbCalcKey(o){ var ot=(o&&o.orderType)||'count'; if(ot==='roll')return o.isLace?'lace':(o.rollUnit==='절'?'jeol':'roll'); if(ot==='yard')return (o.isButtonLoop||(o.isButtonLoop!==false&&+o.loopPerYard>0))?'loop':'single'; if(ot==='count')return 'single'; return ot; }   /* isButtonLoop=false 로 명시하면 loopPerYard 남아 있어도 낱개 (09-17k) */
 function _pbCalcLbl(key){ var f=PB_CALC_MODES.filter(function(x){return x[0]===key;})[0]; return f?f[1]:(_PB_CALC_LEGACY[key]||_PB_CALC_FIXED[key]||key); }
 /* unit = 그 품목의 단위(Y면 낱개=야드) */
 function _pbCalcApply(o,key,unit){
   if(!o)return;
-  if(key==='single'){ o.orderType=(unit==='Y'||unit==='절'||unit==='R')?'yard':'count'; o.plainYard=false; if(o.orderType==='yard')o.yardsPerJeol=''; }   /* 야드류(Y·절·R)였으면 야드 낱개, 아니면 개수 */
+  if(key==='single'){ o.orderType=(unit==='Y'||unit==='절'||unit==='R')?'yard':'count'; o.plainYard=false; o.isButtonLoop=false; if(o.orderType==='yard')o.yardsPerJeol=''; }   /* 야드류(Y·절·R)였으면 야드 낱개, 아니면 개수 */
   else if(key==='thread'){o.orderType='thread';}
   else if(key==='jeol'){o.orderType='roll';o.isLace=false;o.rollUnit='절';}
   else if(key==='roll'){o.orderType='roll';o.isLace=false;if(o.rollUnit==='절')o.rollUnit='롤';}
   else if(key==='lace'){o.orderType='roll';o.isLace=true;}
+  else if(key==='loop'){o.orderType='yard';o.isButtonLoop=true;o.plainYard=false;}   /* 09-17k: 전용 칸 종류(지퍼·단추·…)도 고를 수 있게 — 사용자 「다 풀어줘」 */
+  else if(_PB_CALC_FIXED[key]){o.orderType=key;o.isButtonLoop=false;}
 }
-function _pbCalcUnit(key,cur){ if(key==='jeol')return '절'; if(key==='thread')return '콘'; if(key==='roll'||key==='lace')return 'R'; if(cur==='절'||cur==='R')return 'Y'; if(cur==='콘')return 'ea'; return cur||'ea'; }
+function _pbCalcUnit(key,cur){ if(key==='jeol')return '절'; if(key==='thread')return '콘'; if(key==='roll'||key==='lace')return 'R'; if(key==='bias'||key==='loop')return 'Y'; if(_PB_CALC_FIXED[key])return (cur==='Y'||cur==='절'||cur==='R'||cur==='콘')?'ea':(cur||'ea'); if(cur==='절'||cur==='R')return 'Y'; if(cur==='콘')return 'ea'; return cur||'ea'; }
 /* 이 품목을 쓰는 아이템 줄 목록 (거래처+이름) — 표 그릴 때 한 번만 훑어 캐시 */
 function _pbRowIdx(){
   var now=Date.now(); var c=window._pbRowIdxC;
@@ -8560,22 +8562,21 @@ function _pbRowIdx(){
 }
 function _pbTrimIssues(s,m){
   var key=_pbCalcKey(m), out={rowsDiff:0,unitDiff:false,rows:[]};
-  if(_PB_CALC_FIXED[key])return out;
-  var u=_pbUnitOf(m), uot=_PB_UNIT_TO_OT[u]; if(uot&&uot!==(m.orderType||'count'))out.unitDiff=true;
+  if(!_PB_CALC_FIXED[key]){ var u=_pbUnitOf(m), uot=_PB_UNIT_TO_OT[u]; if(uot&&uot!==(m.orderType||'count'))out.unitDiff=true; }   /* 전용 칸 종류(단추 등)는 ea 여도 정상 — 줄 다름만 본다 (09-17k) */
   (_pbRowIdx()[s+'\u001f'+(m.name||'')]||[]).forEach(function(r){ if(_pbCalcKey(r.t)!==key){out.rowsDiff++;out.rows.push(r);} });
   return out;
 }
 function setPbCalcMode(encSup,encKey,key){
   var s=decodeURIComponent(encSup),k=decodeURIComponent(encKey); var m=_pbMat(s,k); if(!m)return;
-  if(!PB_CALC_MODES.some(function(x){return x[0]===key;})&&!_PB_CALC_LEGACY[key]){ if(typeof pbSoftRender==='function')pbSoftRender(true); return; }
+  if(!PB_CALC_MODES.some(function(x){return x[0]===key;})&&!_PB_CALC_LEGACY[key]&&!_PB_CALC_FIXED[key]){ if(typeof pbSoftRender==='function')pbSoftRender(true); return; }
   var old=_pbCalcKey(m); if(old===key){ if(typeof pbSoftRender==='function')pbSoftRender(true); return; }
-  var lbl=_pbCalcLbl(key), unit=_pbUnitOf(m);
+  var lbl=_pbCalcLbl(key), unit=_pbUnitOf(m), shape=!!(_PB_CALC_FIXED[key]||_PB_CALC_FIXED[old]);
   var rows=(_pbRowIdx()[s+'\u001f'+(m.name||'')]||[]).filter(function(r){return _pbCalcKey(r.t)!==key;});
   _pbCalcApply(m,key,unit); m.unit=_pbCalcUnit(key,unit); m.lastUpdated=todayISO();
   var n=0;
   if(rows.length){
     var names=[]; rows.forEach(function(r){ var nm=(r.it&&r.it.name)||''; if(nm&&names.indexOf(nm)<0)names.push(nm); });
-    var msg=m.name+' 계산 방식을 「'+lbl+'」로 바꿔요.\n\n이 품목을 쓰는 아이템 줄 '+rows.length+'개('+names.slice(0,6).join(', ')+(names.length>6?' …':'')+')도 같이 바꿀까요?\n요척·단가·적용 컬러는 그대로 두고 계산 방식만 바뀌어요. 이미 발송한 발주서는 안 바뀌어요.\n\n[확인] 같이 바꾸기   [취소] 단가장만';
+    var msg=m.name+' 계산 방식을 「'+lbl+'」로 바꿔요.\n\n이 품목을 쓰는 아이템 줄 '+rows.length+'개('+names.slice(0,6).join(', ')+(names.length>6?' …':'')+')도 같이 바꿀까요?\n요척·단가·적용 컬러는 그대로 두고 계산 방식만 바뀌어요. 이미 발송한 발주서는 안 바뀌어요.'+(shape?'\n카드 모양도 「'+lbl+'」 칸으로 바뀌어요 (전에 적은 전용 칸 값은 지워지지 않아요).':'')+'\n\n[확인] 같이 바꾸기   [취소] 단가장만';
     if(confirm(msg)){ rows.forEach(function(r){ var t=r.t; if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbCalcApply(t,key,unit); n++; }); }
   }
   window._pbRowIdxC=null;
@@ -8593,10 +8594,10 @@ function pbSetMin(encSup,encKey,which,val){
   else { m.minOrderQty=(n==null?'':n); m.hasMinOrder=!!(n>0); }
   m.lastUpdated=todayISO(); savePB(); if(typeof pbSoftRender==='function')pbSoftRender();
 }
-function _pbSplitVal(m){ var key=_pbCalcKey(m); if(key==='thread')return (m.threadMin!=null&&m.threadMin!=='')?m.threadMin:''; if(key==='roll'||key==='jeol'||key==='lace')return (m.minSplitQty!=null&&m.minSplitQty!=='')?m.minSplitQty:''; return null; }
-function _pbMinUnit(m){ var key=_pbCalcKey(m); if(key==='thread')return '콘'; if(key==='jeol')return '절'; if(key==='roll'||key==='lace')return '롤'; return (m.orderType==='yard')?'y':'개'; }
+function _pbSplitVal(m){ var key=_pbCalcKey(m); if(key==='thread')return (m.threadMin!=null&&m.threadMin!=='')?m.threadMin:''; return (m.minSplitQty!=null&&m.minSplitQty!=='')?m.minSplitQty:''; }   /* 09-17k: 어느 종류든 입력 가능 (원가계산서 ÷N 은 종류 안 가림) */
+function _pbMinUnit(m){ var key=_pbCalcKey(m); if(key==='thread')return '콘'; if(key==='jeol')return '절'; if(key==='roll'||key==='lace')return '롤'; return (m.orderType==='yard'||key==='bias')?'y':'개'; }
 /* 개당 단가 = 계산 단위 하나의 값. 절이면 1절 값, 야드면 1y 값, 실은 1콘 값, 개수는 1개 값 — 헤더가 늘 「개당」이라 헷갈렸음(신고 2026-09-17) */
-function _pbEachLbl(m){ var key=_pbCalcKey(m); if(key==='jeol')return '1절 값'; if(key==='roll')return '1롤 값'; if(key==='lace')return '1컷 값'; if(key==='thread')return '1콘 값'; if(key==='single'&&m.orderType==='yard')return '1y 값'; return '1개 값'; }
+function _pbEachLbl(m){ var key=_pbCalcKey(m); if(key==='jeol')return '1절 값'; if(key==='roll')return '1롤 값'; if(key==='lace')return '1컷 값'; if(key==='thread')return '1콘 값'; if(key==='bias'||key==='loop')return '1y 값'; if(key==='single'&&m.orderType==='yard')return '1y 값'; return '1개 값'; }
 /* 묶음단가(참고용, 돈 계산엔 안 씀): 야드 낱개면 묶음 × 1y 값 = 1절 값 / 절·롤이면 개당 단가가 이미 1절 값이라 1y 환산(개당 ÷ 묶음) */
 function _pbAutoPack(m,pack,each){ var key=_pbCalcKey(m); if(!(pack>0)||!(each>0))return null; if(key==='single'&&m.orderType==='yard')return pack*each; if(key==='jeol'||key==='roll'||key==='lace')return Math.round(each/pack); return null; }
 function _pbPackLbl(m){ var key=_pbCalcKey(m); if(key==='single'&&m.orderType==='yard')return '= 1절 값'; if(key==='jeol'||key==='roll'||key==='lace')return '= 1y 환산'; return ''; }
@@ -8846,7 +8847,7 @@ function renderPbTrimTable(lst,sups){
     +'<th style="width:96px"></th>'   /* 삭제·쓰는 곳 — 맨 왼쪽 (요청 2026-09-04) */
     +'<th style="width:112px">유형</th><th style="width:210px">품명</th>'
     +'<th style="width:120px">규격</th>'
-    +'<th style="width:112px" title="발주 방식 — 낱개(단위가 Y면 야드로, 아니면 개수로) · 절(총 야드 ÷ 절당 야드) · 실(컬러당 개수). 바꾸면 단위도 맞춰지고, 쓰는 아이템 줄도 같이 바꿀지 물어봐요">계산 방식</th>'
+    +'<th style="width:88px" title="발주 방식 — 낱개(단위가 Y면 야드로, 아니면 개수로) · 절(총 야드 ÷ 절당 야드) · 실(컬러당 개수) · 전용 칸(지퍼·단추·스냅·라벨·바이어스·단추고리는 카드 모양도 바뀜). 바꾸면 단위도 맞춰지고, 쓰는 아이템 줄도 같이 바꿀지 물어봐요">계산 방식</th>'
     +'<th class="n" style="width:82px" title="원가를 몇 장으로 나눌지 — 실은 미니멈 장수(기본 30), 절은 미니멈 분배 장수">미니멈 분배</th>'
     +'<th class="n" style="width:82px" title="이 수량 아래로는 못 사는 최소 발주량 (콘·절·개)">미니멈 발주</th>'
     +'<th style="width:110px" title="단가가 무엇당인지 (Y·R·절·콘·ea…). 직접 만든 단위도 고를 수 있어요">단위</th>'
@@ -8946,17 +8947,18 @@ function renderPbTrimTable(lst,sups){
         +'<td class="pbt-spec"><input class="pbt-n" value="'+esc(sp.n)+'" placeholder="15" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'n\',this.value)">'
           +'<input class="pbt-u" list="dl-pbunit" value="'+esc(sp.u)+'" placeholder="mm" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'u\',this.value)"></td>'
         +(function(){ /* 2026-09-17 계산 방식 · 미니멈 분배 · 미니멈 발주 */
-            var ck=_pbCalcKey(m), fixed=!!_PB_CALC_FIXED[ck], iss=_pbTrimIssues(s,m);
+            var ck=_pbCalcKey(m), iss=_pbTrimIssues(s,m);
             var badge=(iss.unitDiff?'<span class="pbt-warn" title="단위와 계산 방식이 달라요 — 계산 방식을 다시 골라 맞추세요">단위와 다름</span>':'')
                      +(iss.rowsDiff?'<span class="pbt-warn" title="이 품목을 쓰는 아이템 줄 중 계산 방식이 다른 줄 — 계산 방식을 다시 고르면 같이 맞출지 물어봐요">줄 '+iss.rowsDiff+' 다름</span>':'');
             var opts=PB_CALC_MODES.slice(); if(_PB_CALC_LEGACY[ck])opts.push([ck,_PB_CALC_LEGACY[ck]]);
-            var calc=fixed?('<span class="pbt-fixed" title="전용 칸이 있는 종류라 여기서 못 바꿔요">'+esc(_pbCalcLbl(ck))+'</span>')
-              :('<select class="pbt-sel" onchange="setPbCalcMode(\''+es+'\',\''+ek+'\',this.value)">'+opts.map(function(x){return '<option value="'+x[0]+'"'+(ck===x[0]?' selected':'')+'>'+esc(x[1])+'</option>';}).join('')+'</select>');
+            /* 09-17k: 전용 칸 종류(지퍼·단추·…)도 목록에 넣어 어느 줄이든 바꿀 수 있게 · 미니멈 두 칸은 어느 종류든 입력 (사용자 「다 풀어줘」) */
+            var _op=function(x){return '<option value="'+x[0]+'"'+(ck===x[0]?' selected':'')+'>'+esc(x[1])+'</option>';};
+            var calc='<select class="pbt-sel pbt-calc-sel" onchange="setPbCalcMode(\''+es+'\',\''+ek+'\',this.value)">'+opts.map(_op).join('')
+              +'<optgroup label="전용 칸">'+Object.keys(_PB_CALC_FIXED).map(function(k){return _op([k,_PB_CALC_FIXED[k]]);}).join('')+'</optgroup></select>';
             var sv=_pbSplitVal(m), mu=_pbMinUnit(m);
-            var split=(sv===null)?'<span class="pbt-dash">—</span>':('<input class="pbt-num" type="number" min="0" value="'+esc(sv)+'" placeholder="'+(ck==='thread'?'기본 30':'—')+'" title="'+(ck==='thread'?'실 미니멈 장수 (비우면 30장)':'미니멈 분배 — 원가를 이 장수로 나눔')+'" onchange="pbSetMin(\''+es+'\',\''+ek+'\',\'split\',this.value)"><span class="pbt-sub2">장</span>');
-            var noMin=(ck==='careLabel'||ck==='mainLabel'||ck==='bias');
-            var mo=noMin?'<span class="pbt-dash">—</span>':('<input class="pbt-num" type="number" min="0" value="'+((m.minOrderQty!=null&&m.minOrderQty!=='')?esc(m.minOrderQty):'')+'" placeholder="—" title="최소 발주량 — 계산량이 이보다 적어도 이 수량으로 발주" onchange="pbSetMin(\''+es+'\',\''+ek+'\',\'order\',this.value)"><span class="pbt-sub2">'+mu+'</span>');
-            return '<td>'+calc+badge+'</td><td class="n">'+split+'</td><td class="n">'+mo+'</td>';
+            var split='<input class="pbt-num" type="number" min="0" value="'+esc(sv)+'" placeholder="'+(ck==='thread'?'기본 30':'—')+'" title="'+(ck==='thread'?'실 미니멈 장수 (비우면 30장)':'미니멈 분배 — 원가를 이 장수로 나눔')+'" onchange="pbSetMin(\''+es+'\',\''+ek+'\',\'split\',this.value)"><span class="pbt-sub2">장</span>';
+            var mo='<input class="pbt-num" type="number" min="0" value="'+((m.minOrderQty!=null&&m.minOrderQty!=='')?esc(m.minOrderQty):'')+'" placeholder="—" title="최소 발주량 — 계산량이 이보다 적어도 이 수량으로 발주'+(ck==='thread'?' (실은 아직 발주 계산에 안 써요 — 카드에 표시만)':'')+'" onchange="pbSetMin(\''+es+'\',\''+ek+'\',\'order\',this.value)"><span class="pbt-sub2">'+mu+'</span>';
+            return '<td class="pbt-calc">'+calc+badge+'</td><td class="n">'+split+'</td><td class="n">'+mo+'</td>';
           })()
         +'<td><select class="pbt-sel" onchange="updatePBUnit(\''+es+'\',\''+ek+'\',this.value)">'
           +_pbAllUnits().map(function(u){return '<option value="'+esc(u[0])+'"'+((_pbUnitOf(m)===u[0])?' selected':'')+'>'+esc(u[1])+'</option>';}).join('')
@@ -16368,8 +16370,8 @@ function trimExtrasCost(t,qty){
 }
 
 function calcTrimNeed(t,qty){var r=_calcTrimNeedRaw(t,qty);if(r&&r.needPcs===undefined)r.needPcs=(+qty||0);
-  // 미니멈 발주량 적용 (thread·케어라벨·메인라벨은 자체 로직 있어서 제외)
-  if(r&&t.hasMinOrder&&t.minOrderQty>0&&!r.isThread&&!r.isCareLabel&&!r.isMainLabel){
+  // 미니멈 발주량 적용 — 케어라벨·메인라벨도 포함(09-17k: 전엔 빠져서 단가장에 적어도 안 먹었음). 실은 검산 문제 2 대로 아직 미적용(컬러마다 적용할지 결정 대기)
+  if(r&&t.hasMinOrder&&t.minOrderQty>0&&!r.isThread){
     var minQ=t.minOrderQty;
     if(r.isRoll){if((r.rolls||0)<minQ){r.rolls=minQ;r.ty=parseFloat((minQ*(t.yardsPerRoll||1)).toFixed(2));r.ay=minQ*(t.yardsPerRoll||1);r.cost=minQ*(t.unitPrice||0)+(r.extrasCost||0);r.minOrderApplied=true;}}
     else if(r.isYard){if((r.qty||0)<minQ){if(r.isJeol&&t.yardsPerJeol>0){var _nj=Math.ceil(minQ/t.yardsPerJeol);r.jeol=_nj;r.qty=_nj*t.yardsPerJeol;}else{r.qty=minQ;}r.cost=r.qty*(t.unitPrice||0)+(r.extrasCost||0);r.minOrderApplied=true;}}
@@ -39928,6 +39930,28 @@ function tpCaptureFixVAlign(cdoc){
       ce.style.setProperty('vertical-align','middle','important');
       if(isInput) ce.style.setProperty('height',hh+'px','important');
     }
+    /* 09-17k: html2canvas 1.4 는 object-fit 을 몰라서 contain 사진(단추 등)이 칸에 맞춰 늘어나 저장됨(신고 09-17)
+       → 살아있는 문서에서 실제 그려진 크기·위치를 재서 clone 에 픽셀로 박는다 (cover 는 부모가 잘라줄 때만) */
+    var imSel='#tp-modal .tp-wrap img', imL=document.querySelectorAll(imSel), imC=cdoc.querySelectorAll(imSel);
+    for(var k=0;k<imC.length;k++){
+      var li=imL[k], ci=imC[k]; if(!li||!ci||!li.naturalWidth||!li.naturalHeight)continue;
+      var cs=getComputedStyle(li), fit=cs.objectFit; if(fit!=='contain'&&fit!=='cover')continue;
+      var bw=li.clientWidth, bh=li.clientHeight; if(!bw||!bh)continue;
+      var par=li.parentElement, pcs=par?getComputedStyle(par):null;
+      if(fit==='cover'&&!(pcs&&pcs.overflow!=='visible'))continue;
+      var sc=(fit==='contain')?Math.min(bw/li.naturalWidth,bh/li.naturalHeight):Math.max(bw/li.naturalWidth,bh/li.naturalHeight);
+      var W=li.naturalWidth*sc, Hh=li.naturalHeight*sc, ox=(bw-W)/2, oy=(bh-Hh)/2;
+      if(Math.abs(W-bw)<1&&Math.abs(Hh-bh)<1)continue;
+      ci.style.setProperty('object-fit','fill','important');
+      ci.style.setProperty('width',W+'px','important'); ci.style.setProperty('height',Hh+'px','important');
+      ci.style.setProperty('max-width','none','important'); ci.style.setProperty('max-height','none','important');
+      if(cs.position==='absolute'||cs.position==='fixed'){
+        ci.style.setProperty('left',ox+'px','important'); ci.style.setProperty('top',oy+'px','important');
+        ci.style.setProperty('right','auto','important'); ci.style.setProperty('bottom','auto','important');
+      } else if(!(pcs&&/flex|grid/.test(pcs.display))){
+        ci.style.setProperty('margin',oy+'px 0 0 '+ox+'px','important');
+      }
+    }
     /* 덮어 그린 자리(data-tp-hid)는 복제본에서 값까지 비운다 —
        html2canvas 가 숨긴 input 의 값을 그려버리면 또 겹친다. */
     var chid=cdoc.querySelectorAll('#tp-modal [data-tp-hid]');
@@ -41900,7 +41924,10 @@ function tpTab(id){ _tpTab=id;
   if(typeof tpFit==='function')tpFit();
 }
 function tpOrient(o){ _tpOrient=o; var d=document.getElementById('tp-doc'); if(d)d.classList.toggle('land',o==='landscape'); var pr=document.getElementById('tp-page-rule'); if(pr)pr.textContent='@page{size:A4 '+o+';margin:3mm;}'; var bl=document.getElementById('tp-bL'),bp=document.getElementById('tp-bP'); if(bl)bl.classList.toggle('on',o==='landscape'); if(bp)bp.classList.toggle('on',o!=='landscape'); if(typeof tpRender==='function')tpRender(); else if(typeof tpFit==='function')tpFit(); }
-function tpPrint(){ document.body.classList.add('tp-printing'); if(typeof tpFit==='function')tpFit(); var clean=function(){ document.body.classList.remove('tp-printing'); window.removeEventListener('afterprint',clean); if(typeof tpFit==='function')tpFit(); }; window.addEventListener('afterprint',clean); setTimeout(function(){ try{window.print();}catch(e){clean();} },120); }
+function tpPrint(){ document.body.classList.add('tp-printing'); if(typeof tpFit==='function')tpFit(); var clean=function(){ document.body.classList.remove('tp-printing'); window.removeEventListener('afterprint',clean); if(typeof tpFit==='function')tpFit(); }; window.addEventListener('afterprint',clean);
+  /* 09-17k: 사진이 아직 안 내려온 채 인쇄되면 그 칸만 비어 나옴(네이비 단추 신고) → 사진 다 뜰 때까지(최대 6초) 기다렸다 인쇄 */
+  var _pd=document.getElementById('tp-doc'), _fired=false; var fire=function(){ if(_fired)return; _fired=true; setTimeout(function(){ try{window.print();}catch(e){clean();} },120); };
+  try{ if(_pd&&typeof tpWaitImages==='function'){ tpWaitImages(_pd).then(fire,fire); setTimeout(fire,6000); } else fire(); }catch(e){ fire(); } }
 function tpInitDefaults(){ var _preI=_entPre('items',_tpItemId); var d=tpData(); if(!d)return; if(!d.spat)d.spat={};
   /* 2차 이상은 만들 때 직전 회차를 복사하므로 기본문구를 따로 안 넣는다 (덮어쓰면 적어둔 게 날아감) */ var _oldS='원단 축률 테스트\n불량 확인\n패턴 확인\n요척 (심지·부속까지)\n공임 적어서 보내주세요\n패턴·샘플감·견본·지시서 회수해서 보내주세요',_newS='원단 축률 테스트, 원단 문제(불량) 확인, 패턴 확인 해주세요\n요척 (심지·부속까지), 공임 적어서 보내주세요, 패턴·샘플감·견본·지시서 회수해서 보내주세요'; if(!d.spat.sampleMemo||d.spat.sampleMemo===_oldS)d.spat.sampleMemo=_newS; var _oldP='새 패턴입니다\n기존 패턴에서 수정입니다\n그래이딩입니다',_newP='새 패턴입니다, 기존 패턴에서 수정입니다, 그래이딩입니다'; if(!d.spat.patternMemo||d.spat.patternMemo===_oldP)d.spat.patternMemo=_newP;
   if(!d.grd)d.grd={}; if(!d.grd.patternMemo)d.grd.patternMemo='그레이딩입니다\n기준 사이즈: \n사이즈 전개: '; if(!d.sew)d.sew={}; var _itB=tpItem(); if(_itB&&!d.sew.wash&&/프루토/.test(tpBrandName(_itB)||''))d.sew.wash='노말워싱'; if(!d.sew.threadColor)d.sew.threadColor='몸판매칭'; if(!Array.isArray(d.sew.legend)||!d.sew.legend.length)d.sew.legend=[{sym:'★',desc:'',stitch:''},{sym:'☆',desc:'',stitch:''}]; if(!Array.isArray(d.sew.spec)||!d.sew.spec.length)d.sew.spec=TP_SPEC_TOP.map(function(p){return {part:p};}); if(!d.head)d.head={}; if(!d.head.manager)d.head.manager='박수빈'; _entMechAbsorb('items',_tpItemId,_preI); try{saveData();}catch(e){} }

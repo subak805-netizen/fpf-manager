@@ -20,8 +20,8 @@ FUNCS=['laborBase','hasLaborRule','_laborCtx','orderFc','snapshotOrderFc','calcF
 '_trimWeightedPrice','ensureOrderLoss','_ensureOrderLossRaw','_entMech','_entPre','_entMechAbsorb','_entJson','orderLabelBuffer','calcSups','mkSup','mkSupWithDefaults',
 'lossParse','lossEnc','getEffectivePcsByColor','getEffectivePcsForOrderItem','getEffectivePcsBreakdown',
 'getPayFees','payFeeAmt','payFeeBlock','bgUnitPrice','sewLaborBase','laborRate','hasLaborBySize',
-'_migrateFabBias','_poProcBlocks','_poFabProcNotes','_poTrimProcNotes','_tcQtyPerPiece','tcEffColors','_tcColorBasis','_tcFabOf','_tcFabYo','_migrateFabProcYo','_tcEffPcs','_tcTierIsFlat','trimCostPerPcs','calcFabExtraYdForColor','_fabAddTcs','_tcAll']
-CONSTS=['COST_DEFS']
+'_migrateFabBias','_poProcBlocks','_poFabProcNotes','_poTrimProcNotes','_pbCalcKey','_pbCalcApply','_pbCalcUnit','_pbSplitVal','_pbMinUnit','_tcQtyPerPiece','tcEffColors','_tcColorBasis','_tcFabOf','_tcFabYo','_migrateFabProcYo','_tcEffPcs','_tcTierIsFlat','trimCostPerPcs','calcFabExtraYdForColor','_fabAddTcs','_tcAll']
+CONSTS=['COST_DEFS','PB_CALC_MODES','_PB_CALC_LEGACY','_PB_CALC_FIXED']
 
 def find_def(name):
     for pat in ('function '+name+'(', 'const '+name+'=', 'let '+name+'=', 'var '+name+'='):

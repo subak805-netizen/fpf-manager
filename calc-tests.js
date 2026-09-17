@@ -556,6 +556,28 @@ TEST('문제 23. 가산 항목 금액 기준 · 더 시킬 야드', function(){
   CHECK('역산은 여유 빼고: 26y → 40장', eff && eff['네이비'], 40);
 });
 
+// 단가장 미니멈 발주가 라벨엔 안 먹던 것(09-17k) + 계산 방식 전용 칸 선택.
+TEST('문제 24. 미니멈 발주 — 라벨도 적용 · 단가장 계산 방식 전용 칸', function(){
+  var lbl = { orderType:'careLabel', qtyPerPiece:1, qtyBuffer:10, unitPrice:100, hasMinOrder:true, minOrderQty:500 };
+  CHECK('케어라벨 30장+여분10 < 500 → 500장', calcTrimNeed(lbl, 30).qty, 500);
+  CHECK('케어라벨 값 500×100', calcTrimNeed(lbl, 30).cost, 50000);
+  var ml = { orderType:'mainLabel', qtyPerPiece:1, qtyBuffer:10, unitPrice:150, hasMinOrder:true, minOrderQty:100 };
+  CHECK('메인라벨 200장+10 ≥ 100 → 그대로 210', calcTrimNeed(ml, 200).qty, 210);
+  // 실은 문제 2 대로 미니멈 발주 미적용(컬러마다 적용할지 결정 대기)
+  var b = { orderType:'button', unit:'ea', qtyPerPiece:6, unitPrice:70 };
+  CHECK('단추 계산 키', _pbCalcKey(b), 'button');
+  _pbCalcApply(b, 'single', 'ea'); CHECK('단추 → 낱개 = count', b.orderType, 'count');
+  _pbCalcApply(b, 'button', 'ea'); CHECK('낱개 → 단추 복귀', _pbCalcKey(b), 'button');
+  var lp = { orderType:'yard', loopPerYard:20, unitPrice:1500 };
+  CHECK('야드 + loopPerYard = 단추고리', _pbCalcKey(lp), 'loop');
+  _pbCalcApply(lp, 'single', 'Y'); CHECK('단추고리 → 낱개: loopPerYard 남아도 낱개', _pbCalcKey(lp), 'single');
+  _pbCalcApply(lp, 'loop', 'Y'); CHECK('낱개 → 단추고리 복귀', _pbCalcKey(lp), 'loop');
+  CHECK('단위 맞춤: 바이어스 Y', _pbCalcUnit('bias', 'ea'), 'Y');
+  CHECK('단위 맞춤: 단추는 ea (콘이었어도)', _pbCalcUnit('button', '콘'), 'ea');
+  CHECK('미니멈 분배: 낱개도 값 보임', _pbSplitVal({ orderType:'count', minSplitQty:30 }), 30);
+  CHECK('미니멈 발주 단위: 바이어스 y', _pbMinUnit({ orderType:'bias' }), 'y');
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){

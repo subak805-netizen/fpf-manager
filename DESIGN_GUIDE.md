@@ -2620,3 +2620,10 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 원인: `#tp-modal .tp-wrap .tp-cell`(우선순위 1,2,0 · `font:inherit;font-size:11px;color:#1f2937`)이 `#tp-modal .tp-lblpos input`(1,1,1)보다 세서 덮어씀.
 - 고침: 선택자를 `#tp-modal .tp-lblpos input.tp-cell`(1,2,1)로 올리고 font-size/weight/color/padding에 `!important`. 사용자 요청 「2 키우기」= 보이던 11px → 13px (이미 정해둔 값이 그대로 적용됨).
 
+### 17k. 단가장 계산 방식·미니멈 전부 열기 / 작지 사진 늘어남·인쇄 빈칸 (2026-09-17)
+- **계산 방식**: 지퍼·단추·스냅·케어라벨·메인라벨·바이어스·단추고리도 드롭다운(「전용 칸」 묶음)에서 고를 수 있게. 고르면 카드 모양도 그 전용 칸으로 바뀜 — confirm 에 한 줄 안내. 낱개로 돌리면 `isButtonLoop=false` 명시(loopPerYard 남아도 낱개). 「단위와 다름」 배지는 전용 칸 종류엔 안 띄움(ea 정상).
+- **미니멈 분배·발주**: 모든 종류 입력 가능. 발주 계산(`calcTrimNeed`)이 케어라벨·메인라벨엔 미니멈 발주를 안 먹이던 것 고침 → 검산 문제 24. 실은 검산 문제 2(미적용) 그대로 — 컬러마다 적용할지 사용자 결정 대기.
+- 계산 방식 칸 112→88px(`td.pbt-calc`, 배지는 아래 줄). css v=20260917e.
+- **작지 이미지 저장**: html2canvas 1.4 가 object-fit 을 몰라 contain 사진(단추)이 늘어남 → `tpCaptureFixVAlign` 에서 살아있는 문서의 실제 그려진 크기·위치를 재서 clone 에 픽셀로 고정.
+- **작지 인쇄**: 사진 로드 전에 인쇄되면 그 칸만 빈칸 → `tpPrint` 가 `tpWaitImages`(최대 6초) 뒤 인쇄.
+
