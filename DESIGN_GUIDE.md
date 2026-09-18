@@ -2666,3 +2666,6 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 ### 18b. 단가장 계산 방식 「묶음」 (2026-09-18)
 - 절과 같은 롤 계산(총량 ÷ 묶음당 양), 단위만 묶음. `PB_CALC_MODES` bundle · `_pbCalcKey`(roll+rollUnit 묶음) · `_pbCalcApply/_pbCalcUnit/_pbMinUnit/_pbEachLbl/_pbAutoPack/_pbPackLbl` · `_pbUnitOf` · `_PB_UNIT_TO_OT['묶음']='roll'`(전엔 count) · `updatePBUnit` 절·묶음↔롤 · 카드 롤 단위 선택지 묶음 · `_pbMatAddKey`/`addTrimRow('bundle')` 프리셋. 검산 24 추가 검사.
 
+### 18c. 묶음(개수 묶음) 라벨 — 롤·y 대신 묶음·개 (2026-09-18)
+- 롤 계산은 야드 기준이라 화면·발주서에 「롤」「y」가 박혀 있었음. `_ruLbl(x)`(rollUnit 라벨, 기본 롤)·`_ruU(x)`(묶음=개, 그 외 y). calcSups 자재·발주서 그룹·tMap 에 `rollUnit` 실음. 카드 「묶음당 개수」, 발주서 「(1묶음 100개)」「N묶음 (필요수량 M개)」, 단가장 상세·잔량·추가발주·원가 이론사용량 표기. 계산식은 그대로.
+
