@@ -4586,7 +4586,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-18p';
+var APP_BUILD=/*BUILD*/'2026-09-18q';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -39991,7 +39991,7 @@ function tpWaitImages(el){
   return Promise.all(imgs.map(function(im){
     return new Promise(function(res){
       // load 완료 후 decode()까지 호출해 픽셀이 실제로 준비된 뒤 통과 (html2canvas 빈칸 방지)
-      var finish=function(){ if(im.decode){ im.decode().then(res).catch(res); } else res(); };
+      var finish=function(){ try{ var _k=im.currentSrc||im.src||''; if(_k&&im.naturalWidth)(window._tpImgDim=window._tpImgDim||{})[_k]={w:im.naturalWidth,h:im.naturalHeight}; }catch(e){} if(im.decode){ im.decode().then(res).catch(res); } else res(); };   /* 09-18q 자연 크기 캐시 */
       if(im.complete&&im.naturalWidth>0){ finish(); return; }
       im.addEventListener('load',finish,{once:true});
       im.addEventListener('error',function(){res();},{once:true}); // 깨진 이미지는 통과(무한대기 방지)
@@ -40022,17 +40022,30 @@ function _tpCloneInputsToText(cdoc){
 /* object-fit:contain 이미지(도식화·자수 도안 등)를 복제본에서 «맞춘 크기»로 못 박는다 — html2canvas 가 object-fit 을 놓치면 늘어져 보였다
    (신고 2026-09-07 「이미지 저장하니까 사진이 늘어지게 나와」, 두 번째엔 정상 — 타이밍 따라 달랐다). 화면 자연 크기로 직접 계산해 항상 같게. */
 function _tpCloneFitImages(cdoc){
-  var sel='#tp-modal .tp-wrap img'; var lim=document.querySelectorAll(sel), cim=cdoc.querySelectorAll(sel);
+  /* 09-18q 재작성 — 「같은 시트를 두 번 저장했는데 한 번은 도식화가 옆으로 늘어남」(신고 09-18).
+     예전: 살아있는 문서의 img 와 «순서 번호»로 짝지어 크기를 읽음 → 저장 순간 화면이 다시 그려지거나 img 개수가 어긋나면
+           엉뚱한 사진과 짝이 돼 고정이 빠지고, html2canvas 가 object-fit 을 몰라 칸에 꽉 채워 늘려 그림.
+     지금: 복제본 img 자기 자신의 칸 크기(offsetWidth/Height)·계산 스타일·자연 크기로 계산. 자연 크기를 못 읽으면 같은 src 의 살아있는 img → tpWaitImages 가 적어둔 캐시 순. */
+  var sel='#tp-modal .tp-wrap img'; var cim=cdoc.querySelectorAll(sel), lim=document.querySelectorAll(sel);
+  var win=cdoc.defaultView||window, cache=window._tpImgDim||{}, bySrc={};
+  for(var q=0;q<lim.length;q++){ var L=lim[q], lk=L.currentSrc||L.src||''; if(lk&&L.naturalWidth&&!bySrc[lk])bySrc[lk]={w:L.naturalWidth,h:L.naturalHeight}; }
   for(var i=0;i<cim.length;i++){
-    var lv=lim[i], ce=cim[i]; if(!lv||!ce)continue;
-    var cs=getComputedStyle(lv); var fit=cs.objectFit||''; if(fit!=='contain'&&fit!=='scale-down')continue;
-    var nw=lv.naturalWidth||0, nh=lv.naturalHeight||0, bw=lv.offsetWidth, bh=lv.offsetHeight; if(!nw||!nh||!bw||!bh)continue;
-    var s=Math.min(bw/nw,bh/nh); if(fit==='scale-down')s=Math.min(s,1);
-    var dw=Math.round(nw*s), dh=Math.round(nh*s), ox=Math.round((bw-dw)/2), oy=Math.round((bh-dh)/2);
+    var ce=cim[i]; if(!ce)continue;
+    var cs=win.getComputedStyle(ce); var fit=cs.objectFit||''; if(fit!=='contain'&&fit!=='scale-down'&&fit!=='cover')continue;
+    var ck=ce.currentSrc||ce.src||ce.getAttribute('src')||'';
+    var d=(ce.naturalWidth&&ce.naturalHeight)?{w:ce.naturalWidth,h:ce.naturalHeight}:(bySrc[ck]||cache[ck]||null);
+    var bw=ce.offsetWidth, bh=ce.offsetHeight; if(!d||!d.w||!d.h||!bw||!bh)continue;
+    var par=ce.parentElement, pcs=par?win.getComputedStyle(par):null;
+    if(fit==='cover'&&!(pcs&&pcs.overflow!=='visible'))continue;   /* cover 는 부모가 잘라줄 때만 */
+    var s=(fit==='cover')?Math.max(bw/d.w,bh/d.h):Math.min(bw/d.w,bh/d.h); if(fit==='scale-down')s=Math.min(s,1);
+    var dw=Math.round(d.w*s), dh=Math.round(d.h*s), ox=Math.round((bw-dw)/2), oy=Math.round((bh-dh)/2);
+    if(Math.abs(dw-bw)<1&&Math.abs(dh-bh)<1)continue;
+    var pos=cs.position, left0=parseFloat(cs.left)||0, top0=parseFloat(cs.top)||0, ml0=parseFloat(cs.marginLeft)||0, mt0=parseFloat(cs.marginTop)||0;
     ce.style.setProperty('object-fit','fill','important'); ce.style.setProperty('width',dw+'px','important'); ce.style.setProperty('height',dh+'px','important');
-    ce.style.setProperty('max-width','none','important'); ce.style.setProperty('max-height','none','important'); ce.style.setProperty('display','block','important');
-    if(cs.position==='absolute'||cs.position==='fixed'){ ce.style.setProperty('left',(parseFloat(cs.left)||0)+ox+'px','important'); ce.style.setProperty('top',(parseFloat(cs.top)||0)+oy+'px','important'); ce.style.setProperty('right','auto','important'); ce.style.setProperty('bottom','auto','important'); }
-    else { ce.style.setProperty('margin-left',(parseFloat(cs.marginLeft)||0)+ox+'px','important'); ce.style.setProperty('margin-top',(parseFloat(cs.marginTop)||0)+oy+'px','important'); }
+    ce.style.setProperty('max-width','none','important'); ce.style.setProperty('max-height','none','important'); ce.style.setProperty('min-width','0','important'); ce.style.setProperty('min-height','0','important');
+    if(pos==='absolute'||pos==='fixed'){ ce.style.setProperty('left',(left0+ox)+'px','important'); ce.style.setProperty('top',(top0+oy)+'px','important'); ce.style.setProperty('right','auto','important'); ce.style.setProperty('bottom','auto','important'); }
+    else if(pcs&&/flex|grid/.test(pcs.display)){ ce.style.setProperty('flex','0 0 auto','important'); }   /* 가운데 정렬은 부모가 해 줌 */
+    else { ce.style.setProperty('display','block','important'); ce.style.setProperty('margin-left',(ml0+ox)+'px','important'); ce.style.setProperty('margin-top',(mt0+oy)+'px','important'); }
   }
 }
 function tpCaptureFixVAlign(cdoc){
@@ -40050,28 +40063,7 @@ function tpCaptureFixVAlign(cdoc){
       ce.style.setProperty('vertical-align','middle','important');
       if(isInput) ce.style.setProperty('height',hh+'px','important');
     }
-    /* 09-17k: html2canvas 1.4 는 object-fit 을 몰라서 contain 사진(단추 등)이 칸에 맞춰 늘어나 저장됨(신고 09-17)
-       → 살아있는 문서에서 실제 그려진 크기·위치를 재서 clone 에 픽셀로 박는다 (cover 는 부모가 잘라줄 때만) */
-    var imSel='#tp-modal .tp-wrap img', imL=document.querySelectorAll(imSel), imC=cdoc.querySelectorAll(imSel);
-    for(var k=0;k<imC.length;k++){
-      var li=imL[k], ci=imC[k]; if(!li||!ci||!li.naturalWidth||!li.naturalHeight)continue;
-      var cs=getComputedStyle(li), fit=cs.objectFit; if(fit!=='contain'&&fit!=='cover')continue;
-      var bw=li.clientWidth, bh=li.clientHeight; if(!bw||!bh)continue;
-      var par=li.parentElement, pcs=par?getComputedStyle(par):null;
-      if(fit==='cover'&&!(pcs&&pcs.overflow!=='visible'))continue;
-      var sc=(fit==='contain')?Math.min(bw/li.naturalWidth,bh/li.naturalHeight):Math.max(bw/li.naturalWidth,bh/li.naturalHeight);
-      var W=li.naturalWidth*sc, Hh=li.naturalHeight*sc, ox=(bw-W)/2, oy=(bh-Hh)/2;
-      if(Math.abs(W-bw)<1&&Math.abs(Hh-bh)<1)continue;
-      ci.style.setProperty('object-fit','fill','important');
-      ci.style.setProperty('width',W+'px','important'); ci.style.setProperty('height',Hh+'px','important');
-      ci.style.setProperty('max-width','none','important'); ci.style.setProperty('max-height','none','important');
-      if(cs.position==='absolute'||cs.position==='fixed'){
-        ci.style.setProperty('left',ox+'px','important'); ci.style.setProperty('top',oy+'px','important');
-        ci.style.setProperty('right','auto','important'); ci.style.setProperty('bottom','auto','important');
-      } else if(!(pcs&&/flex|grid/.test(pcs.display))){
-        ci.style.setProperty('margin',oy+'px 0 0 '+ox+'px','important');
-      }
-    }
+    /* 09-18q: 사진 비율 고정은 아래 _tpCloneFitImages 한 곳에서만 (17k 의 순서 짝짓기 블록 삭제 — 짝이 어긋나면 늘어난 채 저장됐음) */
     /* 덮어 그린 자리(data-tp-hid)는 복제본에서 값까지 비운다 —
        html2canvas 가 숨긴 input 의 값을 그려버리면 또 겹친다. */
     var chid=cdoc.querySelectorAll('#tp-modal [data-tp-hid]');
