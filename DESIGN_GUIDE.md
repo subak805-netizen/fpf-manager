@@ -2689,3 +2689,6 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - `genPoText(order,sn,opts)`: 그룹의 전 컬러가 `isSkippedMat` 이면 그 블록 줄에 \u0007 표시(`_markFrom`). 기본(복사·카톡·메일·문자·정정)은 표시 줄을 빼고 빈 줄 연속 정리, `{marked:true}` 는 표시 유지 → 카드 본문 `_poMarkedHTML` 이 `.po-skip`(취소선+사선 배경)으로. css v=20260918c.
 - 바이어스 카드 경고에 `_biasRestoreFromPO(i)` 버튼: 이 아이템 발주서 자재(bias, 발송 우선·최근)의 원단출처·규격·용도로 되돌림(`_biasPoValue`). 저장해야 확정.
 
+### 18j. 세로 지시서 스와치 줄 조금 낮추고 지시사항 칸 넓힘 (2026-09-18)
+- 컬러 세로표 줄 높이 JS: `min(88,max(56,280/색수))`(4색 70px, 예전 75) · 두 줄이면 ×1.8 상한 150. CSS: 세로 sewlike 의 `table.tp-swv tr.tp-swrow` 는 --swvh 를 98px 규칙보다 세게 적용. `textarea.tp-instr` min-height 22→36mm.
+
