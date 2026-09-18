@@ -4583,7 +4583,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-18e';
+var APP_BUILD=/*BUILD*/'2026-09-18f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9343,8 +9343,8 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
   /* 발주서 자재도 같이 — 미발송은 재계산이 처리하지만 발송·출고·입고로 굳은 발주서는 이름만 바꿔 수량·실발주·결제 제외 표시 유지 (2026-09-10j) */
   try{ Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; if(!o||!o.suppliers||!o.suppliers[s])return; var sp=o.suppliers[s]; var ch=false;
     (sp.materials||[]).forEach(function(m){ if(m&&field==='name'&&(m.orderType==='careLabel'||m.orderType==='mainLabel')&&String(m.labelName||'').trim()===oldNm){ m.labelName=newNm; ch=true; return; } /* 2026-09-14b 라벨 이름 */ if(!m||m.name!==oldNm)return; if(m.type==='trim'&&!_clMatch(m.color||m.itemColorName))return; if(m.type==='fabric'&&field!=='name')return;
-      var oldKeyS=(typeof matSkipKey==='function')?matSkipKey(s,m):null; m.name=newNm; if(typeof m.displayName==='string'&&m.displayName.indexOf(oldNm)>=0)m.displayName=m.displayName.replace(oldNm,newNm);
-      if(oldKeyS&&o.skipBilling&&o.skipBilling[oldKeyS]){ var nk=matSkipKey(s,m); o.skipBilling[nk]=o.skipBilling[oldKeyS]; if(nk!==oldKeyS)delete o.skipBilling[oldKeyS]; }
+      var oldKeyS=(typeof matSkipKey==='function')?matSkipKey(s,m):null, oldKeyS2=(typeof _matSkipKeyOld==='function')?_matSkipKeyOld(s,m):null; m.name=newNm; if(typeof m.displayName==='string'&&m.displayName.indexOf(oldNm)>=0)m.displayName=m.displayName.replace(oldNm,newNm);
+      [oldKeyS,oldKeyS2].forEach(function(ok){ if(ok&&o.skipBilling&&o.skipBilling[ok]){ var nk=matSkipKey(s,m); o.skipBilling[nk]=o.skipBilling[ok]; if(nk!==ok)delete o.skipBilling[ok]; } });
       ch=true; });
     if(ch)_nOrders++; }); }catch(e){ console.warn('[이름 변경→발주서]',e); }
   // 컬러별 단가(colorPrices: 이름|사이즈|발주명)도 이름 변경 따라가게 — 안 그러면 컬러단가 자동채움이 끊김
@@ -20586,10 +20586,18 @@ function markPoSent(oid,sn){
 }
 function unSent(oid,sn){var _uo=poResolveOrder(oid);if(!_uo||!_uo.suppliers[sn])return;const s=_uo.suppliers[sn];if(_uo._exId){s.status='draft';s.orderDate='';s.sentAt='';saveData();if(typeof _renderOTabKeepScroll==='function')_renderOTabKeepScroll();else if(typeof renderOTab==='function')renderOTab();return;}s.status='draft';s.orderDate='';s.sentAt='';var _sy=window.scrollY||document.documentElement.scrollTop||0;saveData();_renderOTabKeepScroll();renderOrderPane();window.scrollTo(0,_sy);updateNotifBadge();}
 
-// 발주안함: 결제서에서 제외할 자재 (거래처|자재명|색상 키)
-function matSkipKey(sn,m){return sn+'|'+(m.displayName||m.name||'')+'|'+(m.colorName||'');}
-function isSkippedMat(o,sn,m){return !!(o&&o.skipBilling&&o.skipBilling[matSkipKey(sn,m)]);}
-function toggleSkipBilling(oid,snE,nameE,colorE){var o=S.orders[oid];if(!o)return;if(!o.skipBilling)o.skipBilling={};var k=decodeURIComponent(snE)+'|'+decodeURIComponent(nameE)+'|'+decodeURIComponent(colorE);if(o.skipBilling[k])delete o.skipBilling[k];else o.skipBilling[k]=true;saveData();renderOTab();}
+// 발주안함: 결제서에서 제외할 자재 (거래처|자재명|색상|용도 키 — 09-18f 용도 추가: 같은 원단의 몸판·스트링감 줄이 같이 체크되던 것)
+function matSkipKey(sn,m){var pt=String((m&&m.part)||'').trim();return sn+'|'+(m.displayName||m.name||'')+'|'+(m.colorName||'')+(pt?('|'+pt):'');}
+function _matSkipKeyOld(sn,m){return sn+'|'+(m.displayName||m.name||'')+'|'+(m.colorName||'');}   /* 옛 키(용도 없음) — 이미 저장된 것 읽기용 */
+function isSkippedMat(o,sn,m){if(!o||!o.skipBilling)return false;return !!(o.skipBilling[matSkipKey(sn,m)]||o.skipBilling[_matSkipKeyOld(sn,m)]);}
+function toggleSkipBilling(oid,snE,nameE,colorE,partE){var o=S.orders[oid];if(!o)return;if(!o.skipBilling)o.skipBilling={};
+  var sn=decodeURIComponent(snE),nm=decodeURIComponent(nameE),cl=decodeURIComponent(colorE),pt=partE?decodeURIComponent(partE):'';
+  var kOld=sn+'|'+nm+'|'+cl, k=kOld+(pt?('|'+pt):'');
+  if(pt&&o.skipBilling[kOld]){ /* 옛 키(용도 없음)가 켜져 있으면: 옛 키 지우고, 같은 이름·색의 «다른 용도» 줄은 새 키로 켜진 채 두고, 누른 줄만 해제 */
+    delete o.skipBilling[kOld];
+    ((o.suppliers&&o.suppliers[sn]&&o.suppliers[sn].materials)||[]).forEach(function(x){ if(!x)return; var xk=matSkipKey(sn,x); if(xk!==k&&_matSkipKeyOld(sn,x)===kOld)o.skipBilling[xk]=true; });
+  } else { if(o.skipBilling[k])delete o.skipBilling[k]; else o.skipBilling[k]=true; }
+  saveData();renderOTab();}
 function renderCheckTab(o,onlySn){
   // 최신 아이템 정의(로스율 등) 반영 — actualOrderedQty/메타 보존하며 재계산
   refreshOrderSuppliers(o);
@@ -20627,7 +20635,7 @@ function renderCheckTab(o,onlySn){
       const origCost=getMatBaseQty(m)*(m.pricingUnit==='kg'?(m.pricePerKg||0):(m.unitPrice||0));
       const costDiff=actualCost-origCost;
       return`<tr${isSkippedMat(o,sn,m)?' style="opacity:.5"':''}>
-        <td style="font-size:11px;padding:4px 6px">${isSkippedMat(o,sn,m)?'<span style="text-decoration:line-through">':''}${esc(_dispName)}${isSkippedMat(o,sn,m)?'</span>':''}${m.part?' <span style="font-size:9px;background:#eef2ff;color:#4338ca;padding:1px 6px;border-radius:4px;font-weight:700;white-space:nowrap">'+esc(m.part)+'</span>':''}${isKg?' <span class="badge b2" style="font-size:9px">KG</span>':''}${m.type!=='fabric'&&m.calc?.isRoll?' <span class="badge b3" style="font-size:9px">롤</span>':''}${m.type!=='fabric'&&!m.calc?.isRoll&&m.calc?.unit==='개'?'':''}<br><span style="font-size:9px;color:var(--t2)">${_vColor?'#'+esc(_vColor):''}</span><br><label style="display:inline-flex;align-items:center;gap:3px;font-size:9px;color:${isSkippedMat(o,sn,m)?'var(--red)':'var(--t2)'};margin-top:2px;cursor:pointer"><input type="checkbox" ${isSkippedMat(o,sn,m)?'checked':''} onchange="toggleSkipBilling('${o.id}','${encodeURIComponent(sn)}','${encodeURIComponent(matName)}','${encodeURIComponent(m.colorName||'')}')" style="width:13px;height:13px"> 발주안함(결제 제외)</label></td>
+        <td style="font-size:11px;padding:4px 6px">${isSkippedMat(o,sn,m)?'<span style="text-decoration:line-through">':''}${esc(_dispName)}${isSkippedMat(o,sn,m)?'</span>':''}${m.part?' <span style="font-size:9px;background:#eef2ff;color:#4338ca;padding:1px 6px;border-radius:4px;font-weight:700;white-space:nowrap">'+esc(m.part)+'</span>':''}${isKg?' <span class="badge b2" style="font-size:9px">KG</span>':''}${m.type!=='fabric'&&m.calc?.isRoll?' <span class="badge b3" style="font-size:9px">롤</span>':''}${m.type!=='fabric'&&!m.calc?.isRoll&&m.calc?.unit==='개'?'':''}<br><span style="font-size:9px;color:var(--t2)">${_vColor?'#'+esc(_vColor):''}</span><br><label style="display:inline-flex;align-items:center;gap:3px;font-size:9px;color:${isSkippedMat(o,sn,m)?'var(--red)':'var(--t2)'};margin-top:2px;cursor:pointer"><input type="checkbox" ${isSkippedMat(o,sn,m)?'checked':''} onchange="toggleSkipBilling('${o.id}','${encodeURIComponent(sn)}','${encodeURIComponent(matName)}','${encodeURIComponent(m.colorName||'')}','${encodeURIComponent(m.part||'')}')" style="width:13px;height:13px"> 발주안함(결제 제외)</label></td>
         <td style="text-align:right;font-size:10px;padding:4px 6px;color:var(--t2)">${origQty}${origUnit}<br><span style="font-size:9px">${num(orderPrice)}${isKg?'원/kg':'원'}</span></td>
         <td style="padding:4px 6px">
           <div style="display:flex;align-items:center;gap:3px">
