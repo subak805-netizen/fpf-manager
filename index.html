@@ -4583,7 +4583,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-18f';
+var APP_BUILD=/*BUILD*/'2026-09-18g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5086,7 +5086,12 @@ function loadCoData(id){
 }
 
 /* ===== DATA MIGRATION (이전 버전 호환) ===== */
+/* 09-18g 바이어스 원단출처가 그 아이템 원단(이름·원단처)에 없는 줄을 앱 켤 때 하루 한 번 훑어 알림.
+   8/25~27 버그(바이어스재단 단가장 항목 하나를 모든 아이템이 공유 → 규격·원단출처가 다른 아이템 값으로 덮임, 커밋 2f2a89f 에서 고침)에 걸린 아이템 찾기용 */
+function _scanBiasSrc(){ var out=[]; try{ Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; if(!it)return; var fabs=it.fabrics||[]; (it.trims||[]).forEach(function(t){ if(!t||t.orderType!=='bias')return; var src=String(t.fabricSource||'').trim(); if(!src||!fabs.length)return; var a=src.toLowerCase().replace(/\s+/g,''); var ok=fabs.some(function(f){ var b=String((f&&f.name)||'').toLowerCase().replace(/\s+/g,''), c=String((f&&f.supplier)||'').toLowerCase().replace(/\s+/g,''); return (b.length>=2&&(a.indexOf(b)>=0||b.indexOf(a)>=0))||(c.length>=2&&a.indexOf(c)>=0); }); if(!ok)out.push({item:it.name||id,src:src,spec:t.biasSpec||''}); }); }); }catch(e){} return out; }
+function _scanBiasSrcOnce(){ try{ var day=new Date().toISOString().slice(0,10); if(localStorage.getItem('fpm_biasScanDay')===day)return; localStorage.setItem('fpm_biasScanDay',day); var r=_scanBiasSrc(); if(!r.length)return; var names=[]; r.forEach(function(x){ if(names.indexOf(x.item)<0)names.push(x.item); }); if(typeof showToast==='function')showToast('바이어스 원단출처 확인 필요 '+r.length+'줄: '+names.slice(0,6).join(', ')+(names.length>6?' 외':'')+' — 아이템의 바이어스 카드에서 원단출처·규격을 고쳐 주세요',12000); }catch(e){} }
 function migrateData(){
+  try{ setTimeout(_scanBiasSrcOnce,2500); }catch(e){}
   /* 메인라벨 발주처 = 브랜드 (2026-09-14e) — 다른 부자재를 메인라벨로 바꾼 줄에 남은 옛 부자재처(메이드 등) 정리 */
   try{ var _brs=(typeof getBrands==='function')?getBrands():[]; Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; (it&&it.trims||[]).forEach(function(tr){ if(!tr||tr.orderType!=='mainLabel')return; var _bid=tr.brandId||it.brandId; if(!_bid)return; var b=_brs.find(function(x){return x&&x.id===_bid;}); if(b&&b.name&&tr.supplier!==b.name)tr.supplier=b.name; }); }); }catch(e){}
   /* 옛 출고 기록 회차 풀기 (2026-09-15g) — 저장 한 번 단위로 bid 부여 */
