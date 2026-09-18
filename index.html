@@ -4586,7 +4586,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-18m';
+var APP_BUILD=/*BUILD*/'2026-09-18n';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -8793,7 +8793,7 @@ function _pbArmBlurRender(){
       var el=document.getElementById('book-list');
       var ae=document.activeElement;
       if(el&&ae&&ae!==document.body&&el.contains(ae))return;   // 아직 표 안이면 계속 미룸
-      window._pbNeedRender=0;
+      window._pbNeedRender=0; window._pbNewRow=null;   /* 09-18n 표 밖으로 나가면 새 줄 고정 해제 → 이름순 */
       if(typeof renderBookList==='function')renderBookList();
     },0);
   });
@@ -8803,18 +8803,19 @@ function _pbRekeyRow(sup,oldKey,newKey){
   try{
     var lst=document.getElementById('book-list'); if(!lst)return false;
     var eo=encodeURIComponent(oldKey), en=encodeURIComponent(newKey), esup=encodeURIComponent(sup);
-    var tr=null, all=lst.querySelectorAll('tr[data-pbk]');
-    for(var i=0;i<all.length;i++){ if(all[i].getAttribute('data-pbk')===eo&&all[i].getAttribute('data-pbs')===esup){ tr=all[i]; break; } }
-    if(!tr)return false;
+    var eoQ="'"+eo+"'", enQ="'"+en+"'";
+    var all=lst.querySelectorAll('tr[data-pbk]'), trs=[];
+    for(var i=0;i<all.length;i++){ if(all[i].getAttribute('data-pbk')===eo&&all[i].getAttribute('data-pbs')===esup)trs.push(all[i]); }
+    if(!trs.length)return false;
     var fix=function(el){
       var at=el.attributes; if(!at)return;
       for(var j=0;j<at.length;j++){
         var a=at[j];
-        if(a.name.slice(0,2)==='on'&&a.value.indexOf(eo)>=0)el.setAttribute(a.name,a.value.split("'"+eo+"'").join("'"+en+"'"));
+        if(a.name.slice(0,2)==='on'&&a.value.indexOf(eo)>=0)el.setAttribute(a.name,a.value.split(eoQ).join(enQ));
       }
     };
-    tr.setAttribute('data-pbk',en); fix(tr);
-    var els=tr.querySelectorAll('*'); for(var i2=0;i2<els.length;i2++)fix(els[i2]);
+    /* 09-18n 두 줄 카드(윗줄·아랫줄)·세트 줄 전부 바꿔야 아랫줄(무게·오무데·세트) 편집이 옛 키로 안 빠진다 */
+    trs.forEach(function(tr){ tr.setAttribute('data-pbk',en); fix(tr); var els=tr.querySelectorAll('*'); for(var i2=0;i2<els.length;i2++)fix(els[i2]); });
     return true;
   }catch(e){ return false; }
 }
@@ -8907,6 +8908,7 @@ function renderPbTrimTable(lst,sups){
       var ma=mats[a],mb=mats[b];
       var ca=(ma.category||'힣'),cb=(mb.category||'힣');
       if(ca!==cb)return ca.localeCompare(cb,'ko');
+      var na=(window._pbNewRow===s+'|'+a), nb=(window._pbNewRow===s+'|'+b); if(na!==nb)return na?-1:1;   /* 09-18n 새 품목은 유형 맨 위 고정 — 다 적고 표 밖으로 나가면 그때 이름순 */
       return String(ma.name||'').localeCompare(String(mb.name||''),'ko');
     });
     /* ⚠️ 품목이 0개여도 **표는 보여준다** — 안 그러면 「＋ 품목」을 누를 데가 없어
@@ -9322,6 +9324,7 @@ function renamePBMaterial(supEnc,oldKeyEnc,newVal,field){
     if(!confirm('같은 이름·색상·크기 조합이 이미 존재해요. 덮어쓸까요?'))return renderBook();
   }
   pb.materials[newKey]={...oldEntry,name:newNm,color:newCl,lastUpdated:todayISO()};
+  if(window._pbNewRow===s+'|'+oldKey)window._pbNewRow=s+'|'+newKey;   /* 09-18n */
   if(newKey!==oldKey){
     delete pb.materials[oldKey];
     /* ⚠️ 묘비 없이 지우면 클라우드 합집합이 옛 키(「새 품목」)를 되살려, 다음 「+품목」이 새 품목 2·3·4·5 로 밀렸다
@@ -13312,7 +13315,7 @@ function trimApplyPane(i,t,colorPart,sizeSec){
   var hasS=((t.sizeRates||[]).length>0)||t.sizeMode==='bySize';
   /* 09-18a: 사용자가 고른 축을 기억(t.priceAx / _trimUI.ax). 전엔 다시 그릴 때마다 자료로 다시 정해서, 컬러를 체크하면 사이즈별로 튀었다(신고 09-18) */
   var _uiAx=((window._trimUI||{})[t.id]||{}).ax;
-  var mode=(/^[csbn]$/.test(t.priceAx||''))?t.priceAx:((/^[csbn]$/.test(_uiAx||''))?_uiAx:((hasC&&hasS)?'b':hasS?'s':'c'));
+  var mode=(/^[csbn]$/.test(_uiAx||''))?_uiAx:(hasS?'b':'c');   /* 09-18n 저장값(t.priceAx) 안 씀 — 사이즈별·숨김을 한 번 누르면 다음에 열 때도 컬러 칸이 숨어 「컬러당 발주 어디 갔냐」 신고. 열 때는 컬러 항상 보임 */
   var on=function(m){return mode===m?' on':'';};
   var h='<div class="tcd-axrow"><span style="color:var(--t3,#8b95a1)">단가 기준</span>'
     +'<button type="button" class="tcd-axchip'+on('c')+'" data-ax="c" onclick="trimAx('+i+',\'c\')">컬러별</button>'
@@ -13323,7 +13326,7 @@ function trimApplyPane(i,t,colorPart,sizeSec){
   h+='<div class="tcd-axs"'+((mode==='s'||mode==='b')?'':' style="display:none"')+'>'+sizeSec+'</div>';
   return h;
 }
-function trimAx(i,m){try{var _t=formTrims[i];if(_t){_t.priceAx=m;window._trimUI=window._trimUI||{};(window._trimUI[_t.id]=window._trimUI[_t.id]||{}).ax=m;}}catch(e){} var el=document.getElementById('tr-'+i);if(!el)return;var c=el.querySelector('.tcd-axc'),s=el.querySelector('.tcd-axs');if(c)c.style.display=(m==='c'||m==='b')?'':'none';if(s)s.style.display=(m==='s'||m==='b')?'':'none';el.querySelectorAll('.tcd-axrow .tcd-axchip').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-ax')===m);});}
+function trimAx(i,m){try{var _t=formTrims[i];if(_t){delete _t.priceAx;window._trimUI=window._trimUI||{};(window._trimUI[_t.id]=window._trimUI[_t.id]||{}).ax=m;}}catch(e){}   /* 09-18n 세션 안에서만 기억 */ var el=document.getElementById('tr-'+i);if(!el)return;var c=el.querySelector('.tcd-axc'),s=el.querySelector('.tcd-axs');if(c)c.style.display=(m==='c'||m==='b')?'':'none';if(s)s.style.display=(m==='s'||m==='b')?'':'none';el.querySelectorAll('.tcd-axrow .tcd-axchip').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-ax')===m);});}
 // 지퍼 새 4탭 카드 — id="tr-i"·모든 data-f 필드를 4탭에 한 번씩 렌더(비활성 탭도 DOM 유지 → colTR 수집 보존)
 function zipperCardNew(t,i,colorSec){
   var e=esc,st=trimUIState(t),tab=st.tab,T=function(n){return tab===n?' on':'';};
