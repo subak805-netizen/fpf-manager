@@ -576,6 +576,10 @@ TEST('문제 24. 미니멈 발주 — 라벨도 적용 · 단가장 계산 방�
   CHECK('단위 맞춤: 바이어스 Y', _pbCalcUnit('bias', 'ea'), 'Y');
   CHECK('단위 맞춤: 단추는 ea (콘이었어도)', _pbCalcUnit('button', '콘'), 'ea');
   CHECK('미니멈 분배: 낱개도 값 보임', _pbSplitVal({ orderType:'count', minSplitQty:30 }), 30);
+  var bd = { orderType:'count', unit:'ea', unitPrice:500 };
+  _pbCalcApply(bd, 'bundle', 'ea'); CHECK('묶음 = 롤 계산 + 단위 묶음', [bd.orderType, bd.rollUnit, _pbCalcKey(bd)], ['roll', '묶음', 'bundle']);
+  CHECK('묶음 단위 맞춤', _pbCalcUnit('bundle', 'ea'), '묶음');
+  CHECK('묶음 미니멈 발주 단위', _pbMinUnit(bd), '묶음');
   CHECK('미니멈 발주 단위: 바이어스 y', _pbMinUnit({ orderType:'bias' }), 'y');
 });
 

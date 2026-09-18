@@ -2663,3 +2663,6 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 원인: `trimApplyPane` 이 매 렌더마다 자료(컬러 단가 유무·sizeRates 유무)로 축을 다시 정함. `trimAx` 는 화면만 바꿔 저장 안 함.
 - 고침: `trimAx` 가 `t.priceAx`(저장됨)·`_trimUI[t.id].ax` 에 기록, 렌더는 그 값 우선(없으면 예전처럼 자료로).
 
+### 18b. 단가장 계산 방식 「묶음」 (2026-09-18)
+- 절과 같은 롤 계산(총량 ÷ 묶음당 양), 단위만 묶음. `PB_CALC_MODES` bundle · `_pbCalcKey`(roll+rollUnit 묶음) · `_pbCalcApply/_pbCalcUnit/_pbMinUnit/_pbEachLbl/_pbAutoPack/_pbPackLbl` · `_pbUnitOf` · `_PB_UNIT_TO_OT['묶음']='roll'`(전엔 count) · `updatePBUnit` 절·묶음↔롤 · 카드 롤 단위 선택지 묶음 · `_pbMatAddKey`/`addTrimRow('bundle')` 프리셋. 검산 24 추가 검사.
+
