@@ -3092,7 +3092,7 @@ function _collectInlineImages(){
   var stamp=function(){return Date.now()+'_'+out.length;};
   Object.keys(S.items||{}).forEach(function(id){var it=S.items[id];if(!it)return;
     var imgs=it.techpack&&it.techpack.images;
-    if(imgs)Object.keys(imgs).forEach(function(k){if(isData(imgs[k]))out.push({dataUrl:imgs[k],path:'techpack/'+co+'/'+id+'/'+k+'_'+stamp()+'.jpg',apply:function(u){imgs[k]=u;}});});
+    if(imgs)Object.keys(imgs).forEach(function(k){if(isData(imgs[k])){ var du=imgs[k]; out.push({dataUrl:du,path:'techpack/'+co+'/'+id+'/'+k+'_'+stamp()+'.jpg',apply:function(u){ var ci=(S.items[id]&&S.items[id].techpack&&S.items[id].techpack.images)||imgs; if(ci[k]===du)ci[k]=u; }}); }});   /* 09-21b 올리는 동안 아이템이 새 사본으로 바뀌어도 지금 것에 적용 · 그 사이 사진을 바꿨으면 안 덮음 */
     // 아이디어보드 사진(dataURL 폴백)도 자동 이사 — 빠져 있어 로컬에만 쌓이던 구멍(2026-07-03)
     // ⚠️ 항목이 {u,t}(사진+생각 메모)일 수 있음 → 통째 교체하면 메모가 날아감. URL만 갈아끼울 것 (2026-07-17)
     var refs=it.ideaData&&it.ideaData.refs;
@@ -3110,9 +3110,9 @@ function _collectInlineImages(){
   try{
     Object.keys(S.priceBook||{}).forEach(function(sup){ var mats=(S.priceBook[sup]||{}).materials||{};
       Object.keys(mats).forEach(function(nm){ var e=mats[nm]; if(!e||!Array.isArray(e.swatches))return;
-        e.swatches.forEach(function(v,si){ if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/pbsw/'+stamp()+'.jpg',apply:function(u){ if(e.swatches[si]===v)e.swatches[si]=u; }}); }); }); });
+        e.swatches.forEach(function(v,si){ if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/pbsw/'+stamp()+'.jpg',apply:function(u){ var ce=((S.priceBook[sup]||{}).materials||{})[nm]||e; if(!Array.isArray(ce.swatches))return; var ix=ce.swatches.indexOf(v); if(ix>=0)ce.swatches[ix]=u; }}); }); }); });
     (S.matExtra||[]).forEach(function(x){ if(!x||!Array.isArray(x.swatches))return;
-      x.swatches.forEach(function(v,si){ if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/pbsw/'+stamp()+'.jpg',apply:function(u){ if(x.swatches[si]===v){ x.swatches[si]=u; x.updatedAt=Date.now(); } }}); }); });
+      x.swatches.forEach(function(v,si){ if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/pbsw/'+stamp()+'.jpg',apply:function(u){ var cx=(S.matExtra||[]).find(function(y){return y&&y.id===x.id;})||x; if(!Array.isArray(cx.swatches))return; var ix=cx.swatches.indexOf(v); if(ix>=0){ cx.swatches[ix]=u; cx.updatedAt=Date.now(); } }}); }); });
   }catch(e){}
   return out;
 }
@@ -4594,7 +4594,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-21a';
+var APP_BUILD=/*BUILD*/'2026-09-21b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7964,8 +7964,14 @@ function mtAddPhotos(key,files,after){
         });
       }).then(function(url){
         if(!url)return;
-        if(!Array.isArray(r.swatches))r.swatches=[];
-        r.swatches.push(url); done++;
+        /* ★09-21b 「스와치 사진이 안 올라가」 진짜 원인 — 로그인 상태에선 저장·수신 때마다 단가장이 «합쳐진 새 사본»으로 통째 바뀐다
+           (cloudSyncSave·applyRemoteShared 의 S.priceBook=병합본, 아이템 자동저장 saveToPB 의 {...existing}).
+           올리는 몇 초 사이에 그게 한 번 돌면 처음 잡은 r 은 버려진 옛 사본 → 거기 붙인 사진은 화면에도 저장에도 안 남았다.
+           (로그인 안 하면 올리기가 즉시 끝나 안 걸림 · 작지 사진은 tpSet 이 매번 다시 찾아서 안 걸림) → 붙이는 순간 다시 찾는다. */
+        var rr=_mtRec(key)||r;
+        if(!Array.isArray(rr.swatches))rr.swatches=[];
+        rr.swatches.push(url); done++;
+        try{ if(key.indexOf('ex:')!==0)lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook}); }catch(e){}   /* 여러 장 올리는 중 새로고침해도 올린 장은 남게 */
       }).catch(function(err){ bad++; console.warn('mt photo decode',f&&f.name,err); });   /* 브라우저가 못 읽는 사진(아이폰 HEIC 등) — 그 장만 건너뛰고 나머지는 계속 */
     });
   });
