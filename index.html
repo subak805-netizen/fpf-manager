@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260922a">
+<link rel="stylesheet" href="css/main.css?v=20260922b">
 </head>
 <body>
 
@@ -4598,7 +4598,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-22c';
+var APP_BUILD=/*BUILD*/'2026-09-22d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -34335,14 +34335,16 @@ function _pschRows(kind){
         pat:{d:_pschIso(prep.patDate),ok:!!prep.patDone},jisi:{d:_pschIso(prep.jisiDate),ok:!!prep.jisiDone},
         cut:_pschIso(sch&&sch.cuttingDate),cutDone:!!(sch&&sch.cuttingDone),
         ship:_pschIso(sch&&(sch.shipExpectedDate||'')),shipDone:!!(sch&&sch.shipDone),sewDone:!!(sch&&sch.sewingDone),
-        off:!!(prep.schOff&&prep.schOff[it.id])};
+        off:!!(prep.schOff&&prep.schOff[it.id]),
+        pri:(prep.schPri&&prep.schPri[it.id]!=null&&prep.schPri[it.id]!=='')?+prep.schPri[it.id]:null};   /* 09-22d 급한 순서(손으로 정한 순번) */
       r.done=r.shipDone||oDone;
       r.od=(typeof pdShortDate==='function')?pdShortDate(o):'';
       r.odIso=_pschIso(o.createdAt);
       out.push(r);
     });
   });
-  out.sort(function(a,b){ return String(a.odIso||'9999').localeCompare(String(b.odIso||'9999'))||String(a.it.name||'').localeCompare(String(b.it.name||''),'ko')||String(a.key).localeCompare(String(b.key)); });
+  /* 09-22d 손으로 정한 순번이 있는 줄이 먼저(작은 수부터), 없는 줄은 예전대로 오더 날짜순 */
+  out.sort(function(a,b){ var pa=(a.pri==null)?1e9:a.pri, pb=(b.pri==null)?1e9:b.pri; if(pa!==pb)return pa-pb; return String(a.odIso||'9999').localeCompare(String(b.odIso||'9999'))||String(a.it.name||'').localeCompare(String(b.it.name||''),'ko')||String(a.key).localeCompare(String(b.key)); });
   return out;
 }
 function _pschJudge(r,kind){
@@ -34365,8 +34367,10 @@ function _pschDday(d,done){ if(!d||done)return ''; var n=_ssDiff(_ssToday(),d); 
 /* 날짜 칸 = 「9/24」 글자 + 숨긴 date 입력. 누르면 달력(showPicker). 표가 좁게 유지되고 이미지 저장에도 글자로 찍힌다 */
 function _pschDate(val,attrs,fn,cls,ph){
   return '<span class="psc-d'+(val?' set':'')+(cls?' '+cls:'')+'" tabindex="0" role="button" onclick="pschPick(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();pschPick(this);}">'
-    +'<span>'+(val?esc(_ssMD(val)):esc(ph||'—'))+'</span><input type="date" tabindex="-1" value="'+esc(val||'')+'" '+attrs+' onchange="'+fn+'(this)"></span>';
+    +'<span>'+(val?_pschMDWHtml(val):esc(ph||'—'))+'</span><input type="date" tabindex="-1" value="'+esc(val||'')+'" '+attrs+' onchange="'+fn+'(this)"></span>';
 }
+/* 09-22d 날짜 옆 요일 (요청 「목, 금 이렇게」) — 토=파랑 · 일=빨강 */
+function _pschMDWHtml(iso){ var md=_ssMD(iso); if(!md)return ''; var d=new Date(String(iso).slice(0,10)+'T00:00:00'); if(isNaN(d))return esc(md); var w=d.getDay(); return esc(md)+'<i class="psc-wd'+(w===0?' sun':(w===6?' sat':''))+'">'+['일','월','화','수','목','금','토'][w]+'</i>'; }
 function pschPick(el){ var i=el&&el.querySelector('input'); if(!i)return; try{ if(i.showPicker){ i.showPicker(); return; } }catch(e){} try{ i.style.pointerEvents='auto'; i.focus(); i.click(); }catch(e){} }
 function _pschSupCell(r,list,kindKey,locked){
   if(!list.length)return '<span class="psc-none">—</span>';
@@ -34409,10 +34413,11 @@ function renderPSched(kind){
   var H='<div class="psc">';
   H+='<div class="psc-top"><h2>'+(isMain?'메인 스케줄표':'리오더 스케줄표')+'</h2><span>'+(isMain?'첫 생산 오더 · 원부자재 → 패턴·지시서 → 재단 → 출고':'2차부터의 오더 · 원부자재 → 재단 → 출고')+' · 날짜와 체크는 생산 대시보드와 같은 값이에요</span></div>';
   H+='<div class="psc-card psc-bar">'
-    +(selN?('<button class="psc-btn r" onclick="pschDropSel(\''+kind+'\')">선택한 '+selN+'건 빼기</button><button class="psc-btn" onclick="pschSelClear(\''+kind+'\')">선택 해제</button>'):'<span>줄 앞 네모를 체크하면 여러 건을 한꺼번에 뺄 수 있어요</span>')
+    +(selN?('<button class="psc-btn r" onclick="pschDropSel(\''+kind+'\')">선택한 '+selN+'건 빼기</button><button class="psc-btn" onclick="pschSelClear(\''+kind+'\')">선택 해제</button>'):'<span>줄 앞 <b style="color:#0B0A05">\u2833</b> 를 끌어서 급한 순서대로 · 네모를 체크하면 여러 건을 한꺼번에 뺄 수 있어요</span>')
     +'<span class="psc-sp"></span><span class="psc-grp">묶기'
     +'<button type="button" class="psc-chip'+(st.grp==='fc'?'':' on')+'" onclick="pschSetGrp(\''+kind+'\',\'brand\')">브랜드별</button>'
     +'<button type="button" class="psc-chip'+(st.grp==='fc'?' on':'')+'" onclick="pschSetGrp(\''+kind+'\',\'fc\')">공장별</button></span>'
+    +(all.some(function(r){return r.pri!=null;})?('<button class="psc-btn" onclick="pschPriClear(\''+kind+'\')" title="손으로 정한 순서를 지우고 오더 날짜순으로">급한 순서 지우기</button>'):'')
     +(dones.length?('<button class="psc-btn" onclick="pschToggle(\''+kind+'\',\'showDone\')">'+(st.showDone?'끝난 것 접기':('끝난 것 '+dones.length+'건 보기'))+'</button>'):'')
     +(offs.length?('<button class="psc-btn" onclick="pschToggle(\''+kind+'\',\'showOff\')">'+(st.showOff?'뺀 것 접기':('뺀 것 '+offs.length+'건 보기'))+'</button>'):'')
     +'</div>';
@@ -34433,10 +34438,13 @@ function renderPSched(kind){
       +'<th>원자재<small>발주 · 거래처 · 입고 예정 · 입고</small></th><th>부자재<small>발주 · 거래처 · 입고 예정 · 입고</small></th>'
       +(isMain?'<th>패턴<small>갈 날 · 들어감</small></th><th>지시서<small>갈 날 · 들어감</small></th>':'')
       +'<th>재단<small>예정일 · 끝남</small></th><th>출고<small>예정일 · 끝남</small></th><th>판정</th></tr>';
+    var _rk=0;
     list.forEach(function(x){
-      var r=x.r,j=x.j;
-      H+='<tr'+(j.k==='late'?' class="bad"':(r.done?' class="fin"':''))+'>'
-        +'<td class="c"><input type="checkbox"'+(st.sel[r.key]?' checked':'')+' onchange="pschSel(\''+kind+'\',\''+esc(r.key)+'\',this.checked)"></td>'
+      var r=x.r,j=x.j; if(r.pri!=null)_rk++;
+      H+='<tr'+(j.k==='late'?' class="bad"':(r.done?' class="fin"':''))+' data-psk="'+esc(r.key)+'">'
+        +'<td class="c">'+(st.flt?'':('<button type="button" class="psc-grip psc-noshot" title="끌어서 급한 순서대로" onpointerdown="pschGripStart(event,\''+kind+'\')">\u2833</button>'))
+          +(r.pri!=null?'<span class="psc-pri" title="손으로 정한 순번">'+_rk+'</span>':'')
+          +'<input type="checkbox"'+(st.sel[r.key]?' checked':'')+' onchange="pschSel(\''+kind+'\',\''+esc(r.key)+'\',this.checked)"></td>'
         +'<td class="l it"><span class="psc-nm">'+esc(r.it.name||'')+'</span>'+(r.od?'<span class="psc-od">('+esc(r.od)+')</span>':'')+(r.num>1?'<span class="psc-rd">'+r.num+'차</span>':'')
           +'<span class="psc-qty">'+(typeof num==='function'?num(r.qty):r.qty)+'장<button class="psc-x psc-noshot" onclick="pschSetOff(\''+esc(r.key)+'\',1)">빼기</button></span></td>'
         +'<td class="l"><span class="psc-fc'+(((st.grp==='fc')?r.bid:r.fcName)?'':' none')+'">'+esc((st.grp==='fc')?(((typeof getBrandName==='function')&&getBrandName(r.bid))||'미지정'):(r.fcName||'미지정'))+'</span></td>'
@@ -34466,6 +34474,48 @@ function pschSelClear(kind){ _PSCH[kind].sel={}; renderPSched(kind); }
 function _pschOffWrite(key,on){ var p=String(key).split('|'), o=S.orders[p[0]]; if(!o)return false; if(!o._prep)o._prep={}; if(!o._prep.schOff)o._prep.schOff={}; if(on)o._prep.schOff[p[1]]=1; else delete o._prep.schOff[p[1]]; return true; }
 function pschSetOff(key,on){ if(_pschOffWrite(key,on)){ saveData(); _pschRerender(); } }
 function pschDropSel(kind){ var st=_PSCH[kind], ks=Object.keys(st.sel); if(!ks.length)return; ks.forEach(function(k){ _pschOffWrite(k,1); }); st.sel={}; saveData(); renderPSched(kind); if(typeof showToast==='function')showToast(ks.length+'건 뺐어요 — 「뺀 것 보기」에서 되돌릴 수 있어요'); }
+/* 09-22d 급한 순서 — 줄 앞 ⠿ 를 끌어 같은 묶음(브랜드/공장) 안에서 순서를 바꾼다. 놓으면 그 묶음의 줄 전체에 1,2,3… 순번을 적는다(o._prep.schPri[itemId]).
+   거르는 중(숫자 상자 필터)엔 안 보이는 줄이 있어 손잡이를 숨긴다. 보내는 글도 같은 순서로 나간다. */
+var _pschDrag=null;
+function pschGripStart(e,kind){
+  if(e.button!=null&&e.button!==0)return;
+  var tr=(e.target&&e.target.closest)?e.target.closest('tr[data-psk]'):null; var tbl=tr?tr.closest('table'):null; if(!tr||!tbl)return;
+  e.preventDefault(); e.stopPropagation();
+  _pschDrag={kind:kind,tr:tr,tbl:tbl,key:tr.getAttribute('data-psk'),to:null,mark:null,sx:e.clientX,sy:e.clientY,active:false};
+  document.addEventListener('pointermove',pschGripMove,{passive:false});
+  document.addEventListener('pointerup',pschGripEnd);
+  document.addEventListener('pointercancel',pschGripEnd);
+}
+function pschGripMove(e){
+  var d=_pschDrag; if(!d)return;
+  if(!d.active){ if(Math.abs(e.clientX-d.sx)+Math.abs(e.clientY-d.sy)<6)return; d.active=true; d.tr.classList.add('psc-rdrag'); try{_dragScrollOn(d.tbl,e.clientY);}catch(_e){} }
+  e.preventDefault(); try{_dragScrollY(e.clientY);}catch(_e){}
+  var el=document.elementFromPoint(e.clientX,e.clientY), t=(el&&el.closest)?el.closest('tr[data-psk]'):null;
+  if(t&&(!d.tbl.contains(t)||t===d.tr))t=null;
+  if(d.mark&&d.mark!==t){ d.mark.classList.remove('psc-rdrop-t','psc-rdrop-b'); d.mark=null; }
+  if(t){ var rows=[].slice.call(d.tbl.querySelectorAll('tr[data-psk]')); var down=rows.indexOf(t)>rows.indexOf(d.tr); t.classList.add(down?'psc-rdrop-b':'psc-rdrop-t'); d.mark=t; d.to=t.getAttribute('data-psk'); }
+  else d.to=null;
+}
+function pschGripEnd(){
+  var d=_pschDrag; _pschDrag=null;
+  document.removeEventListener('pointermove',pschGripMove); document.removeEventListener('pointerup',pschGripEnd); document.removeEventListener('pointercancel',pschGripEnd);
+  try{_dragScrollOff();}catch(_e){}
+  if(!d)return; if(d.tr)d.tr.classList.remove('psc-rdrag'); if(d.mark)d.mark.classList.remove('psc-rdrop-t','psc-rdrop-b');
+  if(d.active&&d.to&&d.to!==d.key)pschReorder(d.kind,d.tbl,d.key,d.to);
+}
+function _pschPriWrite(key,n){ var p=String(key).split('|'), o=S.orders[p[0]]; if(!o)return; if(!o._prep)o._prep={}; if(!o._prep.schPri)o._prep.schPri={}; if(n==null)delete o._prep.schPri[p[1]]; else o._prep.schPri[p[1]]=n; }
+function pschReorder(kind,tbl,fromKey,toKey){
+  var keys=[].slice.call(tbl.querySelectorAll('tr[data-psk]')).map(function(tr){return tr.getAttribute('data-psk');});   /* 지금 화면에 보이는 그 묶음의 순서 */
+  var from=keys.indexOf(fromKey), to=keys.indexOf(toKey); if(from<0||to<0||from===to)return;
+  var k=keys.splice(from,1)[0]; keys.splice(to,0,k);
+  keys.forEach(function(x,i){ _pschPriWrite(x,i+1); });
+  saveData(); _pschRerender();
+}
+function pschPriClear(kind){
+  if(!confirm('손으로 정한 급한 순서를 지우고 오더 날짜순으로 되돌릴까요?'))return;
+  _pschRows(kind).forEach(function(r){ if(r.pri!=null)_pschPriWrite(r.key,null); });
+  saveData(); renderPSched(kind);
+}
 function pschGoPo(oid){ try{ curOTab='po'; }catch(e){} if(typeof goToOrder==='function')goToOrder(oid); }
 /* 저장 — 전부 생산 대시보드와 같은 함수 */
 function pschSupDate(el){ pdSaveSupField(el); _pschRerender(); }
