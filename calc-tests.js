@@ -608,6 +608,31 @@ TEST('문제 25. 원단 더 시키기 — 컬러마다 한 번 +2y (원단·가�
   CHECK('옷 1장마다는 가공 야드에 안 더함(예전 그대로 153)', Math.round(_tcEffPcs(tcQ, [], 60, [f], 2)*100)/100, 153);
 });
 
+// 09-21a 원단 가공비 담당 집이 원단처와 다르면 담당 집 발주서에 「가공」 카드(야드) — 신고 「가공하는집 메이드라고 해도 메이드 발주에 안뜨고」. 돈은 0(이중 계산 금지).
+TEST('문제 26. 원단 가공 담당 집 카드 — 원단 전체 재단(스트링감)', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  var f = { id:'fs', name:'H-488 줄세무', supplier:'마랑', part:'스트링감', consumption:0.15, buffer:0, unitPrice:4800,
+    colorLinks:[{ itemColor:'그레이', fabricColor:'2번 그레이' }, { itemColor:'검정', fabricColor:'13번 블랙' }] };
+  var tc = { id:'ts', fabId:'fs', name:'28mm 바이어스 재단', procKind:'바이어스 재단', factory:'메이드', costType:'perLot', costPerLot:20000, costPerPcs:0, qtyPerPiece:'', minQty:5, biasYo:'', biasYoMode:'once', biasFold:true, colorLinks:[] };
+  S.items.iS = { id:'iS', name:'스트링 팬츠', colors:['그레이','검정'], sizes:['F'], fabrics:[f], trims:[], trimCosts:[tc] };
+  var oi = [{ itemId:'iS', qtyGrid:{ '그레이':{ F:30 }, '검정':{ F:30 } } }];
+  var sups = calcSups(oi);
+  CHECK('메이드 발주서가 생긴다', !!sups['메이드'], true);
+  var pm = (sups['메이드'].materials||[])[0]||{};
+  CHECK('가공 카드 · 야드 단위 · 돈 0', [pm.type, pm.procUnit, pm.unitPrice, pm.srcName, pm.srcSupplier], ['proc','y',0,'H-488 줄세무','마랑']);
+  CHECK('컬러별 야드 = 원단 줄 발주 야드(30장×0.15=4.5 → 5y)', pm.procColors.map(function(c){ return c.colorName+' '+c.qty; }), ['2번 그레이 5','13번 블랙 5']);
+  CHECK('가공집 최소 5y 가 카드에 실린다', pm.procMin, 5);
+  CHECK('원단처(마랑) 줄은 그대로 2줄', sups['마랑'].materials.filter(function(m){ return m.type==='fabric'; }).length, 2);
+  tc.factory = '마랑';
+  CHECK('담당이 원단처와 같으면 카드 없음(원단 줄 밑 가공 줄로 나감)', !!calcSups(oi)['메이드'], false);
+  tc.factory = '메이드'; tc.qtyPerPiece = 0.1;
+  var pm2 = calcSups(oi)['메이드'].materials[0];
+  CHECK('요척을 적으면(일부만 가공) 장수×요척 = 3y', pm2.procColors.map(function(c){ return c.qty; }), [3, 3]);
+  tc.qtyPerPiece = ''; tc.biasYo = 0.1; tc.biasYoMode = 'perPcs';
+  var s3 = calcSups(oi)['메이드'].materials;
+  CHECK('「옷 1장마다 더 시키기」 줄은 예전대로 재단 발주(바이어스재단) — 가공 카드 중복 없음', s3.map(function(m){ return m.type+':'+m.name; }).filter(function(x,i,a){ return a.indexOf(x)===i; }), ['trim:바이어스재단']);
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){

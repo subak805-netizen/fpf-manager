@@ -3106,6 +3106,14 @@ function _collectInlineImages(){
     if(isData(b.logo))out.push({dataUrl:b.logo,path:'brandlogos/'+co+'/'+b.id+'_'+stamp()+'.jpg',apply:function(u){b.logo=u;}});
     if(b.refImages)Object.keys(b.refImages).forEach(function(k){if(isData(b.refImages[k]))out.push({dataUrl:b.refImages[k],path:'brandref/'+co+'/'+b.id+'_'+k+'_'+stamp()+'.jpg',apply:function(u){b.refImages[k]=u;}});});
   });
+  /* 09-21a 소재·원단 스와치(단가장 항목·직접추가 소재)가 올리기 실패로 이 기기에만(dataURL) 남은 것도 자동으로 다시 올린다 — 빠져 있어 단가장 문서에 사진이 통째로 쌓일 수 있었음 */
+  try{
+    Object.keys(S.priceBook||{}).forEach(function(sup){ var mats=(S.priceBook[sup]||{}).materials||{};
+      Object.keys(mats).forEach(function(nm){ var e=mats[nm]; if(!e||!Array.isArray(e.swatches))return;
+        e.swatches.forEach(function(v,si){ if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/pbsw/'+stamp()+'.jpg',apply:function(u){ if(e.swatches[si]===v)e.swatches[si]=u; }}); }); }); });
+    (S.matExtra||[]).forEach(function(x){ if(!x||!Array.isArray(x.swatches))return;
+      x.swatches.forEach(function(v,si){ if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/pbsw/'+stamp()+'.jpg',apply:function(u){ if(x.swatches[si]===v){ x.swatches[si]=u; x.updatedAt=Date.now(); } }}); }); });
+  }catch(e){}
   return out;
 }
 function countInlineImages(){var arr=_collectInlineImages();var bytes=0;arr.forEach(function(t){bytes+=t.dataUrl.length;});return {count:arr.length,bytes:bytes};}
@@ -4586,7 +4594,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-18r';
+var APP_BUILD=/*BUILD*/'2026-09-21a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7531,7 +7539,9 @@ function mtDelUse(u){
   list.splice(i,1); saveData(); renderMaterial(); if(window._mtCur)_mtReopen();
 }
 function _mtS(){ if(!window._mt)window._mt={kind:'all',view:'grid',q:'',use:[],status:[],sw:'',sup:[],sort:'recent'}; return window._mt; }
-function _mtKeyPB(sup,name){return 'pb:'+encodeURIComponent(sup)+'|'+encodeURIComponent(name);}
+/* 09-21a encodeURIComponent 는 ' 를 그대로 둔다 → 「30's 싱글」 같은 이름은 onclick="f('키')" 가 깨져 카드·＋사진 버튼이 아예 안 눌렸다. %27 로 바꿔 둔다(풀 때 decodeURIComponent 가 되돌림) */
+function _encQ(s){return encodeURIComponent(s==null?'':s).replace(/'/g,'%27');}
+function _mtKeyPB(sup,name){return 'pb:'+_encQ(sup)+'|'+_encQ(name);}
 function _mtParse(key){
   if(key.indexOf('ex:')===0)return {src:'ex',id:key.slice(3)};
   var b=key.slice(3).split('|');
@@ -7930,29 +7940,41 @@ function mtPickPhoto(key){
   inp.click();
 }
 function mtAddPhotos(key,files,after){
-  var r=_mtRec(key); if(!r)return;
-  var list=Array.prototype.filter.call(files,function(f){return /^image\//.test(f.type);});
+  var r=_mtRec(key);
+  if(!r){ showToast('이 소재를 단가장에서 찾지 못했어요 — 원단처·원단명이 단가장과 같은지 확인해주세요'); return; }
+  var list=Array.prototype.filter.call(files,function(f){return /^image\//.test(f.type||'')||/\.(heic|heif|jpe?g|png|webp|gif)$/i.test(f.name||'');});
   if(!list.length){showToast('이미지 파일만 올릴 수 있어요');return;}
   // 로그인(연동)돼 있을 때만 Storage로 올리고, 아니면/실패하면 dataURL로 이 기기에 저장
   var useCloud=!!(window.fbStorage&&(typeof fbUser!=='undefined')&&fbUser);
-  var ov=(typeof tpShowUp==='function')?tpShowUp('사진 올리는 중...'):null,done=0,fell=0;
+  var ov=(typeof tpShowUp==='function')?tpShowUp('사진 올리는 중...'):null,done=0,fell=0,bad=0,why='';
+  /* 09-21a 클라우드 올리기가 멈추면(네트워크·권한 재시도) 「올리는 중」이 끝없이 떠 있었다 → 작지 사진과 같이 20초 제한, 넘으면 이 기기 저장으로 */
+  var _up=function(blob,idx){
+    var _to, tmo=new Promise(function(res){ _to=setTimeout(function(){ why=why||'시간 초과'; res(null); },20000); });
+    return Promise.race([tpUpload(blob,encodeURIComponent(key)+'_'+idx+'_'+Date.now(),'swatch',false).catch(function(e){ why=why||String((e&&e.code)||(e&&e.message)||'오류'); console.warn('mt storage fail',e); return null; }),tmo])
+      .then(function(u){ clearTimeout(_to); return u; });
+  };
   var seq=Promise.resolve();
   list.forEach(function(f,idx){
     seq=seq.then(function(){
       return tpCompress(f,1600,0.86,false,useCloud).then(function(c){
         if(!useCloud)return c.dataUrl;
-        return tpUpload(c.blob,encodeURIComponent(key)+'_'+idx+'_'+Date.now(),'swatch',false)
-          .catch(function(){ fell++; return tpCompress(f,1100,0.8,false,false).then(function(c2){return c2.dataUrl;}); });
+        return _up(c.blob,idx).then(function(u){
+          if(u)return u;
+          fell++; return tpCompress(f,1100,0.8,false,false).then(function(c2){return c2.dataUrl;});
+        });
       }).then(function(url){
         if(!url)return;
         if(!Array.isArray(r.swatches))r.swatches=[];
         r.swatches.push(url); done++;
-      });
+      }).catch(function(err){ bad++; console.warn('mt photo decode',f&&f.name,err); });   /* 브라우저가 못 읽는 사진(아이폰 HEIC 등) — 그 장만 건너뛰고 나머지는 계속 */
     });
   });
   seq.then(function(){
     _mtSave(key); if(typeof tpHideUp==='function')tpHideUp(ov);
-    showToast(done?(done+'장 추가됐어요'+((!useCloud||fell)?' (이 기기에만 저장 — 연동 로그인하면 모든 기기에서 보여요)':'')):'사진을 추가하지 못했어요');
+    var msg=done?(done+'장 추가됐어요'+(fell?' (클라우드 올리기가 안 돼 이 기기에 먼저 저장 — 자동으로 다시 올려요'+(why?' · 이유: '+why:'')+')':(!useCloud?' (이 기기에만 저장 — 연동 로그인하면 모든 기기에서 보여요)':''))):'사진을 추가하지 못했어요';
+    if(bad)msg+=(done?' · ':' — ')+bad+'장은 브라우저가 못 읽는 형식(HEIC 등)이에요. JPG·PNG 로 바꿔서 올려주세요';
+    showToast(msg,(bad||fell)?7000:undefined);
+    if(fell&&typeof _scheduleImgRetry==='function'){ try{_scheduleImgRetry();}catch(e){} }
     if(typeof after==='function')after(); else _mtReopen();
   }).catch(function(err){
     if(typeof tpHideUp==='function')tpHideUp(ov);
@@ -8247,7 +8269,7 @@ function _flCardHTML(r){
   if(r.issues.length)badges+='<span class="fl-bdg iss">이슈 '+r.issues.length+'</span>';
   var tags=(e.tags||[]).slice(0,3).map(function(t){return '<span class="fl-tag">#'+esc(t)+'</span>';}).join('');
   var swInner=sw?'<img src="'+esc(sw)+'" style="width:100%;height:100%;object-fit:cover">':'';
-  return '<div class="fl-card" onclick="openFabricDetail(\''+encodeURIComponent(r.sup)+'\',\''+encodeURIComponent(r.name)+'\')">'
+  return '<div class="fl-card" onclick="openFabricDetail(\''+_encQ(r.sup)+'\',\''+_encQ(r.name)+'\')">'
     +'<div class="fl-sw">'+swInner+'</div>'
     +'<div class="fl-info"><div class="fl-nm">'+esc(r.name)+'</div><div class="fl-meta">'+esc(sub)+'</div>'
     +'<div class="fl-bdgs">'+badges+'</div><div class="fl-tags">'+tags+(price?'<span class="fl-price">'+price+'</span>':'')+'</div></div></div>';
@@ -8259,7 +8281,7 @@ function _fabSupMemo(se,key,label,val){return '<div class="fl-pn '+(key==='pros'
 function _fabDetailHTML(sup,name){
   var e=_fabE(sup,name); if(!e)return '<div style="padding:24px;text-align:center">원단을 찾을 수 없어요</div>';
   var pb=S.priceBook[sup]||{}, usage=_flUsage(sup,name), issues=e.issues||[], swatches=e.swatches||[];
-  var se=encodeURIComponent(sup), ne=encodeURIComponent(name), unit=e.pricingUnit==='kg'?'kg':'y';
+  var se=_encQ(sup), ne=_encQ(name), unit=e.pricingUnit==='kg'?'kg':'y';
   var swHtml=swatches.map(function(u,i){return '<div class="fl-dsw"><img src="'+esc(u)+'"><button onclick="fabDelSwatch(\''+se+'\',\''+ne+'\','+i+')">×</button></div>';}).join('');
   var usHtml=usage.length?usage.map(function(u){return '<a onclick="closeFabricDetail();window._bookView=\'list\';showItemForm(\''+u.id+'\')">'+esc(u.name)+(u.phase?' ('+_phLabel(u.phase)+')':'')+'</a>';}).join(''):'<span class="fl-none">아직 이 원단을 쓴 아이템이 없어요</span>';
   var isHtml=issues.length?issues.map(function(x,i){return '<div class="fl-iss"><span class="when">'+esc(x.date||'')+'</span> '+esc(x.text||'')+'<button onclick="fabDelIssue(\''+se+'\',\''+ne+'\','+i+')">×</button></div>';}).join(''):'<div class="fl-none">기록된 이슈 없음</div>';
@@ -8297,15 +8319,9 @@ function fabDelIssue(se,ne,i){var sup=decodeURIComponent(se),name=decodeURICompo
 function fabPickSwatch(se,ne){window._fabUp={se:se,ne:ne};var inp=document.getElementById('fab-file');if(!inp){inp=document.createElement('input');inp.type='file';inp.id='fab-file';inp.accept='image/*';inp.style.display='none';inp.onchange=function(){fabOnSwatch(this);};document.body.appendChild(inp);}inp.value='';inp.click();}
 function fabOnSwatch(input){
   var f=input.files&&input.files[0];if(!f||!window._fabUp)return;
-  var se=window._fabUp.se,ne=window._fabUp.ne,sup=decodeURIComponent(se),name=decodeURIComponent(ne);
-  var ov=(typeof tpShowUp==='function')?tpShowUp('스와치 올리는 중...'):null;
-  tpCompress(f,1200,0.82,false).then(function(r){
-    if(window.fbStorage)return tpUpload(r.blob,encodeURIComponent(sup+'_'+name),'swatch',false);
-    return r.dataUrl;
-  }).then(function(url){
-    var e=_fabE(sup,name);if(!e)return;e.swatches=e.swatches||[];e.swatches.push(url);savePB();
-    if(typeof tpHideUp==='function')tpHideUp(ov);_fabReopen();
-  }).catch(function(err){if(typeof tpHideUp==='function')tpHideUp(ov);showToast('스와치 업로드 실패');console.error('fab swatch',err);});
+  var sup=decodeURIComponent(window._fabUp.se),name=decodeURIComponent(window._fabUp.ne);
+  /* 09-21a 예전엔 로그인 안 됐거나 클라우드 올리기가 실패하면 「스와치 업로드 실패」로 끝(사진 안 붙음) → 소재 탭과 같은 길로(20초 제한·이 기기 저장 폴백) */
+  mtAddPhotos(_mtKeyPB(sup,name),[f],function(){ _fabReopen(); });
 }
 function fabDelSwatch(se,ne,i){var sup=decodeURIComponent(se),name=decodeURIComponent(ne),e=_fabE(sup,name);if(!e||!e.swatches)return;e.swatches.splice(i,1);savePB();_fabReopen();}
 function _flEnsureStyle(){
@@ -15105,7 +15121,8 @@ function trimCostRowHTML(tc,i){
     const _yoLine=(mode==='perPcs'||mode==='tier')
       ?'<div class="tcf-line"><span class="tcf-lab">요척</span><input class="tcl-amt tcf-yo'+(_own?' own':'')+'" data-f="tcQpp" type="number" min="0" step="0.01" value="'+(_own?tc.qtyPerPiece:'')+'" placeholder="'+(_fyo>0?(Math.round(_fyo*100)/100):'1')+'" title="비우면 원단 요척 그대로 · 바이어스처럼 원단 일부만 가공할 때만 적어요" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">y</span><span class="tcf-hint">'+(_fyo>0?'비우면 원단 요척 '+(Math.round(_fyo*100)/100)+'y 그대로':'원단 카드에 요척을 적으면 따라와요')+' · 일부만 가공할 때만 적기</span>'
         +'<span class="tcf-lab" style="margin-left:6px">가공집 최소</span><input class="tcl-amt" data-f="tcMinQty" type="number" min="0" step="0.01" value="'+(tc.minQty!=null&&tc.minQty!==''?tc.minQty:'')+'" placeholder="없음" title="이 야드 아래로는 안 받는 가공집만 적어요 (예: 5야드 미만 안 받음)" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">y</span></div>'
-      :'';
+      /* 09-21a 컬러별·한번에(정액)에서도 적을 수 있게 — 금액은 정액이라 안 바뀌고, 발주서 가공 줄에 「최소 N y」로만 나간다(요청 「컬러별에는 안나오네」) */
+      :'<div class="tcf-line"><span class="tcf-lab">가공집 최소</span><input class="tcl-amt" data-f="tcMinQty" type="number" min="0" step="0.01" value="'+(tc.minQty!=null&&tc.minQty!==''?tc.minQty:'')+'" placeholder="없음" title="이 야드 아래로는 안 받는 가공집만 적어요 (예: 5야드 미만 안 받음)" oninput="colTrimCosts()"><span class="tcl-u">y</span><span class="tcf-hint">정액이라 금액은 그대로 · 발주서 가공 줄에 「최소 ○y」로 나가요</span></div>';
     const _by=+tc.biasYo||0, _bym=(tc.biasYoMode==='once')?'once':'perPcs';
     const _bySegs=[['perPcs','옷 1장마다'],['once','컬러마다 한 번']].map(function(x){return '<button type="button" class="tcf-seg'+(_bym===x[0]?' on':'')+'" onclick="setTcBiasYoMode('+i+',\''+x[0]+'\')">'+x[1]+'</button>';}).join('');
     return `<div class="tcl-row tcf-row" id="tc-${i}" data-tcid="${tc.id}" data-fab="1">
@@ -15133,7 +15150,7 @@ function trimCostRowHTML(tc,i){
   const _qppLineT=(mode==='perPcs'||mode==='tier')
     ?'<div class="tcf-line"><span class="tcf-lab">옷 1장에</span><input class="tcl-amt tcf-yo'+(_ownT?' own':'')+'" data-f="tcQpp" type="number" min="0" step="0.01" value="'+(_ownT?tc.qtyPerPiece:'')+'" placeholder="'+_qppT+'" title="옷 1장에 이 가공이 몇 개 붙나 — 비우면 부자재의 벌당 개수 (스트링 2개면 2)&#10;원자재 필요량에도 같이 곱해져요" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">개</span><span class="tcf-hint">비우면 부자재 벌당 개수 '+_qppT+'개 그대로</span>'
       +'<span class="tcf-lab" style="margin-left:6px">가공집 최소</span><input class="tcl-amt" data-f="tcMinQty" type="number" min="0" step="0.01" value="'+(tc.minQty!=null&&tc.minQty!==''?tc.minQty:'')+'" placeholder="없음" title="이 개수 아래로는 안 받는 가공집만 적어요" oninput="colTrimCosts();tclRecost(this)"><span class="tcl-u">개</span></div>'
-    :'';
+    :'<div class="tcf-line"><span class="tcf-lab">가공집 최소</span><input class="tcl-amt" data-f="tcMinQty" type="number" min="0" step="0.01" value="'+(tc.minQty!=null&&tc.minQty!==''?tc.minQty:'')+'" placeholder="없음" title="이 개수 아래로는 안 받는 가공집만 적어요" oninput="colTrimCosts()"><span class="tcl-u">개</span><span class="tcf-hint">정액이라 금액은 그대로 · 발주서 가공 줄에 「최소 ○개」로 나가요</span></div>';
   return`<div class="tcl-row tcf-row" id="tc-${i}" data-tcid="${tc.id}">
     <input type="hidden" data-f="costType" value="${mode}">
     <div class="tcf-sec"><div class="tcf-hd">누가 · 무슨 가공<button class="tcl-x" type="button" onclick="rmTrimCostRow(${i})" title="이 가공비 줄 지우기">×</button></div>
@@ -16672,7 +16689,8 @@ function calcSups(orderItems,opts){
           }
           // 담당 업체가 원단처와 다르면 그쪽엔 «재단 발주»만 — 원단값 0 · 공임 0 (공임은 가공비 줄이 결제·원장에서 집계)
           const _bfc=String(tc.factory||'').trim();
-          if(_bfc&&_bfc!==String(f.supplier||'').trim()){
+          /* 09-21a 「컬러마다 한 번」(합포 여유 등)은 원단 전체가 그 가공을 거치는 경우 → 아래 「원단 가공 담당 집 카드」가 전체 야드로 낸다(여기서 +2y 만 따로 내면 틀림) */
+          if(_bfc&&_bfc!==String(f.supplier||'').trim()&&tc.biasYoMode!=='once'){
             if(!sups[_bfc])sups[_bfc]=mkSupWithDefaults(_bfc);
             sups[_bfc].materials.push({type:'trim',orderType:'bias',name:'바이어스재단',displayName:'바이어스재단',
               fabricSource:(f.name||'')+(f.supplier?(' ('+f.supplier+')'):''),
@@ -16766,6 +16784,36 @@ function calcSups(orderItems,opts){
       const _pc=_cols.map(function(c){ var lk=(_tr.colorLinks||[]).find(function(l){return l.itemColor===c;}); return {itemColor:c,colorName:(lk&&lk.colorName)||c,qty:Math.round((effColorQtys[c]||0)*_qpp)}; });
       const _nm=String(tc.name||'가공').trim();
       sups[_fac].materials.push({type:'proc',name:_nm,displayName:_nm,procKind:tc.procKind||'',tcId:tc.id,itemId:oi.itemId,itemName:it.name,srcName:_tr.name||'',srcSupplier:_ts,
+        procMode:_mode,procFee:+(_mode==='tier'?tc.tierOver:(_mode==='perPcs'?tc.costPerPcs:tc.costPerLot))||0,procColors:_pc,unitPrice:0,colorName:''});
+    }
+    /* 2026-09-21a 원단 가공비(tc.fabId)도 담당 집이 원단처와 다르면 → 담당 집 발주서에 「가공」 카드.
+       신고 「가공하는집 메이드라고 해도 메이드 발주에 안뜨고」 — 예전엔 「원단 더 시키기」 야드를 적었을 때만 재단 발주(바이어스재단 줄)가 나가서,
+       원단 전체를 재단 보내는 경우(스트링감 등)는 담당 집 발주서 어디에도 안 떴다.
+       야드 = 요척 비움(원단 전체 가공)이면 그 원단 컬러 줄의 발주 야드 / 요척 적었으면 장수×요척(+컬러마다 한 번 더 시킨 야드).
+       돈은 0 — 가공비는 원가·가공비 결제 줄에서 이미 집계(이중 계산 금지). 「옷 1장마다 더 시키기」 줄은 위 재단 발주 길 그대로. */
+    for(const tc of (it.trimCosts||[])){
+      if(!tc||!tc.fabId)continue;
+      if(+tc.biasYo>0&&tc.biasYoMode!=='once')continue;
+      const _pf=(it.fabrics||[]).find(function(x){return x&&x.id===tc.fabId;}); if(!_pf||!_pf.supplier)continue;
+      const _fac=String(tc.factory||'').trim(), _fs=String(_pf.supplier||'').trim();
+      if(!_fac||_fac===_fs)continue;
+      let _fm=((sups[_pf.supplier]||{}).materials||[]).filter(function(m){return m&&m.type==='fabric'&&m.fabId===tc.fabId&&m.itemId===oi.itemId&&!m.isBiasCut;});
+      const _mode=tc.costType||'perPcs';
+      if(_mode==='perLot'&&typeof tcEffColors==='function'){ const _ec=tcEffColors(tc,it.trims,_fm.map(function(m){return m.colorName;})); _fm=_fm.filter(function(m){return _ec.indexOf(m.colorName)>=0;}); }
+      if(!_fm.length)continue;
+      const _own=(tc.qtyPerPiece!==''&&tc.qtyPerPiece!=null&&+tc.qtyPerPiece>0);
+      const _once=(typeof _tcBiasOnceYd==='function')?_tcBiasOnceYd(tc):0;
+      const _pc=[], _ix={};
+      _fm.forEach(function(m){
+        const cn=m.fabricColor||m.colorName||'';
+        const yd=_own?(Math.round((+m.garmentPcs||0)*(+tc.qtyPerPiece)*100)/100+_once):((+m.totalYards||0)+(tc.biasFold===false?_once:0));
+        if(_ix[cn]==null){ _ix[cn]=_pc.length; _pc.push({itemColor:m.colorName,colorName:cn,qty:0}); }
+        _pc[_ix[cn]].qty=Math.round((_pc[_ix[cn]].qty+yd)*100)/100;
+      });
+      if(!sups[_fac])sups[_fac]=mkSupWithDefaults(_fac);
+      const _nm=String(tc.name||tc.procKind||'가공').trim();
+      sups[_fac].materials.push({type:'proc',name:_nm,displayName:_nm,procKind:tc.procKind||'',tcId:tc.id,fabId:tc.fabId,itemId:oi.itemId,itemName:it.name,srcName:_pf.name||'',srcSupplier:_fs,
+        procUnit:'y',procMin:+tc.minQty||0,procSpec:String(tc.biasSpec||'').trim(),part:_pf.part||'',
         procMode:_mode,procFee:+(_mode==='tier'?tc.tierOver:(_mode==='perPcs'?tc.costPerPcs:tc.costPerLot))||0,procColors:_pc,unitPrice:0,colorName:''});
     }
   }return sups;
@@ -17200,7 +17248,7 @@ function _poFabProcNotes(g,sup){
       var mode=tc.costType||'perPcs';
       if((mode==='perPcs'||mode==='tier')&&(+(mode==='tier'?tc.tierOver:tc.costPerPcs)||0))return;
       var _nm=(tc.name||'').trim(),_kd=(tc.procKind||'').trim();
-      if(_kd&&_nm.replace(/\s+/g,'')===_kd.replace(/\s+/g,''))_kd='';
+      if(_kd&&_nm.replace(/\s+/g,'').indexOf(_kd.replace(/\s+/g,''))>=0)_kd='';
       var lbl=[_nm,_kd,(tc.biasSpec||'').trim()].filter(Boolean).join(' ')||'가공';
       var fee=(mode==='perLot'||mode==='once')?(+tc.costPerLot||0):0;
       var line=(tc._fabAdd?'가산: ':'가공: ')+lbl+(fee?(' ('+num(fee)+'원'+(mode==='perLot'?' · 컬러당':' · 한번에')+')'):'');
@@ -17244,7 +17292,7 @@ function _poProcBlocks(g,sup){
       if(!fee)return;
       /* 이름과 종류가 사실상 같으면(「스트링 제작」/「스트링제작」) 한 번만 */
       var _nm=(tc.name||'').trim(), _kd=(tc.procKind||'').trim();
-      if(_kd&&_nm.replace(/\s+/g,'')===_kd.replace(/\s+/g,''))_kd='';
+      if(_kd&&_nm.replace(/\s+/g,'').indexOf(_kd.replace(/\s+/g,''))>=0)_kd='';
       var hdr=[_nm,_kd,(tc.biasSpec||'').trim()].filter(Boolean).join(' ');
       if(!hdr)hdr='가공';
       var key=tc.id||hdr;
@@ -17474,7 +17522,7 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
         /* 가공비 줄(tcId)에서 온 재단 발주면 공임은 그 줄의 청구방식대로 (2026-09-04l: 옛 f.bias 대체) */
         try{ var _itB=S.items[bg.itemId], _tcB=(bg.tcId&&_itB&&(_itB.trimCosts||[]).find(function(x){return x&&x.id===bg.tcId;}))||null;
           if(_tcB){ var _mB=_tcB.costType||'perPcs'; _bFee=(_mB==='perLot'||_mB==='once')?(+_tcB.costPerLot||0):(_mB==='tier'?(+_tcB.tierOver||0):(+_tcB.costPerPcs||0));
-            _bFeeLbl=(_mB==='perLot')?'컬러당':(_mB==='once'?'한번에':'y당'); if((_mB==='perPcs'||_mB==='tier')&&+_tcB.minQty>0)_bFeeLbl+=' · 최소 '+num(+_tcB.minQty)+'y'; } }catch(e){}
+            _bFeeLbl=(_mB==='perLot')?'컬러당':(_mB==='once'?'한번에':'y당'); if(+_tcB.minQty>0)_bFeeLbl+=' · 최소 '+num(+_tcB.minQty)+'y'; } }catch(e){}
         var _bAt=showPrice?(_bFee?('@'+num(_bFee)+'원 · '+_bFeeLbl):_poAtGroup(bg.colors)):''; if(_bAt)L.push(_bAt);
         let biasTot=0;
         // 같은 출력 컬러(colorName)끼리 합치기 — 아이템 컬러만 다르고 자재색 같으면 한 줄로 (수량은 합)
@@ -18039,12 +18087,16 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
   /* 2026-09-15f 가공 담당 집 발주서 — 「가공: 이름 (금액)」 + 어디서 받은 자재 + 컬러 */
   if(_procs.length){
     _procs.forEach(function(pm){
-      var _kd=String(pm.procKind||'').trim(); if(_kd&&_kd.replace(/\s+/g,'')===String(pm.name||'').replace(/\s+/g,''))_kd='';
-      var hdr=[pm.name,_kd].filter(Boolean).join(' ');
-      var _ft=(showPrice&&+pm.procFee>0)?(' ('+num(+pm.procFee)+'원'+(pm.procMode==='perLot'?' · 컬러당':(pm.procMode==='once'?' · 한번에':' · 개당'))+')'):'';
-      L.push('가공: '+hdr+_ft);
-      if(pm.srcName)L.push('('+pm.srcName+(pm.srcSupplier?(' — '+pm.srcSupplier+'에서 받음'):'')+')');
-      (pm.procColors||[]).forEach(function(c){ L.push('#'+(c.colorName||c.itemColor||'')+(((pm.procMode==='perPcs'||pm.procMode==='tier')&&c.qty)?(' - '+num(c.qty)+'개'):'')); });
+      var _kd=String(pm.procKind||'').trim(); if(_kd&&String(pm.name||'').replace(/\s+/g,'').indexOf(_kd.replace(/\s+/g,''))>=0)_kd='';   /* 이름에 종류가 이미 들어 있으면 한 번만(「28mm 바이어스 재단 바이어스 재단」) */
+      var _isY=(pm.procUnit==='y');   /* 09-21a 원단 가공 카드 = 야드 · 방식 상관없이 컬러별 야드를 적는다(받는 집이 몇 야드 오는지 알아야 함) */
+      var hdr=[pm.name,_kd,(_isY?(pm.procSpec||''):'')].filter(Boolean).join(' ');
+      var _ft=(showPrice&&+pm.procFee>0)?(' ('+num(+pm.procFee)+'원'+(pm.procMode==='perLot'?' · 컬러당':(pm.procMode==='once'?' · 한번에':(_isY?' · 야드당':' · 개당')))+')'):'';
+      var _pTot=0; (pm.procColors||[]).forEach(function(c){ _pTot+=(+c.qty||0); }); _pTot=Math.round(_pTot*100)/100;
+      var _pMin=(_isY&&+pm.procMin>0&&_pTot<+pm.procMin)?(' · 최소 '+(Math.round(+pm.procMin*100)/100)+'y (합계 '+_pTot+'y)'):'';
+      L.push('가공: '+hdr+_ft+_pMin);
+      if(pm.srcName)L.push('('+(_isY&&pm.part?(pm.part+' · '):'')+pm.srcName+(pm.srcSupplier?(' — '+pm.srcSupplier+'에서 받음'):'')+')');
+      (pm.procColors||[]).forEach(function(c){ L.push('#'+(c.colorName||c.itemColor||'')+(_isY?(c.qty?(' - '+(Math.round(c.qty*100)/100)+'y'):''):(((pm.procMode==='perPcs'||pm.procMode==='tier')&&c.qty)?(' - '+num(c.qty)+'개'):''))); });
+      if(_isY&&(pm.procColors||[]).length>1&&_pTot>0)L.push('합계 '+_pTot+'y');
       L.push('');
     });
   }
