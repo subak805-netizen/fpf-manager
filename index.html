@@ -4594,7 +4594,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-21g';
+var APP_BUILD=/*BUILD*/'2026-09-21h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -16605,7 +16605,7 @@ function _ensureOrderLossRaw(o){
     var it=S.items[oi.itemId];if(!it)return;
     if(!o.loss[oi.itemId])o.loss[oi.itemId]={};
     var L=o.loss[oi.itemId];
-    (it.fabrics||[]).forEach(function(f){if(f&&f.id&&L[f.id]===undefined)L[f.id]=(f.buffer!=null&&f.buffer!==''?+f.buffer:FLP);});
+    (it.fabrics||[]).forEach(function(f){if(f&&f.id&&L[f.id]===undefined)L[f.id]=0;});   /* 09-21h 원단도 새 발주서는 항상 0% (요청 「단추랑 라벨 말고는 무조건 0%」). 예전엔 아이템 카드 원단 로스가 따라왔음. 이미 만든 발주서 값은 그대로, 필요하면 발주서에서 바꿈 */
     (it.trims||[]).forEach(function(t){if(t&&t.id&&L[t.id]===undefined){if(t.orderType==='careLabel'||t.orderType==='mainLabel'){L[t.id]=(t.qtyBuffer!==undefined&&t.qtyBuffer!==''?+t.qtyBuffer:10)+'a';}else{L[t.id]=0;}}});   /* 09-17o: 부자재 로스 기본 0% 고정(사용자 요청). 예전엔 카드 로스(자동 2%)가 따라와 발주서마다 「기본 0%」를 눌러야 했음. 발주서에서 %·벌치·+개로 바꾸면 그 값 유지 */
   });
 }
@@ -20098,7 +20098,13 @@ function lossMatType(it,matId){
 function setOrderLoss(oid,itemId,matId,m,v){var o=S.orders[oid];if(!o)return;if(!o.loss)o.loss={};if(!o.loss[itemId])o.loss[itemId]={};o.loss[itemId][matId]=lossEnc(m,v);saveData();if(typeof renderOTab==='function')renderOTab();}
 function setOrderLossMode(oid,itemId,matId,m){var o=S.orders[oid];var cur=lossParse(((o.loss&&o.loss[itemId])||{})[matId]);setOrderLoss(oid,itemId,matId,m,cur.v);}
 function setOrderLossVal(oid,itemId,matId,v){var o=S.orders[oid];var cur=lossParse(((o.loss&&o.loss[itemId])||{})[matId]);setOrderLoss(oid,itemId,matId,cur.m,v);}
-function lossPresets(){try{var p=JSON.parse(localStorage.getItem('fpm_lossPresets'));if(Array.isArray(p))return p;}catch(e){}return [{name:'기본 5%',m:'pct',v:5,t:'all'},{name:'라벨 +10개',m:'add',v:10,t:'label'},{name:'단추 1벌치',m:'set',v:1,t:'button'}];}
+function lossPresets(){
+  var p=null; try{p=JSON.parse(localStorage.getItem('fpm_lossPresets'));}catch(e){}
+  if(!Array.isArray(p))return [{name:'기본 0%',m:'pct',v:0,t:'all'},{name:'라벨 +10개',m:'add',v:10,t:'label'},{name:'단추 1벌치',m:'set',v:1,t:'button'}];
+  /* 09-21h 요청 「기본 5% 없애고싶어」 — 프리셋은 기기마다 저장(localStorage)이라 기기마다 한 번만 지운다. 나중에 직접 다시 만들면 그건 안 지움 */
+  try{ if(!localStorage.getItem('fpm_lp_no5')){ localStorage.setItem('fpm_lp_no5','1'); var q=p.filter(function(x){return !(x&&(x.m||'pct')==='pct'&&+x.v===5&&(x.t||'all')==='all');}); if(q.length!==p.length){ p=q; saveLossPresets(p); } } }catch(e){}
+  return p;
+}
 function saveLossPresets(a){try{localStorage.setItem('fpm_lossPresets',JSON.stringify(a));}catch(e){}}
 function _lossMatSup(it,mid){var f=(it.fabrics||[]).find(function(x){return x&&x.id===mid;});if(f)return String(f.supplier||'').trim();var tr=(it.trims||[]).find(function(x){return x&&x.id===mid;});return tr?String(tr.supplier||'').trim():'';}
 function applyLossPreset(oid,idx,snOpt){var o=S.orders[oid];if(!o)return;var ps=lossPresets()[idx];if(!ps)return;if(!o.loss)o.loss={};var _snF=snOpt?String(snOpt).replace(/\s*\(추가발주\)\s*$/,'').trim():'';(o.orderItems||[]).forEach(function(oi){var it=S.items[oi.itemId];if(!it)return;if(!o.loss[oi.itemId])o.loss[oi.itemId]={};[].concat((it.fabrics||[]).map(function(f){return f.id;}),(it.trims||[]).map(function(t){return t.id;})).forEach(function(mid){if(!mid)return;if(_snF&&_lossMatSup(it,mid)!==_snF)return; /* 2026-09-11l 카드 안 프리셋 = 그 거래처 자재만 */var ty=lossMatType(it,mid);if(ps.t==='all'||ps.t===ty)o.loss[oi.itemId][mid]=lossEnc(ps.m,ps.v);});});saveData();if(typeof renderOTab==='function')renderOTab();showToast('"'+ps.name+'" 적용됨'+(_snF?' ('+_snF+')':''));}

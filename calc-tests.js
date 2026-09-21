@@ -633,6 +633,21 @@ TEST('문제 26. 원단 가공 담당 집 카드 — 원단 전체 재단(스트
   CHECK('「옷 1장마다 더 시키기」 줄은 예전대로 재단 발주(바이어스재단) — 가공 카드 중복 없음', s3.map(function(m){ return m.type+':'+m.name; }).filter(function(x,i,a){ return a.indexOf(x)===i; }), ['trim:바이어스재단']);
 });
 
+// 09-21h 새 발주서의 로스 기본값 — 단추·라벨 말고는 전부 0% (원단은 카드에 로스가 적혀 있어도 0). 이미 값이 있는 발주서는 안 건드림.
+TEST('문제 27. 새 발주서 로스 기본 — 원단·부자재 0% / 라벨 +개 / 있던 값 보존', function(){
+  S = { items:{}, orders:{}, factories:{}, priceBook:{}, brands:[] };
+  S.items.iL = { id:'iL', name:'로스 시험', colors:['검정'], sizes:['F'],
+    fabrics:[{ id:'lf1', supplier:'원단처', name:'원단', consumption:1, buffer:3, unitPrice:1000 }, { id:'lf2', supplier:'원단처', name:'안감', consumption:1, buffer:5, unitPrice:500 }],
+    trims:[{ id:'lt1', supplier:'메이드', name:'융TC', orderType:'yard', consumptionPerPiece:0.42, buffer:2, unitPrice:2400 },
+           { id:'lt2', supplier:'하나라벨', name:'케어라벨', orderType:'careLabel', qtyBuffer:10, unitPrice:50 }] };
+  var o = { id:'oL', orderItems:[{ itemId:'iL', qtyGrid:{ '검정':{ F:40 } } }], suppliers:{}, loss:{ iL:{ lf2:7 } } };
+  _ensureOrderLossRaw(o);
+  CHECK('원단: 카드 로스 3%여도 새 발주서는 0', o.loss.iL.lf1, 0);
+  CHECK('이미 있던 값(7)은 그대로', o.loss.iL.lf2, 7);
+  CHECK('부자재 0', o.loss.iL.lt1, 0);
+  CHECK('라벨은 +10개', o.loss.iL.lt2, '10a');
+});
+
 // ---- 결과 ----
 print('');
 if(_fails.length){
