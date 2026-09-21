@@ -4602,7 +4602,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-22l';
+var APP_BUILD=/*BUILD*/'2026-09-22m';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -35174,9 +35174,19 @@ function _scSizeRows(it,rr){
   return _scSizeAuto(it,pick.src,pick.sz);
 }
 /* 골라둔 게 없을 때 «값이 가장 많이 적힌» 지시서·사이즈를 찾아준다 — 빈 표가 뜨는 걸 막는다 */
+/* 09-22m 신고 「지시사항이 자꾸 2차 샘플에서 안 오고 1차에서 와」 — 코멘트 N차는 작지 샘플·패턴 N차와 짝(09-02 결정)인데,
+   치수 출처는 «값이 가장 많이 적힌 시트»를 골라서 같은 칸 수면 앞쪽(지시서·1차)이 이겼다. → 같은 번호 회차에 값이 있으면 그걸 먼저 쓴다. */
+function _scPairSpec(it,rr){
+  try{ var d=(it&&it.techpack)||{}, rs=Array.isArray(d.spatRounds)?d.spatRounds:(d.spat?['spat']:[]);
+    var no=+(rr&&rr.n)||0, k=rs[no-1]; if(!k)return null;
+    var bz='',bn=0; _scSizes(it).forEach(function(z){ var n=_scSpecCnt(it,k,z); if(n>bn){bn=n;bz=z;} });
+    return bn?{src:k,sz:bz,n:bn,no:no}:null;
+  }catch(e){ return null; }
+}
 function _scBestSpec(it,rr){
   var srcs=_scSpecSources(it), szs=_scSizes(it);
   if(rr&&rr.sizeSrc)return {src:rr.sizeSrc,sz:rr.sizeSz||szs[0]};
+  var _pr=_scPairSpec(it,rr); if(_pr)return _pr;
   var best={src:(srcs[0]&&srcs[0].k)||'sew',sz:szs[0],n:-1};
   srcs.forEach(function(s){ szs.forEach(function(z){
     var n=_scSpecCnt(it,s.k,z);
@@ -35256,6 +35266,7 @@ function scSizeMove(id,ri,i,dir){
 function _scSizeWrite(id,ri,arr){
   var it=S.items[id]; if(!it)return;
   var a=_scRounds(it).slice(); var rr=a[ri]; if(!rr)return;
+  if(!rr.sizeSrc&&!(Array.isArray(rr.size)&&rr.size.length)){ try{ var _pk=_scBestSpec(it,rr); if(_pk&&_pk.src){ rr.sizeSrc=_pk.src; rr.sizeSz=_pk.sz; } }catch(e){} }   /* 09-22m */
   rr.size=arr; _scWrite(it,a);
 }
 /* 사이즈 표에서 Tab = **아래 줄 같은 칸**으로 (옆으로 안 감).
@@ -35651,9 +35662,14 @@ function _scSizeTableHTML(it,rr,_id,ri){
   var H='';
   var srows=_scSizeRows(it,rr);
     var _pk=_scBestSpec(it,rr);
-    H+='<div class="sc-a4-sec">사이즈 체크리스트 <span class="hint">차이 = 실측 − 지시 (자동)'
-      +(srows.length?(' · '+esc(_scSrcLbl(it,_pk.src))+' · '+esc(_pk.sz)):'')+'</span>'
-      +'<button class="sc-gb tp-editonly" onclick="scSizeReload(\''+_id+'\','+ri+')" title="어느 지시서의 치수를 가져올지 고릅니다">불러오기</button></div>';
+    var _stored=(typeof _scSize==='function')&&_scSize(rr).length>0, _pair=_scPairSpec(it,rr);
+    var _srcTxt=!srows.length?'':((_stored&&!rr.sizeSrc)?' · 저장된 표':(' · '+esc(_scSrcLbl(it,_pk.src))+' · '+esc(_pk.sz)));
+    /* 이미 저장된 표가 다른 시트(지시서·1차)에서 온 것이면 같은 번호 회차 치수로 한 번에 바꾸는 버튼 — 적어 둔 실측은 그대로(scSizeTake) */
+    var _pairBtn=(_pair&&_stored&&(rr.sizeSrc||'')!==_pair.src)
+      ?('<button class="sc-gb tp-editonly" style="color:#0f766e;border-color:#99f6e4" onclick="scSizeTake(\''+_id+'\','+ri+',\''+_pair.src+'\',\''+esc(_pair.sz).replace(/'/g,"\\'")+'\')" title="패턴·지시 값을 작지 샘플·패턴 '+_pair.no+'차 치수로 바꿉니다. 적어 둔 실측은 그대로예요">샘플·패턴 '+_pair.no+'차 치수로</button>'):'';
+    H+='<div class="sc-a4-sec">사이즈 체크리스트 <span class="hint">차이 = 실측 − 지시 (자동)'+_srcTxt+'</span>'
+      +_pairBtn
+      +'<button class="sc-gb tp-editonly"'+(_pairBtn?' style="margin-left:6px"':'')+' onclick="scSizeReload(\''+_id+'\','+ri+')" title="어느 지시서의 치수를 가져올지 고릅니다">불러오기</button></div>';
     var _cols=_scColors(it); var _multi=_cols.length>=2; var _nc=_multi?_cols.length:1;
     var _wName=_multi?24:32, _wPat=_multi?9:14, _wGive=_multi?9:16, _wM=_multi?Math.max(7,Math.floor(52/_nc)):16, _wD=_multi?Math.max(6,Math.floor(40/_nc)):14;
     var _ctrlW='58px';
