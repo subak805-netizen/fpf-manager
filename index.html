@@ -4598,7 +4598,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-22a';
+var APP_BUILD=/*BUILD*/'2026-09-22b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -20032,7 +20032,12 @@ function _refreshOrderSuppliersRaw(o){
   try{fresh=calcSups(o.orderItems);}catch(e){console.error('[refreshOrderSuppliers]',e);return;}
   if(!fresh)return;
   // 3-b) 안전장치: 거래처가 사라지거나, 원단처의 원단이 통째로 사라지면 교체 취소
-  var origSupCount=Object.keys(o.suppliers).length;
+  /* ★09-22b 「(추가발주)」 카드는 세지 않는다. 재계산(calcSups)엔 그 이름이 원래 없어서, 추가발주 카드가 하나라도 생긴 오더는
+     여기서 «거래처 누락»으로 걸려 재계산이 매번 취소됐다 → 미발송 카드에 옛 컬러 줄이 그대로 남음
+     (신고 09-22: 심지 「#그레이 - 0롤 (필요수량 0y)」 · 발송취소해도 추가발주 카드가 원래 카드로 안 합쳐짐). */
+  var _isSplitSn=function(x){ return / \(추가발주\)$/.test(String(x||'')); };
+  var _isFrozenSt=function(st){ return st==='sent'||st==='shipped'||st==='arrived'; };
+  var origSupCount=Object.keys(o.suppliers).filter(function(x){return !_isSplitSn(x);}).length;
   var freshSupCount=Object.keys(fresh).length;
   if(freshSupCount<origSupCount){
     console.warn('[refreshOrderSuppliers] 거래처 누락 감지 — 교체 취소',{origSupCount,freshSupCount});
@@ -20040,6 +20045,7 @@ function _refreshOrderSuppliersRaw(o){
   }
   // 각 거래처: 원단/부자재가 있었는데 통째로 사라지면 취소 (중복 제거로 인한 감소는 허용)
   for(const sn in o.suppliers){
+    if(_isSplitSn(sn))continue;
     var hadFab=(o.suppliers[sn].materials||[]).some(function(m){return m.type==='fabric';});
     var hadTrim=(o.suppliers[sn].materials||[]).some(function(m){return m.type==='trim';});
     var hasFab=fresh[sn]&&(fresh[sn].materials||[]).some(function(m){return m.type==='fabric';});
@@ -20061,7 +20067,41 @@ function _refreshOrderSuppliersRaw(o){
     }
   }
   // ★발송된 거래처는 동결 — 재계산 결과로 덮지 않음 (실제 발주한 수량 그대로 보존)
-  for(const _sSn in o.suppliers){ if(o.suppliers[_sSn]&&o.suppliers[_sSn].status==='sent')fresh[_sSn]=o.suppliers[_sSn]; }
+  var _freshCalc={}; for(const _fk in fresh){ _freshCalc[_fk]=(fresh[_fk].materials||[]).slice(); }
+  for(const _sSn in o.suppliers){ if(_isSplitSn(_sSn))continue; if(o.suppliers[_sSn]&&_isFrozenSt(o.suppliers[_sSn].status))fresh[_sSn]=o.suppliers[_sSn]; }   /* 09-22b 출고·입고 상태도 같이 고정(도미노·동기화와 같은 기준) */
+  /* 09-22b 「(추가발주)」 카드 정리
+     · 원래 카드가 굳어 있으면(발송·출고·입고) → 추가발주 카드 = 최신 계산 중 «원래 카드에 없는 줄» (미발송일 때만 새로 계산, 보낸 추가발주 카드는 그대로)
+     · 원래 카드가 미발송이면(발송취소 포함) → 그 줄들은 원래 카드에 들어 있으므로 추가발주 카드를 없앤다(적어 둔 실제 발주·협상가·발주안함은 원래 카드로 옮김)
+       — 사용자 요청 「추가에 안 생기고 메이드 원래 카드에 하고 싶은데」: 원래 카드 「발송취소」 → 한 카드로 합쳐짐 */
+  for(const _xSn in o.suppliers){
+    if(!_isSplitSn(_xSn))continue;
+    const _base=_xSn.replace(/ \(추가발주\)$/,''), _sp=o.suppliers[_xSn]; if(!_sp)continue;
+    const _main=fresh[_base], _mainFz=!!(_main&&_isFrozenSt(_main.status)), _spFz=_isFrozenSt(_sp.status);
+    const _kOf=function(m){ return (typeof _poMatKey==='function')?_poMatKey(m):[m.type,m.name,m.colorName,m.itemId,m.part,m.fabId].join('|'); };
+    if(_spFz){   /* 이미 보낸 추가발주 카드 — 그대로. 원래 카드가 미발송이면 같은 줄이 두 번 나가지 않게 원래 카드에서 뺀다 */
+      fresh[_xSn]=_sp;
+      if(_main&&!_mainFz){ const _ks={}; (_sp.materials||[]).forEach(function(m){ if(m)_ks[_kOf(m)]=1; }); _main.materials=(_main.materials||[]).filter(function(m){ return !_ks[_kOf(m)]; }); }
+      continue;
+    }
+    if(_mainFz){
+      const _fz={}; (_main.materials||[]).forEach(function(m){ if(m)_fz[_kOf(m)]=1; });
+      const _old={}; (_sp.materials||[]).forEach(function(m){ if(m)_old[_kOf(m)]=m; });
+      const _nm=(_freshCalc[_base]||[]).filter(function(m){ return m&&!_fz[_kOf(m)]; });
+      _nm.forEach(function(m){ const om=_old[_kOf(m)]; if(!om)return;   /* 추가발주 카드에 적어 둔 값 보존 */
+        if(om.actualOrderedQty!==undefined&&om.actualOrderedQty!=='')m.actualOrderedQty=om.actualOrderedQty;
+        if(om.actualOrderedYards!==undefined&&om.actualOrderedYards!=='')m.actualOrderedYards=om.actualOrderedYards;
+        if(om.negotiatedPrice!==undefined&&om.negotiatedPrice!==''&&!om.negoFromPB)m.negotiatedPrice=om.negotiatedPrice; });
+      if(_nm.length){ _sp.materials=_nm; fresh[_xSn]=_sp; }
+      continue;
+    }
+    if(_main){   /* 원래 카드 미발송 → 합침 */
+      const _old2={}; (_sp.materials||[]).forEach(function(m){ if(m)_old2[_kOf(m)]=m; });
+      (_main.materials||[]).forEach(function(m){ const om=_old2[_kOf(m)]; if(!om)return;
+        if((m.actualOrderedQty===undefined||m.actualOrderedQty==='')&&om.actualOrderedQty!==undefined&&om.actualOrderedQty!=='')m.actualOrderedQty=om.actualOrderedQty;
+        if((m.negotiatedPrice===undefined||m.negotiatedPrice===''||m.negoFromPB)&&om.negotiatedPrice!==undefined&&om.negotiatedPrice!==''&&!om.negoFromPB){ m.negotiatedPrice=om.negotiatedPrice; delete m.negoFromPB; } });
+      if(o.skipBilling){ Object.keys(o.skipBilling).forEach(function(k){ if(k.indexOf(_xSn+'|')===0){ o.skipBilling[_base+k.slice(_xSn.length)]=o.skipBilling[k]; delete o.skipBilling[k]; } }); }
+    }else{ fresh[_xSn]=_sp; }   /* 원래 거래처가 아예 없으면 그대로 둔다(자료 보호) */
+  }
   o.suppliers=fresh;
   try{ _poSyncFrozenFabNames(o); }catch(e){ console.warn('[이름 동기화]',e); }   /* 굳은 발주서의 원단 이름 동기화·옛 이름 줄 삭제 (2026-09-09n) */
   // override 복원 직후, 그 최신 발주량 기준으로 부속자재(부속 원단·부자재) effective 재계산.
