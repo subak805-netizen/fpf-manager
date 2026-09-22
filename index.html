@@ -4612,7 +4612,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-22q';
+var APP_BUILD=/*BUILD*/'2026-09-22r';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -29509,21 +29509,25 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
         if(!s||!+s.qty)return;
         if(s.itemId&&s.itemId!==t.itemId)return;
         if(!s.itemId&&o.orderItems.length>1)return;
-        ships.push({date:s.date||'',color:s.color||'',qty:+s.qty||0,bg:s.bg?1:0,bgDc:(s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50});
+        if(typeof _shipExcl==='function'&&_shipExcl(s))return;   /* 09-22r 잔량(미출고)·수선중은 결제 관리와 같이 명세서에서 뺀다 */
+        ships.push({date:s.date||'',color:s.color||'',size:(s.size&&s.size!=='free')?String(s.size):'',qty:+s.qty||0,bg:s.bg?1:0,bgDc:(s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50});
       });
     }
     if(rate>0&&ships.length){
+      /* 09-22r 사이즈로 나눠 적는다(요청) + 공임은 결제 관리와 같은 laborRate(사이즈별·수량별·리오더) — 예전엔 it.laborCost 하나로만 곱해 사이즈별 공임 아이템은 결제와 금액이 달랐다 */
+      const _lc=(bgApply&&(hasLaborBySize(it)||hasLaborRule(it)))?_laborCtx(o,it):null;
       const grp={};const gO=[];
       ships.forEach(function(s){
-        const k=s.date+'|'+s.color+'|'+(s.bg?('bg'+s.bgDc):'n'); // 비품은 정상과 다른 단가라 따로 묶음
-        if(!grp[k]){grp[k]={date:s.date,color:s.color,qty:0,bg:s.bg,bgDc:s.bgDc};gO.push(k);}
+        const k=s.date+'|'+s.color+'|'+s.size+'|'+(s.bg?('bg'+s.bgDc):'n'); // 비품은 정상과 다른 단가라 따로 묶음
+        if(!grp[k]){grp[k]={date:s.date,color:s.color,size:s.size,qty:0,bg:s.bg,bgDc:s.bgDc};gO.push(k);}
         grp[k].qty+=s.qty;
       });
       gO.forEach(function(k){
         const g=grp[k];
-        const u=(g.bg&&bgApply)?bgUnitPrice(rate,g.bgDc):rate;
+        const _r=_lc?laborRate(it,g.size,_lc):rate;
+        const u=(g.bg&&bgApply)?bgUnitPrice(_r,g.bgDc):_r;
         const nm=it.name+((g.bg&&bgApply)?' (비품 '+g.bgDc+'%할인)':'');
-        allRows.push({date:g.date,item:nm,color:g.color,qty:g.qty,unit:u,amount:u*g.qty,kind:'cost'});
+        allRows.push({date:g.date,item:nm,color:g.color,size:g.size,qty:g.qty,unit:u,amount:u*g.qty,kind:'cost'});
         costSum+=u*g.qty;
       });
     }
@@ -29574,7 +29578,7 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
   allRows.forEach(function(r){
     var _k=_gkOf(r);
     if(_k!==curKey&&curKey!==null&&subQ>0){
-      bodyRows+=`<tr style="background:#d1d5db"><td colspan="3" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">${_subLbl}</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQ}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subT)}</td></tr>`;
+      bodyRows+=`<tr style="background:#d1d5db"><td colspan="4" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">${_subLbl}</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQ}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subT)}</td></tr>`;
       subT=0;subQ=0;
     }
     // 날짜별=날짜 반복 숨김 / 아이템별=아이템 반복 숨김(날짜는 매줄 표시)
@@ -29585,6 +29589,7 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
       <td style="padding:11px 12px;font-weight:700;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db">${showDate?esc((typeof fmtKoDate==='function'?fmtKoDate(toISO(r.date)):r.date)):''}</td>
       <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${showItem?esc(r.item):''}</td>
       <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.color)}</td>
+      <td style="padding:11px 12px;text-align:center;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:700">${esc(r.size||'')}</td>
       <td style="padding:11px 12px;text-align:center;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827">${r.qty}</td>
       <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.unit)}</td>
       <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}${r.exempt?'<div style="font-size:9px;font-weight:500;color:#6b7280">VAT 미포함</div>':''}</td>
@@ -29592,9 +29597,9 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
     subT+=r.amount;subQ+=r.qty;
   });
   if(subQ>0){
-    bodyRows+=`<tr style="background:#d1d5db"><td colspan="3" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">${_subLbl}</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQ}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subT)}</td></tr>`;
+    bodyRows+=`<tr style="background:#d1d5db"><td colspan="4" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">${_subLbl}</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQ}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subT)}</td></tr>`;
   }
-  {let gQty=0,gAmt=0;allRows.forEach(function(r){if(r.kind==='cost'){gQty+=(r.qty||0);gAmt+=(r.amount||0);}});if(gQty>0){bodyRows+=`<tr style="background:#1f2937"><td colspan="3" style="padding:12px;text-align:right;color:#fff;font-weight:800;font-size:13px">총 합계 수량</td><td style="padding:12px;text-align:center;color:#fff;font-weight:800;font-size:15px">${gQty}</td><td></td><td style="padding:12px;text-align:right;color:#fff;font-weight:800;font-size:13px">${num(gAmt)}</td></tr>`;}}
+  {let gQty=0,gAmt=0;allRows.forEach(function(r){if(r.kind==='cost'){gQty+=(r.qty||0);gAmt+=(r.amount||0);}});if(gQty>0){bodyRows+=`<tr style="background:#1f2937"><td colspan="4" style="padding:12px;text-align:right;color:#fff;font-weight:800;font-size:13px">총 합계 수량</td><td style="padding:12px;text-align:center;color:#fff;font-weight:800;font-size:15px">${gQty}</td><td></td><td style="padding:12px;text-align:right;color:#fff;font-weight:800;font-size:13px">${num(gAmt)}</td></tr>`;}}
   const todayStr=(typeof fmtKoDate==='function'?fmtKoDate(todayISO()):todayISO());
   const itemNames=Array.from(new Set(items.map(t=>S.items[t.itemId]?.name).filter(Boolean))).join(' · ');
   const inner=`<div style="background:#fff;padding:32px 28px;color:#111827;border-radius:10px;box-shadow:0 0 0 1px #d1d5db;font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',sans-serif;font-variant-numeric:tabular-nums">
@@ -29622,7 +29627,7 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
       <thead><tr style="background:#e5e7eb">
         <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:80px">출고일</th>
         <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151">품목</th>
-        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">컬러</th>
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">컬러</th><th style="padding:11px 12px;text-align:center;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:52px">사이즈</th>
         <th style="padding:11px 12px;text-align:center;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:55px">수량</th>
         <th style="padding:11px 12px;text-align:right;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">단가</th>
         <th style="padding:11px 12px;text-align:right;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:110px">금액</th>
@@ -29657,7 +29662,8 @@ function buildItemReceiptHTML(oid,fcId,itemId){
       if(!s||!+s.qty)return;
       if(s.itemId&&s.itemId!==itemId)return;
       if(!s.itemId&&o.orderItems.length>1)return;
-      shipments.push({date:s.date||'',color:s.color||'',size:s.size||'',qty:+s.qty||0,bg:s.bg?1:0,bgDc:(s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50});
+      if(typeof _shipExcl==='function'&&_shipExcl(s))return;   /* 09-22r 잔량·수선중 제외 (결제 관리와 같은 규칙) */
+      shipments.push({date:s.date||'',color:s.color||'',size:(s.size&&s.size!=='free')?String(s.size):'',qty:+s.qty||0,bg:s.bg?1:0,bgDc:(s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50});
     });
   }
   // 이 공장 비용 종류
@@ -29672,16 +29678,18 @@ function buildItemReceiptHTML(oid,fcId,itemId){
     shipments.sort((a,b)=>cmpDate(a.date).localeCompare(cmpDate(b.date)));
     // 출고일 + 색상별 그룹 (비품은 단가가 달라 정상과 따로 묶음)
     const grp={};const grpOrder=[];
+    const _lc=(bgApply&&(hasLaborBySize(it)||hasLaborRule(it)))?_laborCtx(o,it):null;   /* 09-22r 사이즈별·수량별·리오더 공임 = 결제 관리와 같은 단가 */
     shipments.forEach(function(s){
-      const k=s.date+'|'+s.color+'|'+(s.bg?('bg'+s.bgDc):'n');
-      if(!grp[k]){grp[k]={date:s.date,color:s.color,qty:0,bg:s.bg,bgDc:s.bgDc};grpOrder.push(k);}
+      const k=s.date+'|'+s.color+'|'+s.size+'|'+(s.bg?('bg'+s.bgDc):'n');
+      if(!grp[k]){grp[k]={date:s.date,color:s.color,size:s.size,qty:0,bg:s.bg,bgDc:s.bgDc};grpOrder.push(k);}
       grp[k].qty+=s.qty;
     });
     grpOrder.forEach(function(k){
       const g=grp[k];
-      const u=(g.bg&&bgApply)?bgUnitPrice(rate,g.bgDc):rate;
+      const _r=_lc?laborRate(it,g.size,_lc):rate;
+      const u=(g.bg&&bgApply)?bgUnitPrice(_r,g.bgDc):_r;
       const nm=it.name+((g.bg&&bgApply)?' (비품 '+g.bgDc+'%할인)':'');
-      rows.push({date:g.date,item:nm,color:g.color,qty:g.qty,unit:u,amount:u*g.qty,kind:'cost'});
+      rows.push({date:g.date,item:nm,color:g.color,size:g.size,qty:g.qty,unit:u,amount:u*g.qty,kind:'cost'});
     });
   }
   // fees (박스비·택배비)
@@ -29722,7 +29730,7 @@ function buildItemReceiptHTML(oid,fcId,itemId){
   let bodyRows='';let curDate='';let subTotal=0;let subQty=0;
   rows.forEach(function(r,i){
     if(r.date!==curDate&&curDate!==''&&subQty>0){
-      bodyRows+=`<tr style="background:#d1d5db"><td colspan="3" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">소계</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQty}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subTotal)}</td></tr>`;
+      bodyRows+=`<tr style="background:#d1d5db"><td colspan="4" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">소계</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQty}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subTotal)}</td></tr>`;
       subTotal=0;subQty=0;
     }
     const showDate=r.date!==curDate;
@@ -29731,6 +29739,7 @@ function buildItemReceiptHTML(oid,fcId,itemId){
       <td style="padding:11px 12px;font-weight:700;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db">${showDate?esc(fmtDate(r.date)):''}</td>
       <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.item)}</td>
       <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.color)}</td>
+      <td style="padding:11px 12px;text-align:center;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:700">${esc(r.size||'')}</td>
       <td style="padding:11px 12px;text-align:center;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827">${r.qty}</td>
       <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.unit)}</td>
       <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}${r.exempt?'<div style="font-size:9px;font-weight:500;color:#6b7280">VAT 미포함</div>':''}</td>
@@ -29739,9 +29748,9 @@ function buildItemReceiptHTML(oid,fcId,itemId){
   });
   // 마지막 소계
   if(subQty>0){
-    bodyRows+=`<tr style="background:#d1d5db"><td colspan="3" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">소계</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQty}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subTotal)}</td></tr>`;
+    bodyRows+=`<tr style="background:#d1d5db"><td colspan="4" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">소계</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQty}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subTotal)}</td></tr>`;
   }
-  {let gQty=0,gAmt=0;rows.forEach(function(r){if(r.kind==='cost'){gQty+=(r.qty||0);gAmt+=(r.amount||0);}});if(gQty>0){bodyRows+=`<tr style="background:#1f2937"><td colspan="3" style="padding:12px;text-align:right;color:#fff;font-weight:800;font-size:13px">총 합계 수량</td><td style="padding:12px;text-align:center;color:#fff;font-weight:800;font-size:15px">${gQty}</td><td></td><td style="padding:12px;text-align:right;color:#fff;font-weight:800;font-size:13px">${num(gAmt)}</td></tr>`;}}
+  {let gQty=0,gAmt=0;rows.forEach(function(r){if(r.kind==='cost'){gQty+=(r.qty||0);gAmt+=(r.amount||0);}});if(gQty>0){bodyRows+=`<tr style="background:#1f2937"><td colspan="4" style="padding:12px;text-align:right;color:#fff;font-weight:800;font-size:13px">총 합계 수량</td><td style="padding:12px;text-align:center;color:#fff;font-weight:800;font-size:15px">${gQty}</td><td></td><td style="padding:12px;text-align:right;color:#fff;font-weight:800;font-size:13px">${num(gAmt)}</td></tr>`;}}
   const todayStr=(typeof fmtKoDate==='function'?fmtKoDate(todayISO()):todayISO());
   const inner=`<div style="background:#fff;padding:32px 28px;color:#111827;border-radius:10px;box-shadow:0 0 0 1px #d1d5db;font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',sans-serif;font-variant-numeric:tabular-nums">
     <!-- 헤더 -->
@@ -29771,7 +29780,7 @@ function buildItemReceiptHTML(oid,fcId,itemId){
       <thead><tr style="background:#e5e7eb">
         <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:80px">출고일</th>
         <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151">품목</th>
-        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">컬러</th>
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">컬러</th><th style="padding:11px 12px;text-align:center;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:52px">사이즈</th>
         <th style="padding:11px 12px;text-align:center;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:55px">수량</th>
         <th style="padding:11px 12px;text-align:right;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">단가</th>
         <th style="padding:11px 12px;text-align:right;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:110px">금액</th>
