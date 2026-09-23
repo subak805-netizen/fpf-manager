@@ -650,6 +650,53 @@ TEST('문제 27. 새 발주서 로스 기본 — 원단·부자재 0% / 라벨 +
 
 // ---- 결과 ----
 print('');
+
+// ── 문제 28. 출고 장수 이동 기록 (2026-09-23) ─────────────────────────────
+// 사용자 실제 흐름: 9/10 메인 출고 정상 100 + 비품 10(50%) → 9/12 비품 3장을 정상으로 → 9/14 정상 5장 수선 보냄
+//   → 9/18 수선 복귀: 정상 4 · 완불 1 → 9/19 공장이 2장 추가로 만들어 출고.
+// 상태판 손계산: 정상 100+3−5+4+2=104 · B품 10−3=7 · 수선중 5−4−1=0 · 완불 1 · 공장에서 나온 합 100+10+2=112 (=104+7+0+1 ✓)
+// 결제(공임 500 · B품 50% 할인 250):
+//   완불이 봉제공장 책임이면 공임 0 → 정상 104×500=52,000 + B품 7×250=1,750 = 53,750원 · 결제 장수 111
+//   완불이 자수집 책임이면 봉제 공임은 지급 → +1×500 = 54,250원 · 결제 장수 112 (자수집 공제는 별도 줄)
+// 옛 「수선중」 회차(repair=1)는 그대로 수선중 칸으로 읽혀야 한다(자료 안 건드림). 이동이 없는 오더는 예전과 같아야 한다(회귀).
+TEST('문제 28. 이동 기록 상태판 = 정상104·B품7·수선중0·완불1 / 결제 53,750원(공장 책임)·54,250원(다른 집 책임)', function(){
+  var it = { id:'itA', name:'캐리백', colors:['겨자','레드'], sizes:['free'], laborCost:500, sewingFcId:'fcS' };
+  var mv = function(from,to,q,color,extra){ var m={id:'m'+from+to+q+color,bid:'b'+from+to,date:'2026-09-18',itemId:'itA',from:from,to:to,color:color,size:'free',qty:q}; if(extra)for(var k in extra)m[k]=extra[k]; return m; };
+  var sch = { shipments:[
+      { id:'s1', date:'2026-09-10', itemId:'itA', color:'겨자', size:'free', qty:50 },
+      { id:'s2', date:'2026-09-10', itemId:'itA', color:'레드', size:'free', qty:50 },
+      { id:'s3', date:'2026-09-10', itemId:'itA', color:'겨자', size:'free', qty:6, bg:1, bgDc:50 },
+      { id:'s4', date:'2026-09-10', itemId:'itA', color:'레드', size:'free', qty:4, bg:1, bgDc:50 },
+      { id:'s5', date:'2026-09-19', itemId:'itA', color:'겨자', size:'free', qty:1, extra:1 },
+      { id:'s6', date:'2026-09-19', itemId:'itA', color:'레드', size:'free', qty:1, extra:1 } ],
+    moves:[
+      mv('bg','n',2,'겨자',{date:'2026-09-12',fromDc:50}), mv('bg','n',1,'레드',{date:'2026-09-12',fromDc:50}),
+      mv('n','rp',3,'겨자',{date:'2026-09-14',rpType:'봉제'}), mv('n','rp',2,'레드',{date:'2026-09-14',rpType:'봉제'}),
+      mv('rp','n',3,'겨자'), mv('rp','n',1,'레드'),
+      mv('rp','wb',1,'레드',{resp:'fc'}) ] };
+  var o = { id:'oA', orderItems:[{itemId:'itA'}], factorySchedules:{ fcS: sch } };
+  var B = shipBoard(o,'fcS','itA');
+  CHECK('정상', B.n, 104); CHECK('B품', B.bg, 7); CHECK('수선중', B.rp, 0); CHECK('완불', B.wb, 1); CHECK('완불 공장 책임', B.wbF, 1);
+  CHECK('공장에서 나온 합', B.out, 112); CHECK('검산 맞음', B.ok, true); CHECK('결제 장수(공장 책임)', B.payPcs, 111);
+  var recs = shipEffRecs(o,'fcS','itA');
+  CHECK('가상 회차 순장수', recs.reduce(function(a,r){return a+r.qty;},0), 111);
+  CHECK('공임 합계(공장 책임 완불 0)', sewLaborBase(500, recs, it, o).base, 53750);
+  // 완불 책임을 자수집으로 바꾸면 봉제 공임은 지급
+  sch.moves[6].resp='fcE'; sch.moves[6].respName='자수집';
+  var B2 = shipBoard(o,'fcS','itA'); CHECK('완불 다른 집 책임', B2.wbO, 1); CHECK('결제 장수(다른 집 책임)', B2.payPcs, 112);
+  CHECK('공임 합계(다른 집 책임 완불 지급)', sewLaborBase(500, shipEffRecs(o,'fcS','itA'), it, o).base, 54250);
+  // 옛 수선중 회차는 수선중 칸으로 · 결제 제외
+  var oldSch = { shipments:[ { id:'x1', date:'2026-09-10', itemId:'itA', color:'겨자', size:'free', qty:20 }, { id:'x2', date:'2026-09-14', itemId:'itA', color:'겨자', size:'free', qty:3, repair:1, repairType:'오염' } ] };
+  var o2 = { id:'oB', orderItems:[{itemId:'itA'}], factorySchedules:{ fcS: oldSch } };
+  var B3 = shipBoard(o2,'fcS','itA'); CHECK('옛 수선중 회차 → 수선중 칸', B3.rp, 3); CHECK('옛 수선중은 결제 제외', sewLaborBase(500, shipEffRecs(o2,'fcS','itA'), it, o2).base, 10000);
+  // 이동이 없는 오더는 예전 계산과 같다 (회귀)
+  CHECK('이동 없음 = 회차 그대로', shipEffRecs(o2,'fcS','itA').length, 1);
+  // 잔량 미출고 회차는 나온 합에 안 들어감
+  var lvSch = { shipments:[ { id:'y1', date:'2026-09-10', itemId:'itA', color:'겨자', size:'free', qty:10 }, { id:'y2', date:'2026-09-10', itemId:'itA', color:'겨자', size:'free', qty:4, lv:1 } ] };
+  var B4 = shipBoard({ id:'oC', orderItems:[{itemId:'itA'}], factorySchedules:{ fcS: lvSch } },'fcS','itA');
+  CHECK('잔량 별도', B4.lv, 4); CHECK('잔량 빼고 나온 합', B4.out, 10);
+});
+
 if(_fails.length){
   print('CALC TESTS: FAIL — ' + _fails.length + '건 실패 (통과 ' + _okCount + ')');
   print('실패 목록: ' + _fails.join(' / '));
