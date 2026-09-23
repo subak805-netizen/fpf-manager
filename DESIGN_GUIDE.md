@@ -2834,3 +2834,6 @@ A 아이템에서 적은 심지 요척 0.5 가 단가장에 저장되고, B 아�
 - 회차 메모: byDate 에 memo 담아 표에 보이고 수정 때 칸에 채움 — 예전엔 저장은 됐지만 안 보이고 수정 저장 때 지워졌다(사용자 「메모를 적어도 저장이 안 돼」).
 - 다시 그리기 보존: `renderProdDash` 를 감싸 열린 패널의 입력값을 찍어 두고(`_pdqSnap`) 다시 그린 뒤 되살림(`_pdqRestore`). `isEditingNow` 가 열린 패널을 편집 중으로 봐서 원격 변경은 noRender, 닫을 때(`pdQtyClose`) 미룬 렌더 실행.
 - 명세서 2종(`buildItemReceiptHTML`·`ipBuildGroupReceipt`): 출고일·컬러·종류당 한 줄, 사이즈는 가로 칸(`sizeCols` = 아이템 사이즈 합집합, free 제외). 단가는 사이즈별 공임이면 「사이즈별」, 금액은 사이즈별 단가로 곱해 합산(22r 과 같은 값). 소계·총합 colspan = 3+사이즈 수.
+
+### 2026-09-23d — 출고 패널 상태판 타일 클릭 → 컬러×사이즈
+- 상태판 타일(`.pdq-board .bk[data-bk]`)을 누르면 바로 아래 `#pdq-tiledet` 에 그 칸의 컬러×사이즈 표(`.pdq-mini`)가 펼쳐진다(`pdqTile(bk)`, 같은 타일 다시 누르면 접힘, 열린 타일은 노란 배경). 자료는 `shipBoard().cells` 그대로(`window._pdqBoardCtx`). 완불은 다른 집 책임 장수, 나온 합은 잔량 미출고 제외를 아래 한 줄로 알려줌.
