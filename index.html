@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260923d">
+<link rel="stylesheet" href="css/main.css?v=20260923e">
 </head>
 <body>
 
@@ -4613,7 +4613,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-23d';
+var APP_BUILD=/*BUILD*/'2026-09-23e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -29669,7 +29669,7 @@ function renderItemPay(opts){
         <div class="am"><span class="l">청구</span><div class="right"><span class="amt">${num(f.base)}원</span><span class="vat">${vatOf(f)>0?('VAT포함 '+num(f.total)+'원'):('현금 · VAT 없음 '+num(f.total)+'원')}</span></div></div>
         <button type="button" class="ip-vatbtn${vatOf(f)>0?'':' off'}" onclick="payToggleVat('${esc(r.oid)}','${esc(f.fcId)}')" title="이 오더·이 공장만 부가세를 빼거나 다시 붙여요 (현금결제용)">${vatOf(f)>0?'VAT 빼기 (현금결제)':'VAT 다시 붙이기 (10%)'}</button>
         <div class="acts">
-          <button data-oid="${esc(r.oid)}" data-fcid="${esc(f.fcId)}" data-itemid="${esc(r.itemId)}" onclick="ipOpenReceipt(this)">명세서</button>
+          <button data-oid="${esc(r.oid)}" data-fcid="${esc(f.fcId)}" data-itemid="${esc(r.itemId)}" class="${(window._ipRcptOpen&&window._ipRcptOpen.oid===r.oid&&window._ipRcptOpen.fcId===f.fcId&&window._ipRcptOpen.itemId===r.itemId)?'on':''}" onclick="ipOpenReceipt(this)">명세서</button>
           <button class="${btnCls}" data-oid="${esc(r.oid)}" data-key="${esc(f.payKey)}" onclick="ipTogglePay(this)">${btnLbl}</button>
         </div>
         ${(()=>{const _k='fc:'+f.fcId;const _pb2=payFeeBlock(r.oid,_k,1);const _ft=(_pb2.feeTot||0)+(_pb2.noVatTot||0);const _ttl=(f.name||'').replace(/'/g,'');return `<button class="btn s" style="margin-top:7px;width:100%" onclick="openPayFeeModal('${r.oid}','${_k}','${_ttl} 운임·택배')">운임/택배${_ft>0?' · '+num(_ft)+'원':' 추가'}</button>`;})()}
@@ -29692,6 +29692,7 @@ function renderItemPay(opts){
         </div>
       </div>
       <div class="ip-fcs"><div class="ip-fcgrid">${fcsHtml}</div></div>
+      <div class="ip-rcpt" id="${_ipRcptId(r.oid,r.itemId)}"></div>
       ${onlyDone
         ? `<div style="padding:8px 14px;border-top:1px solid #eef0f4;text-align:right"><button class="btn s" onclick="payUnarchiveItem('${r.oid}','${r.itemId}')">되돌리기</button></div>`
         : (r.allPaid ? `<div style="padding:8px 14px;border-top:1px solid #eef0f4;display:flex;align-items:center;gap:8px;justify-content:flex-end"><span style="font-size:11px;color:#059669;font-weight:700">결제 전부 완료</span><button class="btn s ok" style="font-weight:700" onclick="payArchiveItem('${r.oid}','${r.itemId}')">완료로 보내기</button></div>` : '')}
@@ -29830,9 +29831,44 @@ function orderResyncFc(oid){
 function payArchiveItem(oid,itemId){var o=S.orders[oid];if(!o)return;if(!o.payArchivedItems)o.payArchivedItems={};o.payArchivedItems[itemId]=(typeof todayISO==='function'?todayISO():'');saveData();if(typeof renderPayStats==='function')renderPayStats();if(typeof renderPayContent==='function')renderPayContent();if(typeof showToast==='function')showToast('완료로 이동');}
 function payUnarchiveItem(oid,itemId){var o=S.orders[oid];if(!o||!o.payArchivedItems)return;delete o.payArchivedItems[itemId];saveData();if(typeof renderPayStats==='function')renderPayStats();if(typeof renderPayContent==='function')renderPayContent();if(typeof showToast==='function')showToast('미결제로 되돌림');}
 // 아이템 중심 결제 카드 — 명세서 버튼 핸들러
+/* 2026-09-23e 명세서를 창 대신 카드 아래 인라인으로 (같은 버튼 다시 누르면 닫힘). 카드가 안 보이면 예전 창으로 */
+function _ipRcptId(oid,itemId){ return 'ip-rcpt-'+String(oid+'__'+itemId).replace(/[^a-zA-Z0-9_-]/g,'_'); }
 function ipOpenReceipt(btn){
-  openItemReceiptModal(btn.dataset.oid,btn.dataset.fcid,btn.dataset.itemid);
+  var oid=btn.dataset.oid,fcId=btn.dataset.fcid,itemId=btn.dataset.itemid;
+  var host=document.getElementById(_ipRcptId(oid,itemId));
+  if(!host||!host.parentElement||host.parentElement.offsetParent===null){ openItemReceiptModal(oid,fcId,itemId); return; }
+  var op=window._ipRcptOpen;
+  if(op&&op.oid===oid&&op.fcId===fcId&&op.itemId===itemId&&host.classList.contains('open')){ ipCloseReceipt(); return; }
+  ipRenderReceiptInline(oid,fcId,itemId);
 }
+function ipRenderReceiptInline(oid,fcId,itemId){
+  var host=document.getElementById(_ipRcptId(oid,itemId)); if(!host)return false;
+  var r=buildItemReceiptHTML(oid,fcId,itemId);
+  if(!r.hasRows){showToast('표시할 항목이 없어요');return false;}
+  [].slice.call(document.querySelectorAll('.ip-rcpt.open')).forEach(function(x){ if(x!==host){x.innerHTML='';x.classList.remove('open');} });
+  [].slice.call(document.querySelectorAll('.ip-fc .acts button.on')).forEach(function(b){b.classList.remove('on');});
+  var rid=_ipRcptId(oid,itemId)+'-body'; var nm=(r.name||'').replace(/['"\\]/g,''); var fcNm=((S.factories||{})[fcId]||{}).name||'';
+  var bs='padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700;font-family:inherit';
+  host.innerHTML='<div class="ip-rcpt-hd"><b>거래명세서 · '+esc(fcNm)+'</b><span class="mut" style="font-size:11px;color:#6b7280;font-weight:600">'+esc(r.name||'')+'</span><span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">'
+    +'<button type="button" data-target="'+rid+'" onclick="ipCopyReceipt(this)" style="'+bs+'">복사</button>'
+    +'<button type="button" data-target="'+rid+'" onclick="ipKakaoShare(this)" style="'+bs+';background:#fee500;color:#3c1e1e">카카오톡</button>'
+    +'<button type="button" data-target="'+rid+'" data-name="'+esc(nm)+'" onclick="ipSaveReceipt(this)" style="'+bs+';background:#1f2937;color:#fff">이미지 저장</button>'
+    +'<button type="button" onclick="ipCloseReceipt()" style="'+bs+'">닫기</button></span></div>'
+    +'<div id="'+rid+'" style="max-width:680px;margin:0 auto">'+r.innerHtml+'</div>';
+  host.classList.add('open');
+  window._ipRcptOpen={oid:oid,fcId:fcId,itemId:itemId};
+  var btn=document.querySelector('.ip-fc .acts button[data-oid="'+oid.replace(/"/g,'&quot;')+'"][data-fcid="'+fcId.replace(/"/g,'&quot;')+'"][data-itemid="'+itemId.replace(/"/g,'&quot;')+'"]'); if(btn)btn.classList.add('on');
+  try{ host.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){}
+  return true;
+}
+function ipCloseReceipt(){
+  [].slice.call(document.querySelectorAll('.ip-rcpt.open')).forEach(function(x){x.innerHTML='';x.classList.remove('open');});
+  [].slice.call(document.querySelectorAll('.ip-fc .acts button.on')).forEach(function(b){b.classList.remove('on');});
+  window._ipRcptOpen=null;
+}
+(function(){ if(typeof renderItemPay!=='function'||renderItemPay._rcWrapped)return; var _orig=renderItemPay;   /* 다시 그려도 열린 명세서 유지 */
+  var w=function(){ var re=window._ipRcptOpen; var r=_orig.apply(this,arguments); if(re){ try{ if(!ipRenderReceiptInline(re.oid,re.fcId,re.itemId))window._ipRcptOpen=null; }catch(e){} } return r; };
+  w._rcWrapped=true; renderItemPay=w; })();
 // 명세서 모달 — 복사·이미지 저장 핸들러
 function ipCopyReceipt(btn){
   const el=document.getElementById(btn.dataset.target);
