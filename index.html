@@ -4613,7 +4613,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-23g';
+var APP_BUILD=/*BUILD*/'2026-09-23h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -23100,6 +23100,7 @@ function renderPayShtTab(o){
     // 출고 수량 + 회차별 내역 (날짜·수량)
     var _shipR={};var _shipD=[];var _shipSum=0;
     (sch.shipments||[]).forEach(function(s){if(!s||!(+s.qty))return;var d=s.date||'';if(!(d in _shipR)){_shipR[d]=0;_shipD.push(d);}_shipR[d]+=(+s.qty||0);_shipSum+=(+s.qty||0);});
+    _shipSum+=shipMoves(sch).reduce(function(a,m){return a+_smNetDelta(m);},0);   /* 2026-09-23h 수선중·완불(공장 책임) 빠진 순장수 */
     _shipD.sort();
     var _shipInfo=_shipD.map(function(d){var p=(''+d).split('-');var dd=p.length===3?((+p[1])+'/'+(+p[2])):d;return dd+' '+num(_shipR[d])+'장';}).join(', ');
     let shpQty=_shipSum||sch.shippingQty||0;
@@ -23814,8 +23815,22 @@ function renderProdDash(){
           if(s.date)shipDates.push(s.date);
         });
       }
+      /* 2026-09-23h 카드의 출고 숫자도 상태판(shipBoard)과 같게: 수선중·완불·잔량 미출고는 정상 출고에서 뺀다 (사용자 「수선 가 있으면 정상 수량에서 빠지게」) */
+      let rpTotal=0,wbTotal=0;
+      if(_shipSch&&typeof shipBoard==='function'){
+        var _fcIdX=Object.keys(o.factorySchedules||{}).find(function(k){return o.factorySchedules[k]===_shipSch;})||sewingFcId;
+        if(_fcIdX){ var _Bc=shipBoard(o,_fcIdX,oi.itemId);
+          if(_Bc&&(_Bc.out>0||_Bc.moves>0)){
+            shipTotal=_Bc.n+_Bc.bg; bgTotal=_Bc.bg; rpTotal=_Bc.rp; wbTotal=_Bc.wb;
+            [shipColors,shipSizeGrid,bgColors,bgSizeGrid].forEach(function(ob){ Object.keys(ob).forEach(function(k){delete ob[k];}); });
+            Object.keys(_Bc.cells).forEach(function(k){ var ce=_Bc.cells[k]; var c=ce.color||'',sz=ce.size||''; var t=ce.n+ce.bg;
+              if(t>0){ shipColors[c]=(shipColors[c]||0)+t; if(!shipSizeGrid[c])shipSizeGrid[c]={}; shipSizeGrid[c][sz]=(shipSizeGrid[c][sz]||0)+t; }
+              if(ce.bg>0){ bgColors[c]=(bgColors[c]||0)+ce.bg; if(!bgSizeGrid[c])bgSizeGrid[c]={}; bgSizeGrid[c][sz]=(bgSizeGrid[c][sz]||0)+ce.bg; } });
+          }
+        }
+      }
       shipDates.sort((a,b)=>cmpDate(a).localeCompare(cmpDate(b)));
-      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,effTotal,effColors,effSizeGrid,shipTotal,shipColors,shipSizeGrid,bgTotal,bgColors,bgSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped,dashDone:!!(oi&&oi._dashDone)});
+      rows.push({o,oi,it,sewingFcId,sewSch,dday,orderTotal,orderColors,orderSizeGrid,effTotal,effColors,effSizeGrid,rpTotal,wbTotal,shipTotal,shipColors,shipSizeGrid,bgTotal,bgColors,bgSizeGrid,shipDates,brandId:it.brandId||'',shipDone:!!isFullyShipped,dashDone:!!(oi&&oi._dashDone)});
     }
   }
   if(!rows.length){
@@ -24317,7 +24332,7 @@ function renderProdDashRow(r){
         var hdr='<tr><th>컬러</th>'+sizeCols.map(function(z){return '<th>'+esc(z)+'</th>';}).join('')+'<th class="tot">합계</th></tr>';
         return '<div class="pdc-sum">'
           +'<div class="pdc-sum-date">오더일 '+esc(orderDateStr)+(useEff&&r.effTotal!==r.orderTotal?' · <span style="color:#dc2626">원단부족 조정</span>':'')+'</div>'
-          +'<div class="pdc-sum-top"><span class="o">오더 <b>'+oT+'</b></span><span class="ar">→</span><span class="cut">재단 <b>'+cutT+'</b></span><span class="ar">→</span><span class="s">출고 <b>'+(sT-bT)+'</b></span>'+(bT?'<span class="ar">·</span><span class="bgs">비품 <b>'+bT+'</b></span>':'')+'<span class="pct">'+pct+'%</span></div>'
+          +'<div class="pdc-sum-top"><span class="o">오더 <b>'+oT+'</b></span><span class="ar">→</span><span class="cut">재단 <b>'+cutT+'</b></span><span class="ar">→</span><span class="s">출고 <b>'+(sT-bT)+'</b></span>'+(bT?'<span class="ar">·</span><span class="bgs">비품 <b>'+bT+'</b></span>':'')+(r.rpTotal?'<span class="ar">·</span><span class="bgs" style="color:#9a3412">수선중 <b>'+r.rpTotal+'</b></span>':'')+(r.wbTotal?'<span class="ar">·</span><span class="bgs" style="color:#111827">완불 <b>'+r.wbTotal+'</b></span>':'')+'<span class="pct">'+pct+'%</span></div>'
           +'<div class="pdc-pbar"><i style="width:'+pct+'%"></i></div>'
           +'<div style="overflow-x:auto"><table class="pdc-mtx"><thead>'+hdr+'</thead><tbody>'+body+'</tbody><tfoot><tr><td>합계</td>'+footTds+'<td class="tot">'+cell(oT,cutT,sT,bT)+'</td></tr></tfoot></table></div>'
           +'<div style="font-size:10.5px;color:#9aa0a6;margin-top:7px"><b style="color:#191f28">오더</b> › <b style="color:#e8920c">재단</b> › <b style="color:#3182f6">출고</b> · <b style="color:#dc2626">비품</b> 순서 — 출고(정상)+비품이 재단과 같으면 다 만든 것</div>'
