@@ -12,6 +12,8 @@
   window.__syncTest=T;
   function log(){ var a=[].slice.call(arguments).map(function(x){ try{ return typeof x==='string'?x:JSON.stringify(x); }catch(e){ return String(x); } }).join(' '); T.logs.push(a); if(T.logs.length>400)T.logs.shift(); }
   T.log=log;
+  /* 앱이 콘솔에 남기는 경고·오류도 모아 둔다 — 실패한 장면을 되짚을 때 쓴다 */
+  ['warn','error'].forEach(function(k){ var o=console[k]; console[k]=function(){ try{ log('console.'+k, [].slice.call(arguments).map(function(x){ return (x&&x.message)?x.message:(typeof x==='string'?x:JSON.stringify(x)); }).join(' ').slice(0,300)); }catch(e){} return o.apply(console,arguments); }; });
 
   /* ── 처음 켠 기기에만 시험 자료 심기 (?seed=이름) */
   try{
