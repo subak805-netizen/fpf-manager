@@ -23,7 +23,7 @@ const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').
 async function accessToken() {
   const now = Math.floor(Date.now() / 1000);
   const hdr = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const scope = 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/devstorage.read_write';
+  const scope = 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/devstorage.read_write https://www.googleapis.com/auth/identitytoolkit';
   const clm = b64url(JSON.stringify({ iss: sa.client_email, scope, aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 }));
   const sig = crypto.createSign('RSA-SHA256').update(hdr + '.' + clm).sign(sa.private_key);
   const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=' + hdr + '.' + clm + '.' + b64url(sig) });
@@ -96,6 +96,38 @@ async function listBackups() {
 const log = []; const say = (s) => { console.log(s); log.push(s); };
 const kb = (n) => (n / 1024).toFixed(0) + 'KB';
 
+// 계정 칸 요약(09-29) — 칸마다 앞 5글자·로그인 계정 유무·어느 앱·문서 수·마지막 저장일.
+// 콘솔에서 주인 없는 칸을 골라 지울 수 있게. 저장소가 공개라 계정 번호 전체·문서 이름·내용은 안 찍는다.
+// 앱마다 users/{uid}/data/ 안의 문서 이름(09-29 각 저장소에서 확인): FPF=fpm_*(도식화 fpm_dosik 포함) · 머니=money ·
+// BODY.LOG=bodylog · FIT.LOG=fitlog · EAT.LOG=eatlog · LINK.LOG=linklog · 로또=lotto
+const APPS = [[/^fpm_/, 'FPF'], [/^money$/, '머니'], [/^bodylog$/, 'BODY.LOG'], [/^fitlog$/, 'FIT.LOG'], [/^eatlog$/, 'EAT.LOG'], [/^linklog$/, 'LINK.LOG'], [/^lotto$/, '로또']];
+const appOf = (k) => { for (const [re, n] of APPS) if (re.test(k)) return n; return '기타'; };
+async function authUids() {
+  try {
+    const out = new Set(); let next = '';
+    do {
+      const r = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${PROJECT}/accounts:batchGet?maxResults=500` + (next ? '&nextPageToken=' + encodeURIComponent(next) : ''), { headers: H() });
+      if (!r.ok) return null;
+      const j = await r.json(); (j.users || []).forEach((u) => out.add(u.localId)); next = j.nextPageToken || '';
+    } while (next);
+    return out;
+  } catch (e) { return null; }
+}
+function acctRows(root, auth) {
+  const rows = [];
+  for (const [uid, e] of Object.entries(root.users || {})) {
+    let n = 0, last = '', bytes = 0; const apps = new Set();
+    for (const [c, docs] of Object.entries((e && e.sub) || {})) for (const [k, d] of Object.entries(docs || {})) {
+      if (!d || !d.fields) continue; n++; bytes += JSON.stringify(d.fields).length;
+      if ((d.updateTime || '') > last) last = d.updateTime;
+      apps.add(c === 'data' ? appOf(k) : '기타 묶음');
+    }
+    const day = last ? new Date(Date.parse(last) + 9 * 3600e3).toISOString().slice(0, 10) : '-';
+    rows.push({ id: uid.slice(0, 5) + '…', login: auth ? (auth.has(uid) ? '있음' : '없음') : '확인 못 함', apps: [...apps].sort().join('·') || '-', n, kb: Math.round(bytes / 1024), last: day });
+  }
+  return rows.sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
+}
+
 async function main() {
   TOK = await accessToken();
   const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); // 한국 날짜
@@ -106,6 +138,8 @@ async function main() {
   const raw = Buffer.from(JSON.stringify({ kind: 'fpf-firestore-backup', v: 1, project: PROJECT, at: new Date().toISOString(), docs: nDocs, root }));
   const gz = zlib.gzipSync(raw, { level: 9 });
   say(`읽음: 계정 ${nUsers}개 · 문서 ${nDocs}개 · 원본 ${kb(raw.length)} → 압축 ${kb(gz.length)}`);
+  const auth = await authUids();
+  for (const r of acctRows(root, auth)) say(`  칸 ${r.id} · 로그인 계정 ${r.login} · ${r.apps} · 문서 ${r.n}개 · ${r.kb}KB · 마지막 저장 ${r.last}`);
 
   const before = await listBackups();
   const name = PREFIX + today + '.json.gz';
