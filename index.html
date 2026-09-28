@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20260923i">
+<link rel="stylesheet" href="css/main.css?v=20260928g">
 </head>
 <body>
 
@@ -4615,7 +4615,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-28f';
+var APP_BUILD=/*BUILD*/'2026-09-28g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -35685,8 +35685,24 @@ function _scBestSpec(it,rr){
 /* 2026-09-11o 컬러별 실측 (사용자 A안: 한 표에 컬러 칸 나란히). 첫 컬러 실측 = r.meas(옛 자료 그대로), 나머지 컬러 = r.mc[컬러명]. 측정부위·패턴·지시는 공용. */
 function _scColors(it){ var a=(it&&Array.isArray(it.colors))?it.colors:[]; return a.map(function(x){return typeof x==='string'?x:((x&&x.name)||'');}).map(function(s){return String(s).trim();}).filter(Boolean); }
 function _scMeasGet(r,ci,col){ if(!r)return ''; if(ci===0)return r.meas==null?'':String(r.meas); var v=(r.mc&&r.mc[col]!=null)?r.mc[col]:''; return String(v); }
-function _scRowCopy(r){ var o={part:r.part,pat:r.pat,give:r.give,meas:r.meas}; if(r&&r.mc&&typeof r.mc==='object'){o.mc={};Object.keys(r.mc).forEach(function(k){o.mc[k]=r.mc[k];});} return o; }
-function _scRowHasMeas(r){ if(!r)return false; if(String(r.meas==null?'':r.meas).trim()!=='')return true; var mc=r.mc||{}; return Object.keys(mc).some(function(k){return String(mc[k]==null?'':mc[k]).trim()!=='';}); }
+function _scRowCopy(r){ var o={part:r.part,pat:r.pat,give:r.give,meas:r.meas}; if(r&&r.mc&&typeof r.mc==='object'){o.mc={};Object.keys(r.mc).forEach(function(k){o.mc[k]=r.mc[k];});}
+  if(r&&r.wash!=null)o.wash=r.wash; if(r&&r.wc&&typeof r.wc==='object'){o.wc={};Object.keys(r.wc).forEach(function(k){o.wc[k]=r.wc[k];});}   /* 09-28g 세탁후 실측도 같이 옮긴다 */
+  return o; }
+function _scRowHasMeas(r){ if(!r)return false; if(String(r.meas==null?'':r.meas).trim()!=='')return true; var mc=r.mc||{}; if(Object.keys(mc).some(function(k){return String(mc[k]==null?'':mc[k]).trim()!=='';}))return true;
+  if(String(r.wash==null?'':r.wash).trim()!=='')return true; var wc=r.wc||{}; return Object.keys(wc).some(function(k){return String(wc[k]==null?'':wc[k]).trim()!=='';}); }
+/* 09-28g 세탁후 실측 (요청: 컬러마다 실측·차이 옆에 「세탁후」 적는 칸 + 「세탁후 차이」 = 세탁후 − 실측 자동). 첫 컬러 = r.wash, 나머지 = r.wc[컬러명] */
+function _scWashGet(r,ci,col){ if(!r)return ''; if(ci===0)return r.wash==null?'':String(r.wash); var v=(r.wc&&r.wc[col]!=null)?r.wc[col]:''; return String(v); }
+function _scWashDiff(r,ci,col){ return _scDiff({give:_scMeasGet(r,ci,col),meas:_scWashGet(r,ci,col)}); }   /* 세탁후 − 실측 */
+function _scWashDiffPaint(ri,i,ci,row,col){ var el=document.getElementById('sc-wdiff-'+ri+'-'+i+'-'+ci); if(!el)return; var t=_scWashDiff(row,ci,col); el.textContent=t.txt; el.className='sc-df '+t.cls; }
+function scSetWashC(id,ri,i,ci,col,v){
+  var it=S.items[id]; if(!it)return;
+  var a=_scRounds(it), rr=a[ri]; if(!rr)return;
+  var rows=_scSizeRows(it,rr).map(_scRowCopy);
+  if(!rows[i])rows[i]={part:'',pat:'',give:'',meas:''};
+  if(ci===0)rows[i].wash=v; else { if(!rows[i].wc)rows[i].wc={}; rows[i].wc[col]=v; }
+  _scSizeWrite(id,ri,rows);
+  _scWashDiffPaint(ri,i,ci,rows[i],col);
+}
 function scSetSizeC(id,ri,i,ci,col,v){
   var it=S.items[id]; if(!it)return;
   var a=_scRounds(it), rr=a[ri]; if(!rr)return;
@@ -35696,6 +35712,7 @@ function scSetSizeC(id,ri,i,ci,col,v){
   _scSizeWrite(id,ri,rows);
   var el=document.getElementById('sc-diff-'+ri+'-'+i+'-'+ci);
   if(el){ var t=_scDiff({give:rows[i].give,meas:v}); el.textContent=t.txt; el.className='sc-df '+t.cls; }
+  _scWashDiffPaint(ri,i,ci,rows[i],col);
 }
 function scSizeMoveTo(id,ri,from,to){
   var it=S.items[id]; if(!it)return;
@@ -35814,6 +35831,7 @@ function scSetSize(id,ri,i,k,v){
   }
   var el=document.getElementById('sc-diff-'+ri+'-'+i);
   if(el){ var t=_scDiff(rows[i]); el.textContent=t.txt; el.className='sc-df '+t.cls; }
+  if(k==='meas')_scWashDiffPaint(ri,i,0,rows[i],'');
   /* 2026-09-11q 컬러별 표: 지시·패턴을 고치면 컬러마다 있는 차이 칸(sc-diff-ri-i-ci)도 다시 계산 — 안 하면 실측 먼저 적고 지시를 나중에 적을 때 차이가 빈 채로 남는다 */
   try{ var _cols=_scColors(it); if(_cols.length>=2){ _cols.forEach(function(c,ci){ var e2=document.getElementById('sc-diff-'+ri+'-'+i+'-'+ci); if(!e2)return; var t2=_scDiff({give:rows[i].give,meas:_scMeasGet(rows[i],ci,c)}); e2.textContent=t2.txt; e2.className='sc-df '+t2.cls; }); } }catch(e){}
 }
@@ -35882,19 +35900,19 @@ function scSizeTake(id,ri,src,sz){
   var keep={}, used={};
   (_scSize(rr)||[]).forEach(function(r){
     if(!r)return; var k=String(r.part||'').trim(); if(!k)return;
-    if(_scRowHasMeas(r))keep[k]={meas:r.meas,mc:r.mc};   /* 2026-09-11o 컬러별 실측(mc)도 같이 지킴 */
+    if(_scRowHasMeas(r))keep[k]={meas:r.meas,mc:r.mc,wash:r.wash,wc:r.wc};   /* 2026-09-11o 컬러별 실측(mc)도 같이 지킴 · 09-28g 세탁후(wash/wc)도 */
   });
   var kept=0;
   a.forEach(function(r){
     var k=String(r.part||'').trim();
-    if(k&&keep[k]!==undefined){ r.meas=keep[k].meas; if(keep[k].mc)r.mc=_scRowCopy({mc:keep[k].mc}).mc; used[k]=1; kept++; }
+    if(k&&keep[k]!==undefined){ r.meas=keep[k].meas; if(keep[k].mc)r.mc=_scRowCopy({mc:keep[k].mc}).mc; if(keep[k].wash!=null)r.wash=keep[k].wash; if(keep[k].wc)r.wc=_scRowCopy({wc:keep[k].wc}).wc; used[k]=1; kept++; }
   });
   /* 새 지시서엔 없지만 실측을 적어둔 부위는 버리지 않고 뒤에 붙인다 */
   var orphan=0;
   (_scSize(rr)||[]).forEach(function(r){
     if(!r)return; var k=String(r.part||'').trim();
     if(!k||used[k]||keep[k]===undefined)return;
-    var _or={part:r.part,pat:'',give:'',meas:r.meas}; if(r.mc)_or.mc=_scRowCopy(r).mc; a.push(_or); used[k]=1; orphan++;
+    var _or={part:r.part,pat:'',give:'',meas:r.meas}; if(r.mc)_or.mc=_scRowCopy(r).mc; if(r.wash!=null)_or.wash=r.wash; if(r.wc)_or.wc=_scRowCopy(r).wc; a.push(_or); used[k]=1; orphan++;
   });
   if(rr){ rr.sizeSrc=src; rr.sizeSz=sz; rr.size=a; _scWrite(it,arr); }
   closeGenericModal();
@@ -36155,25 +36173,26 @@ function _scSizeTableHTML(it,rr,_id,ri){
     /* 이미 저장된 표가 다른 시트(지시서·1차)에서 온 것이면 같은 번호 회차 치수로 한 번에 바꾸는 버튼 — 적어 둔 실측은 그대로(scSizeTake) */
     var _pairBtn=(_pair&&_stored&&(rr.sizeSrc||'')!==_pair.src)
       ?('<button class="sc-gb tp-editonly" style="color:#0f766e;border-color:#99f6e4" onclick="scSizeTake(\''+_id+'\','+ri+',\''+_pair.src+'\',\''+esc(_pair.sz).replace(/'/g,"\\'")+'\')" title="패턴·지시 값을 작지 샘플·패턴 '+_pair.no+'차 치수로 바꿉니다. 적어 둔 실측은 그대로예요">샘플·패턴 '+_pair.no+'차 치수로</button>'):'';
-    H+='<div class="sc-a4-sec">사이즈 체크리스트 <span class="hint">차이 = 실측 − 지시 (자동)'+_srcTxt+'</span>'
+    H+='<div class="sc-a4-sec">사이즈 체크리스트 <span class="hint">차이 = 실측 − 지시 · 세탁후 차이 = 세탁후 − 실측 (자동)'+_srcTxt+'</span>'
       +_pairBtn
       +'<button class="sc-gb tp-editonly"'+(_pairBtn?' style="margin-left:6px"':'')+' onclick="scSizeReload(\''+_id+'\','+ri+')" title="어느 지시서의 치수를 가져올지 고릅니다">불러오기</button></div>';
     var _cols=_scColors(it); var _multi=_cols.length>=2; var _nc=_multi?_cols.length:1;
-    var _wName=_multi?24:32, _wPat=_multi?9:14, _wGive=_multi?9:16, _wM=_multi?Math.max(7,Math.floor(52/_nc)):16, _wD=_multi?Math.max(6,Math.floor(40/_nc)):14;
+    /* 09-28g 측정부위 칸 좁게(요청) · 컬러마다 칸 4개(실측·차이·세탁후·세탁후 차이) */
+    var _wName=_multi?12:18, _wPat=_multi?7:10, _wGive=_multi?7:10, _per=_multi?Math.floor(74/_nc):62, _wM=Math.max(4,Math.floor(_per*0.3)), _wD=Math.max(3,Math.floor(_per*0.2));
     var _ctrlW='58px';
     var _mv=function(i){ return '<td class="tp-editonly sc-ctl"><button type="button" class="sc-grip" data-sc-grip="'+ri+'" data-sc-i="'+i+'" title="끌어서 순서 바꾸기" onpointerdown="scGripStart(event,\''+_id+'\','+ri+','+i+')">\u2833</button><button class="sc-rx" title="줄 삭제" onclick="scSizeDel(\''+_id+'\','+ri+','+i+')">×</button></td>'; };
     if(_multi){
       H+='<table class="sc-a4-sz sc-multi"><tr><th rowspan="2" style="width:'+_wName+'%">측정부위</th><th rowspan="2" style="width:'+_wPat+'%">패턴</th><th rowspan="2" style="width:'+_wGive+'%">지시</th>';
-      _cols.forEach(function(c,ci){ H+='<th colspan="2" class="scc scc'+(ci%4)+'">'+esc(c)+'</th>'; });
+      _cols.forEach(function(c,ci){ H+='<th colspan="4" class="scc scc'+(ci%4)+'">'+esc(c)+'</th>'; });
       H+='<th rowspan="2" class="tp-editonly" style="width:'+_ctrlW+'"></th></tr><tr>';
-      _cols.forEach(function(c,ci){ H+='<th class="scc scc'+(ci%4)+'" style="width:'+_wM+'%">실측</th><th class="scc scc'+(ci%4)+'" style="width:'+_wD+'%">차이</th>'; });
+      _cols.forEach(function(c,ci){ H+='<th class="scc scc'+(ci%4)+'" style="width:'+_wM+'%">실측</th><th class="scc scc'+(ci%4)+'" style="width:'+_wD+'%">차이</th><th class="scc scc'+(ci%4)+' scw" style="width:'+_wM+'%">세탁후</th><th class="scc scc'+(ci%4)+' scw" style="width:'+_wD+'%">세탁후<br>차이</th>'; });
       H+='</tr>';
     }else{
-      H+='<table class="sc-a4-sz"><tr><th style="width:32%">측정부위</th><th style="width:14%">패턴</th>'
-        +'<th style="width:16%">지시</th><th style="width:16%">실측</th><th style="width:14%">차이</th><th class="tp-editonly" style="width:'+_ctrlW+'"></th></tr>';
+      H+='<table class="sc-a4-sz"><tr><th style="width:'+_wName+'%">측정부위</th><th style="width:'+_wPat+'%">패턴</th>'
+        +'<th style="width:'+_wGive+'%">지시</th><th style="width:'+_wM+'%">실측</th><th style="width:'+_wD+'%">차이</th><th class="scw" style="width:'+_wM+'%">세탁후</th><th class="scw" style="width:'+_wD+'%">세탁후<br>차이</th><th class="tp-editonly" style="width:'+_ctrlW+'"></th></tr>';
     }
     if(!srows.length){
-      H+='<tr><td colspan="'+(3+_nc*2+1)+'" style="padding:10px;color:#9aa3ad;font-size:12px">부위가 없어요 — 「＋ 부위 추가」 또는 「작지에서 불러오기」</td></tr>';
+      H+='<tr><td colspan="'+(3+_nc*4+1)+'" style="padding:10px;color:#9aa3ad;font-size:12px">부위가 없어요 — 「＋ 부위 추가」 또는 「작지에서 불러오기」</td></tr>';
     }else{
       srows.forEach(function(r,i){
         H+='<tr><td class="rl"><input value="'+esc(r.part||'')+'" placeholder="측정부위" onkeydown="scSzKey(event,this)" onchange="scSetSize(\''+_id+'\','+ri+','+i+',\'part\',this.value)"></td>'
@@ -36182,13 +36201,19 @@ function _scSizeTableHTML(it,rr,_id,ri){
         if(_multi){
           _cols.forEach(function(c,ci){
             var mv=_scMeasGet(r,ci,c); var d=_scDiff({give:r.give,meas:mv}); var _cq=esc(c).replace(/'/g,"\\'");
+            var wv=_scWashGet(r,ci,c), wd=_scWashDiff(r,ci,c);
             H+='<td class="scc scc'+(ci%4)+'"><input value="'+esc(mv)+'" onkeydown="scSzKey(event,this)" oninput="scSetSizeC(\''+_id+'\','+ri+','+i+','+ci+',\''+_cq+'\',this.value)"></td>'
-              +'<td class="scc scc'+(ci%4)+'"><span class="sc-df '+d.cls+'" id="sc-diff-'+ri+'-'+i+'-'+ci+'">'+esc(d.txt)+'</span></td>';
+              +'<td class="scc scc'+(ci%4)+'"><span class="sc-df '+d.cls+'" id="sc-diff-'+ri+'-'+i+'-'+ci+'">'+esc(d.txt)+'</span></td>'
+              +'<td class="scc scc'+(ci%4)+' scw"><input value="'+esc(wv)+'" onkeydown="scSzKey(event,this)" oninput="scSetWashC(\''+_id+'\','+ri+','+i+','+ci+',\''+_cq+'\',this.value)"></td>'
+              +'<td class="scc scc'+(ci%4)+' scw"><span class="sc-df '+wd.cls+'" id="sc-wdiff-'+ri+'-'+i+'-'+ci+'">'+esc(wd.txt)+'</span></td>';
           });
         }else{
           var d=_scDiff(r);
+          var wd1=_scWashDiff(r,0,'');
           H+='<td><input value="'+esc(r.meas||'')+'" onkeydown="scSzKey(event,this)" oninput="scSetSize(\''+_id+'\','+ri+','+i+',\'meas\',this.value)"></td>'
-            +'<td><span class="sc-df '+d.cls+'" id="sc-diff-'+ri+'-'+i+'">'+esc(d.txt)+'</span></td>';
+            +'<td><span class="sc-df '+d.cls+'" id="sc-diff-'+ri+'-'+i+'">'+esc(d.txt)+'</span></td>'
+            +'<td class="scw"><input value="'+esc(r.wash||'')+'" onkeydown="scSzKey(event,this)" oninput="scSetWashC(\''+_id+'\','+ri+','+i+',0,\'\',this.value)"></td>'
+            +'<td class="scw"><span class="sc-df '+wd1.cls+'" id="sc-wdiff-'+ri+'-'+i+'-0">'+esc(wd1.txt)+'</span></td>';
         }
         H+=_mv(i)+'</tr>';
       });
@@ -41701,6 +41726,17 @@ function tpDesignSwatchHTML(qb,key,cfg){
       +(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'+tpUpBadge(slot)):'<span class="tp-swadd">＋</span>')
       +'</div></div></td>';
   }).join('');
+  /* 09-28g 컬러 2개 이상이면 옆으로 나누지 말고 위아래로 쌓는다 — 칸이 넓고 높아져 견본 사진이 크게 보인다(요청 · 미리보기 승인).
+     원단 스와치 세로표(tp-swv)와 같은 모양: 왼쪽에 컬러 이름·실컬러, 오른쪽에 사진 한 칸. 컬러 하나면 예전 그대로. */
+  if(cols.length>1){
+    var _vh=Math.min(150,Math.max(90,Math.round(300/cols.length)));
+    var cells=row.split('</td>').filter(function(x){return x;}).map(function(x){return x+'</td>';});
+    var rowsV=cols.map(function(c,ci){ var t=_map[c];
+      var th=(t&&String(t).trim())?('<span class="tp-thk">'+tpEsc(_lbl)+' '+tpEsc(t)+'</span>'):'';
+      return '<tr class="tp-swrow"><th class="tp-swvh"><span class="tp-swvn">'+tpSwatchBox(c,14)+'<span class="tp-swvt">'+(tpEsc(c)||'-').replace(/\//g,'/<wbr>')+'</span></span>'+th+'</th>'+cells[ci]+'</tr>';
+    }).join('');
+    return '<table class="tp-tbl tpeq tp-swv tp-dsv" style="--swvh:'+_vh+'px">'+rowsV+'</table>';
+  }
   return '<table class="tp-tbl tpeq"><tr>'+cols.map(function(c){return '<th>'+tpSwatchBox(c,14)+' '+(tpEsc(c)||'-')+'</th>';}).join('')+'</tr>'
     +threadRow+'<tr class="tp-swrow" style="height:70px">'+row+'</tr></table>';
 }
@@ -42773,7 +42809,7 @@ function tpRender(){
     ? '<div class="sec">'+titleP+'</div>'+html
     : '<div class="tp-secl"><div class="tp-secl-h">'+(titleL||titleP)+'</div><div class="tp-secl-b">'+html+'</div></div>'; };
   var labelBlock='<div class="sec">라벨</div>'+tpLabelTableHTML(it);
-  var sampleWashBlock='<div class="sec">견본 / 워싱</div><table><tr><th style="width:58px">견본</th><td>'+tpInpL('sew.sample','')+'</td><th style="width:48px">워싱</th><td>'+tpInpL('sew.wash','워싱없음')+'</td><th style="width:48px">실컬러</th><td>'+tpInpL('sew.threadColor','몸판매칭')+'</td></tr></table>';
+  var sampleWashBlock='<table><tr><th style="width:58px">견본</th><td>'+tpInpL('sew.sample','')+'</td><th style="width:48px">워싱</th><td>'+tpInpL('sew.wash','워싱없음')+'</td><th style="width:48px">실컬러</th><td>'+tpInpL('sew.threadColor','몸판매칭')+'</td></tr></table>';
   // 지시사항 — 세로형은 좌측(넓게), 가로형은 우측(좁게)
   var cutMemoBlock='<div class="sec">지시사항</div>'+tpMemo('cut.memo','예: 총장 -2cm · 시접·노치·매칭 등 핵심 지시','tp-instr');
   var sewMemoBlock='<div class="sec">지시사항</div>'+tpMemo('sew.memo','봉제 주의·디테일·핵심 지시','tp-instr');
