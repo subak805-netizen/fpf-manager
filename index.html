@@ -91,9 +91,10 @@ function tryInitFirebase(attempts){
       if(typeof setCloudInd === 'function'){
         setCloudInd(user ? 'ok' : 'off');
       }
-      if(user && typeof onFirebaseLogin === 'function'){
-        onFirebaseLogin();
-      }
+      /* 09-28h 로그인 알림이 본문 스크립트(onFirebaseLogin 이 있는 곳)보다 먼저 오면 예전엔 그냥 건너뛰었다 →
+         그 기기는 그 세션 내내 실시간 받기·올리기가 멈췄다(_cloudSyncReady 가 안 켜짐 · 리스너 없음). 동기화 검사에서 발견.
+         본문이 준비될 때까지 잠깐(최대 10초) 기다렸다가 부른다. 이미 준비돼 있으면 예전과 똑같이 바로 부른다. */
+      if(user){ (function _callLogin(n){ if(typeof onFirebaseLogin==='function'){ if(window.fbUser===user)onFirebaseLogin(); return; } if(n<400)setTimeout(function(){ _callLogin(n+1); },25); })(0); }
       if(typeof updateCloudModal === 'function'){
         updateCloudModal();
       }
@@ -2726,6 +2727,7 @@ async function onFirebaseLogin(){
         window._cloudSyncReady=true; // 클라우드 비어있음 = 덮어쓸 것 없음 → 업로드 허용
         await cloudSyncSave();
         setCloudInd('ok');
+        try{ startRealtimeSync(); }catch(e){}   /* 09-28h 처음 올린 기기도 바로 다른 기기 변경을 받게 — 예전엔 이 길에서만 리스너를 안 켜서 다시 켤 때까지 못 받았다(동기화 검사에서 발견) */
         showToast('✓ 로컬 데이터를 클라우드에 업로드 완료', 3000);
       } else {
         /* ⚠️ 2026-09-09b: 여기서 바로 «첫 회사 등록»을 띄우면, 통신이 잠깐 흔들려 회사 목록만 못 읽은 기기(폰)가
@@ -4615,7 +4617,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-28g';
+var APP_BUILD=/*BUILD*/'2026-09-28h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);

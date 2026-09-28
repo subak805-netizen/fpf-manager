@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>FPF 동기화 검사</title>
+<style>
+body{font-family:-apple-system,"Apple SD Gothic Neo",sans-serif;margin:16px;background:#f6f6f3;color:#16150f}
+h1{font-size:18px;margin:0 0 8px}
+#res{border-collapse:collapse;font-size:13px;margin:10px 0}
+#res td,#res th{border:1px solid #ccc;padding:4px 8px;text-align:left;vertical-align:top}
+.pass{color:#1c7045;font-weight:700}.fail{color:#b5301f;font-weight:700}.weak{color:#8f5c0c;font-weight:700}
+#frames iframe{width:520px;height:360px;border:1px solid #999;margin:4px;background:#fff}
+#log{font:11px/1.4 ui-monospace,Menlo,monospace;white-space:pre-wrap;max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:6px}
+</style></head><body>
+<h1>FPF 동기화 검사 — 가짜 기기 두 대</h1>
+<div id="status">준비 중…</div>
+<table id="res"><tr><th>#</th><th>장면</th><th>결과</th><th>걸린 시간</th><th>자세히</th></tr></table>
+<div id="frames"></div>
+<div id="log"></div>
+<script>
+/* ===== 동기화 검사 러너 (2026-09-28) =====
+   - 가짜 구글 창고(CLOUD.docs) 하나를 들고, 가짜 기기(iframe, 기기마다 다른 주소 = 따로 저장소)들이 여기에 읽고 쓴다.
+   - 창고는 «늦게 도착한 쓰기가 이긴다»(진짜 Firestore 와 같음). 다른 기기에는 바뀐 문서를 실시간으로 알린다.
+   - 장면마다 새 창고·새 기기 주소로 시작(서로 안 섞임). 결과는 표 + /result 로 보낸다. */
+var PORT=location.port, Q={}; location.search.replace(/^\?/,'').split('&').forEach(function(p){ if(p){ var i=p.indexOf('='); Q[p.slice(0,i<0?p.length:i)]=i<0?'':decodeURIComponent(p.slice(i+1)); } });
+var CLOUD, SCN=0;
+function resetCloud(){ CLOUD={docs:{},listens:{},frames:{},writes:0,history:[]}; }
+function L(){ var s=[].slice.call(arguments).map(function(x){return typeof x==='string'?x:JSON.stringify(x);}).join(' '); var el=document.getElementById('log'); el.textContent+=s+'\n'; el.scrollTop=1e9; }
+var waiters={ready:{},eval:{}}, evSeq=0;
+window.addEventListener('message',function(e){
+  var m=e.data; if(!m||!m.__st)return; var dev=m.dev;
+  if(m.kind==='rpc'){ var a=m.args||{}, f=CLOUD.frames[dev]; if(!f)return;
+    var reply=function(ok,res,err){ try{ f.contentWindow.postMessage({__st:1,kind:'rpcRes',id:m.id,ok:ok,result:res,error:err},'*'); }catch(x){} };
+    if(m.op==='get'){ reply(true,CLOUD.docs[a.path]||null); }
+    else if(m.op==='set'){ CLOUD.docs[a.path]=a.data; CLOUD.writes++; CLOUD.history.push({dev:dev,path:a.path,ts:a.data&&a.data.ts}); reply(true,null); broadcast(a.path,dev); }
+    else if(m.op==='del'){ delete CLOUD.docs[a.path]; reply(true,null); broadcast(a.path,dev); }
+    else if(m.op==='listen'){ (CLOUD.listens[dev]=CLOUD.listens[dev]||{})[a.path]=1; reply(true,CLOUD.docs[a.path]||null); }
+    else reply(false,null,'unknown op '+m.op);
+    return; }
+  if(m.kind==='ready'){ var w=waiters.ready[dev]; if(w){ delete waiters.ready[dev]; w(m); } return; }
+  if(m.kind==='evalRes'){ var w2=waiters.eval[m.id]; if(w2){ delete waiters.eval[m.id]; w2(m); } return; }
+});
+function broadcast(path,from){ Object.keys(CLOUD.frames).forEach(function(d){ if(d===from)return; if(!(CLOUD.listens[d]||{})[path])return; try{ CLOUD.frames[d].contentWindow.postMessage({__st:1,kind:'snap',path:path,doc:CLOUD.docs[path]||null},'*'); }catch(x){} }); }
+
+/* ── 장면에서 쓰는 도구 */
+function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+function open(dev,opt){ opt=opt||{};
+  return new Promise(function(res,rej){
+    var host=dev.toLowerCase()+SCN+'.localhost';
+    var f=document.createElement('iframe'); f.title=dev;
+    f.src='http://'+host+':'+PORT+'/app.html?dev='+dev+(opt.seed?('&seed='+opt.seed):'');
+    CLOUD.frames[dev]=f; delete CLOUD.listens[dev];
+    var to=setTimeout(function(){ delete waiters.ready[dev]; rej(new Error(dev+' 기기가 40초 안에 안 켜짐')); },40000);
+    waiters.ready[dev]=function(m){ clearTimeout(to); if(m.timeout){ rej(new Error(dev+' 준비 시간 초과: '+JSON.stringify(m.logs||[]))); return; } L('  '+dev+' 켜짐 '+m.ms+'ms'); res(m.ms); };
+    document.getElementById('frames').appendChild(f);
+  }); }
+function close(dev){ var f=CLOUD.frames[dev]; if(f){ f.remove(); } delete CLOUD.frames[dev]; delete CLOUD.listens[dev]; L('  '+dev+' 닫음'); }
+function ev(dev,code){ return new Promise(function(res,rej){ var f=CLOUD.frames[dev]; if(!f)return rej(new Error(dev+' 없음')); var id='e'+(++evSeq);
+  var to=setTimeout(function(){ delete waiters.eval[id]; rej(new Error(dev+' 응답 없음: '+code.slice(0,80))); },15000);
+  waiters.eval[id]=function(m){ clearTimeout(to); if(m.ok)res(m.value); else rej(new Error(dev+': '+m.error)); };
+  f.contentWindow.postMessage({__st:1,kind:'eval',id:id,code:code},'*'); }); }
+async function until(dev,code,pred,ms){ var t0=Date.now(), v; ms=ms||10000;
+  while(Date.now()-t0<ms){ try{ v=await ev(dev,code); if(pred(v))return {ok:true,v:v,ms:Date.now()-t0}; }catch(e){ v='ERR '+e.message; } await sleep(250); }
+  return {ok:false,v:v,ms:Date.now()-t0}; }
+async function untilCloud(pred,ms){ var t0=Date.now(); ms=ms||10000; while(Date.now()-t0<ms){ if(pred(CLOUD.docs))return true; await sleep(200); } return false; }
+function offline(dev,on){ return ev(dev,'__syncTest.setOffline('+(on?'true':'false')+');1'); }
+var CO='fpm_co_t', DOCP='users/U_TEST/data/';
+/* 두 기기(A=맥, B=폰)를 같은 자료로 맞춰 켜기: A 에 시험 자료를 심고 → 창고로 올린 뒤 → 빈 B 를 켜서 받아 오게 */
+async function twoDevices(){
+  await open('A',{seed:'basic'});
+  await ev('A','saveData();1');
+  var up=await untilCloud(function(d){ return !!d[DOCP+CO] && Object.keys(d).some(function(k){return k.indexOf(DOCP+CO+'__items_')===0;}); },15000);
+  if(!up)throw new Error('A 자료가 창고에 안 올라감 (docs: '+Object.keys(CLOUD.docs).join(', ')+')');
+  /* 평소 모습으로: 창고에 자료가 이미 있는 상태에서 두 기기가 켜진다(첫 업로드 길은 한 번뿐이라) */
+  close('A'); await open('A');
+  await open('B');
+  var got=await until('B','Object.keys(S.items||{}).length',function(v){return v===3;},15000);
+  if(!got.ok)throw new Error('B 가 자료를 못 받음: 아이템 '+got.v+'개');
+}
+var q=function(s){ return JSON.stringify(s); };
+
+/* ===== 장면들 — weak:true 는 지금 방식의 «알려진 약한 곳»(실패가 예상됨, 올리기를 막지 않음) ===== */
+var SCENES=[
+ {id:'S1',name:'한쪽에서 고치면 다른 기기에 나타난다',run:async function(){
+   await twoDevices();
+   await ev('A','S.items.it1.name='+q('S1-A가 고침')+';saveData();1');
+   var r=await until('B','S.items.it1&&S.items.it1.name',function(v){return v==='S1-A가 고침';},10000);
+   return {pass:r.ok,detail:'B 아이템1 이름 = '+r.v+' ('+r.ms+'ms)'}; }},
+ {id:'S2',name:'인터넷 끊긴 폰과 맥이 서로 다른 아이템을 고침 → 둘 다 남는다',run:async function(){
+   await twoDevices();
+   await offline('B',true);
+   await ev('A','S.items.it1.name='+q('S2-A')+';saveData();1');
+   await ev('B','S.items.it2.name='+q('S2-B')+';saveData();1');
+   await sleep(2500);
+   await offline('B',false);
+   var a=await until('A','[S.items.it1.name,S.items.it2.name].join("|")',function(v){return v==='S2-A|S2-B';},12000);
+   var b=await until('B','[S.items.it1.name,S.items.it2.name].join("|")',function(v){return v==='S2-A|S2-B';},12000);
+   return {pass:a.ok&&b.ok,detail:'A='+a.v+' · B='+b.v}; }},
+ {id:'S3',name:'같은 아이템의 다른 칸을 두 기기에서 고침 → 둘 다 남는다',weak:true,run:async function(){
+   await twoDevices();
+   await offline('B',true);
+   await ev('A','S.items.it1.memo='+q('A메모')+';saveData();1');
+   await ev('B','S.items.it1.laborCost=2222;saveData();1');
+   await sleep(2500);
+   await offline('B',false);
+   await sleep(5000);
+   var code='(S.items.it1.memo||"")+"|"+S.items.it1.laborCost';
+   var a=await ev('A',code), b=await ev('B',code);
+   return {pass:a==='A메모|2222'&&b==='A메모|2222',detail:'A='+a+' · B='+b+' (둘 다 「A메모|2222」여야 함)'}; }},
+ {id:'S4',name:'끊긴 폰이 모르는 사이 지운 오더 → 폰이 다시 붙어도 안 살아난다',run:async function(){
+   await twoDevices();
+   await offline('B',true);
+   await ev('A','delete S.orders.o1;saveData();1');
+   await ev('B','S.orders.o2.name='+q('S4-B')+';saveData();1');
+   await sleep(2500);
+   await offline('B',false);
+   await sleep(5000);
+   var code='(S.orders.o1?"o1있음":"o1없음")+"|"+(S.orders.o2&&S.orders.o2.name)';
+   var a=await until('A',code,function(v){return v==='o1없음|S4-B';},8000);
+   var b=await until('B',code,function(v){return v==='o1없음|S4-B';},8000);
+   close('B'); await open('B');
+   var b2=await until('B',code,function(v){return v==='o1없음|S4-B';},8000);
+   return {pass:a.ok&&b.ok&&b2.ok,detail:'A='+a.v+' · B='+b.v+' · B 다시 켬='+b2.v}; }},
+ {id:'S5',name:'폰을 꺼 둔 사이 맥에서 두 번 고침 → 폰을 켜도 옛값으로 안 덮는다',run:async function(){
+   await twoDevices();
+   close('B');
+   await ev('A','S.items.it1.name='+q('S5-1')+';saveData();1'); await sleep(1500);
+   await ev('A','S.items.it1.name='+q('S5-2')+';saveData();1'); await sleep(2500);
+   await open('B');
+   var b=await until('B','S.items.it1.name',function(v){return v==='S5-2';},10000);
+   await sleep(3000);
+   var a=await ev('A','S.items.it1.name');
+   return {pass:b.ok&&a==='S5-2',detail:'B='+b.v+' · A(폰 켠 뒤)='+a}; }},
+ {id:'S6',name:'두 기기가 거의 동시에 할일을 하나씩 추가 → 둘 다 남는다',run:async function(){
+   await twoDevices();
+   await Promise.all([
+     ev('A','S.tasks.push({id:"tkA",text:"A할일",done:false,priority:"normal",createdAt:"2026-09-28"});saveData();1'),
+     ev('B','S.tasks.push({id:"tkB",text:"B할일",done:false,priority:"normal",createdAt:"2026-09-28"});saveData();1')]);
+   var code='S.tasks.map(function(t){return t.id;}).sort().join(",")';
+   var a=await until('A',code,function(v){return /tkA/.test(v)&&/tkB/.test(v);},12000);
+   var b=await until('B',code,function(v){return /tkA/.test(v)&&/tkB/.test(v);},12000);
+   return {pass:a.ok&&b.ok,detail:'A='+a.v+' · B='+b.v}; }},
+ {id:'S7',name:'폰에서 고치자마자 앱을 닫음 → 다시 열면 맥에도 전해진다',run:async function(){
+   await twoDevices();
+   await ev('B','S.items.it3.name='+q('S7-B')+';saveData();1');
+   close('B');
+   await sleep(2000);
+   var before=await ev('A','S.items.it3.name');
+   await open('B');
+   var a=await until('A','S.items.it3.name',function(v){return v==='S7-B';},12000);
+   return {pass:a.ok,detail:'닫은 직후 A='+before+' · B 다시 연 뒤 A='+a.v}; }},
+];
+
+async function main(){
+  var only=(Q.only||'').split(',').filter(Boolean), out=[], t00=Date.now();
+  for(var i=0;i<SCENES.length;i++){ var s=SCENES[i]; if(only.length&&only.indexOf(s.id)<0)continue;
+    SCN++; resetCloud(); document.getElementById('frames').innerHTML='';
+    document.getElementById('status').textContent=s.id+' '+s.name+' …'; L('▶ '+s.id+' '+s.name);
+    var t0=Date.now(), r;
+    try{ r=await s.run(); }catch(e){ r={pass:false,detail:'장면 오류: '+e.message}; }
+    var logsA='',logsB='';
+    try{ if(!r.pass){ logsA=JSON.stringify(await ev('A','__syncTest.logs.slice(-8)')); } }catch(e){}
+    try{ if(!r.pass&&CLOUD.frames.B){ logsB=JSON.stringify(await ev('B','__syncTest.logs.slice(-8)')); } }catch(e){}
+    var row={id:s.id,name:s.name,weak:!!s.weak,pass:!!r.pass,ms:Date.now()-t0,detail:r.detail,writes:CLOUD.writes,logsA:logsA,logsB:logsB};
+    out.push(row); L('  → '+(r.pass?'통과':'실패')+' · '+r.detail);
+    var tr=document.createElement('tr'); tr.innerHTML='<td>'+s.id+'</td><td>'+s.name+'</td><td class="'+(r.pass?'pass':(s.weak?'weak':'fail'))+'">'+(r.pass?'통과':(s.weak?'약한 곳':'실패'))+'</td><td>'+Math.round(row.ms/100)/10+'초</td><td>'+String(r.detail).replace(/</g,'&lt;')+'</td>';
+    document.getElementById('res').appendChild(tr);
+    Object.keys(CLOUD.frames).forEach(close);
+  }
+  var summary={at:new Date().toISOString(),ms:Date.now()-t00,results:out};
+  document.getElementById('status').textContent='끝 — '+out.filter(function(r){return r.pass;}).length+'/'+out.length+' 통과';
+  try{ await fetch('/result',{method:'POST',body:JSON.stringify(summary)}); }catch(e){ L('결과 전송 실패 '+e.message); }
+}
+main();
+</script>
+</body></html>

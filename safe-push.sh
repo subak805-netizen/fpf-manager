@@ -22,6 +22,22 @@ if [ -x ./calc-check.sh ] && [ "${SKIP_CALC:-0}" != "1" ]; then
   fi
 fi
 
+# 동기화 검사 (sync-check.sh, 2026-09-28) — 올릴 커밋에 index.html·synctest/ 가 바뀌었을 때만 (약 1분).
+# 가짜 기기 두 대(맥·폰)로 동기화 장면을 돌린다. ❌(알려진 약한 곳 ⚠️ 은 제외)이면 push 중단. 건너뛰기: SKIP_SYNC=1 ./safe-push.sh
+if [ -x ./sync-check.sh ] && [ "${SKIP_SYNC:-0}" != "1" ]; then
+  git fetch -q origin main 2>/dev/null
+  if git diff --name-only origin/main...HEAD 2>/dev/null | grep -qE '^(index\.html|synctest/|sync-check\.sh)'; then
+    echo "⏳ 동기화 검사 중 (약 1분)…"
+    if ./sync-check.sh >/tmp/synccheck.out 2>&1; then
+      echo "✅ 동기화 검사 통과 — $(tail -1 /tmp/synccheck.out)"
+    else
+      echo "❌ 동기화 검사 실패 — push 중단 (전체: cat /tmp/synccheck.out)"
+      grep -E "❌" /tmp/synccheck.out | head -10
+      exit 6
+    fi
+  fi
+fi
+
 N=${1:-12}   # 최대 재시도 횟수
 for i in $(seq 1 "$N"); do
   if git push origin main 2>/tmp/safepush.err; then
