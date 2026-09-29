@@ -1636,11 +1636,21 @@ async function shrinkInlineImagesLocal(opts){
   if(!opts.silent&&typeof showToast==='function')showToast(n?('사진 '+n+'장을 줄여 약 '+Math.round(saved/1024)+'KB 비웠어요 — 이제 저장돼요'):'줄여도 더 작아지는 사진이 없어요',7000);
   return {n:n,saved:saved};
 }
+/* 09-29: 이 기기 브라우저 저장공간을 앱별로 — subak805-netizen.github.io 아래 앱 7개(FPF·머니·BODY.LOG·FIT.LOG·EAT.LOG·LINK.LOG·로또)가
+   주소(도메인)가 같아서 저장공간 약 5MB 를 «같이» 쓴다. 폰에서 FPF 저장이 막히면 다른 앱 몫도 같이 봐야 한다. */
+function _lsBreakdown(){
+  var g={}, tot=0, k; var nm=function(key){ if(key.indexOf('fpm_')===0||key.indexOf('fpf')===0)return 'FPF'; if(/^fitlog/.test(key))return 'FIT.LOG'; if(/^bodylog/.test(key))return 'BODY.LOG'; if(/^eatlog/.test(key))return 'EAT.LOG'; if(/^linklog/.test(key))return 'LINK.LOG'; if(/^money/.test(key))return '머니'; if(/lotto/i.test(key))return '로또'; return '기타'; };
+  try{ for(k in localStorage){ if(!Object.prototype.hasOwnProperty.call(localStorage,k))continue; var sz=((localStorage.getItem(k)||'').length+k.length); tot+=sz; var a=nm(k); g[a]=(g[a]||0)+sz; } }catch(e){}
+  var fmt=function(n){ return n>=1024*1024?(Math.round(n/1024/1024*10)/10)+'MB':Math.round(n/1024)+'KB'; };
+  return {total:tot, text:Object.keys(g).sort(function(a,b){return g[b]-g[a];}).map(function(a){ return a+' '+fmt(g[a]); }).join(' · ')+' (합계 '+fmt(tot)+' / 약 5MB)'};
+}
 function fpfStorageBanner(on){
   var b=document.getElementById('fpf-store-banner'); if(!on){ if(b)b.remove(); return; } if(b)return;
   b=document.createElement('div'); b.id='fpf-store-banner';
-  b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#b91c1c;color:#fff;padding:9px 14px;font-size:13px;font-weight:700;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-family:inherit';
-  b.innerHTML='<span>브라우저 저장공간이 가득 차서 지금 고치는 내용이 저장되지 않아요 (새로고침하면 사라짐)</span>'
+  b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#b91c1c;color:#fff;padding:calc(9px + env(safe-area-inset-top,0px)) 14px 9px;font-size:13px;font-weight:700;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-family:inherit';
+  var cloud=(typeof isCloudOn==='function'&&isCloudOn());
+  b.innerHTML='<span>이 기기 저장공간이 가득 차서 기기 안에는 저장이 안 돼요'+(cloud?' — 클라우드에는 계속 저장돼요':' (새로고침하면 사라짐)')+'</span>'
+    +'<button onclick="try{showToast(\'앱별 저장공간: \'+_lsBreakdown().text,12000);}catch(e){}" style="border:1px solid rgba(255,255,255,.7);background:#fff;color:#b91c1c;font-weight:800;padding:5px 11px;border-radius:6px;cursor:pointer;font-family:inherit">무엇이 차지하나</button>'
     +'<button onclick="document.getElementById(\'fpf-store-banner\').remove()" style="border:1px solid rgba(255,255,255,.7);background:transparent;color:#fff;font-weight:700;padding:5px 11px;border-radius:6px;cursor:pointer;font-family:inherit">닫기</button>';
   (document.body||document.documentElement).appendChild(b);
 }
@@ -1650,6 +1660,12 @@ function _onSaveFailed(){
   /* 한 번은 자동으로 사진을 줄여 다시 저장해 본다 — 사용자가 못 보고 지나쳐도 편집이 안 날아가게 */
   if(window._saveFailLastWarn&&(now-window._saveFailLastWarn)<20000)return;
   window._saveFailLastWarn=now;
+  /* 09-29: 클라우드에 올라가는 중이면 복구 파일을 만들지 않는다 — 폰에서 편집할 때마다 공유 창·팝업이 뜨던 것.
+     편집은 클라우드에 남는다. 클라우드 올리기까지 실패하면 그때 cloudSyncSave 오류 쪽에서 파일을 만든다. */
+  if(_ls&&typeof isCloudOn==='function'&&isCloudOn()&&!window._appStaleBlock&&!(typeof cloudReadFailed==='function'&&cloudReadFailed())){
+    if(typeof showToast==='function')showToast('이 기기 저장공간이 가득 찼어요 — 클라우드에는 계속 저장돼요. 빨간 줄의 「무엇이 차지하나」로 확인해 주세요',7000);
+    return;
+  }
   var msg=_ls?'저장공간이 가득 차 저장이 안 됐어요! 백업파일을 받아둘게요 — 데이터 관리 → 사진 정리로 비워주세요'
              :'시크릿/사파리 모드라 저장이 안 돼요! 백업파일을 받아둘게요 — 일반 창에서 쓰거나 백업을 꼭 보관하세요';
   if(typeof showToast==='function')showToast(msg,9000);
@@ -3175,6 +3191,8 @@ async function cloudSyncSave(){
       setCloudInd('err',_why);
       if(typeof showToast==='function')showToast('동기화 실패 — '+_why,9000);
       console.error('[cloudSyncSave] cloudSet 실패. coBytes='+_coBytes+' shBytes='+_shBytes+' coTop='+_topKeys(coData)+' shTop='+_topKeys(sharedData));
+      /* 09-29: 기기 저장도 막힌 상태(저장공간 가득)에서 클라우드까지 실패 = 편집이 어디에도 없음 → 그때만 복구 파일 */
+      try{ if(window._lsQuotaErr&&!(window._saveFileAt&&Date.now()-window._saveFileAt<60000)){ window._saveFileAt=Date.now(); _downloadBackupNow(); } }catch(eQ){}
       /* 09-29c: 트랜잭션은 연결이 흔들리면 실패한다(예전 set 은 조용히 기다렸다 보냄). 일시적인 실패면 다음 저장까지 기다리지 않고
          몇 초 뒤 스스로 다시 올린다(최대 5번, 성공하면 초기화). 1MB 초과·규칙 거부 같은 건 되풀이해도 안 되니 제외. */
       try{ if(!_over&&/unavailable|deadline|aborted|network|internal|timeout/i.test(String(window._cloudLastErr||''))&&(window._cssErrN=(window._cssErrN||0)+1)<=5){ setTimeout(function(){ try{ cloudSyncSave().catch(function(){}); }catch(eR){} },4000*window._cssErrN); } }catch(eT){}
@@ -4710,7 +4728,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-29d';
+var APP_BUILD=/*BUILD*/'2026-09-29e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
