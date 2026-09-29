@@ -80,6 +80,13 @@ async function twoDevices(){
   if(!got.ok)throw new Error('B 가 자료를 못 받음: 아이템 '+got.v+'개');
 }
 var q=function(s){ return JSON.stringify(s); };
+/* 할일판 시험 판: A 에 만들고 B 가 받을 때까지 */
+var TBQ='(S.todoBoard.brands.b1.todo[0].items||[]).map(function(x){return x.id+":"+(x.done?1:0)+":"+x.text;}).join("|")';
+async function tbSeed(){
+  await ev('A','S.brands=[{id:"b1",name:"브랜드1"}];S.todoBoard={tags:[],brands:{b1:{todo:[{id:"g1",title:"그룹1",items:[{id:"i1",text:"할일1",done:false},{id:"i2",text:"할일2",done:false}]}],made:[],market:[]}}};saveData();1');
+  var got=await until('B','(S.todoBoard&&S.todoBoard.brands&&S.todoBoard.brands.b1)?'+TBQ+':""',function(v){return v==='i1:0:할일1|i2:0:할일2';},12000);
+  if(!got.ok)throw new Error('B 가 할일판을 못 받음: '+got.v);
+}
 
 /* ===== 장면들 — weak:true 는 지금 방식의 «알려진 약한 곳»(실패가 예상됨, 올리기를 막지 않음) ===== */
 var SCENES=[
@@ -202,6 +209,28 @@ var SCENES=[
    var r=await until('A','S.items.it2&&S.items.it2.name',function(v){return v==='S10-끊김';},10000);
    var inCloud=await untilCloud(function(d){ return Object.keys(d).some(function(k){ return k.indexOf(DOCP+CO)===0&&JSON.stringify(d[k]).indexOf('S10-끊김')>=0; }); },15000);
    return {pass:r.ok&&!ban&&inCloud,detail:'다시 연 뒤='+r.v+' · 빨간 줄 '+(ban?'뜸':'없음')+' · 넘친 키 '+ovf+' · 클라우드 '+(inCloud?'올라감':'없음')}; }},
+ /* S11·S12 (09-29k): 할일판 한 줄씩 합치기 — 예전엔 판 통째라 늦게 올린 판이 다른 쪽 체크·수정을 지웠다 */
+ {id:'S11',name:'할일판: 끊긴 폰은 할 일 체크, 맥은 다른 할 일 수정·추가 → 둘 다 남는다',run:async function(){
+   await twoDevices(); await tbSeed();
+   await offline('B',true);
+   await ev('B','S.todoBoard.brands.b1.todo[0].items[0].done=true;saveData();1');
+   await ev('A','var g=S.todoBoard.brands.b1.todo[0];g.items[1].text="할일2-A";g.items.push({id:"i3",text:"할일3-A",done:false});saveData();1');
+   await sleep(2500);
+   await offline('B',false);
+   var ok=function(v){ return v==='i1:1:할일1|i2:0:할일2-A|i3:0:할일3-A'; };
+   var a=await until('A',TBQ,ok,12000), b=await until('B',TBQ,ok,12000);
+   return {pass:a.ok&&b.ok,detail:'A='+a.v+' · B='+b.v}; }},
+ {id:'S12',name:'할일판: 맥에서 지운 할 일은 끊긴 폰이 다른 걸 고쳐도 안 살아난다',run:async function(){
+   await twoDevices(); await tbSeed();
+   await offline('B',true);
+   await ev('A','var g=S.todoBoard.brands.b1.todo[0];g.items=g.items.filter(function(x){return x.id!=="i2";});saveData();1');
+   await ev('B','S.todoBoard.brands.b1.todo[0].items[0].text="할일1-B";saveData();1');
+   await sleep(2500);
+   await offline('B',false);
+   var ok=function(v){ return v==='i1:0:할일1-B'; };
+   var a=await until('A',TBQ,ok,12000), b=await until('B',TBQ,ok,12000);
+   close('B'); await open('B'); var b2=await until('B',TBQ,ok,8000);
+   return {pass:a.ok&&b.ok&&b2.ok,detail:'A='+a.v+' · B='+b.v+' · B 다시 켬='+b2.v}; }},
 ];
 
 async function main(){
