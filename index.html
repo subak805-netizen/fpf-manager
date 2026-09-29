@@ -3175,6 +3175,9 @@ async function cloudSyncSave(){
       setCloudInd('err',_why);
       if(typeof showToast==='function')showToast('동기화 실패 — '+_why,9000);
       console.error('[cloudSyncSave] cloudSet 실패. coBytes='+_coBytes+' shBytes='+_shBytes+' coTop='+_topKeys(coData)+' shTop='+_topKeys(sharedData));
+      /* 09-29c: 트랜잭션은 연결이 흔들리면 실패한다(예전 set 은 조용히 기다렸다 보냄). 일시적인 실패면 다음 저장까지 기다리지 않고
+         몇 초 뒤 스스로 다시 올린다(최대 5번, 성공하면 초기화). 1MB 초과·규칙 거부 같은 건 되풀이해도 안 되니 제외. */
+      try{ if(!_over&&/unavailable|deadline|aborted|network|internal|timeout/i.test(String(window._cloudLastErr||''))&&(window._cssErrN=(window._cssErrN||0)+1)<=5){ setTimeout(function(){ try{ cloudSyncSave().catch(function(){}); }catch(eR){} },4000*window._cssErrN); } }catch(eT){}
     }else if(_coRes.indexOf('stale')>=0){
       /* 읽은 뒤 다른 기기가 먼저 올린 문서가 있음 → 그 문서는 안 썼다. 곧바로 다시 읽고 합쳐서 올린다(몇 번까지 빠르게, 그 뒤엔 조금 쉬었다). */
       window._cssStaleN=(window._cssStaleN||0)+1;
@@ -3184,7 +3187,7 @@ async function cloudSyncSave(){
       setCloudInd('sync');
       setTimeout(function(){ try{ cloudSyncSave().catch(function(){}); }catch(eR){} },_stWait);
     }else{
-      window._cssStaleN=0;
+      window._cssStaleN=0; window._cssErrN=0;
       setCloudInd('ok');
       try{ localStorage.removeItem('fpm_dirty'); }catch(e){} // 로컬 편집이 전부 클라우드에 올라감 (2026-08-17)
       try{ setSyncBase('fpm_'+curCoId,(window._lastPushTs&&window._lastPushTs['fpm_'+curCoId])||''); }catch(e){} // 방금 올린 상태가 내 새 기준 ts
@@ -4707,7 +4710,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-29c';
+var APP_BUILD=/*BUILD*/'2026-09-29d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
