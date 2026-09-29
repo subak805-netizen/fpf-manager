@@ -4748,7 +4748,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-29n';
+var APP_BUILD=/*BUILD*/'2026-09-29o';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -12647,7 +12647,7 @@ function showItemForm(id){
     
     <!-- 완성 부자재 (라벨) — 하단 분리 -->
     <div style="margin-top:14px;padding-top:10px;border-top:2px dashed var(--bd)">
-      <div class="sec" style="margin-top:0"><span>완성 부자재 (라벨) <span class="muted" style="font-size:10px;font-weight:400">메인라벨·케어라벨</span></span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button></div></div>
+      <div class="sec" style="margin-top:0"><span>완성 부자재 (라벨) <span class="muted" style="font-size:10px;font-weight:400">메인라벨·케어라벨·완성자재</span></span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimRow('careLabel')" style="background:#dcfce7;border-color:#86efac">+ 케어라벨</button><button class="btn s" type="button" onclick="addTrimRow('mainLabel')" style="background:#fef3c7;border-color:#fcd34d">+ 메인라벨</button><button class="btn s" type="button" onclick="addTrimRow('finishSet')" style="background:#dbeafe;border-color:#93c5fd">+ 완성자재</button></div></div>
       <div id="label-trim-rows"></div>
     </div>
     
@@ -13777,6 +13777,47 @@ function careLabelCardNew(t,i){
     +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>비고</label><input data-trim-memo value="'+e(t.memo||'')+'" placeholder="발주 메모"></div></div>';
   return labelShell(t,i,{chip:'케어라벨',bg:'#dcfce7',fg:'#166534',border:'#16a34a',nm:t.labelName||'케어라벨',spec:spec},inner);
 }
+/* ===== 완성자재 카드 (2026-09-29o, 미리보기 승인) =====
+   택·택끈·포리백·스티커처럼 옷에 달지 않고 완성집·검품소로 보내는 것. 메인라벨 틀(orderType 'mainLabel')을 빌려 쓰고 isFinishSet 로 구분한다
+   → 라벨 칸 배치·수량(오더 장수+여분)·원가·브랜드 완성부자재 목록(finishSel)을 그대로 쓴다.
+   · 받는 곳 destFcId('' = 자동: 완성집 → 검품소). 발주서 카드는 「발주처 → 받는 곳」마다 따로(봉제공장과 같으면 발주처 카드에 합침) — calcSups 의 _fsSupKey. */
+function _fsDestFc(it,t){ var d=(t&&t.destFcId)||''; if(d)return d; return (it&&(it.finishingFcId||it.inspectionFcId))||''; }
+function _fsDestKind(it,fcId){ if(!fcId)return ''; if(it&&fcId===it.finishingFcId)return '완성집'; if(it&&fcId===it.inspectionFcId)return '검품소'; if(it&&fcId===makerFc(it))return '봉제공장'; var f=S.factories&&S.factories[fcId]; return (f&&f.type)||''; }
+function _fsSupKey(it,t,base){ var d=_fsDestFc(it,t), f=d&&S.factories&&S.factories[d]; if(!base)return ''; if(!f||!f.name||d===makerFc(it))return base; return base+' → '+f.name; }
+function fsSetDest(i,v){ if(!formTrims[i])return; try{colTR();}catch(e){} formTrims[i].destFcId=v||''; try{persistTrimEdit(i);}catch(e){} renderTrimRows(); }
+function moveFinishToSet(i){
+  try{colTR();}catch(e){}
+  var ml=formTrims[i]; if(!ml||!Array.isArray(ml.finishSel)||!ml.finishSel.length)return;
+  formTrims.push({id:uid(),supplier:ml.supplier||'',name:'완성자재',orderType:'mainLabel',isFinishSet:true,brandId:ml.brandId||'',labelName:'',labelNames:[],labelPart:'',midSize:'',unitPrice:0,qtyBuffer:(ml.qtyBuffer!==undefined?ml.qtyBuffer:10),qtyPerPiece:1,finishSel:ml.finishSel.slice(),destFcId:'',buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]});
+  ml.finishSel=[];
+  renderTrimRows(); if(typeof showToast==='function')showToast('포함 항목을 완성자재 카드로 옮겼어요 — 아이템을 저장하면 반영돼요',5000);
+}
+function finishSetCardNew(t,i){
+  var e=esc;
+  if(!t.brandId){ try{ var _fb=String((document.getElementById('f-brand')||{}).value||''); if(_fb&&getBrands().some(function(x){return x.id===_fb;}))t.brandId=_fb; }catch(_e){} }
+  var _br=t.brandId?getBrands().find(function(x){return x.id===t.brandId;}):null, brNm=(_br&&_br.name)||'';
+  var fv=function(k){ try{ return String((document.getElementById('f-'+k)||{}).value||''); }catch(_e){ return ''; } };
+  var itF={sewingFcId:fv('sewingFcId'),promotionFcId:fv('promotionFcId'),finishingFcId:fv('finishingFcId'),inspectionFcId:fv('inspectionFcId')};
+  var dId=_fsDestFc(itF,t), dF=dId&&S.factories&&S.factories[dId], dNm=dF?dF.name:'';
+  var dKind=_fsDestKind(itF,dId);
+  var sup=t.supplier||brNm;
+  var opts='<option value="">자동 (완성집 → 검품소)'+(t.destFcId?'':(dNm?' — 지금 '+e(dNm):' — 아이템에 완성·검품 공장 없음'))+'</option>'
+    +Object.keys(S.factories||{}).map(function(id){ var f=S.factories[id]; if(!f||!f.name)return ''; return '<option value="'+e(id)+'"'+(t.destFcId===id?' selected':'')+'>'+e(f.name)+(f.type?' ('+e(f.type)+')':'')+'</option>'; }).join('');
+  var fin=(function(){
+    var _fm=(_br&&_br.finishMaterials)||[], _sel=Array.isArray(t.finishSel)?t.finishSel:[];
+    var _names=_fm.map(function(m){return (m.name||'').trim();}).filter(Boolean); _sel.forEach(function(nm){ if(nm&&_names.indexOf(nm)<0)_names.push(nm); });
+    if(!_names.length)return '<span class="muted" style="font-size:11px">브랜드 관리 → 완성부자재 목록에 추가하면 여기 체크박스로 떠요'+(t.brandId?'':' (먼저 브랜드 선택)')+'</span>';
+    return _names.map(function(nm){ var on=_sel.indexOf(nm)>=0; return '<label style="display:flex;align-items:center;gap:3px;cursor:pointer;padding:4px 8px;border-radius:4px;background:'+(on?'#fde68a':'transparent')+'"><input type="checkbox" data-finish-name="'+e(nm)+'" '+(on?'checked':'')+' onchange="toggleFinishSel(this,'+i+')"> '+e(nm)+'</label>'; }).join('');
+  })();
+  var brandSel='<div class="tcd-fld tcd-grow"><label>브랜드 <span class="muted" style="font-weight:400;font-size:10px">완성부자재 목록</span></label><select data-f="brandId" onchange="onMainLabelBrandChange('+i+',this.value)"><option value="">— 브랜드 —</option>'+getBrands().map(function(b){return '<option value="'+b.id+'"'+(b.id===t.brandId?' selected':'')+'>'+e(b.name||'')+'</option>';}).join('')+'</select></div>';
+  var inner='<div class="tcd-frow">'+brandSel+'<div class="tcd-fld tcd-grow"><label>발주처 <span class="muted" style="font-weight:400;font-size:10px">누구에게 주문 (비우면 브랜드)</span></label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" placeholder="'+e(brNm||'브랜드')+'"></div></div>'
+    +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>받는 곳</label><select onchange="fsSetDest('+i+',this.value)">'+opts+'</select></div></div>'
+    +'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px"><div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">들어갈 것 <span class="muted" style="font-size:9px;font-weight:400">(체크한 것만 발주서에 · 수량 = 오더 장수 + 여분)</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">'+fin+'</div></div>'
+    +'<div class="tcd-frow"><div class="tcd-fld" style="flex:0 0 110px"><label>여분 (+개)</label><input data-f="qtyBuffer" type="number" inputmode="numeric" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"></div><div class="tcd-fld" style="flex:0 0 110px"><label>단가(원/벌)</label><input data-f="unitPrice" type="number" inputmode="numeric" value="'+(+t.unitPrice||0)+'"></div></div>'
+    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>비고</label><input data-trim-memo value="'+e(t.memo||'')+'" placeholder="발주 메모"></div></div>';
+  var spec=(dNm?('&gt; '+e(dNm)+(dKind?' ('+e(dKind)+')':'')):'<span class="warn">받는 곳 없음</span>')+' · '+((t.finishSel||[]).length)+'가지';
+  return labelShell(t,i,{chip:'완성자재',bg:'#dbeafe',fg:'#1d4ed8',border:'#3b82f6',nm:'완성자재',spec:spec,sup:(sup||'발주처 미정')},inner);
+}
 // 메인라벨 새 카드 (브랜드 라벨명 칩·완성부자재 IIFE 그대로 재사용)
 function mainLabelCardNew(t,i){
   var e=esc;
@@ -13807,7 +13848,8 @@ function mainLabelCardNew(t,i){
     +'<div class="tcd-frow"><input type="hidden" data-f="supplier" value="'+e(_mlBrandNm||t.supplier||'')+'">'+brandSel+'</div>'
     +'<div class="tcd-frow">'+labelChips+'</div>'
     +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>부위</label><input list="dl-labelpart" data-f="labelPart" value="'+e(t.labelPart||'')+'" placeholder="상의/하의"></div>'+wgTrimFlds(t)+'<div class="tcd-fld" style="flex:0 0 90px"><label>단가(원/개)</label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div><div class="tcd-fld" style="flex:0 0 90px"><label>요척(벌당)</label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece!=null?t.qtyPerPiece:1)+'" min="1" step="1" title="옷 1벌당 메인라벨 개수. 여분은 발주서 로스에서"></div><input type="hidden" data-f="qtyBuffer" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"></div>'
-    +'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px"><div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">포함 항목 <span class="muted" style="font-size:9px;font-weight:400">(체크한 항목만 발주서에 표시)</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">'+finishSel+'</div></div>'
+    /* 09-29o 포함 항목은 완성자재 카드로 — 예전에 체크해 둔 게 있을 때만 보이고 옮기기 버튼 */
+    +(!(Array.isArray(t.finishSel)&&t.finishSel.length)?'':'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px"><div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">포함 항목 <span class="muted" style="font-size:9px;font-weight:400">(예전 방식 · 체크한 항목만 발주서에 표시)</span><button type="button" class="btn s" style="background:#dbeafe;border-color:#93c5fd;margin-left:auto" onclick="moveFinishToSet('+i+')">완성자재 카드로 옮기기</button></div><div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">'+finishSel+'</div></div>')
     +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>비고</label><input data-trim-memo value="'+e(t.memo||'')+'" placeholder="발주 메모"></div></div>';
   return labelShell(t,i,{chip:'메인라벨',bg:'#fef9c3',fg:'#854d0e',border:'#ca8a04',nm:t.labelName||'메인라벨',spec:spec,sup:(_mlBrandNm||'브랜드 미정')},inner);
 }
@@ -13964,7 +14006,7 @@ function trimRowHTML(t,i){
   }
   
   // 메인라벨 — 새 카드
-  if(isMain)return mainLabelCardNew(t,i);
+  if(isMain)return t.isFinishSet?finishSetCardNew(t,i):mainLabelCardNew(t,i);
   if(0){
     return '<div class="fab-row" id="tr-'+i+'" style="border-left:3px solid #ca8a04;background:#fefce8">'
       +'<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap">'
@@ -14308,7 +14350,7 @@ function persistTrimEdit(i){
   st.hasMinOrder=formTrims[i].hasMinOrder;st.minOrderQty=formTrims[i].minOrderQty;
   /* 라벨 칩·완성부자재는 폼 「저장」을 안 눌러도 바로 남게 (신고 2026-08-25 「저장이 바로바로 안 된다」).
      ⚠️ 값이 **정해진 것만** 옮긴다 — undefined 를 덮어쓰면 오히려 지워진다. */
-  ['labelNames','labelName','midSize','labelPart','brandId','finishSel','unitPrice','name'].forEach(function(k){
+  ['labelNames','labelName','midSize','labelPart','brandId','finishSel','unitPrice','name','destFcId','isFinishSet'].forEach(function(k){
     var v=formTrims[i][k];
     if(v===undefined)return;
     st[k]=(v&&typeof v==='object')?JSON.parse(JSON.stringify(v)):v;
@@ -15670,6 +15712,7 @@ function addTrimRow(t){
   else if(t==='button')newRow={id:uid(),supplier:'',name:'',orderType:'button',buttonSize:'',buttonStyle:'',unitPrice:0,qtyPerPiece:0,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='snap')newRow={id:uid(),supplier:'',name:'',orderType:'snap',snapSize:'',snapFaces:[{face:'A',enabled:true,process:'',color:'',qty:null,hasDye:false},{face:'B',enabled:true,process:'',color:'',qty:null,hasDye:false},{face:'C',enabled:true,process:'',color:'',qty:null,hasDye:false},{face:'D',enabled:true,process:'',color:'',qty:null,hasDye:false}],hasSnapLogo:false,snapLogoText:'',unitPrice:0,qtyPerPiece:1,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='careLabel')newRow={id:uid(),supplier:'',name:'케어라벨',orderType:'careLabel',labelName:'',labelPart:'',unitPrice:0,qtyBuffer:10,manufactureYM:(_arCareNone()?'none':''),madeIn:'',autoComposition:true,autoFactory:true,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
+  else if(t==='finishSet')newRow={id:uid(),supplier:'',name:'완성자재',orderType:'mainLabel',isFinishSet:true,brandId:'',labelName:'',labelNames:[],labelPart:'',midSize:'',unitPrice:0,qtyBuffer:10,qtyPerPiece:1,finishSel:[],destFcId:'',buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};   /* 09-29o 완성자재 카드 — 메인라벨 틀을 빌려 쓰고 isFinishSet 로 구분 */
   else if(t==='mainLabel')newRow={id:uid(),supplier:'',name:'메인라벨',orderType:'mainLabel',brandId:'',labelName:'',labelNames:[],labelPart:'',midSize:'',unitPrice:0,qtyBuffer:10,finishSel:[],includeTag:true,includeTagLoop:false,includeFoldingPoly:false,includeHanger:false,includePoly:false,includeDenimSizeTab:false,includeDenimCareLabel:false,autoFactory:true,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
   else if(t==='bias')newRow={id:uid(),supplier:'',name:'바이어스재단',orderType:'bias',biasSpec:'',fabricSource:'',consumptionPerPiece:0,unitPrice:0,buffer:TRIM_LOSS_PCT,colorLinks:[],sizeRates:[]};
   else newRow={id:uid(),supplier:'',name:'',orderType:'count',unit:'ea',unitPrice:0,qtyPerPiece:0,buffer:TRIM_LOSS_PCT,sizeRates:[],colorLinks:[]};
@@ -16957,12 +17000,16 @@ function calcSups(orderItems,opts){
         });
       }
     }
-    for(const t of it.trims||[]){
+    for(let t of it.trims||[]){
+      /* 09-29o 완성자재 카드: 발주처(비우면 브랜드) + 받는 곳이 봉제공장과 다르면 「발주처 → 받는 곳」 발주서 카드로 따로. 아이템 쪽 값은 안 바꾼다(복사본) */
+      if(t.isFinishSet){ var _fsBid=t.brandId||it.brandId, _fsBr=_fsBid?getBrands().find(function(b){return b.id===_fsBid;}):null;
+        var _fsKey=_fsSupKey(it,t,(t.supplier||(_fsBr&&_fsBr.name)||'').trim()); if(!_fsKey)continue;
+        var _fsD=_fsDestFc(it,t); t=Object.assign({},t,{supplier:_fsKey,fsDest:(_fsD&&S.factories[_fsD]&&S.factories[_fsD].name)||'',fsKind:_fsDestKind(it,_fsD)}); }
       // 메인라벨은 부자재처 대신 브랜드명을 발주처로 사용 (브랜드에 요청)
       /* 2026-09-14e 신고 「메인라벨이 왜 메이드라고 되어 있지?」 — 예전엔 부자재처가 비었을 때만 브랜드로 채워서,
          다른 부자재(메이드)를 메인라벨로 타입만 바꾼 줄은 메이드 발주서로 들어갔다. 브랜드가 있으면 항상 브랜드. */
       /* 2026-09-14f 카드에서 브랜드를 안 골랐으면 **아이템 브랜드**로 (메인라벨은 항상 브랜드가 주는 것 — 부자재처 아님) */
-      if(t.orderType==='mainLabel'){
+      if(t.orderType==='mainLabel'&&!t.isFinishSet){
         const _bid=t.brandId||it.brandId;
         const _br=_bid?getBrands().find(function(b){return b.id===_bid;}):null;
         if(_br&&_br.name&&t.supplier!==_br.name)t.supplier=_br.name;
@@ -17013,12 +17060,12 @@ function calcSups(orderItems,opts){
           const _colorPriceVal=(_G.price!==undefined)?_G.price:undefined;
           // 컬러별 단가: 묶음 그룹의 colorLinks price 우선, 없으면 기본 단가
           const clPrice=(_G.price!==undefined)?_G.price:(t.unitPrice||0);
-          sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:clNm,itemColorName:_icName,itemColors:_icArr,dye:!!_G.dye,swatch:!!_G.swatch,dyeNote:t.dyeNote||'',displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:clPrice,colorPrice:_colorPriceVal,yardsPerRoll:t.yardsPerRoll,rollUnit:t.rollUnit||'',consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:(t.noSlider?'':(t.sliderModel||'')),sliderColor:(t.noSlider?'':(t.sliderColor||'')),hasSliderLogo:(!t.noSlider&&!!t.hasSliderLogo),sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelNames:Array.isArray(t.labelNames)?t.labelNames.slice():undefined,labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:(_isLabelT?_lbuf:t.qtyBuffer),finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+          sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:clNm,itemColorName:_icName,itemColors:_icArr,dye:!!_G.dye,swatch:!!_G.swatch,dyeNote:t.dyeNote||'',displayName:`${t.name} (${clNm})`,orderType:t.orderType||'count',unitPrice:clPrice,colorPrice:_colorPriceVal,yardsPerRoll:t.yardsPerRoll,rollUnit:t.rollUnit||'',consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:(t.noSlider?'':(t.sliderModel||'')),sliderColor:(t.noSlider?'':(t.sliderColor||'')),hasSliderLogo:(!t.noSlider&&!!t.hasSliderLogo),sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelNames:Array.isArray(t.labelNames)?t.labelNames.slice():undefined,labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:(_isLabelT?_lbuf:t.qtyBuffer),finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),isFinishSet:!!t.isFinishSet,fsDest:t.fsDest||'',fsKind:t.fsKind||'',includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
         }
       }else{
         // 단일 — 도미노 적용 effTotalQty
         var _twp=_trimWeightedPrice(t,sizeTotals);const calc=calcTrimNeed(_twp!=null?Object.assign({},tt,{unitPrice:_twp}):tt,effTotalQty+_addQ);calc.basePcs=effTotalQty;calc.lossM=_lp.m;calc.lossV=_lp.v;
-        sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,rollUnit:t.rollUnit||'',consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:(t.noSlider?'':(t.sliderModel||'')),sliderColor:(t.noSlider?'':(t.sliderColor||'')),hasSliderLogo:(!t.noSlider&&!!t.hasSliderLogo),sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelNames:Array.isArray(t.labelNames)?t.labelNames.slice():undefined,labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:(_isLabelT?_lbuf:t.qtyBuffer),finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
+        sups[t.supplier].materials.push({type:'trim',name:t.name,part:t.part||'',colorName:'',displayName:t.name,orderType:t.orderType||'count',unitPrice:t.unitPrice||0,yardsPerRoll:t.yardsPerRoll,rollUnit:t.rollUnit||'',consumptionPerPiece:t.consumptionPerPiece,loopPerPiece:t.loopPerPiece||0,loopPerYard:t.loopPerYard||0,isButtonLoop:!!t.isButtonLoop,packUnit:t.packUnit||'',buffer:_tb,itemId:oi.itemId,itemName:it.name,size:t.size||'',color:t.color||'',memo:t.memo||'',hasLogo:!!t.hasLogo,logoCost:+t.logoCost||0,hasTip:!!t.hasTip,tipCost:+t.tipCost||0,tipBothEnds:!!t.tipBothEnds,qtyPerPiece:t.qtyPerPiece||1,zipperSize:t.zipperSize||'',zipperLength:t.zipperLength||'',zipperDirection:t.zipperDirection||'',toothColor:t.toothColor||'',sliderModel:(t.noSlider?'':(t.sliderModel||'')),sliderColor:(t.noSlider?'':(t.sliderColor||'')),hasSliderLogo:(!t.noSlider&&!!t.hasSliderLogo),sliderLogoText:t.sliderLogoText||'',sliderCost:+t.sliderCost||0,sliderLogoCost:+t.sliderLogoCost||0,buttonSize:t.buttonSize||'',buttonStyle:t.buttonStyle||'',hasButtonLogo:!!t.hasButtonLogo,buttonLogoText:t.buttonLogoText||'',buttonLogoStyle:t.buttonLogoStyle||'',snapSize:t.snapSize||'',snapFaces:Array.isArray(t.snapFaces)?t.snapFaces.slice():[],hasSnapLogo:!!t.hasSnapLogo,snapLogoText:t.snapLogoText||'',sizeRates:t.sizeRates||[],sizeMode:t.sizeMode||'',sizeBySize:t.sizeBySize||{},qtyBySize:t.qtyBySize||{},yardsPerJeol:t.yardsPerJeol||0,biasSpec:t.biasSpec||'',fabricSource:t.fabricSource||'',labelName:t.labelName||'',labelNames:Array.isArray(t.labelNames)?t.labelNames.slice():undefined,labelPart:t.labelPart||'',brandId:t.brandId||'',manufactureYM:t.manufactureYM||'',madeIn:t.madeIn||'',midSize:t.midSize||'',qtyPerColor:t.qtyPerColor,qtyBuffer:(_isLabelT?_lbuf:t.qtyBuffer),finishSel:(Array.isArray(t.finishSel)?t.finishSel.slice():undefined),isFinishSet:!!t.isFinishSet,fsDest:t.fsDest||'',fsKind:t.fsKind||'',includeTag:!!t.includeTag,includeTagLoop:!!t.includeTagLoop,includeFoldingPoly:!!t.includeFoldingPoly,includeHanger:!!t.includeHanger,includePoly:!!t.includePoly,includeDenimSizeTab:!!t.includeDenimSizeTab,includeDenimCareLabel:!!t.includeDenimCareLabel,autoComposition:!!t.autoComposition,autoFactory:!!t.autoFactory,effectivePcsApplied:effectivePcsForTrim,calc});
       }
     }
     /* 2026-09-15f 부자재 가공비 담당(tc.factory)이 부자재 산 집과 다르면 → 담당 집 발주서에 「가공」 카드 (사용자 결정 D).
@@ -17913,6 +17960,24 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
     // 메인라벨 출력 (케어라벨과 동일한 간결 형식)
     if(mainLabels.length){
       mainLabels.forEach(function(ml){
+        /* 09-29o 완성자재 카드: 「> 받는 곳」 + 고른 것마다 수량(오더 장수 + 여분) */
+        if(ml.isFinishSet){
+          const itF=S.items[ml.itemId], oiF=(order.orderItems||[]).find(function(x){return x.itemId===ml.itemId;});
+          var fDate=(function(){var ms=shortName(order.name).match(/\(([^)]*)\)/g)||[];for(var i=ms.length-1;i>=0;i--){var v=ms[i].slice(1,-1).trim();if(/\d/.test(v))return v;}return '';})();
+          L.push((itF?itF.name:(ml.itemName||''))+(fDate?' ('+fDate+')':''));
+          L.push('');
+          if(ml.fsDest)L.push('> '+ml.fsDest+(ml.fsKind?' ('+ml.fsKind+')':''));
+          var fTot=0;
+          if(oiF&&oiF.qtyGrid){ var bdF=typeof getEffectivePcsBreakdown==='function'?getEffectivePcsBreakdown(order,oiF):null; var gF=(bdF&&bdF.effGrid)?bdF.effGrid:oiF.qtyGrid;
+            var fSz=(itF&&itF.sizes&&itF.sizes.length)?itF.sizes:['free'], fCl=(itF&&itF.colors&&itF.colors.length)?itF.colors:[''];   /* 메인라벨과 같은 셈(아이템 컬러×사이즈) */
+            fSz.forEach(function(sz){ fCl.forEach(function(c){ fTot+=+(gF[c]&&gF[c][sz])||0; }); }); }
+          var fBuf=ml.qtyBuffer!==undefined?+ml.qtyBuffer:10, fQ=fTot>0?(fTot+fBuf):0;
+          (Array.isArray(ml.finishSel)?ml.finishSel:[]).forEach(function(nm){ if(nm)L.push(nm+(fQ?'  '+fQ:'')); });
+          L.push('');
+          if(ml.memo)L.push(''+ml.memo);
+          L.push('');
+          return;
+        }
         const itM=S.items[ml.itemId];
         const oiM=(order.orderItems||[]).find(function(x){return x.itemId===ml.itemId;});
         // 헤더: 아이템명 (날짜) — 깔끔하게, 품명/발주 중복 제거
@@ -20737,7 +20802,7 @@ function poCardHTML(o,sn){
       var _tKey=function(t){
         var lbl=esc(t.name);
         if(t.orderType==='careLabel')lbl=esc(t.labelName||'케어라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');
-        else if(t.orderType==='mainLabel')lbl=esc(t.labelName||t.midSize||'메인라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');
+        else if(t.orderType==='mainLabel')lbl=t.isFinishSet?('완성자재'+((t.finishSel||[]).length?' · '+esc(t.finishSel.join('·')):'')+(t.fsDest?' &gt; '+esc(t.fsDest):'')):(esc(t.labelName||t.midSize||'메인라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':''));
         var _isLabel=(t.orderType==='careLabel'||t.orderType==='mainLabel');
         var col=_isLabel?'':(t.itemColorName||t.colorName||'');
         return (t.name||'')+'|'+(t.size||'')+'|'+(t.orderType||'')+'|'+lbl+'|'+col;
@@ -20848,7 +20913,7 @@ function poCardHTML(o,sn){
       trims.forEach(function(t){
         var lbl=esc(t.name);
         if(t.orderType==='careLabel')lbl=esc(t.labelName||'케어라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');
-        else if(t.orderType==='mainLabel')lbl=esc(t.labelName||t.midSize||'메인라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':'');
+        else if(t.orderType==='mainLabel')lbl=t.isFinishSet?('완성자재'+((t.finishSel||[]).length?' · '+esc(t.finishSel.join('·')):'')+(t.fsDest?' &gt; '+esc(t.fsDest):'')):(esc(t.labelName||t.midSize||'메인라벨')+(t.labelPart?' ['+esc(t.labelPart)+']':''));
         var _isLabel=(t.orderType==='careLabel'||t.orderType==='mainLabel');
         var col=_isLabel?'':(t.itemColorName||t.colorName||'');
         var key=_tKey(t);
@@ -34981,7 +35046,7 @@ function _pschSups(o,it){
   if(!fab.length&&!trim.length){   /* 발주 카드가 아직 없으면 아이템의 거래처로 (대시보드와 같은 규칙) */
     (it.fabrics||[]).forEach(function(f){ if(f&&f.supplier)add(fab,f.supplier); });
     (it.trims||[]).forEach(function(t){ if(!t)return; var sn=t.supplier;
-      if(t.orderType==='mainLabel'){ try{ var bid=t.brandId||it.brandId, nm=(bid&&typeof getBrandName==='function')?getBrandName(bid):''; if(nm)sn=nm; }catch(e){} }
+      if(t.orderType==='mainLabel'&&!(t.isFinishSet&&t.supplier)){ try{ var bid=t.brandId||it.brandId, nm=(bid&&typeof getBrandName==='function')?getBrandName(bid):''; if(nm)sn=nm; }catch(e){} }
       if(sn)add(trim,sn); });
   }
   return {fab:fab,trim:trim};
@@ -41945,6 +42010,7 @@ function tpMaterialTableHTML(it){
   return h+'</div>';
 }
 function tpLabelName(t){
+  if(t.isFinishSet)return '완성자재';
   if(t.orderType==='mainLabel')return t.labelName||t.midSize||t.name||'메인라벨';
   if(t.orderType==='careLabel')return t.labelName||t.name||'케어라벨';
   return t.labelName||t.name||'라벨';
@@ -43217,7 +43283,7 @@ function tpRender(){
     return '<div class="iz" onclick="tpPickImage(\''+slot+'\')">'+(u?('<img src="'+tpEsc(u)+'">'+pill+del+tpUpBadge(slot)):(pill+'<span class="iz-add">＋</span>'))+'</div>';};
   // 라벨 실물 사진 표 — 메인라벨이 2개 이상이면(상하의 세트 등) 모두 표시 + 용도 표기
   var _labelPhotoTbl=function(){
-    var mains=(it.trims||[]).filter(function(t){return t.orderType==='mainLabel';});
+    var mains=(it.trims||[]).filter(function(t){return t.orderType==='mainLabel'&&!t.isFinishSet;});   /* 완성자재 카드는 라벨 사진 칸 아님 (09-29o) */
     var cares=(it.trims||[]).filter(function(t){return t.orderType==='careLabel';});
     var cells=[];
     // 라벨의 실제 이름 — labelName 우선, 없으면 브랜드등록 labelNames, midSize, 마지막에 기본값('메인라벨' 등)
