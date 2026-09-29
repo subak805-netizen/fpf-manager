@@ -94,7 +94,7 @@ function tryInitFirebase(attempts){
       /* 09-28h 로그인 알림이 본문 스크립트(onFirebaseLogin 이 있는 곳)보다 먼저 오면 예전엔 그냥 건너뛰었다 →
          그 기기는 그 세션 내내 실시간 받기·올리기가 멈췄다(_cloudSyncReady 가 안 켜짐 · 리스너 없음). 동기화 검사에서 발견.
          본문이 준비될 때까지 잠깐(최대 10초) 기다렸다가 부른다. 이미 준비돼 있으면 예전과 똑같이 바로 부른다. */
-      if(user){ (function _callLogin(n){ if(typeof onFirebaseLogin==='function'){ if(window.fbUser===user)onFirebaseLogin(); return; } if(n<400)setTimeout(function(){ _callLogin(n+1); },25); })(0); }
+      if(user){ (function _callLogin(n){ if(typeof onFirebaseLogin==='function'&&window._ovfLoaded!==false){ if(window.fbUser===user)onFirebaseLogin(); return; } if(n<400)setTimeout(function(){ _callLogin(n+1); },25); })(0); }
       if(typeof updateCloudModal === 'function'){
         updateCloudModal();
       }
@@ -1592,14 +1592,39 @@ const DEFAULT_PO_OPTS={showPrice:true,nego:false,stockCheck:false,confirmShip:fa
 let _memStore={};
 function _lsAvail(){try{localStorage.setItem('_t','1');localStorage.removeItem('_t');return true;}catch(e){return false;}}
 const _ls=_lsAvail();
-function lsGet(k){try{if(_ls)return JSON.parse(localStorage.getItem(k));return _memStore[k]??null;}catch(e){return null;}}
+/* ===== 넘침 저장 (2026-09-29g) =====
+   아이폰은 브라우저 저장공간(localStorage)이 약 5MB 인데 한글을 두 배로 쳐서 사실상 약 2.5M 글자 → FPF 회사 자료(2.4MB)가 한도에 닿아
+   저장이 계속 실패했다(빨간 줄 + 복구 파일). 큰 키가 한도에 걸리면 그 키만 IndexedDB(훨씬 큼)에 저장하고, localStorage 의 옛 사본은 지운다.
+   · 어떤 키가 넘쳤는지 = localStorage 'fpm_ovf'(작은 표). 부팅 때 그 키들을 IndexedDB 에서 먼저 읽어 와(_ovfPreload) lsGet 이 돌려준다.
+   · initAppMain 과 로그인 처리(onFirebaseLogin)는 이 읽기가 끝난 뒤에 시작한다(_ovfLoaded). */
+window._ovfKeys=(function(){ try{ return (_ls&&JSON.parse(localStorage.getItem('fpm_ovf')||'{}'))||{}; }catch(e){ return {}; } })();
+window._ovfCache={};
+window._ovfLoaded=!Object.keys(window._ovfKeys).length;
+function _ovfPreload(){
+  if(window._ovfLoaded)return Promise.resolve();
+  var ks=Object.keys(window._ovfKeys);
+  return Promise.all(ks.map(function(k){ return idbDataGet(k).then(function(s){ if(typeof s==='string'&&window._ovfCache[k]===undefined)window._ovfCache[k]=s; }); }))
+    .catch(function(e){ console.warn('[넘침 저장] 부팅 읽기 실패',e); }).then(function(){ window._ovfLoaded=true; });
+}
+function _ovfSave(k,str){
+  window._ovfCache[k]=str;
+  return idbDataSet(k,str).then(function(){
+    if(!window._ovfKeys[k]){ window._ovfKeys[k]=Date.now(); try{ localStorage.removeItem(k); }catch(e){} try{ localStorage.setItem('fpm_ovf',JSON.stringify(window._ovfKeys)); }catch(e){} console.warn('[넘침 저장] '+k+' → IndexedDB 로 옮김(기기 저장공간 한도)'); }
+    return true;
+  });
+}
+function _ovfFail(e){ console.error('[넘침 저장] IndexedDB 쓰기 실패',e); window._lsQuotaErr=true; try{ fpfStorageBanner(true); }catch(e2){} }
+function lsGet(k){try{ if(window._ovfKeys&&window._ovfKeys[k]&&typeof window._ovfCache[k]==='string')return JSON.parse(window._ovfCache[k]); if(_ls)return JSON.parse(localStorage.getItem(k));return _memStore[k]??null;}catch(e){return null;}}
 // 반환: true=localStorage에 실제 저장됨 / false=저장 못 함(메모리 임시 — 새로고침 시 사라짐)
 function lsSet(k,v){
   var str=null; try{ str=JSON.stringify(v); }catch(e){}
   if(str!=null){ try{ _lsMirror(k,str); }catch(e){} } // A-④ 1단계: IndexedDB 사본(비동기·실패 무시) — localStorage 실패해도 사본은 시도
   if(!_ls){ _memStore[k]=v; return false; } // localStorage 불가(사파리 시크릿 등) → 휘발성, 진짜 저장 아님
+  if(str!=null&&window._ovfKeys&&window._ovfKeys[k]){ _memStore[k]=v; _ovfSave(k,str).catch(_ovfFail); return true; } // 이미 넘친 키 = IndexedDB 로
   try{ localStorage.setItem(k,str!=null?str:JSON.stringify(v)); return true; }
-  catch(e){ _memStore[k]=v; window._lsQuotaErr=true; console.error('[lsSet] 저장 실패('+k+'):',e&&e.name,e&&e.message); return false; }
+  catch(e){ _memStore[k]=v;
+    if(str!=null&&window.indexedDB&&(str.length>20000||/^fpm_/.test(k))){ _ovfSave(k,str).catch(_ovfFail); return true; } // 한도에 걸림 → IndexedDB 로 넘김 (09-29g, FPF 자료 키는 크기 상관없이)
+    window._lsQuotaErr=true; console.error('[lsSet] 저장 실패('+k+'):',e&&e.name,e&&e.message); return false; }
 }
 // === A-④ 1단계 (2026-07-03): 저장 거울쓰기 — localStorage에 쓰는 것을 IndexedDB(fpmData/kv)에도 사본 저장 ===
 // 읽기는 아직 100% localStorage(변화 0). 사본만 쌓는 단계. 2단계에서 "IDB 우선 읽기 + localStorage 폴백"으로 전환 예정.
@@ -4728,7 +4753,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-29f';
+var APP_BUILD=/*BUILD*/'2026-09-29g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -40379,6 +40404,7 @@ function waitForFirebaseAuth(timeoutMs){
 }
 
 async function initAppMain(){
+  try{ await _ovfPreload(); }catch(e){}   /* 09-29g 넘친 키(IndexedDB)를 먼저 읽어 둔다 */
   companies=lsGet('fpm_cos')||{};
   const last=_ls?localStorage.getItem('fpm_last'):null;
 

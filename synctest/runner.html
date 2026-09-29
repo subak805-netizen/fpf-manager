@@ -50,7 +50,7 @@ function open(dev,opt){ opt=opt||{};
   return new Promise(function(res,rej){
     var host=dev.toLowerCase()+SCN+'.localhost';
     var f=document.createElement('iframe'); f.title=dev;
-    f.src='http://'+host+':'+PORT+'/app.html?dev='+dev+(opt.seed?('&seed='+opt.seed):'');
+    f.src='http://'+host+':'+PORT+'/app.html?dev='+dev+(opt.seed?('&seed='+opt.seed):'')+(opt.quota?('&quota='+opt.quota):'');
     CLOUD.frames[dev]=f; delete CLOUD.listens[dev];
     var to=setTimeout(function(){ delete waiters.ready[dev]; rej(new Error(dev+' 기기가 40초 안에 안 켜짐')); },40000);
     waiters.ready[dev]=function(m){ clearTimeout(to); if(m.timeout){ rej(new Error(dev+' 준비 시간 초과: '+JSON.stringify(m.logs||[]))); return; } L('  '+dev+' 켜짐 '+m.ms+'ms'); res(m.ms); };
@@ -187,6 +187,21 @@ var SCENES=[
    var a=await until('A',code,function(v){return v==='2026-10-09|2026-10-03';},12000);
    var b=await until('B',code,function(v){return v==='2026-10-09|2026-10-03';},12000);
    return {pass:a.ok&&b.ok,detail:'A='+a.v+' · B='+b.v+' (둘 다 「2026-10-09|2026-10-03」여야 함)'}; }},
+ /* S10 (09-29g): 아이폰처럼 기기 저장공간이 가득 → 큰 회사 자료 키는 IndexedDB 로 넘겨 저장. 끊긴 채 고치고 앱을 닫았다 다시 열어도
+       고친 게 남아 있어야 하고(클라우드엔 아직 없음), 빨간 줄이 안 떠야 하며, 다시 붙으면 클라우드로도 올라가야 함. */
+ {id:'S10',name:'폰 저장공간이 가득 → 끊긴 채 고치고 앱을 다시 열어도 안 사라지고 나중에 클라우드로 올라간다',run:async function(){
+   await open('A',{seed:'basic'}); await ev('A','saveData();1');
+   var up=await untilCloud(function(d){ return !!d[DOCP+CO]; },15000); if(!up)throw new Error('A 자료가 창고에 안 올라감');
+   close('A'); await open('A',{quota:CO});
+   await offline('A',true);
+   await ev('A','S.items.it2.name='+q('S10-끊김')+';saveData();1');
+   await sleep(1500);
+   var ban=await ev('A','!!document.getElementById("fpf-store-banner")');
+   var ovf=await ev('A','JSON.stringify(window._ovfKeys||{})');
+   close('A'); await open('A',{quota:CO});
+   var r=await until('A','S.items.it2&&S.items.it2.name',function(v){return v==='S10-끊김';},10000);
+   var inCloud=await untilCloud(function(d){ return Object.keys(d).some(function(k){ return k.indexOf(DOCP+CO)===0&&JSON.stringify(d[k]).indexOf('S10-끊김')>=0; }); },15000);
+   return {pass:r.ok&&!ban&&inCloud,detail:'다시 연 뒤='+r.v+' · 빨간 줄 '+(ban?'뜸':'없음')+' · 넘친 키 '+ovf+' · 클라우드 '+(inCloud?'올라감':'없음')}; }},
 ];
 
 async function main(){

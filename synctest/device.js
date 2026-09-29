@@ -28,6 +28,9 @@
     var day=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
     localStorage.setItem('fpm_autofilebk_last', day+'-'+(h>=21?21:(h>=14?14:0)));
   }catch(e){ log('seed error', String(e)); }
+  /* ?quota=키1,키2 — 아이폰처럼 저장공간이 가득 찬 기기 흉내: 이 키들은 localStorage 에 쓰면 QuotaExceededError (09-29g) */
+  try{ if(qs.quota){ var _qk=qs.quota.split(','), _si=Storage.prototype.setItem;
+    Storage.prototype.setItem=function(k,v){ if(this===window.localStorage&&_qk.indexOf(k)>=0){ log('quota 흉내',k); throw new DOMException('흉내: 저장공간 가득','QuotaExceededError'); } return _si.apply(this,arguments); }; } }catch(e){ log('quota patch error',String(e)); }
 
   /* ── 파일 내려받기·창 띄우기 막기 (검사 중 다운로드 폴더에 파일이 생기면 안 됨) */
   try{ var _click=HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click=function(){ if(this.hasAttribute('download')){ log('download blocked', this.getAttribute('download')); return; } return _click.apply(this,arguments); }; }catch(e){}
