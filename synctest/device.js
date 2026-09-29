@@ -99,6 +99,27 @@
   function ColRef(path){ this.path=path; }
   ColRef.prototype.doc=function(id){ return new DocRef(this.path+'/'+id); };
   var db={ collection:function(n){ return new ColRef(n); }, enablePersistence:function(){ return Promise.resolve(); } };
+  /* 트랜잭션(09-29 동기화 4번): 진짜 Firestore 처럼 «읽은 문서가 그 사이 안 바뀌었을 때만» 커밋, 바뀌었으면 함수를 다시 돌림(최대 5번).
+     끊긴 동안은 진짜처럼 실패. */
+  db.runTransaction=function(fn){
+    var attempt=0;
+    function run(){
+      attempt++;
+      if(T.offline)return Promise.reject(new Error('unavailable: offline'));
+      var reads={}, writes=[];
+      var tx={
+        get:function(ref){ return rpc('get',{path:ref.path}).then(function(doc){ reads[ref.path]=doc?(doc.ts||'__nots'):null; return snapOf(doc,false); }); },
+        set:function(ref,data){ writes.push({path:ref.path,data:JSON.parse(JSON.stringify(data))}); return tx; }
+      };
+      return Promise.resolve().then(function(){ return fn(tx); }).then(function(result){
+        return rpc('txcommit',{reads:reads,writes:writes}).then(function(){
+          writes.forEach(function(w){ lastSeen[w.path]=w.data&&w.data.ts; setTimeout(function(){ deliver(w.path,w.data,false); },0); });
+          return result;
+        },function(err){ if(/aborted/.test(String(err&&err.message))&&attempt<5)return run(); throw err; });
+      });
+    }
+    return run();
+  };
 
   /* ── 가짜 로그인 — 늘 같은 사람(같은 계정으로 네 기기를 쓰는 것과 같음) */
   var user={ uid:'U_TEST', email:'test@example.com' };

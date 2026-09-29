@@ -31,6 +31,11 @@ window.addEventListener('message',function(e){
     if(m.op==='get'){ reply(true,CLOUD.docs[a.path]||null); }
     else if(m.op==='set'){ CLOUD.docs[a.path]=a.data; CLOUD.writes++; CLOUD.history.push({dev:dev,path:a.path,ts:a.data&&a.data.ts}); reply(true,null); broadcast(a.path,dev); }
     else if(m.op==='del'){ delete CLOUD.docs[a.path]; reply(true,null); broadcast(a.path,dev); }
+    else if(m.op==='txcommit'){   /* 트랜잭션: 읽은 문서가 그 사이 바뀌었으면 거절(aborted), 아니면 한꺼번에 씀 */
+      var rd=a.reads||{}, bad=Object.keys(rd).filter(function(p){ var c=CLOUD.docs[p]; var cur=c?(c.ts||'__nots'):null; return cur!==rd[p]; });
+      if(bad.length){ CLOUD.aborts=(CLOUD.aborts||0)+1; reply(false,null,'aborted: '+bad.join(',')); return; }
+      (a.writes||[]).forEach(function(w){ CLOUD.docs[w.path]=w.data; CLOUD.writes++; CLOUD.history.push({dev:dev,path:w.path,ts:w.data&&w.data.ts,tx:1}); });
+      reply(true,null); (a.writes||[]).forEach(function(w){ broadcast(w.path,dev); }); }
     else if(m.op==='listen'){ (CLOUD.listens[dev]=CLOUD.listens[dev]||{})[a.path]=1; reply(true,CLOUD.docs[a.path]||null); }
     else reply(false,null,'unknown op '+m.op);
     return; }
@@ -93,7 +98,8 @@ var SCENES=[
    var a=await until('A','[S.items.it1.name,S.items.it2.name].join("|")',function(v){return v==='S2-A|S2-B';},12000);
    var b=await until('B','[S.items.it1.name,S.items.it2.name].join("|")',function(v){return v==='S2-A|S2-B';},12000);
    return {pass:a.ok&&b.ok,detail:'A='+a.v+' · B='+b.v}; }},
- {id:'S3',name:'같은 아이템의 다른 칸을 두 기기에서 고침 → 둘 다 남는다',weak:true,run:async function(){
+ /* S3: 09-29 동기화 4번에서 고침(칸마다 수정시각 _fm → 칸별로 합침). 이제 꼭 통과해야 함. */
+ {id:'S3',name:'같은 아이템의 다른 칸을 두 기기에서 고침 → 둘 다 남는다',run:async function(){
    await twoDevices();
    await offline('B',true);
    await ev('A','S.items.it1.memo='+q('A메모')+';saveData();1');
@@ -128,10 +134,9 @@ var SCENES=[
    await sleep(3000);
    var a=await ev('A','S.items.it1.name');
    return {pass:b.ok&&a==='S5-2',detail:'B='+b.v+' · A(폰 켠 뒤)='+a}; }},
- /* S6: 두 기기가 같은 상자(할일 문서)를 거의 같은 순간 저장하면, 늦게 도착한 쪽이 문서를 통째로 덮어 한쪽 추가분이
-       다음 저장 때까지 빠지는 경합이 가끔 난다(09-28 첫 검사에서 두 번 중 한 번). 상자 통째 저장이라 생기는 일 —
-       4번(한 장씩 저장)에서 구조적으로 없어진다. 그때까지는 «약한 곳»으로 두고 올리기를 막지 않는다. */
- {id:'S6',name:'두 기기가 거의 동시에 할일을 하나씩 추가 → 둘 다 남는다',weak:true,run:async function(){
+ /* S6: 두 기기가 같은 상자를 거의 같은 순간 저장하면, 늦게 도착한 쪽이 문서를 통째로 덮어 한쪽 추가분이 빠지던 경합
+       (09-28 첫 검사에서 두 번 중 한 번). 09-29 동기화 4번에서 고침 — «읽은 뒤 아무도 안 썼을 때만 쓰기»(트랜잭션), 겹치면 다시 합쳐 올림. */
+ {id:'S6',name:'두 기기가 거의 동시에 할일을 하나씩 추가 → 둘 다 남는다',run:async function(){
    await twoDevices();
    await Promise.all([
      ev('A','S.tasks.push({id:"tkA",text:"A할일",done:false,priority:"normal",createdAt:"2026-09-28"});saveData();1'),
@@ -166,6 +171,22 @@ var SCENES=[
    var b3=await until('B',code,function(v){return v==='ceC';},8000);
    var cal=!!CLOUD.docs[DOCP+CO+'__cal'];
    return {pass:a.ok&&a2.ok&&b2.ok&&b3.ok&&cal,detail:'A 받음='+a.ok+' · A='+a2.v+' · B='+b2.v+' · B 다시 켬='+b3.v+' · __cal 문서 '+(cal?'있음':'없음')}; }},
+ /* S9 (09-29 동기화 4번): 같은 오더 안에서 서로 다른 공장 카드(맵의 다른 키)를 두 기기가 고침 → 둘 다 남아야 함.
+       _fm 을 한 단계 더(공장 일정 factorySchedules 의 공장별)로 찍어 키마다 고르는지 본다. */
+ {id:'S9',name:'같은 오더의 다른 공장 일정을 두 기기에서 고침 → 둘 다 남는다',run:async function(){
+   await twoDevices();
+   await ev('A','S.orders.o1.factorySchedules={f1:{shipExpectedDate:"2026-10-01"},f2:{cuttingDate:"2026-09-30"}};saveData();1');
+   var got=await until('B','S.orders.o1.factorySchedules&&S.orders.o1.factorySchedules.f2&&S.orders.o1.factorySchedules.f2.cuttingDate',function(v){return v==="2026-09-30";},12000);
+   if(!got.ok)return {pass:false,detail:'B 가 공장 일정을 못 받음: '+got.v};
+   await offline('B',true);
+   await ev('A','S.orders.o1.factorySchedules.f1.shipExpectedDate="2026-10-09";saveData();1');
+   await ev('B','S.orders.o1.factorySchedules.f2.cuttingDate="2026-10-03";saveData();1');
+   await sleep(2500);
+   await offline('B',false);
+   var code='(function(){var f=S.orders.o1.factorySchedules;return f.f1.shipExpectedDate+"|"+f.f2.cuttingDate;})()';
+   var a=await until('A',code,function(v){return v==='2026-10-09|2026-10-03';},12000);
+   var b=await until('B',code,function(v){return v==='2026-10-09|2026-10-03';},12000);
+   return {pass:a.ok&&b.ok,detail:'A='+a.v+' · B='+b.v+' (둘 다 「2026-10-09|2026-10-03」여야 함)'}; }},
 ];
 
 async function main(){
