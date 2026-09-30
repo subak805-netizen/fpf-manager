@@ -4753,7 +4753,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-30b';
+var APP_BUILD=/*BUILD*/'2026-09-30c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5268,6 +5268,8 @@ function _scanBiasSrc(){ var out=[]; try{ Object.keys(S.items||{}).forEach(funct
 function _scanBiasSrcOnce(){ try{ var day=new Date().toISOString().slice(0,10); if(localStorage.getItem('fpm_biasScanDay')===day)return; localStorage.setItem('fpm_biasScanDay',day); var r=_scanBiasSrc(); if(!r.length)return; var names=[]; r.forEach(function(x){ if(names.indexOf(x.item)<0)names.push(x.item); }); if(typeof showToast==='function')showToast('바이어스 원단출처 확인 필요 '+r.length+'줄: '+names.slice(0,6).join(', ')+(names.length>6?' 외':'')+' — 아이템의 바이어스 카드에서 원단출처·규격을 고쳐 주세요',12000); }catch(e){} }
 function migrateData(){
   try{ setTimeout(_scanBiasSrcOnce,2500); }catch(e){}
+  /* 09-30b 롤당 yard 빈 아이템 줄을 단가장 값으로 채움 (빈 칸만 — 적힌 값은 안 건드림). 예전엔 단가장에서 적어도 아이템에 안 넘어갔다 */
+  try{ if(typeof _pbFindTrimMat==='function') Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; (it&&it.trims||[]).forEach(function(t){ if(!t||!t.supplier||+t.yardsPerRoll>0)return; var m=_pbFindTrimMat(t.supplier,t); if(m&&+m.yardsPerRoll>0)t.yardsPerRoll=+m.yardsPerRoll; }); }); }catch(e){}
   /* 메인라벨 발주처 = 브랜드 (2026-09-14e) — 다른 부자재를 메인라벨로 바꾼 줄에 남은 옛 부자재처(메이드 등) 정리 */
   try{ var _brs=(typeof getBrands==='function')?getBrands():[]; Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id]; (it&&it.trims||[]).forEach(function(tr){ if(!tr||tr.orderType!=='mainLabel')return; var _bid=tr.brandId||it.brandId; if(!_bid)return; var b=_brs.find(function(x){return x&&x.id===_bid;}); if(b&&b.name&&tr.supplier!==b.name)tr.supplier=b.name; }); }); }catch(e){}
   /* 옛 출고 기록 회차 풀기 (2026-09-15g) — 저장 한 번 단위로 bid 부여 */
@@ -8864,7 +8866,14 @@ function pbSetSpecPart(encSup,encKey,which,val){
 }
 function pbSetPack(encSup,encKey,val){
   var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
-  m.yardsPerRoll=(val===''||val==null)?'':(+val||0); savePB(); pbSoftRender();
+  m.yardsPerRoll=(val===''||val==null)?'':(+val||0);
+  /* 09-30b 롤당 yard 도 단가장 기준 — 이 자재를 쓰는 아이템 줄에 같이 넣는다. 예전엔 단가장만 바뀌고 아이템 줄은 빈 채로 남아
+     발주 계산이 1롤=1y 로 돌았다 (신고: 1롤 100y 인데 필요 22.4y → 23롤). 규격(pbSetSpecPart)과 같은 방식. */
+  try{ var _sup=decodeURIComponent(encSup), _n=0;
+    if(+m.yardsPerRoll>0) Object.keys(S.items||{}).forEach(function(iid){ var it=S.items[iid]; (it&&it.trims||[]).forEach(function(t){ if(!t||t.supplier!==_sup)return; if(_pbFindTrimMat(_sup,t)!==m)return; if(+t.yardsPerRoll!==+m.yardsPerRoll){ t.yardsPerRoll=+m.yardsPerRoll; _n++; } }); });
+    if(_n){ saveData(); if(typeof showToast==='function')showToast('롤당 yard → 이 부자재를 쓰는 아이템 줄 '+_n+'개도 맞춤'); }
+  }catch(e){}
+  savePB(); pbSoftRender();
 }
 function pbSetPackPrice(encSup,encKey,val){
   var m=_pbMat(decodeURIComponent(encSup),decodeURIComponent(encKey)); if(!m)return;
