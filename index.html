@@ -4753,7 +4753,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-30e';
+var APP_BUILD=/*BUILD*/'2026-09-30f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -28907,18 +28907,20 @@ function clParseNL(text){
   _clBrands().forEach(function(b){if(b.name&&!brandId&&t.indexOf(b.name)>=0){brandId=b.id;t=t.replace(b.name,' ');}});
   // 방향
   var dir='send';
-  if(/받음|받아|받기|수령|입고/.test(t))dir='recv';else if(/보냄|보내기|보내|발송|출고/.test(t))dir='send';
+  /* 09-30f 「투케이에서 옴」「메이드에서 왔음」「도착」도 받음 (신고: 에서 옴 줄이 보냄으로 들어감) */
+  if(/받음|받아|받기|수령|입고|에서\s*(옴|왔|온)|도착/.test(t))dir='recv';else if(/보냄|보내기|보내|발송|출고/.test(t))dir='send';
   t=t.replace(/(보냄|보내기|보내|발송|출고|받음|받기|받아|수령|입고)/g,' ');
   // 결제
   var pay='';
   if(/착불/.test(t)){pay='col';t=t.replace(/착불/g,' ');}else if(/선불/.test(t)){pay='pre';t=t.replace(/선불/g,' ');}
   // 금액
-  var amount=5000,mm=t.match(/(\d[\d,]{2,})\s*원?/); if(mm){amount=+mm[1].replace(/,/g,'')||5000;t=t.replace(mm[0],' ');}
+  var amount=CL_DEFAULT_AMT,mm=t.match(/(\d[\d,]{2,})\s*원?/); if(mm){amount=+mm[1].replace(/,/g,'')||CL_DEFAULT_AMT;t=t.replace(mm[0],' ');}
   // 쉼표(·/、)로 여러 거래처 분리 → 각각 1건
   var names=t.split(/[,，、·]/).map(function(x){return x.replace(/\s{2,}/g,' ').trim();}).filter(Boolean);
   if(!names.length)names=['택배'];
   return {date:date,brandId:brandId,dir:dir,pay:pay,amount:amount,names:names};
 }
+var CL_DEFAULT_AMT=4000;   /* 09-30f 택배 시재 기본 금액 4,000원 (송장 자동기록과 같은 값 — 예전 빠른입력만 5,000원이었다) */
 function clAddEntry(o){
   var cl=clEnsure();
   cl.entries.push({id:(typeof uid==='function'?uid():'cl'+Date.now()+Math.floor(Math.random()*1000)),
@@ -28956,7 +28958,7 @@ function clQuickNL(){
 }
 function clQuickBtn(){
   var ne=document.getElementById('cl-name');var raw=((ne&&ne.value)||'').trim();if(!raw){showToast('거래처/내용을 입력하세요');return;}
-  var ae=document.getElementById('cl-amt');var amt=+(((ae&&ae.value)||'').toString().replace(/,/g,''))||5000;
+  var ae=document.getElementById('cl-amt');var amt=+(((ae&&ae.value)||'').toString().replace(/,/g,''))||CL_DEFAULT_AMT;
   var de=document.getElementById('cl-date');var date=(de&&de.value)||(typeof todayISO==='function'?todayISO():today());
   var names=raw.split(/[,，、·]/).map(function(x){return x.trim();}).filter(Boolean);if(!names.length)names=[raw];
   var cl=clEnsure();
@@ -29361,7 +29363,7 @@ function renderCourierLedger(){
     html+='<div class="cl-row"><span class="cl-k">거래처</span><input id="cl-name" list="cl-names" placeholder="거래처/내용 (쉼표로 여러 곳: 투케이, 흥민사)"><datalist id="cl-names">'+_clRecentNames().map(function(n){return '<option value="'+esc(n)+'">';}).join('')+'</datalist></div>';
     html+='<div class="cl-row"><span class="cl-k">방향</span><div class="cl-chips" data-g="dir"><span class="cl-chip'+(window._clDir!=='recv'?' on':'')+'" onclick="clPick(\'dir\',\'send\',this)">보냄</span><span class="cl-chip'+(window._clDir==='recv'?' on':'')+'" onclick="clPick(\'dir\',\'recv\',this)">받음</span></div>'
       +'<span class="cl-k">결제</span><div class="cl-chips" data-g="pay"><span class="cl-chip'+(window._clPay==='col'?' on':'')+'" onclick="clPick(\'pay\',\'col\',this)">착불</span><span class="cl-chip'+(window._clPay==='pre'?' on':'')+'" onclick="clPick(\'pay\',\'pre\',this)">선불</span></div>'
-      +'<span class="cl-k">날짜</span><input id="cl-date" type="date" class="cl-date"><span class="cl-k">금액</span><input id="cl-amt" type="number" inputmode="numeric" value="5000" class="cl-amt"><button class="tl-btn pri" onclick="clQuickBtn()">＋ 추가</button></div>';
+      +'<span class="cl-k">날짜</span><input id="cl-date" type="date" class="cl-date"><span class="cl-k">금액</span><input id="cl-amt" type="number" inputmode="numeric" value="'+CL_DEFAULT_AMT+'" class="cl-amt"><button class="tl-btn pri" onclick="clQuickBtn()">＋ 추가</button></div>';
   }
   html+='</div>';
   html+='<div class="cl-bank">입금계좌 <input id="cl-bank" value="'+esc(cl.bank||'')+'" placeholder="예: 카카오뱅크 3333-07-1771142 박수빈" onchange="clSetBank(this.value)"></div>';
