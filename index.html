@@ -1868,8 +1868,9 @@ function fpfPartialBanner(on){
     +'<button onclick="fpfRetryCloudRead()" style="border:none;background:#fff;color:#7c2d12;font-weight:800;padding:5px 11px;border-radius:6px;cursor:pointer;font-family:inherit">다시 받기</button>';
   (document.body||document.documentElement).appendChild(b);
 }
-async function fpfRetryCloudRead(){
-  try{ if(typeof showToast==='function')showToast('다시 받는 중…',2500); }catch(e){}
+async function fpfRetryCloudRead(silent){
+  if(window._retryReadBusy)return; window._retryReadBusy=true;
+  try{ if(!silent&&typeof showToast==='function')showToast('다시 받는 중…',2500); }catch(e){}
   try{ window._cloudReadFail={}; }catch(e){}
   try{
     if(typeof curCoId!=='undefined'&&curCoId){ await cloudSyncLoad(curCoId); }
@@ -1878,10 +1879,14 @@ async function fpfRetryCloudRead(){
       try{ setCloudInd('ok'); }catch(e){}
       try{ render(); }catch(e){}
       try{ if(typeof showToast==='function')showToast('전부 받았어요 — 저장을 다시 시작합니다',3000); }catch(e){}
-    } else { try{ if(typeof showToast==='function')showToast('아직 '+cloudReadFailedKeys().length+'개를 못 받았어요 — 인터넷 확인 후 다시 시도',5000); }catch(e){} }
+    } else { try{ if(!silent&&typeof showToast==='function')showToast('아직 '+cloudReadFailedKeys().length+'개를 못 받았어요 — 인터넷 확인 후 다시 시도',5000); }catch(e){} }
   }catch(e){ console.warn('[다시 받기]',e); }
+  window._retryReadBusy=false;
 }
 try{ window.addEventListener('online',function(){ if(cloudReadFailed())fpfRetryCloudRead(); }); }catch(e){}
+/* 09-30a 못 받은 문서가 남아 있으면 20초마다 조용히 다시 받는다 — 맥이 잠에서 깬 직후 등 잠깐 끊겼을 때 「다시 받기」를 안 눌러도 풀리게.
+   (브라우저가 online 신호를 안 주는 경우가 있어서) 화면이 보이고 로그인돼 있을 때만. 성공하면 배너가 저절로 내려간다. */
+try{ setInterval(function(){ try{ if(cloudReadFailed()&&!document.hidden&&(typeof isCloudOn!=='function'||isCloudOn())&&navigator.onLine!==false)fpfRetryCloudRead(true); }catch(e){} },20000); }catch(e){}
 function cloudReadFailed(){ try{ return Object.keys(window._cloudReadFail||{}).length>0; }catch(e){ return false; } }
 function cloudReadFailedKeys(){ try{ return Object.keys(window._cloudReadFail||{}); }catch(e){ return []; } }
 function _cloudNoteFail(key,on){ try{ if(!window._cloudReadFail)window._cloudReadFail={}; if(on)window._cloudReadFail[key]=Date.now(); else delete window._cloudReadFail[key]; }catch(e){} }
@@ -4748,7 +4753,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-29o';
+var APP_BUILD=/*BUILD*/'2026-09-30a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
