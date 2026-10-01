@@ -4753,7 +4753,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-09-30f';
+var APP_BUILD=/*BUILD*/'2026-09-30g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -29342,9 +29342,17 @@ function _ciTestPageHTML(){
     +_ciFillHTML({date:_ciToday(),name:'테스트 상회',cont:'홍길동',phone:'010-0000-0000',addr:'서울시 테스트구 테스트동 123',bigo:'샘플',fare:'seon'})+'</div>';
   return '<div class="ci-pg" style="width:110mm;height:110mm"><div class="ci-label" style="position:absolute;left:0;top:0;height:110mm;outline:0">'+t+fill+'</div></div>';
 }
+/* 09-30g 예전 빠른입력 기본값 5,000원으로 들어간 미정산 줄 → 4,000원 (사용자 「4000원으로 바꿔줘」).
+   9/30 까지 날짜만 · 정산 끝난 줄은 안 건드림 · 클라우드 다 받은 뒤에만(덮어쓰기 방지). 장부를 열 때 돌아서 saveData 가 변경 도장을 붙인다. */
+function _clFix5000(){
+  try{ if(typeof cloudReadFailed==='function'&&cloudReadFailed())return; var n=0;
+    clEnsure().entries.forEach(function(e){ if(e&&!e.settled&&(+e.amount||0)===5000&&String(e.date||'')<='2026-09-30'){ e.amount=CL_DEFAULT_AMT; n++; } });
+    if(n){ saveData(); if(typeof showToast==='function')showToast('택배 시재 5,000원 '+n+'건 → 4,000원으로 바꿨어요',5000); }
+  }catch(e){}
+}
 function renderCourierLedger(){
   var box=document.getElementById('courier-body')||document.getElementById('pay-content'); if(!box)return;
-  var cl=clEnsure(); _tlEnsureStyle(); _clEnsureStyle();
+  var cl=clEnsure(); _tlEnsureStyle(); _clEnsureStyle(); _clFix5000();
   if(window._clDir==null)window._clDir='send';
   if(window._clMode==null)window._clMode='nl';
   if(window._clFltBrand==null)window._clFltBrand='ALL';
@@ -29388,14 +29396,30 @@ function renderCourierLedger(){
   else html+=cards;
   box.innerHTML='<div class="cl-root">'+html+'</div>';
 }
+/* 09-30g 날짜별 묶음(미리보기 승인) — 보기 상태는 기기별(fpm_ 아님). 'g'=날짜 띠로 묶음(기본) · 'f'=한 줄씩 */
+function _clGrouped(){ try{ return localStorage.getItem('fpfClGroup')!=='f'; }catch(e){ return true; } }
+function clSetGroup(v){ try{ localStorage.setItem('fpfClGroup',v); }catch(e){} renderCourierLedger(); }
+var _CL_RECV_RE=/에서\s*(옴|왔|온)|받음|수령|도착/;
+function clToggleDir(id){ var cl=clEnsure(); var e=cl.entries.find(function(x){return x.id===id;}); if(!e)return; e.dir=(e.dir==='recv')?'send':'recv'; saveData(); renderCourierLedger(); }
+function clFixRecv(brandId){
+  var n=0; _clViewRows(brandId).forEach(function(e){ if(e.dir!=='recv'&&_CL_RECV_RE.test(e.name||'')){ e.dir='recv'; n++; } });
+  if(n){ saveData(); renderCourierLedger(); showToast(n+'건 받음으로 바꿨어요'); }
+}
+/* 날짜 순 줄 → [{d, rows}] (같은 날짜끼리) */
+function _clByDate(rows){ var out=[],m={}; rows.forEach(function(e){ var d=e.date||''; if(!m[d]){ m[d]={d:d,rows:[]}; out.push(m[d]); } m[d].rows.push(e); }); return out; }
 function _clCard(brandId){
   var rows=_clViewRows(brandId); if(!rows.length)return '';
-  var total=0,unsettled=0,unAmt=0,body='';
+  var total=0,unsettled=0,unAmt=0,body='', _grp=_clGrouped(), _bandOf={};
+  if(_grp)_clByDate(rows).forEach(function(g){ _bandOf[g.rows[0].id]=g; });
+  var _wrongRecv=rows.filter(function(e){ return e.dir!=='recv'&&_CL_RECV_RE.test(e.name||''); }).length;
   rows.forEach(function(e){
     var amt=+e.amount||0; total+=amt; if(!e.settled){unsettled++;unAmt+=amt;}
-    var dirc=e.dir==='recv'?'<span class="cl-cat recv">받음</span>':'<span class="cl-cat send">보냄</span>';
+    var _bg=_bandOf[e.id];
+    if(_bg){ var _bs=_bg.rows.reduce(function(a,x){return a+(+x.amount||0);},0), _rc=_bg.rows.filter(function(x){return x.dir==='recv';}).length;
+      body+='<tr class="tl-grph cl-band"><td class="l" colspan="3">'+(_bg.d?esc(_bg.d.slice(5).replace('-','/')):'날짜 없음')+' <span class="tl-gsub">· '+_bg.rows.length+'건'+(_rc?(' · 보냄 '+(_bg.rows.length-_rc)+' · 받음 '+_rc):'')+'</span></td><td class="tl-n cl-band-amt">'+num(_bs)+'원</td><td></td></tr>'; }
+    var dirc='<span class="cl-cat '+(e.dir==='recv'?'recv':'send')+' cl-flip" onclick="event.stopPropagation();clToggleDir(\''+e.id+'\')" title="누르면 보냄 ↔ 받음">'+(e.dir==='recv'?'받음':'보냄')+'</span>';
     var payc=e.pay==='col'?' <span class="cl-cat col">착불</span>':(e.pay==='pre'?' <span class="cl-cat pre">선불</span>':'');
-    var dlabel=e.date?esc(e.date.slice(5).replace('-','/')):'-';
+    var dlabel=_grp?'':(e.date?esc(e.date.slice(5).replace('-','/')):'-');
     body+='<tr'+(e.settled?' class="cl-done"':'')+' draggable="true" ondragstart="clDragStart(event,\''+e.id+'\')"><td class="l tl-d" data-l="날짜">'+dlabel+'</td>'
       +'<td class="l tl-nm" data-l="내용" onclick="clPickBrand(\''+e.id+'\')" title="클릭=브랜드 이동 · 끌어서 위 브랜드 버튼에 놓기" style="cursor:pointer">'+esc(e.name)+'</td>'
       +'<td class="l" data-l="분류">'+dirc+payc+'</td>'
@@ -29407,6 +29431,8 @@ function _clCard(brandId){
   var settleBtn=unsettled?'<button class="tl-btn" onclick="clSettle(\''+(brandId||'')+'\',true)">정산 완료</button>':'<button class="tl-btn" onclick="clSettle(\''+(brandId||'')+'\',false)">정산 취소</button>';
   var cl=clEnsure();
   var h='<div class="tl-card" style="margin-top:14px" ondragenter="event.preventDefault()" ondragover="clDragOver(event,this)" ondragleave="this.classList.remove(\'cl-dropover\')" ondrop="clDrop(event,\''+(brandId||'')+'\',this)"><div class="tl-card-h"><h3>'+esc(nm)+' · 택배 시재 내역서</h3>'+statusBadge+'<span class="tl-spc"></span>'+settleBtn+'<button class="tl-btn pri" onclick="clImage(\''+(brandId||'')+'\')">이미지</button></div>'
+    +'<div class="cl-tools">보기 <span class="cl-seg"><button type="button" class="'+(_grp?'on':'')+'" onclick="clSetGroup(\'g\')">날짜별 묶음</button><button type="button" class="'+(_grp?'':'on')+'" onclick="clSetGroup(\'f\')">한 줄씩</button></span><span class="cl-tip">분류 칩을 누르면 보냄 ↔ 받음</span></div>'
+    +(_wrongRecv?('<div class="cl-fixrecv">「에서 옴」인데 보냄으로 된 줄 '+_wrongRecv+'건 <button type="button" class="tl-btn" onclick="clFixRecv(\''+(brandId||'')+'\')">받음으로 바꾸기</button></div>'):'')
     +'<div class="tl-wrap"><table class="tl-tbl"><thead><tr><th class="l">날짜</th><th class="l">내용</th><th class="l">분류</th><th>금액</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div>'
     +'<div class="tl-foot"><div class="tl-fl grand"><span>합계 · '+rows.length+'건</span><b>'+num(total)+'원</b></div>'+(unsettled?'<div class="tl-fl due"><span>미정산</span><b>'+num(unAmt)+'원</b></div>':'')+'</div>'
     +(cl.bank?'<div class="cl-bankline">입금 계좌 · '+esc(cl.bank)+'</div>':'')+'</div>';
@@ -29415,9 +29441,11 @@ function _clCard(brandId){
 function clImage(brandId){
   var cl=clEnsure(),rows=_clViewRows(brandId); if(!rows.length){showToast('내역이 없어요');return;}
   var nm=brandId?_clBrandName(brandId):'미지정',total=0,trs=[],td='border:1px solid #ddd;padding:7px';
+  var _igrp=_clGrouped(), _iband={}; if(_igrp)_clByDate(rows).forEach(function(g){ _iband[g.rows[0].id]=g; });   /* 09-30g 날짜별 묶음 */
   rows.forEach(function(e){total+=(+e.amount||0);
+    var _ib=_iband[e.id]; if(_ib){ var _is=_ib.rows.reduce(function(a,x){return a+(+x.amount||0);},0); trs.push('<tr style="background:#f0f0f0;font-weight:800"><td colspan="3" style="'+td+';text-align:left">'+esc((_ib.d||'').slice(5).replace('-','/'))+' · '+_ib.rows.length+'건</td><td style="'+td+';text-align:right">'+num(_is)+'원</td></tr>'); }
     var dir=e.dir==='recv'?'받음':'보냄',pay=e.pay==='col'?' (착불)':(e.pay==='pre'?' (선불)':'');
-    trs.push('<tr><td style="'+td+';text-align:center">'+esc((e.date||'').slice(5).replace('-','/'))+'</td><td style="'+td+';text-align:center">'+dir+pay+'</td><td style="'+td+';text-align:left">'+esc(e.name)+'</td><td style="'+td+';text-align:right">'+num(+e.amount||0)+'</td></tr>');
+    trs.push('<tr><td style="'+td+';text-align:center">'+(_igrp?'':esc((e.date||'').slice(5).replace('-','/')))+'</td><td style="'+td+';text-align:center">'+dir+pay+'</td><td style="'+td+';text-align:left">'+esc(e.name)+'</td><td style="'+td+';text-align:right">'+num(+e.amount||0)+'</td></tr>');
   });
   var per=window._clPeriod?(' · '+window._clPeriod.replace('-','.')):'';
   // 내역이 길면(16행 초과) 좌우 2열로 자동 분할 — 합계·계좌는 아래 전체폭
@@ -29450,6 +29478,16 @@ function _clEnsureStyle(){
   if(document.getElementById('cl-css'))return;
   var c=''
   +'.cl-root{max-width:760px}'
+  +'.cl-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 14px;font-size:12px;color:var(--t2);border-bottom:1px solid var(--bd)}'
+  +'.cl-seg{display:inline-flex;border:1px solid var(--ink,#111);border-radius:7px;overflow:hidden}'
+  +'.cl-seg button{font:inherit;font-size:12px;font-weight:700;border:0;border-right:1px solid var(--ink,#111);background:#fff;color:var(--text);padding:4px 10px;cursor:pointer}'
+  +'.cl-seg button:last-child{border-right:0}.cl-seg button.on{background:var(--ink,#111);color:#fff}'
+  +'html[data-theme="retro"] .cl-seg{border-radius:0}html[data-theme="retro"] .cl-seg button.on{background:#A5E6BA;color:#0B0A05}'
+  +'.cl-tip{font-size:11px}'
+  +'.cl-fixrecv{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 14px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:600;border-bottom:1px solid #fcd34d}'
+  +'.cl-flip{cursor:pointer}.cl-flip:hover{outline:1.5px solid currentColor}'
+  +'.tl-tbl tr.cl-band td.cl-band-amt{font-weight:800;font-size:13px;background:var(--bg2)}'
+  +'@media(max-width:760px){.tl-tbl tbody tr.cl-band{display:flex;justify-content:space-between;align-items:center}.tl-tbl tbody tr.cl-band td{width:auto}.tl-tbl tbody tr.cl-band td:empty{display:none}.tl-tbl tbody tr.cl-band td.cl-band-amt::before{content:""!important}}'
   +'.cl-bflt .tl-btn.cl-dropover{background:#A5E6BA;outline:2.5px dashed #0B0A05;outline-offset:1px}'
   +'.tl-card.cl-dropover{outline:3px dashed #0B0A05;outline-offset:2px;background:#E8F6EE}'
   +'.tl-tbl tr[draggable=true]{cursor:grab}.tl-tbl tr[draggable=true]:active{cursor:grabbing}'
