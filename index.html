@@ -4770,7 +4770,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-02a';
+var APP_BUILD=/*BUILD*/'2026-10-02b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -17693,6 +17693,24 @@ function _poAtGroup(list){
   return first;
 }
 function _poShowPrice(sup){ return true; }   /* 2026-09-14d 사용자: 「단가 표시는 항상 눌려있게」 — 옛 발주서에 꺼둔 값(showPrice:false)도 무시 */
+/* 10-02b 라벨·완성자재 수량 기준 — 발주 내용 선택 「재단 장수 + 여분」(poOpts.lblCutBase) 이면 봉제공장 재단 기록 그리드를 쓴다.
+   재단 기록이 없거나 컬러·사이즈 이름이 안 맞으면 예전처럼 오더(effective) 그리드. 발주서 숫자만 — 원가·결제 불변. */
+function _poLblGrid(order,oi,it,sn){
+  var bd=(typeof getEffectivePcsBreakdown==='function')?getEffectivePcsBreakdown(order,oi):null;
+  var base=(bd&&bd.effGrid)?bd.effGrid:(oi&&oi.qtyGrid)||{};
+  var po=(((order&&order.suppliers)||{})[sn]||{}).poOpts||{};
+  if(!po.lblCutBase||!it)return {g:base,cut:false};
+  var sch=(it.sewingFcId&&order.factorySchedules)?order.factorySchedules[it.sewingFcId]:null;
+  var cg=(sch&&typeof pdCutSizeGrid==='function')?pdCutSizeGrid(sch,oi.itemId,(order.orderItems||[]).length===1):{};
+  var sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'], colors=(it.colors&&it.colors.length)?it.colors:[''];
+  var tot=0,ng={},hit=0;
+  Object.keys(cg||{}).forEach(function(c){ Object.keys(cg[c]||{}).forEach(function(sz){ var q=+cg[c][sz]||0; if(q<=0)return; tot+=q;
+    var tc=colors.indexOf(c)>=0?c:(colors.length===1?colors[0]:null), ts=sizes.indexOf(sz)>=0?sz:(sizes.length===1?sizes[0]:null);
+    if(tc==null||ts==null)return; ng[tc]=ng[tc]||{}; ng[tc][ts]=(ng[tc][ts]||0)+q; hit+=q; }); });
+  if(!tot)return {g:base,cut:false,noCut:true};
+  if(hit<tot)return {g:base,cut:false,mismatch:true};
+  return {g:ng,cut:true,total:tot};
+}
 function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 자재 줄을 \u0007 표시로 남겨 화면에서 줄긋기(09-18h) */
   const sup=order.suppliers[sn];if(!sup)return'';
   const opts=sup.poOpts||{};
@@ -17934,8 +17952,7 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
           const buf=cl.qtyBuffer!==undefined?+cl.qtyBuffer:10;
           const qpp=(cl.qtyPerPiece!=null&&+cl.qtyPerPiece>0)?+cl.qtyPerPiece:1;
           // effective grid 우선 (원단 변경 도미노 반영), 없으면 원래 qtyGrid
-          const bd=typeof getEffectivePcsBreakdown==='function'?getEffectivePcsBreakdown(order,oiC):null;
-          const useGrid=(bd&&bd.effGrid)?bd.effGrid:oiC.qtyGrid;
+          const useGrid=_poLblGrid(order,oiC,itC,sn).g;   /* 10-02b 재단 장수 기준이면 재단 그리드 */
           // 사이즈별 합계 (모든 컬러)
           const bySize={};
           let totalQty=0;
@@ -18001,7 +18018,7 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
           L.push('');
           if(ml.fsDest)L.push('> '+ml.fsDest+(ml.fsKind?' ('+ml.fsKind+')':''));
           var fTot=0;
-          if(oiF&&oiF.qtyGrid){ var bdF=typeof getEffectivePcsBreakdown==='function'?getEffectivePcsBreakdown(order,oiF):null; var gF=(bdF&&bdF.effGrid)?bdF.effGrid:oiF.qtyGrid;
+          if(oiF&&oiF.qtyGrid){ var gF=_poLblGrid(order,oiF,itF,sn).g;   /* 10-02b */
             var fSz=(itF&&itF.sizes&&itF.sizes.length)?itF.sizes:['free'], fCl=(itF&&itF.colors&&itF.colors.length)?itF.colors:[''];   /* 메인라벨과 같은 셈(아이템 컬러×사이즈) */
             fSz.forEach(function(sz){ fCl.forEach(function(c){ fTot+=+(gF[c]&&gF[c][sz])||0; }); }); }
           var fBuf=ml.qtyBuffer!==undefined?+ml.qtyBuffer:10, fQ=fTot>0?(fTot+fBuf):0;
@@ -18047,8 +18064,7 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
           const colors=itM.colors&&itM.colors.length?itM.colors:[''];
           const buf=ml.qtyBuffer!==undefined?+ml.qtyBuffer:10;
           const mlQpp=(ml.qtyPerPiece!=null&&+ml.qtyPerPiece>0)?+ml.qtyPerPiece:1;
-          const bdM=typeof getEffectivePcsBreakdown==='function'?getEffectivePcsBreakdown(order,oiM):null;
-          const useGridM=(bdM&&bdM.effGrid)?bdM.effGrid:oiM.qtyGrid;
+          const useGridM=_poLblGrid(order,oiM,itM,sn).g;   /* 10-02b */
           const bySize={};
           let totalQty=0;
           sizes.forEach(function(sz){
@@ -21038,6 +21054,12 @@ function poCardHTML(o,sn){
         <summary>발주 내용 선택 ${poParts.optCount?`<span class="po2-cnt">${poParts.optCount}개 켜짐</span>`:`<span class="hint">요청·출고 옵션</span>`}</summary>
         <div class="po-opts-b">
           ${(function(){const r5v=opts.trimRound5||'none';return '<div class="po2-og po2-r5bar"><div class="gl">부자재 수량 단위 <span class="hint">전체 한 번에 · 따로는 아래 로스 줄 끝에서</span></div><div class="po2-seg"><button type="button" class="'+(r5v==='none'?'on':'')+'" onclick="setPoTrimRound(\''+o.id+'\',\''+sn+'\',\'none\')">그대로</button><button type="button" class="'+(r5v==='up'?'on':'')+'" onclick="setPoTrimRound(\''+o.id+'\',\''+sn+'\',\'up\')">5단위 올림</button><button type="button" class="'+(r5v==='down'?'on':'')+'" onclick="setPoTrimRound(\''+o.id+'\',\''+sn+'\',\'down\')">5단위 내림</button></div></div>';})()}
+          ${(function(){ /* 10-02b 라벨·완성자재 수량 기준 (미리보기 승인) — 라벨/완성자재가 있는 카드에만 */
+              var mats=(sup.materials||[]).filter(function(m){return m&&(m.orderType==='careLabel'||m.orderType==='mainLabel');}); if(!mats.length)return '';
+              var on=!!opts.lblCutBase, hint='';
+              if(on){ var st=[]; (o.orderItems||[]).forEach(function(oi){ var it=S.items[oi.itemId]; if(!it||!mats.some(function(m){return m.itemId===oi.itemId;}))return; var r=_poLblGrid(o,oi,it,sn); st.push(r.cut?('재단 '+num(r.total)+'장'):(r.noCut?'재단 전 — 오더 수량으로':'재단 컬러·사이즈가 안 맞아 오더 수량으로')); }); hint=st.join(' · '); }
+              return '<div class="po2-og"><div class="gl">라벨·완성자재 수량 기준</div><div class="po2-seg"><button type="button" class="'+(on?'':'on')+'" onclick="setPoLblCut(\''+o.id+'\',\''+sn+'\',false)">오더 수량 + 여분</button><button type="button" class="'+(on?'on':'')+'" onclick="setPoLblCut(\''+o.id+'\',\''+sn+'\',true)">재단 장수 + 여분</button></div>'+(hint?'<div class="po2-tip" style="margin-top:6px">'+esc(hint)+'</div>':'')+'</div>';
+            })()}
           ${orderLossCardGroupHTML(o,sn)}
           <div class="po2-og"><div class="gl">요청사항</div><div class="po2-chips">${PO_OPT_DEFS.filter(d=>d.cat==='req').map(def=>`<button type="button" class="po2-chip${opts[def.key]?' on':''}" onclick="togglePoReqOpt('${o.id}','${sn}','${def.key}',${opts[def.key]?'false':'true'})">${def.label}</button>`).join('')}</div></div>
           <div class="po2-og"><div class="gl">출고</div><div class="po2-chips">${PO_OPT_DEFS.filter(d=>d.cat==='ship').map(def=>`<button type="button" class="po2-chip${opts[def.key]?' on':''}" onclick="togglePoReqOpt('${o.id}','${sn}','${def.key}',${opts[def.key]?'false':'true'})">${def.label}</button>`).join('')}</div></div>
@@ -32833,6 +32855,12 @@ function setPoTrimRoundMat(oid,sn,encKey,val){
   var by=po.trimRound5By=(po.trimRound5By&&typeof po.trimRound5By==='object')?po.trimRound5By:{};
   var k=decodeURIComponent(encKey);
   if(val===(po.trimRound5||'none'))delete by[k]; else by[k]=val;   /* 전체 값과 같으면 따로 적어 둘 필요 없음 */
+  saveData();
+  if(typeof _renderOTabKeepScroll==='function')_renderOTabKeepScroll();else if(typeof renderOTab==='function')renderOTab();
+}
+function setPoLblCut(oid,sn,on){
+  var o=poResolveOrder(oid);if(!o||!o.suppliers||!o.suppliers[sn])return;
+  var po=o.suppliers[sn].poOpts=o.suppliers[sn].poOpts||{}; if(on)po.lblCutBase=true; else delete po.lblCutBase;
   saveData();
   if(typeof _renderOTabKeepScroll==='function')_renderOTabKeepScroll();else if(typeof renderOTab==='function')renderOTab();
 }
