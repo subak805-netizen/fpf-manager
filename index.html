@@ -4774,7 +4774,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-06a';
+var APP_BUILD=/*BUILD*/'2026-10-06b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -29960,9 +29960,12 @@ function renderItemPay(opts){
       <div style="font-size:13px;font-weight:600">${selCount}개 선택됨</div>
       <div style="font-size:11px;color:#9ca3af">같은 공장 × 같은 브랜드는 합쳐서 통합 명세서가 생성돼요</div>
       <button onclick="ipClearSelect()" style="margin-left:auto;padding:7px 14px;border-radius:7px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:12px;font-weight:600;cursor:pointer">선택 해제</button>
-      <button onclick="ipOpenBatchReceipt()" style="padding:7px 16px;border-radius:7px;border:none;background:#fff;color:#111827;font-size:13px;font-weight:700;cursor:pointer">통합 명세서 만들기</button>
+      <button onclick="ipOpenBatchReceipt()" style="padding:7px 16px;border-radius:7px;border:none;background:#fff;color:#111827;font-size:13px;font-weight:700;cursor:pointer">통합 명세서 ${window._ipBatchOpen?'닫기':'만들기'}</button>
     </div>`;
-  }
+    /* 10-06b 통합 명세서 인라인 (요청 「인라인으로」) — 창 대신 막대 바로 밑에 펼침. 선택이 바뀌면 다시 그릴 때 같이 바뀜 */
+    if(window._ipBatchOpen){ var _bi=''; try{ _bi=_ipBatchInnerHTML(); }catch(eB){ console.warn('[통합 명세서]',eB); }
+      html+='<div id="ip-batch-rcpt" style="background:#fff;border:2px solid #1f2937;border-radius:12px;padding:16px;margin-bottom:14px;overflow-x:auto">'+(_bi||'<div style="font-size:13px;color:#6b7280">명세서 데이터가 없어요</div>')+'</div>'; }
+  } else window._ipBatchOpen=false;
   const _payCard=function(r){
     const brandNm=r.item.brandId&&typeof getBrandName==='function'?getBrandName(r.item.brandId):'';
     const codeStr=r.item.code||'';
@@ -30250,13 +30253,20 @@ function ipToggleSelect(chk){
   if(chk.checked)window._ipSelected[k]=true;else delete window._ipSelected[k];
   renderItemPay();
 }
-function ipClearSelect(){window._ipSelected={};renderItemPay();}
+function ipClearSelect(){window._ipSelected={};window._ipBatchOpen=false;renderItemPay();}
 // 통합 명세서 모달 — 선택된 아이템들의 공장×브랜드별 합산
-function ipSetRcMode(m){ window._ipRcMode=(m==='item')?'item':'date'; try{ipOpenBatchReceipt();}catch(e){} }
+function ipSetRcMode(m){ window._ipRcMode=(m==='item')?'item':'date'; window._ipBatchOpen=true; try{renderItemPay();}catch(e){} }
+function ipCloseBatch(){ window._ipBatchOpen=false; try{renderItemPay();}catch(e){} }
 function ipOpenBatchReceipt(){
+  var any=Object.keys(window._ipSelected||{}).some(function(k){return window._ipSelected[k];});
+  if(!any){ showToast('선택된 아이템이 없어요'); return; }
+  window._ipBatchOpen=!window._ipBatchOpen; renderItemPay();
+  if(window._ipBatchOpen)setTimeout(function(){ var el=document.getElementById('ip-batch-rcpt'); if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'}); },60);
+}
+function _ipBatchInnerHTML(){
   const _rcMode=(window._ipRcMode==='item')?'item':'date';
   const selKeys=Object.keys(window._ipSelected||{}).filter(k=>window._ipSelected[k]);
-  if(!selKeys.length){showToast('선택된 아이템이 없어요');return;}
+  if(!selKeys.length)return '';
   // 키: oid__itemId → 파싱
   const targets=selKeys.map(k=>{var p=k.split('__');return {oid:p[0],itemId:p[1]};});
   // 공장×브랜드별 그룹: key = fcId + '|' + brandId
@@ -30274,7 +30284,7 @@ function ipOpenBatchReceipt(){
       groups[gk].items.push({oid:t.oid,itemId:t.itemId});
     });
   });
-  if(!Object.keys(groups).length){showToast('명세서 데이터가 없어요');return;}
+  if(!Object.keys(groups).length)return '';
   // 각 그룹별 명세서 HTML 생성
   let body='';let idx=0;
   Object.values(groups).forEach(function(g){
@@ -30292,7 +30302,7 @@ function ipOpenBatchReceipt(){
       +`<button data-target="${rid}" data-name="${esc(nm)}" onclick="ipSaveReceipt(this)" style="padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:none;background:#1f2937;color:#fff;font-weight:700">이미지 저장</button>`
       +`</div></div>`;
   });
-  const actions='<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button onclick="closeGenericModal()" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700">닫기</button></div>';
+  const actions='<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button onclick="ipCloseBatch()" style="padding:9px 18px;border-radius:7px;font-size:13px;cursor:pointer;border:none;background:#f3f4f6;color:#374151;font-weight:700">닫기</button></div>';
   const _sw=function(m,l,d){return '<button type="button" onclick="ipSetRcMode(\''+m+'\')" style="padding:8px 16px;border:none;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;'
       +(_rcMode===m?'background:#1f2937;color:#fff':'background:#fff;color:#374151')+'">'+l+'</button>';};
   const modeBar='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">'
@@ -30300,7 +30310,7 @@ function ipOpenBatchReceipt(){
     +'<span style="display:inline-flex;border:1.5px solid #1f2937;border-radius:7px;overflow:hidden">'+_sw('date','출고일별')+_sw('item','아이템별')+'</span>'
     +'<span style="font-size:11px;color:#9ca3af">'+(_rcMode==='item'?'아이템마다 총수량·금액 소계':'출고일마다 소계')+' · 합계·부가세는 같아요</span>'
     +'</div>';
-  showGenericModal('통합 명세서 ('+Object.keys(groups).length+'장)',modeBar+body+actions);
+  return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><b style="font-size:15px">통합 명세서 '+Object.keys(groups).length+'장</b><button onclick="ipCloseBatch()" style="margin-left:auto;padding:6px 12px;border-radius:7px;border:none;background:#f3f4f6;color:#374151;font-weight:700;font-size:12px;cursor:pointer">닫기</button></div>'+modeBar+body+actions;
 }
 // 그룹 명세서 HTML 빌드 (공장 1개 × 브랜드 1개 × 여러 아이템)
 /* mode: 'date'=출고일별 묶기(기본, 지금까지 쓰던 모양) / 'item'=아이템별 묶기(아이템 총수량 보기)
