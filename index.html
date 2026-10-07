@@ -4776,7 +4776,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-07a';
+var APP_BUILD=/*BUILD*/'2026-10-07b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7556,7 +7556,12 @@ function _saveTrimCat(){try{savePB();}catch(e){}try{saveData();}catch(e){}}
 async function addTrimCategory(){var nm=(await appPrompt('새 부자재 종류 이름 (예: 심지, 밴드, 테잎)')||'').trim();if(!nm)return '';var list=getTrimCategories();if(list.indexOf(nm)<0){list.push(nm);S.refData.trimCategories=list;_saveTrimCat();}if(typeof renderBook==='function')renderBook();return nm;}
 function renameTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;var nm=(prompt('종류 이름 변경',old)||'').trim();if(!nm||nm===old)return;if(list.indexOf(nm)>=0&&list.indexOf(nm)!==idx){showToast('이미 있는 종류예요');return;}list[idx]=nm;S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category=nm;});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
 function deleteTrimCategory(idx){var list=getTrimCategories();var old=list[idx];if(old==null)return;if(!confirm('"'+old+'" 종류를 삭제할까요?\n이 종류로 지정된 부자재는 미분류가 돼요.'))return;list.splice(idx,1);_tombArr('refArr:trimCategories',old);/* 다른 기기에서 되살아나지 않게 */S.refData.trimCategories=list;Object.values(S.priceBook||{}).forEach(function(pb){var m=(pb||{}).materials||{};Object.keys(m).forEach(function(k){if(m[k]&&m[k].category===old)m[k].category='';});});_saveTrimCat();if(typeof renderBook==='function')renderBook();}
-async function setPbMatCategory(encSup,encKey,val){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);var pb=S.priceBook[sup];if(!pb||!pb.materials[key])return;if(val==='__new'){var nm=await addTrimCategory();if(!nm)return;pb.materials[key].category=nm;}else{pb.materials[key].category=val;}_saveTrimCat();if(typeof pbSoftRender==='function')pbSoftRender(true);}
+async function setPbMatCategory(encSup,encKey,val){var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);var pb=S.priceBook[sup];if(!pb||!pb.materials[key])return;if(val==='__new'){var nm=await addTrimCategory();if(!nm)return;pb.materials[key].category=nm;}else{pb.materials[key].category=val;}_saveTrimCat();
+  /* 10-07b 유형 이름이 전용 칸(지퍼·단추·스냅·케어라벨·메인라벨·바이어스·단추고리)과 같으면 계산 방식도 그걸로 (요청 「종류를 지퍼로 하면 지퍼로」).
+     setPbCalcMode 가 아이템 줄도 같이 바꿀지 묻는다. 이름이 정확히 같을 때만. */
+  try{ var _ck=_pbCatCalcKey(pb.materials[key].category); if(_ck&&_pbCalcKey(pb.materials[key])!==_ck){ setPbCalcMode(encSup,encKey,_ck); return; } }catch(eC){}
+  if(typeof pbSoftRender==='function')pbSoftRender(true);}
+function _pbCatCalcKey(cat){ var c=String(cat||'').replace(/\s+/g,''); if(!c)return ''; var ks=Object.keys(_PB_CALC_FIXED); for(var i=0;i<ks.length;i++){ if(_PB_CALC_FIXED[ks[i]]===c)return ks[i]; } return ''; }
 function toggleTrimCatEdit(){window._pbCatEdit=!window._pbCatEdit;if(typeof renderBook==='function')renderBook();}
 function _trimCatBarHTML(){
   var cats=getTrimCategories();var edit=!!window._pbCatEdit;
@@ -9211,7 +9216,8 @@ function renderPbTrimTable(lst,sups){
       var _cm=(function(){ /* 2026-09-17 계산 방식 · 미니멈 분배 · 미니멈 발주 (09-18d 두 줄 카드: 셀을 따로 돌려줌) */
             var ck=_pbCalcKey(m), iss=_pbTrimIssues(s,m);
             var _rn=[]; (iss.rows||[]).forEach(function(r){ var nm=(r.it&&r.it.name)||''; if(nm&&_rn.indexOf(nm)<0)_rn.push(nm); });
-            var badge=(iss.unitDiff?'<span class="pbt-warn" title="단위와 계산 방식이 달라요 — 계산 방식을 다시 골라 맞추세요">단위와 다름</span>':'')
+            var _cck=_pbCatCalcKey(m.category);   /* 10-07b 유형=지퍼인데 계산 방식이 다르면 눌러서 맞춤 */
+            var badge=((_cck&&ck!==_cck)?'<button type="button" class="pbt-warn pbt-warn-btn" title="유형은 「'+esc(_PB_CALC_FIXED[_cck])+'」인데 계산 방식이 달라요 — 누르면 맞춰요" onclick="setPbCalcMode(\''+es+'\',\''+ek+'\',\''+_cck+'\')">유형과 다름</button>':'')+(iss.unitDiff?'<span class="pbt-warn" title="단위와 계산 방식이 달라요 — 계산 방식을 다시 골라 맞추세요">단위와 다름</span>':'')
                      +(iss.rowsDiff?'<button type="button" class="pbt-warn pbt-warn-btn" title="이 부자재를 쓰는 아이템 줄 '+iss.rowsDiff+'개('+esc(_rn.slice(0,5).join(', '))+(_rn.length>5?' …':'')+')의 계산 방식이 단가장(「'+esc(_pbCalcLbl(ck))+'」)과 달라요. 누르면 그 줄들을 단가장에 맞춰요" onclick="pbSyncCalcRows(\''+es+'\',\''+ek+'\')">줄 '+iss.rowsDiff+' 다름 · 맞추기</button>':'');
             var opts=PB_CALC_MODES.slice(); if(_PB_CALC_LEGACY[ck])opts.push([ck,_PB_CALC_LEGACY[ck]]);
             /* 09-17k: 전용 칸 종류(지퍼·단추·…)도 목록에 넣어 어느 줄이든 바꿀 수 있게 · 미니멈 두 칸은 어느 종류든 입력 (사용자 「다 풀어줘」) */
