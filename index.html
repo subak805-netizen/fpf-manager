@@ -4776,7 +4776,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-07b';
+var APP_BUILD=/*BUILD*/'2026-10-07c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -30279,7 +30279,7 @@ function ipToggleSelect(chk){
 }
 function ipClearSelect(){window._ipSelected={};window._ipBatchOpen=false;renderItemPay();}
 // 통합 명세서 모달 — 선택된 아이템들의 공장×브랜드별 합산
-function ipSetRcMode(m){ window._ipRcMode=(m==='item')?'item':'date'; window._ipBatchOpen=true; try{renderItemPay();}catch(e){} }
+function ipSetRcMode(m){ window._ipRcMode=(m==='item'||m==='date')?m:'sum'; window._ipBatchOpen=true; try{renderItemPay();}catch(e){} }
 function ipCloseBatch(){ window._ipBatchOpen=false; try{renderItemPay();}catch(e){} }
 function ipOpenBatchReceipt(){
   var any=Object.keys(window._ipSelected||{}).some(function(k){return window._ipSelected[k];});
@@ -30288,7 +30288,7 @@ function ipOpenBatchReceipt(){
   if(window._ipBatchOpen)setTimeout(function(){ var el=document.getElementById('ip-batch-rcpt'); if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'}); },60);
 }
 function _ipBatchInnerHTML(){
-  const _rcMode=(window._ipRcMode==='item')?'item':'date';
+  const _rcMode=(window._ipRcMode==='item'||window._ipRcMode==='date')?window._ipRcMode:'sum';   /* 10-07c 기본 = 요약 */
   const selKeys=Object.keys(window._ipSelected||{}).filter(k=>window._ipSelected[k]);
   if(!selKeys.length)return '';
   // 키: oid__itemId → 파싱
@@ -30331,8 +30331,8 @@ function _ipBatchInnerHTML(){
       +(_rcMode===m?'background:#1f2937;color:#fff':'background:#fff;color:#374151')+'">'+l+'</button>';};
   const modeBar='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">'
     +'<span style="font-size:12px;font-weight:700;color:#6b7280">묶어 보기</span>'
-    +'<span style="display:inline-flex;border:1.5px solid #1f2937;border-radius:7px;overflow:hidden">'+_sw('date','출고일별')+_sw('item','아이템별')+'</span>'
-    +'<span style="font-size:11px;color:#9ca3af">'+(_rcMode==='item'?'아이템마다 총수량·금액 소계':'출고일마다 소계')+' · 합계·부가세는 같아요</span>'
+    +'<span style="display:inline-flex;border:1.5px solid #1f2937;border-radius:7px;overflow:hidden">'+_sw('sum','요약')+_sw('date','출고일별')+_sw('item','아이템별')+'</span>'
+    +'<span style="font-size:11px;color:#9ca3af">'+(_rcMode==='sum'?'컬러마다 정상·B품·완불 (수선 오간 줄 없이 마지막 상태)':(_rcMode==='item'?'아이템마다 총수량·금액 소계':'출고일마다 소계'))+' · 합계·부가세는 같아요</span>'
     +'</div>';
   return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><b style="font-size:15px">통합 명세서 '+Object.keys(groups).length+'장</b><button onclick="ipCloseBatch()" style="margin-left:auto;padding:6px 12px;border-radius:7px;border:none;background:#f3f4f6;color:#374151;font-weight:700;font-size:12px;cursor:pointer">닫기</button></div>'+modeBar+body+actions;
 }
@@ -30340,7 +30340,7 @@ function _ipBatchInnerHTML(){
 /* mode: 'date'=출고일별 묶기(기본, 지금까지 쓰던 모양) / 'item'=아이템별 묶기(아이템 총수량 보기)
    숫자·세금 계산은 완전히 동일 — 표를 어떻게 묶어 보여줄지만 다름 (2026-08-10) */
 function ipBuildGroupReceipt(fcId,brandId,items,mode){
-  mode=(mode==='item')?'item':'date';
+  mode=(mode==='item')?'item':(mode==='sum'?'sum':'date');   /* 10-07c 'sum' = 컬러 × 정상·B품·완불 요약 (수선 보냄·복귀 줄 없이 마지막 상태) */
   const fc=S.factories[fcId];if(!fc)return {hasRows:false};
   const brandNm=brandId&&typeof getBrandName==='function'?getBrandName(brandId):'';
   // 모든 아이템·출고일 행 수집
@@ -30361,7 +30361,7 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
     const ships=[];
     if(sewSch){
       shipEffRecs(o,sewFcId,t.itemId).forEach(function(s){   /* 2026-09-23a 회차 + 이동 기록 = 결제 관리와 같은 가상 회차 (잔량·수선중 제외 포함) */
-        ships.push({date:s.date||'',color:s.color||'',size:(s.size&&s.size!=='free')?String(s.size):'',qty:+s.qty||0,bg:s.bg?1:0,bgDc:(s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50,tag:s.tag||''});
+        ships.push({date:s.date||'',color:s.color||'',size:(s.size&&s.size!=='free')?String(s.size):'',qty:+s.qty||0,bg:s.bg?1:0,bgDc:(s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50,tag:s.tag||'',wb:s.wb?1:0});
       });
     }
     if(rate>0&&ships.length){
@@ -30371,17 +30371,25 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
       /* 2026-09-23c 컬러당 한 줄 · 사이즈는 가로 칸. 비품·이동 줄은 따로 묶고, 공임은 사이즈별 단가로 곱해 합산(금액은 22r 과 같다) */
       const _szList=(it.sizes&&it.sizes.length?it.sizes:[]).map(String).filter(function(z){return z&&z!=='free';});
       ships.forEach(function(s){
-        const k=s.date+'|'+s.color+'|'+(s.bg?('bg'+s.bgDc):'n')+'|'+(s.tag||'');
-        if(!grp[k]){grp[k]={date:s.date,color:s.color,qty:0,bg:s.bg,bgDc:s.bgDc,tag:s.tag||'',bySize:{},amount:0,units:{}};gO.push(k);}
+        const k=(mode==='sum')?(s.color+'|'+(s.wb?'wb':(s.bg?('bg'+s.bgDc):'n'))):(s.date+'|'+s.color+'|'+(s.bg?('bg'+s.bgDc):'n')+'|'+(s.tag||''));
+        if(!grp[k]){grp[k]={date:(mode==='sum'?'':s.date),color:s.color,qty:0,bg:s.bg,bgDc:s.bgDc,tag:(mode==='sum'?'':(s.tag||'')),wb:(mode==='sum'?s.wb:0),bySize:{},amount:0,units:{}};gO.push(k);}
         const g=grp[k]; const _r=_lc?laborRate(it,s.size,_lc):rate; const u=(s.bg&&bgApply)?bgUnitPrice(_r,s.bgDc):_r;
         g.qty+=s.qty; g.bySize[s.size||'']=(g.bySize[s.size||'']||0)+s.qty; g.amount+=u*s.qty; g.units[u]=1;
       });
       gO.forEach(function(k){
         const g=grp[k]; const _us=Object.keys(g.units);
-        const nm=it.name+((g.bg&&bgApply)?' (비품 '+g.bgDc+'%할인)':'')+(g.tag?' · '+g.tag:'');
-        allRows.push({date:g.date,item:nm,color:g.color,size:'',bySize:g.bySize,sizes:_szList,qty:g.qty,unit:(_us.length===1?+_us[0]:null),amount:g.amount,kind:'cost'});
+        const nm=(mode==='sum')?it.name:(it.name+((g.bg&&bgApply)?' (비품 '+g.bgDc+'%할인)':'')+(g.tag?' · '+g.tag:''));
+        if(mode==='sum'&&!g.qty&&!g.amount)return;   /* 보냄·복귀로 0 이 된 묶음은 줄 안 만듦 */
+        const _kl=(mode==='sum')?(g.wb?'완불':(g.bg?('B품'+(bgApply?' '+g.bgDc+'%':'')):'정상')):'';
+        allRows.push({date:g.date,item:nm,color:g.color,size:'',bySize:g.bySize,sizes:_szList,qty:g.qty,unit:(_us.length===1?+_us[0]:null),amount:g.amount,kind:'cost',kl:_kl,ko:(g.wb?2:(g.bg?1:0))});
         costSum+=g.amount;
       });
+      /* 요약 보기: 봉제공장 책임 완불·수선중(아직 안 돌아옴)은 청구 안 하지만 장수는 보이게 0원 줄로 (금액·합계 수량엔 안 들어감) */
+      if(mode==='sum'&&typeof shipBoard==='function'){ try{ var _sb=shipBoard(o,sewFcId,t.itemId), _ix={};
+        Object.keys(_sb.cells||{}).forEach(function(ck){ var ce=_sb.cells[ck]; [['wbF','완불',3],['rp','수선중',4]].forEach(function(kk){ var q=+ce[kk[0]]||0; if(q<=0)return; var key=ce.color+'|'+kk[0];
+          if(!_ix[key]){ _ix[key]={date:'',item:it.name,color:ce.color||'',size:'',bySize:{},sizes:_szList,qty:0,unit:0,amount:0,kind:'info',kl:kk[1],ko:kk[2]}; allRows.push(_ix[key]); }
+          var sz=(ce.size&&ce.size!=='free')?String(ce.size):''; _ix[key].bySize[sz]=(_ix[key].bySize[sz]||0)+q; _ix[key].qty+=q; }); });
+      }catch(eSB){} }
     }
     // fees
     const fees=(o.payFees||{})['fc:'+fcId]||[];
@@ -30404,7 +30412,14 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
   });
   if(!allRows.length)return {hasRows:false};
   // 출고일 오름차순 정렬 (아이템별 보기는 아이템명 → 출고일 순)
-  if(mode==='item'){
+  if(mode==='sum'){
+    allRows.sort(function(a,b){
+      var fa=(a.kind==='fee'||a.kind==='deduct')?1:0, fb=(b.kind==='fee'||b.kind==='deduct')?1:0; if(fa!==fb)return fa-fb;
+      var an=(a.item||''),bn=(b.item||''); if(an!==bn)return an.localeCompare(bn,'ko');
+      var ac=(a.color||''),bc=(b.color||''); if(ac!==bc)return ac.localeCompare(bc,'ko');
+      return (a.ko||0)-(b.ko||0);
+    });
+  }else if(mode==='item'){
     allRows.sort(function(a,b){
       var an=(a.item||''),bn=(b.item||'');
       if(an!==bn)return an.localeCompare(bn,'ko');
@@ -30424,8 +30439,8 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
   const total=costSum+vat;                       // 합계 = 전체 공급가액 + 세액(면세분은 세금 0)
   // 출고일별 소계 HTML
   // 소계 묶음 — 날짜별 보기는 출고일마다, 아이템별 보기는 아이템마다
-  const _gkOf=function(r){ return (mode==='item')?(r.item||''):(r.date||''); };
-  const _subLbl=(mode==='item')?'아이템 소계':'소계';
+  const _gkOf=function(r){ return (mode==='item'||mode==='sum')?(r.item||''):(r.date||''); };
+  const _subLbl=(mode==='item'||mode==='sum')?'아이템 소계':'소계';
   const sizeCols=[];allRows.forEach(function(r){(r.sizes||[]).forEach(function(z){if(sizeCols.indexOf(z)<0)sizeCols.push(z);});});   /* 2026-09-23c 사이즈는 가로 칸 */
   const _szTd=function(r){ return sizeCols.map(function(z){ var v=(r.bySize&&r.bySize[z])||0; return '<td style="padding:11px 6px;text-align:center;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">'+(v||'')+'</td>'; }).join(''); };
   const _spanL=3+sizeCols.length;
@@ -30437,11 +30452,11 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
       subT=0;subQ=0;
     }
     // 날짜별=날짜 반복 숨김 / 아이템별=아이템 반복 숨김(날짜는 매줄 표시)
-    const showDate=(mode==='item')?true:(r.date!==curDate);
-    const showItem=(mode==='item')?(_k!==curKey):true;
+    const showDate=(mode==='item')?true:(mode==='sum'?false:(r.date!==curDate));
+    const showItem=(mode==='item'||mode==='sum')?(_k!==curKey):true;
     curKey=_k;curDate=r.date;
     bodyRows+=`<tr>
-      <td style="padding:11px 12px;font-weight:700;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db">${showDate?esc((typeof fmtKoDate==='function'?fmtKoDate(toISO(r.date)):r.date)):''}</td>
+      <td style="padding:11px 12px;font-weight:700;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db">${mode==='sum'?esc(r.kl||''):(showDate?esc((typeof fmtKoDate==='function'?fmtKoDate(toISO(r.date)):r.date)):'')}</td>
       <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${showItem?esc(r.item):''}</td>
       <td style="padding:11px 12px;color:#1f2937;font-size:13px;border-bottom:1px solid #d1d5db;font-weight:500">${esc(r.color)}</td>
       ${_szTd(r)}
@@ -30449,7 +30464,7 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
       <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${r.unit==null?'<span style="font-size:11px;color:#6b7280">사이즈별</span>':num(r.unit)}</td>
       <td style="padding:11px 12px;text-align:right;font-size:13px;border-bottom:1px solid #d1d5db;color:#111827;font-weight:700">${num(r.amount)}${r.exempt?'<div style="font-size:9px;font-weight:500;color:#6b7280">VAT 미포함</div>':''}</td>
     </tr>`;
-    subT+=r.amount;subQ+=r.qty;
+    subT+=r.amount; if(r.kind!=='info')subQ+=r.qty;
   });
   if(subQ>0){
     bodyRows+=`<tr style="background:#d1d5db"><td colspan="${_spanL}" style="padding:9px 12px;text-align:right;color:#374151;font-weight:700;font-size:12px">${_subLbl}</td><td style="padding:9px 12px;text-align:center;font-weight:800;color:#111827;font-size:12px">${subQ}</td><td></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#111827;font-size:12px">${num(subT)}</td></tr>`;
@@ -30480,7 +30495,7 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
     <div style="font-size:11px;color:#9ca3af;margin-bottom:8px;padding:0 2px">통합 출고 ${allRows.filter(r=>r.kind==='cost').length}건 · ${items.length}개 아이템</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
       <thead><tr style="background:#e5e7eb">
-        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:80px">출고일</th>
+        <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:80px">${mode==='sum'?'구분':'출고일'}</th>
         <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151">품목</th>
         <th style="padding:11px 12px;text-align:left;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:90px">컬러</th>${sizeCols.map(function(z){return '<th style="padding:11px 6px;text-align:center;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:44px">'+esc(z)+'</th>';}).join('')}
         <th style="padding:11px 12px;text-align:center;font-weight:800;color:#1f2937;font-size:12px;border-bottom:2px solid #374151;width:55px">수량</th>
