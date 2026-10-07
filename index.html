@@ -82,6 +82,9 @@ function tryInitFirebase(attempts){
     if(firebase.apps&&firebase.apps.length)firebase.app(); else firebase.initializeApp(firebaseConfig);   /* 재시도 때 «already exists» 안 나게 */
     window.fbAuth = firebase.auth();
     window.fbDB = firebase.firestore();
+    /* 10-07f 아이폰·아이패드: 연결 방식을 롱폴링으로 고정. LTE·잠자기·앱 전환 뒤 스트림 연결이 죽어 「client is offline」로
+       문서 23개를 통째로 못 받던 신고(10-05·10-07) — 사파리에서 흔한 증상. 맥·PC 는 그대로. 첫 사용 전에만 설정 가능 */
+    try{ var _uaI=navigator.userAgent||''; if(/iPhone|iPad|iPod/.test(_uaI)||(navigator.platform==='MacIntel'&&(navigator.maxTouchPoints||0)>1)){ window.fbDB.settings({experimentalForceLongPolling:true,experimentalAutoDetectLongPolling:false,merge:true}); window._fbLongPoll=true; } }catch(eLP){ console.warn('[롱폴링 설정]',eLP); }
     try{ window.fbStorage = firebase.storage(); }catch(e){ console.warn('Storage init 실패', e); }
     window.fbReady = true;
     try{fpfNetBanner(false);}catch(e){}   /* 진짜 연결된 뒤에만 띠 내림 */
@@ -1907,6 +1910,8 @@ async function fpfRetryCloudRead(silent){
   window._retryReadBusy=false;
 }
 try{ window.addEventListener('online',function(){ if(cloudReadFailed())fpfRetryCloudRead(); }); }catch(e){}
+/* 10-07f 앱으로 돌아오면(폰 화면 켬·탭 전환) 못 받은 게 있을 때 바로 다시 받기 — 20초 기다리지 않게 */
+try{ document.addEventListener('visibilitychange',function(){ try{ if(!document.hidden&&cloudReadFailed()&&(typeof isCloudOn!=='function'||isCloudOn()))setTimeout(function(){ fpfRetryCloudRead(true); },800); }catch(e){} }); }catch(e){}
 /* 09-30a 못 받은 문서가 남아 있으면 20초마다 조용히 다시 받는다 — 맥이 잠에서 깬 직후 등 잠깐 끊겼을 때 「다시 받기」를 안 눌러도 풀리게.
    (브라우저가 online 신호를 안 주는 경우가 있어서) 화면이 보이고 로그인돼 있을 때만. 성공하면 배너가 저절로 내려간다. */
 try{ setInterval(function(){ try{ if(cloudReadFailed()&&!document.hidden&&(typeof isCloudOn!=='function'||isCloudOn())&&navigator.onLine!==false)fpfRetryCloudRead(true); }catch(e){} },20000); }catch(e){}
@@ -1916,7 +1921,7 @@ function _cloudNoteFail(key,on,err){ try{ if(!window._cloudReadFail)window._clou
 function _cloudSleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
 async function cloudGetDoc(key){
   if(!isCloudOn())return null;
-  for(var a=0;a<3;a++){
+  for(var a=0;a<5;a++){
     try{
       const snap=await window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc(key).get();
       _cloudNoteFail(key,false);
@@ -1924,8 +1929,10 @@ async function cloudGetDoc(key){
       const dd=snap.data()||{};
       return {value: dd.value?JSON.parse(dd.value):null, ts: dd.ts||''};
     }catch(e){
-      if(a===2){ console.error('cloudGetDoc '+key+':',e); _cloudNoteFail(key,true,e); return null; }
-      await _cloudSleep(400*(a+1));
+      var _off=/offline|unavailable/i.test(String((e&&(e.code||''))+' '+(e&&e.message||'')));
+      if(a===(_off?4:2)){ console.error('cloudGetDoc '+key+':',e); _cloudNoteFail(key,true,e); return null; }
+      if(_off){ try{ if(window.fbDB&&window.fbDB.enableNetwork)await window.fbDB.enableNetwork(); }catch(eN){} await _cloudSleep(1500*(a+1)); }   /* 10-07f 오프라인이면 연결 깨우고 1.5·3·4.5·6초 더 기다림 */
+      else await _cloudSleep(400*(a+1));
     }
   }
   return null;
@@ -4776,7 +4783,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-07e';
+var APP_BUILD=/*BUILD*/'2026-10-07f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
