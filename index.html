@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261007d">
+<link rel="stylesheet" href="css/main.css?v=20261007e">
 </head>
 <body>
 
@@ -4776,7 +4776,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-07d';
+var APP_BUILD=/*BUILD*/'2026-10-07e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -35281,7 +35281,39 @@ function _pschDate(val,attrs,fn,cls,ph){
 }
 /* 09-22d 날짜 옆 요일 (요청 「목, 금 이렇게」) — 토=파랑 · 일=빨강 */
 function _pschMDWHtml(iso){ var md=_ssMD(iso); if(!md)return ''; var d=new Date(String(iso).slice(0,10)+'T00:00:00'); if(isNaN(d))return esc(md); var w=d.getDay(); return esc(md)+'<i class="psc-wd'+(w===0?' sun':(w===6?' sat':''))+'">'+['일','월','화','수','목','금','토'][w]+'</i>'; }
-function pschPick(el){ var i=el&&el.querySelector('input'); if(!i)return; try{ if(i.showPicker){ i.showPicker(); return; } }catch(e){} try{ i.style.pointerEvents='auto'; i.focus(); i.click(); }catch(e){} }
+function pschPick(el){ var i=el&&el.querySelector('input'); if(!i)return;
+  /* 10-07e 폰·아이패드: 우리 달력 시트(표 밖, body 에 붙임) — 아이폰 기본 달력은 표가 다시 그려지면 저절로 닫혔다(신고). 날짜 누르고 ✓ 눌러야 저장·닫힘 */
+  try{ if(window.matchMedia&&matchMedia('(pointer:coarse)').matches){ pschSheet(i); return; } }catch(e){}
+  try{ if(i.showPicker){ i.showPicker(); return; } }catch(e){} try{ i.style.pointerEvents='auto'; i.focus(); i.click(); }catch(e){} }
+function pschSheet(inp){
+  var ov=document.getElementById('psc-sh-ov'); if(ov)ov.remove();
+  var cur=String(inp.value||'').slice(0,10), base=cur||((typeof todayISO==='function')?todayISO():new Date().toISOString().slice(0,10));
+  var st={y:+base.slice(0,4),m:+base.slice(5,7)-1,sel:cur};
+  ov=document.createElement('div'); ov.id='psc-sh-ov'; ov.className='psc-sh-ov';
+  var pad=function(n){return (n<10?'0':'')+n;};
+  var draw=function(){
+    var first=new Date(st.y,st.m,1), days=new Date(st.y,st.m+1,0).getDate(), lead=first.getDay(), td=(typeof todayISO==='function')?todayISO():'';
+    var g=['일','월','화','수','목','금','토'].map(function(w,i){return '<div class="w'+(i===0?' sun':(i===6?' sat':''))+'">'+w+'</div>';}).join('');
+    for(var k=0;k<lead;k++)g+='<div></div>';
+    for(var d=1;d<=days;d++){ var iso=st.y+'-'+pad(st.m+1)+'-'+pad(d), wd=(lead+d-1)%7;
+      g+='<button type="button" data-d="'+iso+'" class="'+(wd===0?'sun ':(wd===6?'sat ':''))+(iso===td?'today ':'')+(iso===st.sel?'on':'')+'">'+d+'</button>'; }
+    ov.innerHTML='<div class="psc-sh" role="dialog" aria-label="날짜 고르기"><div class="psc-sh-hd"><button type="button" data-nav="-1" aria-label="이전 달">‹</button><b>'+st.y+'년 '+(st.m+1)+'월</b><button type="button" data-nav="1" aria-label="다음 달">›</button></div>'
+      +'<div class="psc-sh-sel">'+(st.sel?('고른 날: '+(+st.sel.slice(5,7))+'/'+(+st.sel.slice(8,10))):'날짜를 눌러 고르세요')+'</div>'
+      +'<div class="psc-sh-g">'+g+'</div>'
+      +'<div class="psc-sh-ft"><button type="button" data-act="clear">지우기</button><button type="button" data-act="cancel">취소</button><button type="button" class="ok" data-act="ok"'+(st.sel?'':' disabled')+'>✓ 확인</button></div></div>';
+  };
+  var save=function(v){ ov.remove(); if(v===String(inp.value||''))return; inp.value=v; try{ inp.dispatchEvent(new Event('change',{bubbles:true})); }catch(e){} };
+  ov.addEventListener('click',function(e){ var t=e.target; if(!t||!t.closest)return;
+    var b=t.closest('button');
+    if(!b){ return; }   /* 바깥(어두운 곳)을 눌러도 안 닫힘 — ✓ 나 취소로만 */
+    if(b.dataset.nav){ st.m+=+b.dataset.nav; if(st.m<0){st.m=11;st.y--;} if(st.m>11){st.m=0;st.y++;} draw(); return; }
+    if(b.dataset.d){ st.sel=b.dataset.d; draw(); return; }
+    if(b.dataset.act==='cancel'){ ov.remove(); return; }
+    if(b.dataset.act==='clear'){ save(''); return; }
+    if(b.dataset.act==='ok'&&st.sel){ save(st.sel); return; }
+  });
+  draw(); document.body.appendChild(ov);
+}
 function _pschSupCell(r,list,kindKey,locked){
   if(!list.length)return '<span class="psc-none">—</span>';
   return list.map(function(s){
