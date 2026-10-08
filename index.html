@@ -2174,7 +2174,33 @@ function _entMerge(localMap,cloudMap,localTomb,cloudTomb,tieWin){
     if(le&&ce){ var _mr=null; try{ _mr=_entMergeRec(le,ce,tieWin); }catch(eR){ _mr=null; } out[id]=_mr||((lt===ct)?((tieWin==='cloud')?ce:le):((lt>ct)?le:ce)); } /* 09-29 칸 단위 합치기(실패하면 예전처럼 통째) */
     else out[id]=le||ce;
   });
+  try{ _tcLossWatch(localMap,cloudMap,out); }catch(eW){}   /* 10-08h 합치다 이 기기 가공비 줄이 사라지면 따로 보관 */
   return {map:out,tomb:tomb};
+}
+/* 10-08h 가공비(trimCosts) 사라짐 안전장치 — 신고 「가공비 2개 넣었는데 저장 3번 해도 하나 없어져」. 원인을 못 찾아서
+   동기화 합치기에서 «이 기기에 있던 가공비 줄»이 결과에서 빠지면 localStorage(fpfLostTc)에 통째로 보관 → 동기화 진단에서 보고 「되살리기」.
+   자료를 지우지 않음. 일부러 지운 줄은 저장(saveData) 때 이미 빠져 있어 여기 안 걸림. */
+function _tcLossWatch(L,C,out){
+  var lost=[];
+  Object.keys(L||{}).forEach(function(id){ var le=L[id], oe=out[id]; if(!le||!oe||!Array.isArray(le.trimCosts)||!le.trimCosts.length)return;
+    var have={}; (oe.trimCosts||[]).forEach(function(tc){ if(tc&&tc.id)have[tc.id]=1; });
+    le.trimCosts.forEach(function(tc){ if(tc&&tc.id&&!have[tc.id]){ var ce=(C||{})[id]||{}; lost.push({at:Date.now(),itemId:id,name:le.name||'',tc:JSON.parse(JSON.stringify(tc)),lmt:+le._mt||0,cmt:+ce._mt||0,lfm:(le._fm&&le._fm.trimCosts)||0,cfm:(ce._fm&&ce._fm.trimCosts)||0}); } });
+  });
+  if(!lost.length)return;
+  var arr=[]; try{ arr=JSON.parse(localStorage.getItem('fpfLostTc')||'[]')||[]; }catch(e){ arr=[]; }
+  lost.forEach(function(x){ if(!arr.some(function(y){return y.itemId===x.itemId&&y.tc&&y.tc.id===x.tc.id;}))arr.push(x); });
+  if(arr.length>40)arr=arr.slice(-40);
+  try{ localStorage.setItem('fpfLostTc',JSON.stringify(arr)); }catch(e){}
+  console.warn('[가공비 사라짐 감지]',lost);
+}
+function fpfLostTcList(){ try{ return JSON.parse(localStorage.getItem('fpfLostTc')||'[]')||[]; }catch(e){ return []; } }
+function fpfRestoreLostTc(){
+  var arr=fpfLostTcList(), n=0, keep=[];
+  arr.forEach(function(x){ var it=S.items&&S.items[x.itemId]; if(!it){ return; } if(!Array.isArray(it.trimCosts))it.trimCosts=[];
+    if(!it.trimCosts.some(function(tc){return tc&&tc.id===x.tc.id;})){ it.trimCosts.push(x.tc); n++; } });
+  try{ localStorage.setItem('fpfLostTc',JSON.stringify(keep)); }catch(e){}
+  if(n){ saveData(); showToast('가공비 '+n+'줄 되살렸어요'); } else showToast('되살릴 가공비가 없어요 (이미 있음)');
+  try{ if(typeof updateCloudModal==='function')updateCloudModal(); }catch(e){}
 }
 /* ===== 기계적 변형 흡수 (2026-08-17, 원인 6) =====
    화면을 그리기만 해도 오더/아이템이 바뀌는 코드(발주서 줄 재계산·loss 기본값·공장카드 자동생성·작지 기본값)가 있어,
@@ -4792,7 +4818,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-08g';
+var APP_BUILD=/*BUILD*/'2026-10-08h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -4950,6 +4976,7 @@ function fpfSyncDiagHTML(){
     var _nPb=Object.keys(S.priceBook||{}).length, _nCo=Object.keys((typeof companies!=='undefined'&&companies)||{}).length;
     lines.push(['이 기기 자료','아이템 '+_nIt+' · 오더 '+_nOd+' · 거래처 '+_nPb+' · 회사 '+_nCo]);
     var _fk=(typeof cloudReadFailedKeys==='function')?cloudReadFailedKeys():[];
+    try{ var _lt=fpfLostTcList(); if(_lt.length)lines.push(['사라진 가공비','<b style="color:#b91c1c">'+_lt.length+'줄</b> — '+_esc2(_lt.map(function(x){return (x.name||'')+' · '+((x.tc&&x.tc.name)||'가공비')+' ('+new Date(x.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+')';}).join(', '))+' <button onclick="fpfRestoreLostTc()" style="border:1px solid #d1d5db;background:#fff;padding:3px 8px;border-radius:6px;font-size:11px;cursor:pointer">되살리기</button>']); }catch(eLt){}
     lines.push(['클라우드 읽기',_fk.length?('<b style="color:#b91c1c">'+_fk.length+'개 못 받음</b>'+(window._cloudReadErr?(' <span style="color:#92400e">(이유: '+_esc2(window._cloudReadErr)+')</span>'):'')+' — '+_esc2(_fk.join(', '))+' <button onclick="fpfRetryCloudRead()" style="border:1px solid #d1d5db;background:#fff;padding:3px 8px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px">다시 받기</button>'):'<b style="color:#15803d">전부 받음</b>']);
   }catch(e){}
   lines.push(['계정',_esc2(acc)]);
