@@ -1564,8 +1564,9 @@ function hasLaborRule(it){ try{ return !!(it&&((Array.isArray(it.laborTiers)&&it
 /* 10-08c 컬러별 공임 (사용자 승인) — it.laborByColor={컬러:원}. 기본과의 차이를 더함(사이즈 차이와 합산).
    laborColorSince 이후에 만든 오더만(옛 오더 그대로). 원가계산서는 제일 비싼 컬러 차이. 값 없으면 laborRate 결과 1원도 안 바뀜 */
 function hasLaborByColor(it){ var m=it&&it.laborByColor; if(!m)return false; for(var k in m){ if(+m[k]>0)return true; } return false; }
-function laborColorDelta(it,color,ctx){ if(!it||!hasLaborByColor(it))return 0; if(ctx&&ctx.colorEligible===false)return 0; var v=+((it.laborByColor||{})[color||'']); return v>0?(v-(+it.laborCost||0)):0; }
-function laborMaxColorDelta(it){ if(!hasLaborByColor(it))return 0; var b=+it.laborCost||0, mx=0; var cs=(it.colors&&it.colors.length)?it.colors:Object.keys(it.laborByColor); cs.forEach(function(c){ var v=+it.laborByColor[c]; if(v>0&&v-b>mx)mx=v-b; }); return mx; }
+/* 10-08d 사용자 「내가 적은 거대로만」 — 컬러에 적은 값이 있으면 그 값 그대로(사이즈·수량·리오더 무시). 없으면 예전 계산 */
+function laborColorFixed(it,color,ctx){ if(!it||!hasLaborByColor(it))return 0; if(ctx&&ctx.colorEligible===false)return 0; var v=+((it.laborByColor||{})[color||'']); return v>0?v:0; }
+function laborMaxColor(it){ if(!hasLaborByColor(it))return 0; var mx=0; var cs=(it.colors&&it.colors.length)?it.colors:Object.keys(it.laborByColor); cs.forEach(function(c){ var v=+it.laborByColor[c]; if(v>mx)mx=v; }); return mx; }
 function _laborCtx(o,it){
   try{ if(!o||!it)return null;
     var oi=(o.orderItems||[]).find(function(x){return x&&x.itemId===it.id;}); var qty=0;
@@ -1579,10 +1580,11 @@ function _laborCtx(o,it){
 function laborRate(it,size,ctx,color){
   if(!it)return 0;
   var base0=+it.laborCost||0, base=laborBase(it,ctx);
-  var cd=(color!=null&&ctx)?laborColorDelta(it,color,ctx):0;   /* 10-08c 컬러 차이 — ctx 있을 때만(오더 계산). 원가계산서는 laborMaxColorDelta */
+  var cf=(color!=null&&ctx)?laborColorFixed(it,color,ctx):0;   /* 10-08d 컬러에 적은 값 = 그대로 (ctx 있을 때만 = 오더 계산). 원가계산서는 laborMaxColor */
+  if(cf>0)return cf;
   var m=it.laborBySize;
-  if(m&&size!=null&&size!==''&&size!=='free'){var v=+m[size];if(v>0)return v+(base-base0)+cd;}
-  return base+cd;
+  if(m&&size!=null&&size!==''&&size!=='free'){var v=+m[size];if(v>0)return v+(base-base0);}
+  return base;
 }
 function hasLaborBySize(it){var m=it&&it.laborBySize;if(!m)return false;for(var k in m){if(+m[k]>0)return true;}return false;}
 // 오더별 공장 스냅샷 — 오더 생성 시점의 공장을 오더에 얼려둠(아이템 공장을 나중에 바꿔도 옛 오더 결제/명세서 안 꼬임).
@@ -4790,7 +4792,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-08c';
+var APP_BUILD=/*BUILD*/'2026-10-08d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -10208,7 +10210,7 @@ function renderLaborSizes(){
     if(con){
       var _b0=+((document.getElementById('f-laborCost')||{}).value||0)||0;
       h+='<div class="tx-extras" style="margin-top:6px;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">'
-        +'<div style="width:100%;font-size:11px;color:#6b7280;margin-bottom:2px">비워둔 컬러는 위의 기본 공임으로 계산돼요 · 기본과의 차이만큼 더해요(사이즈별과 같이 쓰면 둘 다 더함) · 처음 적은 날 이후에 만든 오더부터</div>'
+        +'<div style="width:100%;font-size:11px;color:#6b7280;margin-bottom:2px">적은 컬러는 그 금액 그대로(사이즈별·수량별·리오더보다 먼저) · 비워둔 컬러는 지금처럼 계산 · 처음 적은 날 이후에 만든 오더부터 (결제한 옛 오더는 그대로)</div>'
         +formColors.map(function(c){
           var v=+formLaborByColor[c]||0, d=(v>0&&_b0)?(v-_b0):0;
           return '<div style="width:120px"><label style="font-size:11px">'+esc(c)+(d?' <span style="color:'+(d>0?'#b91c1c':'#1d4ed8')+';font-weight:700">'+(d>0?'+':'')+num(d)+'</span>':'')+'</label>'
@@ -31276,11 +31278,11 @@ function csSetSize(v){ window._csSize=v||''; try{renderCS();}catch(e){} }
 function csLaborRate(it){
   try{
     var sz=window._csSize||'';
-    var _cdx=(typeof laborMaxColorDelta==='function')?laborMaxColorDelta(it):0;   /* 10-08c 원가계산서 = 제일 비싼 컬러 공임 */
-    if(sz&&typeof laborRate==='function'){ var v=laborRate(it,sz); if(v>0)return v+_cdx; }
+    var _cmx=(typeof laborMaxColor==='function')?laborMaxColor(it):0;   /* 10-08d 원가계산서 = 제일 비싼 공임(컬러에 적은 값 포함) */
+    if(sz&&typeof laborRate==='function'){ var v=laborRate(it,sz); if(v>0)return Math.max(v,_cmx); }
     var m=_bySizeCurrent((it&&it.laborBySize)||{},it), vals=Object.keys(m).map(function(k){return +m[k]||0;}).filter(function(v){return v>0;});
-    if(vals.length)return Math.max.apply(null,vals)+_cdx;
-    return (+((it&&it.laborCost)||0)||0)+_cdx;
+    if(vals.length)return Math.max(Math.max.apply(null,vals),_cmx);
+    return Math.max(+((it&&it.laborCost)||0)||0,_cmx);
   }catch(e){ return +((it&&it.laborCost)||0)||0; }
 }
 function csLaborNote(it){
