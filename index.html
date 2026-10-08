@@ -1527,7 +1527,7 @@ let companies={},curCoId='';
 let S={items:{},orders:{},factories:{},priceBook:{}};
 let curOid=null,curOTab='po',curPayTab='all';
 let editFcId=null,editItemId=null,_itemListScrollY=0;
-let formColors=[],formSizes=[],formFabs=[],formTrims=[],formTrimCosts=[],formLaborBySize={},formLaborTiers=[],formLaborReorder=0;
+let formColors=[],formSizes=[],formFabs=[],formTrims=[],formTrimCosts=[],formLaborBySize={},formLaborTiers=[],formLaborReorder=0,formLaborByColor={};
 
 const COST_DEFS=[
   ['laborCost','공임','sewingFcId','봉제공임공장'],
@@ -1560,22 +1560,29 @@ function laborBase(it,ctx){
   if(tiers.length&&+ctx.qty>0){ var best=null; tiers.forEach(function(x){ if(+ctx.qty>=+x.min&&(!best||+x.min>+best.min))best=x; }); if(best)return +best.rate; }
   return base;
 }
-function hasLaborRule(it){ try{ return !!(it&&((Array.isArray(it.laborTiers)&&it.laborTiers.some(function(x){return x&&+x.min>0&&+x.rate>0;}))||+it.laborReorder>0)); }catch(e){ return false; } }
+function hasLaborRule(it){ try{ return !!(it&&((Array.isArray(it.laborTiers)&&it.laborTiers.some(function(x){return x&&+x.min>0&&+x.rate>0;}))||+it.laborReorder>0||hasLaborByColor(it))); }catch(e){ return false; } }   /* 10-08c 컬러별 공임도 «규칙 있음» (결제·명세서가 laborRate 를 타게) */
+/* 10-08c 컬러별 공임 (사용자 승인) — it.laborByColor={컬러:원}. 기본과의 차이를 더함(사이즈 차이와 합산).
+   laborColorSince 이후에 만든 오더만(옛 오더 그대로). 원가계산서는 제일 비싼 컬러 차이. 값 없으면 laborRate 결과 1원도 안 바뀜 */
+function hasLaborByColor(it){ var m=it&&it.laborByColor; if(!m)return false; for(var k in m){ if(+m[k]>0)return true; } return false; }
+function laborColorDelta(it,color,ctx){ if(!it||!hasLaborByColor(it))return 0; if(ctx&&ctx.colorEligible===false)return 0; var v=+((it.laborByColor||{})[color||'']); return v>0?(v-(+it.laborCost||0)):0; }
+function laborMaxColorDelta(it){ if(!hasLaborByColor(it))return 0; var b=+it.laborCost||0, mx=0; var cs=(it.colors&&it.colors.length)?it.colors:Object.keys(it.laborByColor); cs.forEach(function(c){ var v=+it.laborByColor[c]; if(v>0&&v-b>mx)mx=v-b; }); return mx; }
 function _laborCtx(o,it){
   try{ if(!o||!it)return null;
     var oi=(o.orderItems||[]).find(function(x){return x&&x.itemId===it.id;}); var qty=0;
     if(oi&&oi.qtyGrid){ for(var c in oi.qtyGrid){ var g=oi.qtyGrid[c]||{}; for(var s in g)qty+=+g[s]||0; } }
     var rn=(typeof getItemReorderNum==='function'&&oi)?getItemReorderNum(o.id,oi.itemId):null; var reorder=!!(rn&&+rn.num>1);
     var since=String(it.laborRuleSince||''); var eligible=!since||String(o.createdAt||'').slice(0,10)>=since;
-    return {qty:qty,reorder:reorder,eligible:eligible};
+    var csince=String(it.laborColorSince||''); var colorEligible=!csince||String(o.createdAt||'').slice(0,10)>=csince;
+    return {qty:qty,reorder:reorder,eligible:eligible,colorEligible:colorEligible};
   }catch(e){ return null; }
 }
-function laborRate(it,size,ctx){
+function laborRate(it,size,ctx,color){
   if(!it)return 0;
   var base0=+it.laborCost||0, base=laborBase(it,ctx);
+  var cd=(color!=null&&ctx)?laborColorDelta(it,color,ctx):0;   /* 10-08c 컬러 차이 — ctx 있을 때만(오더 계산). 원가계산서는 laborMaxColorDelta */
   var m=it.laborBySize;
-  if(m&&size!=null&&size!==''&&size!=='free'){var v=+m[size];if(v>0)return v+(base-base0);}
-  return base;
+  if(m&&size!=null&&size!==''&&size!=='free'){var v=+m[size];if(v>0)return v+(base-base0)+cd;}
+  return base+cd;
 }
 function hasLaborBySize(it){var m=it&&it.laborBySize;if(!m)return false;for(var k in m){if(+m[k]>0)return true;}return false;}
 // 오더별 공장 스냅샷 — 오더 생성 시점의 공장을 오더에 얼려둠(아이템 공장을 나중에 바꿔도 옛 오더 결제/명세서 안 꼬임).
@@ -4783,7 +4790,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-08b';
+var APP_BUILD=/*BUILD*/'2026-10-08c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -10194,6 +10201,22 @@ function renderLaborSizes(){
         +'</div>';
     }
   }
+  /* 10-08c 컬러별 공임 — 비운 컬러는 기본. 기본과의 차이로 계산(사이즈 차이와 합산) */
+  if(formColors.length){
+    var con=!!window._laborColOn;
+    h+='<div style="margin-top:6px"><button type="button" class="btn s" onclick="toggleLaborByColor()" style="font-size:11px;padding:3px 10px">'+(con?'컬러별 공임 접기':'컬러별로 다르게')+'</button></div>';
+    if(con){
+      var _b0=+((document.getElementById('f-laborCost')||{}).value||0)||0;
+      h+='<div class="tx-extras" style="margin-top:6px;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">'
+        +'<div style="width:100%;font-size:11px;color:#6b7280;margin-bottom:2px">비워둔 컬러는 위의 기본 공임으로 계산돼요 · 기본과의 차이만큼 더해요(사이즈별과 같이 쓰면 둘 다 더함) · 처음 적은 날 이후에 만든 오더부터</div>'
+        +formColors.map(function(c){
+          var v=+formLaborByColor[c]||0, d=(v>0&&_b0)?(v-_b0):0;
+          return '<div style="width:120px"><label style="font-size:11px">'+esc(c)+(d?' <span style="color:'+(d>0?'#b91c1c':'#1d4ed8')+';font-weight:700">'+(d>0?'+':'')+num(d)+'</span>':'')+'</label>'
+            +'<input type="number" min="0" inputmode="numeric" data-labor-col="'+encodeURIComponent(c)+'" value="'+(v>0?v:'')+'" placeholder="기본" oninput="onLaborColorIn(this)" style="width:100%"></div>';
+        }).join('')
+        +'</div>';
+    }
+  }
   /* 수량별·리오더 공임 (2026-09-11b) — 기본 공임 아래. 구간이 없으면 지금과 완전히 같다. */
   h+='<div class="tx-extras" style="margin-top:8px;padding:8px 10px">'
     +'<div style="font-size:11px;font-weight:800;color:#6b7280;margin-bottom:4px">수량별 공임 <span style="font-weight:400">— 오더 수량이 이 장수 이상이면 이 공임 (아이템별·회차별 · 조정수량 아닌 오더 수량 기준)</span></div>'
@@ -10217,6 +10240,9 @@ function laborTierAdd(){ formLaborTiers.push({min:0,rate:0}); renderLaborSizes()
 function laborTierDel(i){ formLaborTiers.splice(i,1); renderLaborSizes(); try{scheduleDraft();}catch(e){} }
 function onLaborReorderIn(el){ formLaborReorder=+el.value||0; try{scheduleDraft();}catch(e){} }
 function toggleLaborBySize(){window._laborSzOn=!window._laborSzOn;renderLaborSizes();}
+function toggleLaborByColor(){ colLaborByColor(); window._laborColOn=!window._laborColOn; renderLaborSizes(); }
+function onLaborColorIn(el){ var c=decodeURIComponent(el.dataset.laborCol||''); var v=+el.value||0; if(v>0)formLaborByColor[c]=v; else delete formLaborByColor[c]; try{scheduleDraft();}catch(e){} }
+function colLaborByColor(){ var inps=document.querySelectorAll('[data-labor-col]'); if(!inps.length)return Object.assign({},formLaborByColor); var out={}; inps.forEach(function(inp){ var c=decodeURIComponent(inp.dataset.laborCol||''); var v=+inp.value||0; if(v>0)out[c]=v; }); formLaborByColor=out; return out; }
 function onLaborSizeIn(el){
   var sz=decodeURIComponent(el.dataset.laborSz||'');
   var v=+el.value||0;
@@ -10259,6 +10285,8 @@ function sizeDragEnd(){
   var el=document.getElementById('size-chips'); if(el)el.classList.remove('dragging');
   if(d&&d.active)window._szDragEnd=Date.now();
 }
+/* 10-08c 컬러를 더하거나 빼면 컬러별 공임 칸도 다시 그림 */
+(function(){ var _rc=renderColorChips; renderColorChips=function(){ _rc.apply(this,arguments); try{ if(window._laborColOn&&document.getElementById('labor-size-wrap'))renderLaborSizes(); }catch(e){} }; })();
 function addColor(){const inp=document.getElementById('color-input');const v=inp.value.trim();if(!v||formColors.includes(v)){inp.value='';return;}formColors.push(v);inp.value='';renderColorChips();}
 function removeColor(i){formColors.splice(i,1);renderColorChips();}
 function renameColor(i){
@@ -10272,6 +10300,7 @@ function renameColor(i){
   try{if(typeof colTR==='function')colTR();}catch(e){}
   try{if(typeof colTrimCosts==='function')colTrimCosts();}catch(e){}
   formColors[i]=v;
+  try{ colLaborByColor(); if(Object.prototype.hasOwnProperty.call(formLaborByColor,old)){ formLaborByColor[v]=formLaborByColor[old]; delete formLaborByColor[old]; } }catch(e){}   /* 10-08c 컬러별 공임도 새 이름으로 */
   // 연결된 원단·부자재·가공비 컬러 설정(colorLinks.itemColor)도 따라가게
   var fix=function(arr){(arr||[]).forEach(function(o){(o.colorLinks||[]).forEach(function(l){if(l&&l.itemColor===old)l.itemColor=v;});});};
   fix(formFabs);fix(formTrims);fix(formTrimCosts);
@@ -12459,6 +12488,7 @@ function collectFormData(){
   COST_DEFS.forEach(([ck,,fk])=>{d[ck]=+document.getElementById('f-'+ck)?.value||0;d[fk]=document.getElementById('f-'+fk)?.value||'';});
   d.costMemo={}; COST_DEFS.forEach(([ck])=>{var _m=document.getElementById('f-cm-'+ck); if(_m&&_m.value.trim())d.costMemo[ck]=_m.value;});   /* 10-02a 가공비 메모 */
   d.laborBySize=colLaborBySize();
+  d.laborByColor=colLaborByColor();   /* 10-08c */
   d.laborTiers=(formLaborTiers||[]).map(function(x){return {min:+x.min||0,rate:+x.rate||0};}); d.laborReorder=+formLaborReorder||0;   /* 수량별·리오더 공임 (2026-09-11b) */
   d.workRoute=document.getElementById('f-workRoute')?.value||'';
   return d;
@@ -12496,6 +12526,7 @@ function loadDraft(){
   COST_DEFS.forEach(([ck,,fk])=>{s('f-'+ck,d[ck]||0);s('f-'+fk,d[fk]||'');});
   if(d.costMemo&&typeof d.costMemo==='object')COST_DEFS.forEach(([ck])=>{s('f-cm-'+ck,d.costMemo[ck]||'');});
   formLaborBySize=Object.assign({},d.laborBySize||{});
+  formLaborByColor=Object.assign({},d.laborByColor||{}); window._laborColOn=Object.keys(formLaborByColor).length>0;
   formLaborTiers=Array.isArray(d.laborTiers)?d.laborTiers.map(function(x){return {min:+x.min||0,rate:+x.rate||0};}):[]; formLaborReorder=+d.laborReorder||0;
   window._laborSzOn=Object.keys(formLaborBySize).length>0;
   formColors=[...(d.colors||[])];formSizes=[...(d.sizes||[])];
@@ -12621,6 +12652,7 @@ function showItemForm(id){
   formLaborBySize=(it&&it.laborBySize)?Object.assign({},it.laborBySize):{};
   formLaborTiers=(it&&Array.isArray(it.laborTiers))?it.laborTiers.map(function(x){return {min:+x.min||0,rate:+x.rate||0};}):[]; formLaborReorder=+((it&&it.laborReorder)||0);
   window._laborSzOn=hasLaborBySize(it); // 이미 쓰던 아이템이면 펼친 채로 연다
+  formLaborByColor=(it&&it.laborByColor)?Object.assign({},it.laborByColor):{}; window._laborColOn=hasLaborByColor(it);   /* 10-08c 컬러별 공임 */
   document.getElementById('if-t').textContent=id?'아이템 수정':'아이템 추가';
   _itemListScrollY=window.scrollY||0;
   document.getElementById('ipl').style.display='none';document.getElementById('ipf').style.display='';
@@ -15882,6 +15914,13 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
     (item.sizes||[]).forEach(function(sz){if(+_lb[sz]>0){_keep[sz]=+_lb[sz];_any=true;}});
     if(_any)item.laborBySize=_keep;else delete item.laborBySize; // 없으면 칸 자체를 안 만든다(옛 아이템과 동일)
   })();
+  (function(){ /* 10-08c 컬러별 공임 저장 — 지금 컬러만, 비면 칸 안 만듦. 처음 적은 날(laborColorSince) 이후 오더부터 */
+    var _lc=colLaborByColor(),_keep={},_any=false;
+    (item.colors||[]).forEach(function(c){ if(+_lc[c]>0){ _keep[c]=+_lc[c]; _any=true; } });
+    var _pvC=(editItemId&&S.items[editItemId])||{};
+    if(_any){ item.laborByColor=_keep; item.laborColorSince=item.laborColorSince||_pvC.laborColorSince||todayISO(); }
+    else { delete item.laborByColor; delete item.laborColorSince; }
+  })();
   (function(){ /* 수량별·리오더 공임 저장 (2026-09-11b) */
     var tiers=(formLaborTiers||[]).filter(function(x){return x&&+x.min>0&&+x.rate>0;}).map(function(x){return {min:+x.min,rate:+x.rate};}).sort(function(a,b){return a.min-b.min;});
     var reorder=+formLaborReorder||0;
@@ -18854,7 +18893,7 @@ function bgUnitPrice(rate,dc){ dc=(dc==null||dc==='')?50:+dc; if(!(dc>=0))dc=50;
 // 출고 회차 목록 → 공임 기본액: 정상수량×공임 + Σ(비품수량×비품단가). {base, normalQty, bgQty, bgAmt}
 /* 봉제 공임 합계. it을 주고 그 아이템에 사이즈별 공임이 있으면 회차의 사이즈 단가로 계산한다.
    it이 없거나 사이즈별 공임이 하나도 없으면 예전 식(rate×수량)과 결과가 완전히 같다. */
-function sewLaborBase(rate,recs,it,o,ctxOpt){ var nq=0,bq=0,amt=0,norm=0; var bySz=(typeof hasLaborBySize==='function')&&hasLaborBySize(it); var ctx=ctxOpt||((typeof _laborCtx==='function')?_laborCtx(o,it):null); var useFn=bySz||(ctx&&typeof hasLaborRule==='function'&&hasLaborRule(it)); (recs||[]).forEach(function(r){ if(!r)return; var q=+r.qty||0; if(!q)return; var u=useFn?laborRate(it,r.size,ctx):(+rate||0); if(r.bg){ bq+=q; amt+=bgUnitPrice(u,r.bgDc)*q; } else { nq+=q; norm+=u*q; } }); return {base:norm+amt,normalQty:nq,bgQty:bq,bgAmt:amt}; }
+function sewLaborBase(rate,recs,it,o,ctxOpt){ var nq=0,bq=0,amt=0,norm=0; var bySz=(typeof hasLaborBySize==='function')&&hasLaborBySize(it); var ctx=ctxOpt||((typeof _laborCtx==='function')?_laborCtx(o,it):null); var useFn=bySz||(ctx&&typeof hasLaborRule==='function'&&hasLaborRule(it)); (recs||[]).forEach(function(r){ if(!r)return; var q=+r.qty||0; if(!q)return; var u=useFn?laborRate(it,r.size,ctx,r.color||''):(+rate||0); if(r.bg){ bq+=q; amt+=bgUnitPrice(u,r.bgDc)*q; } else { nq+=q; norm+=u*q; } }); return {base:norm+amt,normalQty:nq,bgQty:bq,bgAmt:amt}; }
 // 검색 input 공용 디바운스 — IME 조합·이벤트 호환성 안전. 입력 멈추고 120ms 후 검색 발동.
 window._searchTimers=window._searchTimers||{};
 function debounceSearch(key,fn,delay){
@@ -23380,7 +23419,7 @@ function renderPayShtTab(o){
           const _lsg=sch.shippingGrid&&sch.shippingGrid[oi.itemId];
           _lcs.forEach(function(c2){_lss.forEach(function(sz2){
             var q2=_lsg?(+((_lsg[c2]&&_lsg[c2][sz2])||0)):(+((oi.qtyGrid&&oi.qtyGrid[c2]&&oi.qtyGrid[c2][sz2])||0));
-            if(q2>0){_lbBase+=laborRate(it,sz2,_laborCtx(o,it))*q2;_lbQty+=q2;}
+            if(q2>0){_lbBase+=laborRate(it,sz2,_laborCtx(o,it),c2)*q2;_lbQty+=q2;}
           });});
           if(_lbBase>0){base+=_lbBase;qtySum+=_lbQty;_lbDone=true;}
         }
@@ -23744,7 +23783,7 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
               var iso=toISO(s.date)||_shipISO||'';
               // 비품 출고 회차 = 봉제 공임만 할인 단가(bgUnitPrice). 완성·검품 등 다른 비용은 정상 단가 유지.
               var _u=rate,_bgTag='';
-              if(ck==='laborCost'&&_isSew&&(hasLaborBySize(it)||hasLaborRule(it)))_u=laborRate(it,s.size,_laborCtx(o,it)); // 사이즈별·수량별·리오더 공임
+              if(ck==='laborCost'&&_isSew&&(hasLaborBySize(it)||hasLaborRule(it)))_u=laborRate(it,s.size,_laborCtx(o,it),s.color||''); // 사이즈별·수량별·리오더·컬러별 공임
               if(s.bg&&ck==='laborCost'&&_isSew){_u=bgUnitPrice(_u,s.bgDc);_bgTag=' (비품 '+(((s.bgDc!=null&&s.bgDc!=='')?(+s.bgDc||0):50))+'%할인)';}
               if(s.tag)_bgTag+=' · '+s.tag;   /* 2026-09-23a 이동 줄 표시 */
               rows.push({
@@ -23762,7 +23801,7 @@ function buildPayReceiptHTML(entityId, entityName, entityType){
                 // 출고수량(이 공장→봉제공장) 있으면 그걸, 없으면 오더수량
                 var q=_srcGrid?(+((_srcGrid[c]&&_srcGrid[c][sz])||0)):(+((oi.qtyGrid&&oi.qtyGrid[c]&&oi.qtyGrid[c][sz])||0));
                 if(!q)continue;
-                var _ug=(ck==='laborCost'&&_isSew&&(hasLaborBySize(it)||hasLaborRule(it)))?laborRate(it,sz,_laborCtx(o,it)):rate; // 사이즈별·수량별·리오더 공임
+                var _ug=(ck==='laborCost'&&_isSew&&(hasLaborBySize(it)||hasLaborRule(it)))?laborRate(it,sz,_laborCtx(o,it),c):rate; // 사이즈별·수량별·리오더·컬러별 공임
                 rows.push({date:_rowDate,_iso:_shipISO||'',itemName:it.name,color:c||'',size:sz==='free'?'':sz,qty:q,unitPrice:_ug,amount:_ug*q,costType:lbl,oid:o.id,payKey:payKey,orderName:o.name});
               }
             }
@@ -24979,7 +25018,7 @@ function pdOpenQtyModal(oid,itemId,role,fcId,editDate){
     const _rate=+it.laborCost||0;
     const _useFn=isShipRole&&_rate>0&&(((typeof hasLaborBySize==='function')&&hasLaborBySize(it))||((typeof hasLaborRule==='function')&&hasLaborRule(it)));
     const _lc=_useFn?_laborCtx(o,it):null;
-    const _amtOf=function(kind,sz,q,dc){ if(!isShipRole||!(_rate>0))return null; if(kind==='lv'||kind==='rp'||kind==='wbF')return 0; var u=_useFn?laborRate(it,sz,_lc):_rate; if(kind==='bg')u=bgUnitPrice(u,dc); return u*q; };
+    const _amtOf=function(kind,sz,q,dc,col){ if(!isShipRole||!(_rate>0))return null; if(kind==='lv'||kind==='rp'||kind==='wbF')return 0; var u=_useFn?laborRate(it,sz,_lc,col):_rate; if(kind==='bg')u=bgUnitPrice(u,dc); return u*q; };
     const _won=function(n){ n=Math.round(n); return (n<0?'−':(n>0?'+':''))+num(Math.abs(n))+'원'; };
     // 상태판 (출고 · 회차나 이동이 하나라도 있을 때)
     let boardHtml='';
@@ -25360,7 +25399,7 @@ function smDefaultDed(){ /* 다른 집 책임 완불 공제 기본값 = 봉제 �
   var cells=smWbCells(), tot=0, q=0;
   var useFn=((typeof hasLaborBySize==='function')&&hasLaborBySize(it))||((typeof hasLaborRule==='function')&&hasLaborRule(it));
   var lc=useFn?_laborCtx(o,it):null;
-  cells.forEach(function(c){ var u=useFn?laborRate(it,c.size,lc):(+it.laborCost||0); tot+=u*c.qty; q+=c.qty; });
+  cells.forEach(function(c){ var u=useFn?laborRate(it,c.size,lc,c.color||''):(+it.laborCost||0); tot+=u*c.qty; q+=c.qty; });
   if(q>0){ try{ tot+=(it.fabrics||[]).reduce(function(s,f){ return s+(((typeof calcFabYards==='function')?calcFabYards(f,q):{}).cost||0); },0); }catch(e){} }
   return Math.round(tot);
 }
@@ -25573,7 +25612,7 @@ function _pdqLedgerHTML(P){
     var dc=(g.bgDc!=null&&g.bgDc!=='')?+g.bgDc:50;
     var what=isShip?((kind==='lv')?('잔량(미출고)'+(g.lvShipped?' → '+esc(g.lvShipped)+' 출고':'')+(g.lvMemo?' · '+esc(g.lvMemo):'')):(kind==='rp')?('수선중 회차 (옛 방식)'+(g.repairMemo?' · '+esc(g.repairMemo):'')):(kind==='bg')?('출고 회차 · B품 '+dc+'% 할인'):('출고 회차'+(g.extra?' · <span class="sm-tag n">추가</span>':''))):(esc(role)+' 회차');
     var amt=null;
-    if(isShip){ amt=0; colors.forEach(function(c){ sizes.forEach(function(sz){ var q=+(g.grid[c]&&g.grid[c][sz])||0; if(!q||amt==null)return; var a=P.amtOf(kind,sz,q,dc); if(a==null){amt=null;return;} amt+=a; }); }); }
+    if(isShip){ amt=0; colors.forEach(function(c){ sizes.forEach(function(sz){ var q=+(g.grid[c]&&g.grid[c][sz])||0; if(!q||amt==null)return; var a=P.amtOf(kind,sz,q,dc,c); if(a==null){amt=null;return;} amt+=a; }); }); }
     var toBk=(kind==='rp')?'rp':(kind==='bg'?'bg':'n');
     var to=(kind==='lv')?'<span class="sm-tag fc">잔량</span>':('<span class="sm-tag '+toBk+'">'+SM_BK[toBk]+'</span>');
     var ed=(editDate===d); if(g.memo)what+='<span class="how">'+esc(g.memo)+'</span>';
@@ -25594,8 +25633,9 @@ function _pdqLedgerHTML(P){
       if(m.to==='wb'){g.wb+=q;g.ded+=(+m.dedAmt||0);g.resp=m.resp||'';g.respName=m.respName||'';}
       if(m.from==='rp'&&m.to==='n')g.rn+=q; if(m.from==='rp'&&m.to==='bg')g.rbg+=q;
       var sz=m.size||'';
-      var vTo=(m.to==='n')?P.amtOf('n',sz,q):(m.to==='bg')?P.amtOf('bg',sz,q,_bgDcOf(m)):(m.to==='wb'&&!_smRespIsFc(m))?P.amtOf('n',sz,q):0;
-      var vFrom=(m.from==='n')?P.amtOf('n',sz,q):(m.from==='bg')?P.amtOf('bg',sz,q,_bgDcOf(m,'fromDc')):0;
+      var _mc=m.color||'';
+      var vTo=(m.to==='n')?P.amtOf('n',sz,q,undefined,_mc):(m.to==='bg')?P.amtOf('bg',sz,q,_bgDcOf(m),_mc):(m.to==='wb'&&!_smRespIsFc(m))?P.amtOf('n',sz,q,undefined,_mc):0;
+      var vFrom=(m.from==='n')?P.amtOf('n',sz,q,undefined,_mc):(m.from==='bg')?P.amtOf('bg',sz,q,_bgDcOf(m,'fromDc'),_mc):0;
       if(vTo==null||vFrom==null)g.amtNull=true; else g.amt+=(vTo-vFrom);
     });
     order.forEach(function(k,idx){
@@ -30380,7 +30420,7 @@ function ipBuildGroupReceipt(fcId,brandId,items,mode){
       ships.forEach(function(s){
         const k=(mode==='sum')?(s.color+'|'+(s.wb?'wb':(s.bg?('bg'+s.bgDc):'n'))):(s.date+'|'+s.color+'|'+(s.bg?('bg'+s.bgDc):'n')+'|'+(s.tag||''));
         if(!grp[k]){grp[k]={date:(mode==='sum'?'':s.date),color:s.color,qty:0,bg:s.bg,bgDc:s.bgDc,tag:(mode==='sum'?'':(s.tag||'')),wb:(mode==='sum'?s.wb:0),bySize:{},amount:0,units:{}};gO.push(k);}
-        const g=grp[k]; const _r=_lc?laborRate(it,s.size,_lc):rate; const u=(s.bg&&bgApply)?bgUnitPrice(_r,s.bgDc):_r;
+        const g=grp[k]; const _r=_lc?laborRate(it,s.size,_lc,s.color||''):rate; const u=(s.bg&&bgApply)?bgUnitPrice(_r,s.bgDc):_r;
         g.qty+=s.qty; g.bySize[s.size||'']=(g.bySize[s.size||'']||0)+s.qty; g.amount+=u*s.qty; g.units[u]=1;
       });
       gO.forEach(function(k){
@@ -30557,7 +30597,7 @@ function buildItemReceiptHTML(oid,fcId,itemId){
     shipments.forEach(function(s){
       const k=s.date+'|'+s.color+'|'+(s.bg?('bg'+s.bgDc):'n')+'|'+(s.tag||'');
       if(!grp[k]){grp[k]={date:s.date,color:s.color,qty:0,bg:s.bg,bgDc:s.bgDc,tag:s.tag||'',bySize:{},amount:0,units:{}};grpOrder.push(k);}
-      const g=grp[k]; const _r=_lc?laborRate(it,s.size,_lc):rate; const u=(s.bg&&bgApply)?bgUnitPrice(_r,s.bgDc):_r;
+      const g=grp[k]; const _r=_lc?laborRate(it,s.size,_lc,s.color||''):rate; const u=(s.bg&&bgApply)?bgUnitPrice(_r,s.bgDc):_r;
       g.qty+=s.qty; g.bySize[s.size||'']=(g.bySize[s.size||'']||0)+s.qty; g.amount+=u*s.qty; g.units[u]=1;
     });
     grpOrder.forEach(function(k){
@@ -31236,10 +31276,11 @@ function csSetSize(v){ window._csSize=v||''; try{renderCS();}catch(e){} }
 function csLaborRate(it){
   try{
     var sz=window._csSize||'';
-    if(sz&&typeof laborRate==='function'){ var v=laborRate(it,sz); if(v>0)return v; }
+    var _cdx=(typeof laborMaxColorDelta==='function')?laborMaxColorDelta(it):0;   /* 10-08c 원가계산서 = 제일 비싼 컬러 공임 */
+    if(sz&&typeof laborRate==='function'){ var v=laborRate(it,sz); if(v>0)return v+_cdx; }
     var m=_bySizeCurrent((it&&it.laborBySize)||{},it), vals=Object.keys(m).map(function(k){return +m[k]||0;}).filter(function(v){return v>0;});
-    if(vals.length)return Math.max.apply(null,vals);
-    return +((it&&it.laborCost)||0)||0;
+    if(vals.length)return Math.max.apply(null,vals)+_cdx;
+    return (+((it&&it.laborCost)||0)||0)+_cdx;
   }catch(e){ return +((it&&it.laborCost)||0)||0; }
 }
 function csLaborNote(it){

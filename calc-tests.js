@@ -697,6 +697,25 @@ TEST('문제 28. 이동 기록 상태판 = 정상104·B품7·수선중0·완불1
   CHECK('잔량 별도', B4.lv, 4); CHECK('잔량 빼고 나온 합', B4.out, 10);
 });
 
+// ── 문제 29. 컬러별 공임 (2026-10-08) ─────────────────────────────
+// 기본 26,000 · 블랙만 27,000(+1,000). 손계산: 크림 100×26,000 + 블랙 80×27,000 + 그레이 60×26,000 = 2,600,000+2,160,000+1,560,000 = 6,320,000
+// 사이즈 XL 28,000(+2,000)과 같이: 블랙·XL = 26,000+1,000+2,000 = 29,000. 옛 오더(규칙 넣기 전)는 컬러 차이 없음. 원가계산서용 최대 차이 = 1,000.
+TEST('문제 29. 컬러별 공임 = 6,320,000원 · 블랙XL 29,000 · 옛 오더·미사용 불변', function(){
+  var it = { id:'iC', colors:['크림','블랙','그레이'], sizes:['M','XL'], laborCost:26000, laborBySize:{XL:28000}, laborByColor:{'블랙':27000}, laborColorSince:'2026-10-08' };
+  var ctx = { qty:240, reorder:false, eligible:true, colorEligible:true };
+  CHECK('크림 M = 기본', laborRate(it,'M',ctx,'크림'), 26000);
+  CHECK('블랙 M = +1,000', laborRate(it,'M',ctx,'블랙'), 27000);
+  CHECK('블랙 XL = +1,000 +2,000', laborRate(it,'XL',ctx,'블랙'), 29000);
+  var recs=[{size:'M',color:'크림',qty:100},{size:'M',color:'블랙',qty:80},{size:'M',color:'그레이',qty:60}];
+  CHECK('결제 합계', sewLaborBase(26000, recs, it, null, ctx).base, 6320000);
+  CHECK('옛 오더는 컬러 차이 없음', laborRate(it,'M',{qty:240,reorder:false,eligible:true,colorEligible:false},'블랙'), 26000);
+  CHECK('ctx 없으면(원가계산서 기본) 컬러 차이 안 붙음', laborRate(it,'M'), 26000);
+  CHECK('원가계산서 최대 컬러 차이', laborMaxColorDelta(it), 1000);
+  var plain = { colors:['크림'], sizes:['M'], laborCost:26000 };
+  CHECK('컬러별 공임 없는 아이템 불변', laborRate(plain,'M',ctx,'크림'), 26000);
+  CHECK('컬러별 공임 없는 아이템 = 규칙 없음', hasLaborRule(plain), false);
+});
+
 if(_fails.length){
   print('CALC TESTS: FAIL — ' + _fails.length + '건 실패 (통과 ' + _okCount + ')');
   print('실패 목록: ' + _fails.join(' / '));
