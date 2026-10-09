@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261008g">
+<link rel="stylesheet" href="css/main.css?v=20261009b">
 </head>
 <body>
 
@@ -4856,7 +4856,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-09a';
+var APP_BUILD=/*BUILD*/'2026-10-09b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7223,7 +7223,9 @@ function autofillTrim(r){
   // 크기 필드 읽기 (버튼크기 포함)
   const sz=(r.querySelector('[data-f=size]')?.value||r.querySelector('[data-f=buttonSize]')?.value||'').trim();
   if(mats){
-    e=mats[pbKey(nm,cl,sz)];           // ① 이름+색상+크기 정확히
+    var _px=window._trimPickExact; window._trimPickExact=null;
+    if(_px&&_px.sup===sup&&_px.nm===nm&&mats[_px.key])e=mats[_px.key];   /* 10-09b 피커에서 고른 줄 */
+    if(!e)e=mats[pbKey(nm,cl,sz)];           // ① 이름+색상+크기 정확히
     if(!e&&sz)e=mats[pbKey(nm,cl)];   // ② 크기 없는 기존 데이터 폴백
     if(!e&&cl)e=mats[nm];             // ③ 이름만 (색상 없는 구 데이터)
     // ④ 색상/크기 달라도 같은 이름이면 규격 불러오기
@@ -8873,8 +8875,8 @@ function updatePBUnit(supEnc,nmEnc,unit){
    = 발주 방식. 낱개(단위가 Y면 야드로, 아니면 개수로 셈) · 절(총 야드 ÷ 절당 야드 = 절 수) · 실(컬러당 개수).
    바꾸면 단위도 맞추고, 그 품목을 쓰는 아이템 줄도 물어보고 같이 바꾼다.
    지퍼·단추·스냅·라벨·바이어스·단추고리는 전용 칸이 많아 글자로만(못 바꿈). 옛 롤·레이스 품목은 그 값일 때만 목록에 보인다. */
-var PB_CALC_MODES=[['single','낱개'],['jeol','절'],['bundle','묶음'],['thread','실']];   /* 09-18b 묶음 = 절과 같은 계산, 단위만 묶음 */
-var _PB_CALC_LEGACY={roll:'롤',lace:'레이스'};
+var PB_CALC_MODES=[['single','낱개'],['yardS','야드'],['roll','롤'],['jeol','절'],['bundle','묶음'],['thread','실']];   /* 10-09b 야드(=낱개+Y)·롤 보이게 — 단위 칸 뺌 */   /* 09-18b 묶음 = 절과 같은 계산, 단위만 묶음 */
+var _PB_CALC_LEGACY={lace:'레이스'};
 var _PB_CALC_FIXED={zipper:'지퍼',button:'단추',snap:'스냅',careLabel:'케어라벨',mainLabel:'메인라벨',bias:'바이어스',loop:'단추고리'};
 function _pbCalcKey(o){ var ot=(o&&o.orderType)||'count'; if(ot==='roll')return o.isLace?'lace':(o.rollUnit==='절'?'jeol':(o.rollUnit==='묶음'?'bundle':'roll')); if(ot==='yard')return (o.isButtonLoop||(o.isButtonLoop!==false&&+o.loopPerYard>0))?'loop':'single'; if(ot==='count')return 'single'; return ot; }   /* isButtonLoop=false 로 명시하면 loopPerYard 남아 있어도 낱개 (09-17k) */
 function _pbCalcLbl(key){ var f=PB_CALC_MODES.filter(function(x){return x[0]===key;})[0]; return f?f[1]:(_PB_CALC_LEGACY[key]||_PB_CALC_FIXED[key]||key); }
@@ -8885,7 +8887,7 @@ function _pbCalcApply(o,key,unit){
   else if(key==='thread'){o.orderType='thread';}
   else if(key==='jeol'){o.orderType='roll';o.isLace=false;o.rollUnit='절';}
   else if(key==='bundle'){o.orderType='roll';o.isLace=false;o.rollUnit='묶음';}
-  else if(key==='roll'){o.orderType='roll';o.isLace=false;if(o.rollUnit==='절')o.rollUnit='롤';}
+  else if(key==='roll'){o.orderType='roll';o.isLace=false;if(o.rollUnit==='절'||o.rollUnit==='묶음')o.rollUnit='롤';}
   else if(key==='lace'){o.orderType='roll';o.isLace=true;}
   else if(key==='loop'){o.orderType='yard';o.isButtonLoop=true;o.plainYard=false;}   /* 09-17k: 전용 칸 종류(지퍼·단추·…)도 고를 수 있게 — 사용자 「다 풀어줘」 */
   else if(_PB_CALC_FIXED[key]){o.orderType=key;o.isButtonLoop=false;}
@@ -8908,9 +8910,15 @@ function _pbTrimIssues(s,m){
 function setPbCalcMode(encSup,encKey,key){
   var s=decodeURIComponent(encSup),k=decodeURIComponent(encKey); var m=_pbMat(s,k); if(!m)return;
   if(!PB_CALC_MODES.some(function(x){return x[0]===key;})&&!_PB_CALC_LEGACY[key]&&!_PB_CALC_FIXED[key]){ if(typeof pbSoftRender==='function')pbSoftRender(true); return; }
-  var old=_pbCalcKey(m); if(old===key){ if(typeof pbSoftRender==='function')pbSoftRender(true); return; }
-  var lbl=_pbCalcLbl(key), unit=_pbUnitOf(m), shape=!!(_PB_CALC_FIXED[key]||_PB_CALC_FIXED[old]);
-  var rows=(_pbRowIdx()[s+'\u001f'+(m.name||'')]||[]).filter(function(r){return _pbCalcKey(r.t)!==key;});
+  /* 10-09b 야드 = 낱개+단위 Y / 낱개 = 개수. 같은 single 끼리도 야드↔개수는 바뀐 것으로 본다 */
+  var _lbl0=_pbCalcLbl(key), _wantYard=null;
+  if(key==='yardS'){ key='single'; _wantYard=true; } else if(key==='single'){ _wantYard=false; }
+  var old=_pbCalcKey(m), _isYard=(m.orderType==='yard');
+  if(old===key&&(_wantYard===null||_wantYard===_isYard)){ if(typeof pbSoftRender==='function')pbSoftRender(true); return; }
+  var lbl=_lbl0, unit=_pbUnitOf(m), shape=!!(_PB_CALC_FIXED[key]||_PB_CALC_FIXED[old]);
+  if(_wantYard===true)unit='Y'; else if(_wantYard===false&&(unit==='Y'||unit==='절'||unit==='R'||unit==='콘'||unit==='묶음'))unit='ea';
+  var _ot1=(key==='single')?(_wantYard?'yard':'count'):null;
+  var rows=(_pbRowIdx()[s+'\u001f'+(m.name||'')]||[]).filter(function(r){return _pbCalcKey(r.t)!==key||(_ot1&&r.t.orderType!==_ot1);});
   _pbCalcApply(m,key,unit); m.unit=_pbCalcUnit(key,unit); m.lastUpdated=todayISO();
   var n=0;
   if(rows.length){
@@ -8971,6 +8979,21 @@ function _pbSplitVal(m){ var key=_pbCalcKey(m); if(key==='thread')return (m.thre
 function _pbMinUnit(m){ var key=_pbCalcKey(m); if(key==='thread')return '콘'; if(key==='jeol')return '절'; if(key==='bundle')return '묶음'; if(key==='roll'||key==='lace')return '롤'; return (m.orderType==='yard'||key==='bias')?'y':'개'; }
 /* 개당 단가 = 계산 단위 하나의 값. 절이면 1절 값, 야드면 1y 값, 실은 1콘 값, 개수는 1개 값 — 헤더가 늘 「개당」이라 헷갈렸음(신고 2026-09-17) */
 function _pbEachLbl(m){ var key=_pbCalcKey(m); if(key==='jeol')return '1절 값'; if(key==='bundle')return '1묶음 값'; if(key==='roll')return '1롤 값'; if(key==='lace')return '1컷 값'; if(key==='thread')return '1콘 값'; if(key==='bias'||key==='loop')return '1y 값'; if(key==='single'&&m.orderType==='yard')return '1y 값'; return '1개 값'; }
+/* 10-09b 단가 칸 옆 「/ 1롤」 — 무엇 하나의 값인지 (사용자 「1롤 2만원인데 2만원 적어? 1야드 값 적어?」) */
+function _pbPerWord(m){ var key=_pbCalcKey(m); if(key==='jeol')return '1절'; if(key==='bundle')return '1묶음'; if(key==='roll')return '1롤'; if(key==='lace')return '1컷'; if(key==='thread')return '1콘'; if(key==='bias'||key==='loop'||(key==='single'&&m.orderType==='yard'))return '1y'; var u=_pbUnitOf(m); if(u==='set')return '1세트'; if(u&&u!=='ea'&&!_PB_UNIT_TO_OT[u])return '1'+u; return '1개'; }
+function _pbPerHTML(m,es,ek){
+  var key=_pbCalcKey(m);
+  var cnt=(key==='single'&&m.orderType!=='yard')||(_PB_CALC_FIXED[key]&&key!=='bias'&&key!=='loop');
+  if(!cnt)return '<span class="pbt-per">/ '+esc(_pbPerWord(m))+'</span>';
+  /* 개수로 사는 것만 단위(개·세트·직접 만든 단위)를 고름 — 야드·롤·절·콘은 계산 방식이 정함 */
+  var cur=_pbUnitOf(m); if(cur!=='set'&&!(cur&&!_PB_UNIT_TO_OT[cur]&&cur!=='ea'))cur='ea';
+  var us=[['ea','1개'],['set','1세트']]; getTrimUnits().forEach(function(u){ u=String(u||'').trim(); if(u&&!_PB_UNIT_TO_OT[u]&&u!=='ea'&&u!=='set')us.push([u,'1'+u]); });
+  return '<select class="pbt-per pbt-persel" title="무엇 하나의 값인지" onchange="updatePBUnit(\''+es+'\',\''+ek+'\',this.value)">'
+    +us.map(function(x){return '<option value="'+esc(x[0])+'"'+(cur===x[0]?' selected':'')+'>/ '+esc(x[1])+'</option>';}).join('')
+    +'<option value="__new">＋ 새 단위…</option><option value="__manage">단위 정리…</option></select>';
+}
+function _pbPackSuf(m){ var key=_pbCalcKey(m); if(key==='bundle')return '개'; if(key==='jeol'||key==='roll'||key==='lace')return 'y'; return ''; }
+function _pbConvTxt(m,pack,each){ var key=_pbCalcKey(m); if(!(pack>0)||!(each>0))return ''; var v=Math.round(each/pack); if(key==='jeol'||key==='roll'||key==='lace')return '= 1y '+num(v)+'원'; if(key==='bundle')return '= 1개 '+num(v)+'원'; return ''; }
 /* 묶음단가(참고용, 돈 계산엔 안 씀): 야드 낱개면 묶음 × 1y 값 = 1절 값 / 절·롤이면 개당 단가가 이미 1절 값이라 1y 환산(개당 ÷ 묶음) */
 function _pbAutoPack(m,pack,each){ var key=_pbCalcKey(m); if(!(pack>0)||!(each>0))return null; if(key==='single'&&m.orderType==='yard')return pack*each; if(key==='jeol'||key==='bundle'||key==='roll'||key==='lace')return Math.round(each/pack); return null; }
 function _pbPackLbl(m){ var key=_pbCalcKey(m); if(key==='single'&&m.orderType==='yard')return '= 1절 값'; if(key==='jeol'||key==='bundle'||key==='roll'||key==='lace')return '= 1y 환산'; return ''; }
@@ -9232,11 +9255,9 @@ function renderPbTrimTable(lst,sups){
   var THEAD='<tr class="pbt-hd">'
     +'<th style="width:96px"></th>'   /* 삭제·쓰는 곳 */
     +'<th style="width:104px">유형</th><th style="width:220px">품명</th>'
-    +'<th style="width:118px">규격</th>'
-    +'<th style="width:96px" title="발주 방식 — 낱개·절·묶음·실·전용 칸(지퍼·단추 …). 바꾸면 단위도 맞춰지고, 쓰는 아이템 줄도 같이 바꿀지 물어봐요">계산 방식</th>'
-    +'<th style="width:96px" title="단가가 무엇당인지 (Y·R·절·묶음·콘·ea…). 직접 만든 단위도 고를 수 있어요">단위</th>'
-    +'<th class="n" style="width:92px" title="1롤·1절·1묶음에 들어 있는 양 (야드 또는 개수). 절·묶음 계산 = 총량 ÷ 묶음">묶음<span class="pbt-hh">1묶음·1절당 양</span></th>'
-    +'<th class="n" style="width:118px" title="계산 단위 하나의 값 — 절이면 1절 값, 묶음이면 1묶음 값, 야드면 1y 값, 실은 1콘 값, 낱개는 1개 값">개당 단가<span class="pbt-hh">계산 단위 1개 값</span></th>'
+    +'<th style="width:96px" title="어떻게 사나요 — 낱개·야드·롤·절·묶음·실·전용 칸(지퍼·단추 …). 단가 칸 옆 「/ 1롤」이 이것 따라 바뀌어요">계산 방식</th>'
+    +'<th class="n" style="width:96px" title="1롤·1절·1묶음에 들어 있는 양 (야드 또는 개수). 롤·절·묶음 계산 = 총량 ÷ 이 양">1롤·1묶음 양</th>'
+    +'<th class="n" style="width:170px" title="칸 옆에 적힌 것(1롤·1개·1y·1콘…) 하나의 값을 적어요. 롤이면 1롤 값, 야드면 1y 값">단가<span class="pbt-hh">칸 옆에 적힌 것 1개 값</span></th>'
     +'<th class="n" style="width:100px" title="원가를 몇 장으로 나눌지 — 실은 미니멈 장수(기본 30)">미니멈 분배<span class="pbt-hh">장</span></th>'
     +'<th class="n" style="width:110px" title="이 수량 아래로는 못 사는 최소 발주량 (콘·절·묶음·개)">미니멈 발주<span class="pbt-hh">계산 단위</span></th>'
     +'<th style="width:78px" title="마지막 수정일 (올해면 월·일만)">갱신</th><th style="width:96px"></th></tr>';   /* 09-18d 두 줄 카드(미리보기 2안 승인): 무게·온즈·오무데·묶음단가·세트는 아랫줄 */
@@ -9275,7 +9296,7 @@ function renderPbTrimTable(lst,sups){
     /* 업체는 «눌러서 여는» 방식 — 품목이 100건 넘으면 다 펼쳐져 스크롤이 끝없이 길었다(요청).
        검색·거르개를 쓰는 중이면 결과를 봐야 하니 자동으로 편다. */
     var _shut=!_pbtOpenSup(s);
-    var supRow='<tr class="pbt-sup'+(_shut?' shut':'')+'"><td colspan="12"><div class="pbt-supbar">'
+    var supRow='<tr class="pbt-sup'+(_shut?' shut':'')+'"><td colspan="10"><div class="pbt-supbar">'
       +'<span class="pbt-supn" onclick="pbToggleSupOpen(\''+encodeURIComponent(s)+'\')">'
       +'<span class="pbt-car">'+(_shut?'▸':'▾')+'</span>'
       +esc(s)+'<span class="m">'+esc(loc)+' · '+list.length+'건</span></span>'
@@ -9284,7 +9305,7 @@ function renderPbTrimTable(lst,sups){
       +'</div></td></tr>';
     if(open){
       /* 한 줄로 가로 길게 — td 에 flex 를 주면 colspan 폭이 깨져 세로로 접힌다(신고) */
-      body+='<tr class="pbt-info"><td colspan="12"><div class="pbt-inf">'
+      body+='<tr class="pbt-info"><td colspan="10"><div class="pbt-inf">'
         +'<span class="pbt-il">건물</span><input style="width:110px" value="'+esc(pb.building||'')+'" onchange="getPB(\''+esc(s)+'\').building=this.value;savePB();pbSoftRender()">'
         +'<span class="pbt-il">층</span><input style="width:64px" value="'+esc(pb.floor||'')+'" onchange="getPB(\''+esc(s)+'\').floor=this.value;savePB();pbSoftRender()">'
         +'<span class="pbt-il">호수</span><input style="width:96px" value="'+esc(pb.room||'')+'" onchange="getPB(\''+esc(s)+'\').room=this.value;savePB();pbSoftRender()">'
@@ -9295,7 +9316,7 @@ function renderPbTrimTable(lst,sups){
     /* 유형 바로가기 (2026-09-10i 요청 「메이드 아래에 유형별 버튼, 바로 가게」) — 업체 띠 아래 고정 머리에 유형 칩, 누르면 그 유형 띠로 스크롤 */
     var _catOrder=[], _catCnt={};
     list.forEach(function(k){ var c=((mats[k]&&mats[k].category)||'').trim()||'미분류'; if(_catCnt[c]===undefined){_catCnt[c]=0;_catOrder.push(c);} _catCnt[c]++; });
-    var catsRow=(_catOrder.length>1)?('<tr class="pbt-cats"><td colspan="12"><div class="pbt-catsbar"><span class="pbt-catsl">유형</span>'
+    var catsRow=(_catOrder.length>1)?('<tr class="pbt-cats"><td colspan="10"><div class="pbt-catsbar"><span class="pbt-catsl">유형</span>'
       +_catOrder.map(function(c,i){ return '<button type="button" class="pbt-catbtn" onclick="event.stopPropagation();pbtJumpCat(\'pbtcat-'+encodeURIComponent(s)+'-'+i+'\')">'+esc(c)+' <span class="n">'+_catCnt[c]+'</span></button>'; }).join('')
       +'</div></td></tr>'):'';
     var _prevCat=null, _catIdx=-1;
@@ -9306,7 +9327,7 @@ function renderPbTrimTable(lst,sups){
       if(_cg!==_prevCat){
         _prevCat=_cg; _catIdx++;
         var _cn=list.filter(function(kk){ return ((mats[kk].category||'').trim()||'미분류')===_cg; }).length;
-        body+='<tr class="pbt-cat" id="pbtcat-'+es+'-'+_catIdx+'"><td colspan="12">'+esc(_cg)+'<span class="n">'+_cn+'</span>'
+        body+='<tr class="pbt-cat" id="pbtcat-'+es+'-'+_catIdx+'"><td colspan="10">'+esc(_cg)+'<span class="n">'+_cn+'</span>'
           +'<button type="button" class="pbt-catadd" title="이 유형으로 품목 추가" onclick="event.stopPropagation();pbTrimAddMat(\''+encodeURIComponent(s)+'\',\''+encodeURIComponent(_cg)+'\')">＋ 품목</button>'
           +'</td></tr>';
       }
@@ -9330,6 +9351,7 @@ function renderPbTrimTable(lst,sups){
             var opts=PB_CALC_MODES.slice(); if(_PB_CALC_LEGACY[ck])opts.push([ck,_PB_CALC_LEGACY[ck]]);
             /* 09-17k: 전용 칸 종류(지퍼·단추·…)도 목록에 넣어 어느 줄이든 바꿀 수 있게 · 미니멈 두 칸은 어느 종류든 입력 (사용자 「다 풀어줘」) */
             var _op=function(x){return '<option value="'+x[0]+'"'+(ck===x[0]?' selected':'')+'>'+esc(x[1])+'</option>';};
+            if(ck==='single'&&m.orderType==='yard')ck='yardS';   /* 10-09b 단위 칸을 빼서 낱개(개)·야드를 계산 방식에서 고름 */
             var calc='<select class="pbt-sel pbt-calc-sel" onchange="setPbCalcMode(\''+es+'\',\''+ek+'\',this.value)">'+opts.map(_op).join('')
               +'<optgroup label="전용 칸">'+Object.keys(_PB_CALC_FIXED).map(function(k){return _op([k,_PB_CALC_FIXED[k]]);}).join('')+'</optgroup></select>';
             var sv=_pbSplitVal(m), mu=_pbMinUnit(m);
@@ -9346,17 +9368,15 @@ function renderPbTrimTable(lst,sups){
           +getTrimCategories().map(function(c){return '<option value="'+esc(c)+'"'+(m.category===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')
           +'<option value="__new">＋ 새 유형…</option></select></td>'
         /* 색상은 화면에서 뺀다(사용자 요청) — 자료(품목 키)는 그대로 둔다 */
-        +'<td><input class="pbt-nm'+(isNew?' new':'')+'"'+(isNew?' data-newrow="1"':'')+' value="'+esc(nm)+'" onchange="renamePBMaterial(\''+es+'\',\''+ek+'\',this.value,\'name\')"></td>'
-        +'<td class="pbt-spec"><input class="pbt-n" value="'+esc(sp.n)+'" placeholder="15" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'n\',this.value)">'
-          +'<input class="pbt-u" list="dl-pbunit" value="'+esc(sp.u)+'" placeholder="mm" onchange="pbSetSpecPart(\''+es+'\',\''+ek+'\',\'u\',this.value)"></td>'
+        +'<td><input class="pbt-nm'+(isNew?' new':'')+'"'+(isNew?' data-newrow="1"':'')+' value="'+esc(nm)+'" onchange="renamePBMaterial(\''+es+'\',\''+ek+'\',this.value,\'name\')">'
+          /* 10-09b 규격 칸 뺌(사용자: 기장은 이름에) — 적어둔 값은 안 지우고 회색으로만 */
+          +(String(m.size||'').trim()?('<span class="pbt-oldsp" title="예전에 적은 규격 (지우지 않음)">옛 규격 '+esc(String(m.size).trim())+'</span>'):'')+'</td>'
         +_cm.calc
-        +'<td><select class="pbt-sel" onchange="updatePBUnit(\''+es+'\',\''+ek+'\',this.value)">'
-          +_pbAllUnits().map(function(u){return '<option value="'+esc(u[0])+'"'+((_pbUnitOf(m)===u[0])?' selected':'')+'>'+esc(u[1])+'</option>';}).join('')
-          +'<option value="__new">＋ 새 단위…</option><option value="__manage">단위 정리…</option></select></td>'
-        +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+(pack===''?'':pack)+'" placeholder="—" onchange="pbSetPack(\''+es+'\',\''+ek+'\',this.value)"></td>'
-        +'<td class="n">'+(hasSet
+        +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+(pack===''?'':pack)+'" placeholder="—" onchange="pbSetPack(\''+es+'\',\''+ek+'\',this.value)"><span class="pbt-suf">'+_pbPackSuf(m)+'</span></td>'
+        +'<td class="n pbt-price">'+(hasSet
             ? ('<span class="pbt-auto">'+num(each)+'</span><span class="pbt-suf">구성 합계</span>')
-            : ('<input class="pbt-num" type="number" min="0" value="'+(each||'')+'" placeholder="—" onchange="updatePBPrice(\''+es+'\',\''+ek+'\',\'unit\',+this.value)">'))+'<span class="pbt-suf">'+_pbEachLbl(m)+'</span></td>'
+            : ('<input class="pbt-num" type="number" min="0" value="'+(each||'')+'" placeholder="—" onchange="updatePBPrice(\''+es+'\',\''+ek+'\',\'unit\',+this.value)">'))+'<span class="pbt-won">원</span>'+_pbPerHTML(m,es,ek)
+          +(function(){ var cv=_pbConvTxt(m,pack,each); return cv?('<span class="pbt-conv">'+cv+'</span>'):''; })()+'</td>'
         +_cm.split
         +_cm.order
         +'<td class="pbt-up" title="'+esc(m.lastUpdated||'')+'">'+esc(_upTxt)
@@ -9371,8 +9391,8 @@ function renderPbTrimTable(lst,sups){
           +'<td></td><td colspan="2" class="pbt-r2e"></td>'
           +'<td class="pbt-r2c"><span class="pbt-k">무게 g/㎡</span><input class="pbt-num" type="number" min="0" step="1" value="'+(m.weightGsm!=null&&m.weightGsm!==''?esc(m.weightGsm):'')+'" placeholder="—" title="무게 g/㎡" onchange="pbSetMatField(\''+es+'\',\''+ek+'\',\'weightGsm\',this.value)"></td>'
           +'<td class="pbt-r2c"><span class="pbt-k">온즈</span><input class="pbt-num" type="number" min="0" step="0.1" value="'+(m.weightOz!=null&&m.weightOz!==''?esc(m.weightOz):'')+'" placeholder="—" title="온즈 oz" onchange="pbSetMatField(\''+es+'\',\''+ek+'\',\'weightOz\',this.value)"></td>'
-          +'<td class="pbt-r2c" colspan="2"><span class="pbt-k">오무데</span><input class="pbt-nm" list="dl-pbomude" value="'+esc(m.omude||'')+'" placeholder="우상 · 좌상 · 직접" title="오무데 방향·면" onchange="pbSetMatField(\''+es+'\',\''+ek+'\',\'omude\',this.value)"></td>'
-          +'<td class="pbt-r2c"><span class="pbt-k">묶음단가 <small>참고</small></span><input class="pbt-num" type="number" min="0" value="'+(pp!=null?pp:'')+'" placeholder="'+(autoPP!=null?('자동 '+num(autoPP)+' '+_pbPackLbl(m)):'—')+'" title="참고용 (돈 계산엔 안 씀)" onchange="pbSetPackPrice(\''+es+'\',\''+ek+'\',this.value)"></td>'
+          +'<td class="pbt-r2c"><span class="pbt-k">오무데</span><input class="pbt-nm" list="dl-pbomude" value="'+esc(m.omude||'')+'" placeholder="우상 · 좌상 · 직접" title="오무데 방향·면" onchange="pbSetMatField(\''+es+'\',\''+ek+'\',\'omude\',this.value)"></td>'
+          /* 10-09b 묶음단가(참고) 칸 뺌 → 단가 밑 자동 환산(_pbConvTxt). packPrice 값은 안 지움 */
           +'<td class="pbt-r2c" colspan="2"><span class="pbt-k">세트</span>'+(hasSet
             ? ('<span class="pbt-setc">'+set.map(function(x){return '<span>'+esc(x.n||'')+'</span>';}).join('')+'</span>'
                +'<button type="button" class="pbt-exp" onclick="window._pbSetOpen=(window._pbSetOpen===\''+esc(s)+'|'+esc(k)+'\'?null:\''+esc(s)+'|'+esc(k)+'\');renderBookList()">구성 '+(setOpen?'▴':'▾')+'</button>')
@@ -9381,19 +9401,19 @@ function renderPbTrimTable(lst,sups){
         +'</tr>';
       if(hasSet&&setOpen){
         set.forEach(function(x,i){
-          body+='<tr class="pbt-set"><td></td><td class="pbt-sn" colspan="6">└ <b>'+esc(x.n||'')+'</b>'
+          body+='<tr class="pbt-set"><td></td><td class="pbt-sn" colspan="4">└ <b>'+esc(x.n||'')+'</b>'
             +'<input class="pbt-nm" value="'+esc(x.nm||'')+'" placeholder="품명" onchange="pbSetField(\''+es+'\',\''+ek+'\','+i+',\'nm\',this.value)"></td>'
             +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+((+x.p||0)||'')+'" placeholder="0" onchange="pbSetField(\''+es+'\',\''+ek+'\','+i+',\'p\',this.value)"></td>'
             +'<td colspan="3"></td>'
             +'<td class="pbt-act"><button type="button" class="d" onclick="pbSetDel(\''+es+'\',\''+ek+'\','+i+')">이 구성 지우기</button></td></tr>';
         });
-        body+='<tr class="pbt-set"><td></td><td class="pbt-sn" colspan="6">└ 세트 합계</td>'
+        body+='<tr class="pbt-set"><td></td><td class="pbt-sn" colspan="4">└ 세트 합계</td>'
           +'<td class="n"><b>'+num(_pbSetSum(m))+'</b></td><td colspan="3"></td>'
           +'<td class="pbt-act"><button type="button" onclick="pbSetAdd(\''+es+'\',\''+ek+'\')">＋ 구성 추가</button></td></tr>';
       }
       if(old)nOld++;
     });
-    if(!body)body='<tr><td colspan="12" class="pbt-none">아직 품목이 없어요 — 위 「＋ 품목」으로 넣어주세요.</td></tr>';
+    if(!body)body='<tr><td colspan="10" class="pbt-none">아직 품목이 없어요 — 위 「＋ 품목」으로 넣어주세요.</td></tr>';
     /* 닫혀 있으면 업체 띠만 — 열 이름줄·품목줄은 아예 안 만든다(가벼움) */
     blocks.push(_shut
       ? '<table class="pbt shut"><thead>'+supRow+'</thead></table>'
@@ -14981,7 +15001,7 @@ function _renderTrimPick(){
       var nm=m.name||pbDecodeKey(k)[0]||'';if(!nm)return;
       var cl=m.color||pbDecodeKey(k)[1]||'';var sz=(m.size||m.width||pbDecodeKey(k)[2]||'').toString().trim();
       if(q&&_pbNorm(nm+sup+cl+sz+(m.category||'')).indexOf(q)<0)return;
-      all.push({sup:sup,k:k,nm:nm,cl:cl,sz:sz,price:m.unitPrice||m.pricePerKg||0,ot:m.orderType||'count',cat:(m.category||'').toString().trim()});
+      all.push({sup:sup,k:k,nm:nm,cl:cl,sz:sz,price:m.unitPrice||m.pricePerKg||0,ot:m.orderType||'count',cat:(m.category||'').toString().trim(),per:(typeof _pbPerWord==='function'?_pbPerWord(m):'')});
     });
   });
   all.sort(function(a,b){var am=(a.ot===ot?0:1),bm=(b.ot===ot?0:1);return (am-bm)||(a.nm<b.nm?-1:a.nm>b.nm?1:0);});
@@ -14990,9 +15010,9 @@ function _renderTrimPick(){
     return '<div onclick="_trimPickApply(\''+encodeURIComponent(o.sup)+'\',\''+encodeURIComponent(o.k)+'\')" style="display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid #f3f5f7;cursor:pointer">'
       +'<span style="font-weight:700;font-size:13.5px">'+esc(o.nm)+'</span>'
       +'<span style="font-size:10px;font-weight:800;color:#6d28d9;background:#ede9fe;padding:1px 6px;border-radius:5px">'+esc(o.cat||_otLabel(o.ot))+'</span>'
-      +((o.cl||o.sz)?'<span style="font-size:11px;color:#8a929c">'+esc([o.cl,o.sz].filter(Boolean).join(' · '))+'</span>':'')
+      +(o.cl?'<span style="font-size:11px;color:#8a929c">'+esc(o.cl)+'</span>':'')   /* 10-09b 규격 글씨 뺌(기장은 이름에) */
       +'<span style="font-size:11px;color:#64748b">'+esc(o.sup)+'</span>'
-      +'<span style="margin-left:auto;font-weight:800;font-size:12.5px;color:'+(o.price>0?'#15803d':'#b91c1c')+'">'+num(o.price)+'원</span></div>';
+      +'<span style="margin-left:auto;font-weight:800;font-size:12.5px;color:'+(o.price>0?'#15803d':'#b91c1c')+';white-space:nowrap">'+num(o.price)+'원'+(o.per?'<small style="color:#64748b;font-weight:700"> / '+esc(o.per)+'</small>':'')+'</span></div>';
   }).join('');}
   var addbox=document.getElementById('trim-pick-add');
   if(addbox){
@@ -15021,6 +15041,7 @@ function _trimPickApply(encSup,encKey){
   }
   var row=document.getElementById(window._trimPickRow||'');if(!row){closeTrimPicker();return;}
   var nm=m.name||pbDecodeKey(key)[0]||'';
+  window._trimPickExact={sup:sup,key:key,nm:nm};   /* 10-09b 고른 그 줄 그대로 — 이름만으로 다시 찾으면 같은 이름 다른 줄 값이 들어왔다 */
   var nameInput=row.querySelector('input[data-f=name]');
   var supInput=row.querySelector('[data-f=supplier]');
   if(supInput)supInput.value=sup;
