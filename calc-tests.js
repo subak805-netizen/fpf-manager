@@ -717,6 +717,28 @@ TEST('문제 29. 컬러별 공임 = 6,320,000원 · 블랙XL도 27,000 · 옛 �
   CHECK('컬러별 공임 없는 아이템 = 규칙 없음', hasLaborRule(plain), false);
 });
 
+// ── 문제 30. 지퍼 슬라이더 (2026-10-09e) ─────────────────────────────
+// 체인 850 · 슬라이더 120 · 각인 50 · 지퍼 1개당 2개 → 지퍼 1개 = 850 + (120+50)×2 = 1,190. 「지퍼에 포함」·「없음」 = 0.
+// 슬라이더 집이 다르면 발주는 지퍼 줄(슬라이더 0) + 슬라이더 집 줄(1개 값 170 · 벌당 개수 2)로 나뉨. 예전에 직접 적은 슬라이더는 그대로(각인 체크일 때만 각인).
+TEST('문제 30. 지퍼 슬라이더 1개 값 1,190 · 다른 집이면 나눔 · 포함/없음 0', function(){
+  var t={id:'z1',orderType:'zipper',supplier:'메이드',name:'3호 비슬론',unitPrice:850,qtyPerPiece:1,slMode:'pick',slSup:'메이드',slPer:2,sliderModel:'DA',sliderCost:120,sliderLogoCost:50,hasSliderLogo:true};
+  CHECK('고르기 · 2개 · 각인', 850+_zipSlAdd(t), 1190);
+  CHECK('같은 집이면 발주에도 포함', _zipSlAdd(t,true), 340);
+  CHECK('같은 집이면 안 나눔', _zipExpandTrims([t]).length, 1);
+  var inc=Object.assign({},t,{slMode:'inc'}); CHECK('지퍼에 포함 = 0', _zipSlAdd(inc), 0);
+  var no=Object.assign({},t,{slMode:'none'}); CHECK('없음 = 0', _zipSlAdd(no), 0);
+  var old={orderType:'zipper',unitPrice:850,sliderModel:'옛DA',sliderCost:100,sliderLogoCost:30,hasSliderLogo:false};
+  CHECK('옛 직접 적은 슬라이더(각인 안 함)', _zipSlAdd(old), 100);
+  var sep=Object.assign({},t,{slSup:'성배'});
+  var ex=_zipExpandTrims([sep]);
+  CHECK('다른 집이면 두 줄', ex.length, 2);
+  CHECK('지퍼 줄 슬라이더 값 0', _zipSlAdd(ex[0]), 0);
+  CHECK('슬라이더 집 줄 거래처', ex[1].supplier, '성배');
+  CHECK('슬라이더 집 줄 1개 값', ex[1].unitPrice, 170);
+  CHECK('슬라이더 집 줄 벌당 개수', ex[1].qtyPerPiece, 2);
+  CHECK('원가는 다른 집이어도 슬라이더 포함', 850+_zipSlAdd(sep), 1190);
+});
+
 if(_fails.length){
   print('CALC TESTS: FAIL — ' + _fails.length + '건 실패 (통과 ' + _okCount + ')');
   print('실패 목록: ' + _fails.join(' / '));
