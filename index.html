@@ -4887,7 +4887,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-12d';
+var APP_BUILD=/*BUILD*/'2026-10-12e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -12887,8 +12887,7 @@ function showItemForm(id){
     </div>
     
     <!-- 3. 부자재 가공비 -->
-    <div class="sec" style="margin-top:12px"><span>기타 가공비 <span style="font-weight:400;font-size:10px;color:var(--t2)">(부자재 미연결)</span></span><div class="fr" style="gap:4px"><button class="btn s" type="button" onclick="addTrimCostRow()">+ 추가</button></div></div>
-    <div class="info-box">가공비는 각 <b>부자재 카드의 ＋가공비</b> 버튼으로 카드 안에 바로 추가돼요. 특정 부자재에 안 묶이는 가공비만 여기에 입력하세요.</div>
+    <!-- 10-12e 「기타 가공비」 칸 없앰(사용자 요청) — 가공비는 부자재·원단 카드의 ＋가공비로만. 예전에 부자재에 안 붙은 채 남은 가공비가 있을 때만 아래에 경고+붙이기 -->
     <div id="tc-rows"></div>
     
     <!-- 4. 완성 부자재 비용 -->
@@ -16027,7 +16026,16 @@ function setTcBiasYoMode(i,m){colTrimCosts();var tc=formTrimCosts[i];if(!tc)retu
 function renderTrimCostRows(){const el=document.getElementById('tc-rows');if(!el)return;const list=formTrimCosts.map((tc,i)=>({tc,i})).filter(x=>{
     if(x.tc.fabId&&formFabs.find(f=>f.id===x.tc.fabId))return false;   /* 원단 카드 안에 이미 보임 */
     return !x.tc.trimId||!formTrims.find(t=>t.id===x.tc.trimId);
-  });el.innerHTML=list.length?list.map(x=>trimCostRowHTML(x.tc,x.i)).join(''):'<div class="muted" style="text-align:center;padding:.4rem;font-size:11px">부자재에 연결되지 않은 가공비 없음 — 각 부자재 카드의 ＋가공비로 추가하세요</div>';}
+  });
+  /* 10-12e 「기타 가공비」 칸은 없앰. 부자재에 안 붙은 가공비(부자재 카드를 지웠다 다시 만들면 연결이 끊김)는 원가·결제에 그대로 들어가므로
+     숨기지 않고 경고로 보여 주고, 붙일 부자재를 고르거나 지우게 한다. 없으면 아무것도 안 보임 */
+  if(!list.length){ el.innerHTML=''; return; }
+  var _trOpts=formTrims.map(function(t,ti){ return t&&t.id?('<option value="'+esc(t.id)+'">'+esc((t.name||'부자재')+(t.supplier?' · '+t.supplier:''))+'</option>'):''; }).join('');
+  el.innerHTML='<div style="border:2px solid #b45309;background:#fffbeb;padding:9px 11px;margin-top:12px"><div style="font-size:12.5px;font-weight:800;color:#92400e;margin-bottom:6px">부자재에 안 붙은 가공비 '+list.length+'개 — 원가·결제에 들어가요. 붙일 부자재를 고르거나 지워 주세요</div>'
+    +list.map(function(x){ return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;margin:6px 0 4px"><b>'+esc(x.tc.name||'(이름 없음)')+'</b><span>→ 붙일 부자재</span><select onchange="tcAttachTrim('+x.i+',this.value)" style="font:inherit;font-size:12px;padding:3px 6px"><option value="">고르기</option>'+_trOpts+'</select></div>'+trimCostRowHTML(x.tc,x.i); }).join('')+'</div>';}
+function tcAttachTrim(i,tid){ if(!tid)return; try{colTR();}catch(e){} try{colTrimCosts();}catch(e){} var tc=formTrimCosts[i], t=formTrims.find(function(x){return x&&x.id===tid;}); if(!tc||!t)return;
+  tc.trimId=tid; if(!(Array.isArray(tc.colorLinks)&&tc.colorLinks.length)&&Array.isArray(t.colorLinks))tc.colorLinks=JSON.parse(JSON.stringify(t.colorLinks));
+  try{renderTrimAndCosts();}catch(e){ try{renderTrimCostRows();}catch(e2){} } if(typeof scheduleDraft==='function')scheduleDraft(); showToast('「'+(tc.name||'가공비')+'」 → '+(t.name||'부자재')+' 카드로 붙였어요'); }
 function addTrimCostRow(){colTrimCosts();formTrimCosts.push({id:uid(),name:'',costType:'perPcs',costPerPcs:0,costPerLot:0,factory:'',colorLinks:[]});renderTrimCostRows();}
 function addTrimCostFor(i){colTR();colTrimCosts();var t=formTrims[i]||{};formTrimCosts.push({id:uid(),trimId:t.id||'',name:(t.name?t.name+' 가공':''),costType:'perLot',costPerPcs:0,costPerLot:0,factory:t.supplier||'',colorLinks:(t.colorLinks?JSON.parse(JSON.stringify(t.colorLinks)):[])});renderTrimAndCosts();showToast('가공비 추가됨 — 이 부자재 카드 안에서 입력하세요');}
 function addFinishCostRow(){
