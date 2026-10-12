@@ -4887,7 +4887,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-12b';
+var APP_BUILD=/*BUILD*/'2026-10-12c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -14257,6 +14257,14 @@ function careLabelCardNew(t,i){
 function _fsDestFc(it,t){ var d=(t&&t.destFcId)||''; if(d)return d; return (it&&(it.finishingFcId||it.inspectionFcId))||''; }
 function _fsDestKind(it,fcId){ if(!fcId)return ''; if(it&&fcId===it.finishingFcId)return '완성집'; if(it&&fcId===it.inspectionFcId)return '검품소'; if(it&&fcId===makerFc(it))return '봉제공장'; var f=S.factories&&S.factories[fcId]; return (f&&f.type)||''; }
 function _fsSupKey(it,t,base){ var d=_fsDestFc(it,t), f=d&&S.factories&&S.factories[d]; if(!base)return ''; if(!f||!f.name||d===makerFc(it))return base; return base+' → '+f.name; }
+function fsSetDestByName(i,v){   /* 10-12c 받는 곳 검색 칸 → 공장 id */
+  v=String(v||'').trim(); if(!v){ fsSetDest(i,''); return; }
+  var ids=Object.keys(S.factories||{}), lab=function(f){ return f.name+(f.type?' ('+f.type+')':''); }, hit='';
+  ids.some(function(id){ var f=S.factories[id]; if(f&&f.name&&(lab(f)===v||f.name===v)){ hit=id; return true; } return false; });
+  if(!hit){ var lv=v.toLowerCase(), cand=ids.filter(function(id){ var f=S.factories[id]; return f&&f.name&&String(f.name).toLowerCase().indexOf(lv)>=0; }); if(cand.length===1)hit=cand[0]; }
+  if(!hit){ showToast('「'+v+'」 공장을 못 찾았어요 — 목록에서 골라 주세요'); try{renderTrimRows();}catch(e){} return; }
+  fsSetDest(i,hit);
+}
 function fsSetDest(i,v){ if(!formTrims[i])return; try{colTR();}catch(e){} formTrims[i].destFcId=v||''; try{persistTrimEdit(i);}catch(e){} renderTrimRows(); }
 function moveFinishToSet(i){
   try{colTR();}catch(e){}
@@ -14284,7 +14292,11 @@ function finishSetCardNew(t,i){
   })();
   var brandSel='<div class="tcd-fld tcd-grow"><label>브랜드 <span class="muted" style="font-weight:400;font-size:10px">완성부자재 목록</span></label><select data-f="brandId" onchange="onMainLabelBrandChange('+i+',this.value)"><option value="">— 브랜드 —</option>'+getBrands().map(function(b){return '<option value="'+b.id+'"'+(b.id===t.brandId?' selected':'')+'>'+e(b.name||'')+'</option>';}).join('')+'</select></div>';
   var inner='<div class="tcd-frow">'+brandSel+'<div class="tcd-fld tcd-grow"><label>발주처 <span class="muted" style="font-weight:400;font-size:10px">누구에게 주문 (비우면 브랜드)</span></label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" placeholder="'+e(brNm||'브랜드')+'"></div></div>'
-    +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>받는 곳</label><select onchange="fsSetDest('+i+',this.value)">'+opts+'</select></div></div>'
+    +(function(){ /* 10-12c 받는 곳 검색 (요청) — 글자 치면 공장 목록이 걸러짐. 비우면 자동 */
+      var cur=(t.destFcId&&S.factories&&S.factories[t.destFcId])?S.factories[t.destFcId]:null, lab=function(f){ return f.name+(f.type?' ('+f.type+')':''); };
+      var dl=Object.keys(S.factories||{}).map(function(id){ return S.factories[id]; }).filter(function(f){ return f&&f.name; }).sort(function(a,b){ return String(a.name).localeCompare(String(b.name),'ko'); }).map(function(f){ return '<option value="'+e(lab(f))+'">'; }).join('');
+      return '<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>받는 곳 <span class="muted" style="font-weight:400;font-size:10px">공장 이름으로 검색 · 비우면 자동</span></label><div style="display:flex;gap:6px"><input list="dl-fsdest-'+i+'" value="'+(cur?e(lab(cur)):'')+'" placeholder="자동 (완성집 → 검품소)'+(t.destFcId?'':(dNm?' — 지금 '+e(dNm):' — 아이템에 완성·검품 공장 없음'))+'" onchange="fsSetDestByName('+i+',this.value)" onfocus="this.select()" style="flex:1"><datalist id="dl-fsdest-'+i+'">'+dl+'</datalist>'+(t.destFcId?'<button type="button" class="btn s" onclick="fsSetDest('+i+',\'\')">자동으로</button>':'')+'</div></div></div>';
+    })()
     +'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px"><div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">들어갈 것 <span class="muted" style="font-size:9px;font-weight:400">(체크한 것만 발주서에 · 수량 = 오더 장수 + 여분)</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">'+fin+'</div></div>'
     +'<div class="tcd-frow"><div class="tcd-fld" style="flex:0 0 110px"><label>여분 (+개)</label><input data-f="qtyBuffer" type="number" inputmode="numeric" value="'+(t.qtyBuffer!==undefined?t.qtyBuffer:10)+'"></div><div class="tcd-fld" style="flex:0 0 110px"><label>단가(원/벌)</label><input data-f="unitPrice" type="number" inputmode="numeric" value="'+(+t.unitPrice||0)+'"></div></div>'
     +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>비고</label><input data-trim-memo value="'+e(t.memo||'')+'" placeholder="발주 메모"></div></div>';
