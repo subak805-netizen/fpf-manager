@@ -4887,7 +4887,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-12e';
+var APP_BUILD=/*BUILD*/'2026-10-12f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -11964,9 +11964,12 @@ function renderItemsList(){
       var head=(kind==='pattern')
         ? ('<select class="nc-tsel" onclick="event.stopPropagation()" onchange="itemFeeType(\''+it.id+'\',\'pattern\','+i+',this.value)">'+_pfTypeOpts(_feeType(f,i))+'</select>')
         : ('<span class="im-lbl">'+esc(lbl+(many?(' '+(i+1)+'차'):''))+'</span>');
-      return '<div class="im-labor">'+head
+      var _sq=(kind==='sample'), _q=_feeQ(f);   /* 10-12f 샘플은 개수 칸 — 금액 × 개수 */
+      return '<div class="im-labor'+(_sq?' nc-sq':'')+'">'+head
         +'<input type="number" inputmode="numeric" value="'+(v||'')+'" placeholder="미입력" onclick="event.stopPropagation()" onchange="itemFeeSet(\''+it.id+'\',\''+kind+'\','+i+',this.value)" class="im-labor-in'+(v>0?'':' miss')+'"><span class="nc-won">원</span>'
-        +(many?('<button type="button" class="nc-feex" title="이 줄 지우기" onclick="event.stopPropagation();itemFeeDel(\''+it.id+'\',\''+kind+'\','+i+')">×</button>'):'')
+        +(_sq?('<span class="nc-q">×<input type="number" inputmode="numeric" min="1" value="'+_q+'" title="이 차수에 뜬 샘플 개수" onclick="event.stopPropagation()" onchange="itemFeeQty(\''+it.id+'\',\'sample\','+i+',this.value)">개</span>'):'')
+        +(many?('<button type="button" class="nc-feex" title="이 줄 지우기" onclick="event.stopPropagation();itemFeeDel(\''+it.id+'\',\''+kind+'\','+i+')">×</button>'):(_sq?'<span></span>':''))
+        +((_sq&&_q>1&&v>0)?('<span class="nc-qsum">= '+(v*_q).toLocaleString()+'원</span>'):'')
         +'</div>';
     };
     var _feeBlock=function(kind,lbl,selHtml,note){
@@ -12128,6 +12131,10 @@ function renderItemsList(){
        ⚠️ select 와 input 의 높이·폭·글씨를 똑같이 맞춘다(디자인 지침: 같은 영역의 보더 높이는 동일). */
     +'.nc-cost-body .im-labor{display:grid;grid-template-columns:82px 1fr 16px 22px;align-items:center;gap:8px;padding:4px 0;}'
     +'.nc-cost-body .im-labor+.im-labor{border-top:1px dashed #cfe0ea;}'
+    +'.nc-cost-body .im-labor.nc-sq{grid-template-columns:82px 1fr 16px 64px 22px;}'
+    +'.nc-q{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:#4b5563;white-space:nowrap;}'
+    +'.nc-q input{width:38px;height:30px;font:inherit;font-size:13px;font-weight:800;text-align:center;border:2px solid #0B0A05;background:#fff;padding:0 2px;box-sizing:border-box;}'
+    +'.nc-qsum{grid-column:2/-1;font-size:11.5px;font-weight:800;color:#0B0A05;margin-top:-2px;}'
     +'.nc-cost-body .im-lbl{color:#6b7280;font-weight:700;text-align:left;min-width:0;font-size:12px;}'
     +'.nc-cost-body .nc-tsel{width:100%;box-sizing:border-box;height:30px;font-family:inherit;font-size:11.5px;font-weight:700;border:1.5px solid #b9cfdd;background:#fff;color:#374151;border-radius:3px;padding:0 4px;margin:0;}'
     +'.nc-cost-body .im-labor-in,.nc-cost-body .nc-osel{width:100%;box-sizing:border-box;height:30px;font-family:inherit;font-size:12.5px;font-weight:800;border:2px solid #0B0A05;background:#fff;color:#111;border-radius:3px;margin:0;padding:0 7px;}'
@@ -12427,10 +12434,13 @@ function _feeArr(it,kind){
   var legacy=+((it||{})[kind+'Cost'])||0;
   return legacy>0?[{amt:legacy}]:[];
 }
-function _feeSum(it,kind){ var s=0; _feeArr(it,kind).forEach(function(f){ s+=(+((f||{}).amt))||0; }); return s; }
+/* 10-12f 샘플 개수(q) — 한 차수에 샘플을 2개 뜨면 금액 × 개수 (요청). q 없으면 1 */
+function _feeQ(f){ var q=+((f||{}).q); return q>0?q:1; }
+function _feeLine(f){ return ((+((f||{}).amt))||0)*_feeQ(f); }
+function _feeSum(it,kind){ var s=0; _feeArr(it,kind).forEach(function(f){ s+=_feeLine(f); }); return s; }
 function _feeWrite(it,kind,arr){
   it[kind+'Fees']=arr;
-  it[kind+'Cost']=arr.reduce(function(s,f){ return s+((+((f||{}).amt))||0); },0);
+  it[kind+'Cost']=arr.reduce(function(s,f){ return s+_feeLine(f); },0);   /* 10-12f 개수 곱함 */
 }
 /* 패턴비는 무엇 때문에 든 돈인지 갈라 적는다(사용자 요청 2026-08-18).
    ⚠️ 옛 자료엔 종류가 없다 → 1차는 새패턴, 그 뒤는 수정패턴으로 **읽을 때만** 채워 보여준다(저장 안 함). */
@@ -12454,6 +12464,13 @@ function itemFeeSet(id,kind,i,val){
   var a=_feeArr(it,kind).slice();
   while(a.length<=i)a.push({amt:0});   /* 비어 있던 1차 칸에 처음 적을 때 만든다 */
   a[i]=Object.assign({},a[i],{amt:Math.max(0,+val||0)});
+  _feeWrite(it,kind,a); saveData(); renderItemsList();
+}
+function itemFeeQty(id,kind,i,val){   /* 10-12f 샘플 개수 */
+  var it=S.items[id]; if(!it)return;
+  var a=_feeArr(it,kind).slice();
+  while(a.length<=i)a.push({amt:0});
+  var q=Math.max(1,Math.round(+val||1)); a[i]=Object.assign({},a[i]); if(q>1)a[i].q=q; else delete a[i].q;
   _feeWrite(it,kind,a); saveData(); renderItemsList();
 }
 function itemFeeAdd(id,kind){
@@ -16376,6 +16393,7 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
       var arr=_prev[kind+'Fees'];
       if(Array.isArray(arr)&&arr.length>1){ item[kind+'Fees']=arr; item[kind+'Cost']=_feeSum(_prev,kind); return; }
       var v=+item[kind+'Cost']||0;
+      if(Array.isArray(arr)&&arr.length===1&&v===_feeSum(_prev,kind)){ item[kind+'Fees']=arr; return; }   /* 10-12f 폼 값이 그대로면 1차의 개수·종류 유지 */
       item[kind+'Fees']=v>0?[{amt:v}]:[];
     });
   })();
