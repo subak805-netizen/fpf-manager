@@ -19,10 +19,10 @@
 <body>
 
 <!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
 
@@ -57,7 +57,7 @@ function fpfNetBanner(on){
 }
 /* SDK 스크립트 4개를 다시 끼워 넣기 (막혔다 풀린 경우·느린 망) */
 function fpfRetryFirebaseScripts(){
-  var v='10.7.1', names=[], done=0;
+  var v='10.14.1', names=[], done=0;   /* 10-12b 10.7.1 → 10.14.1 (INTERNAL ASSERTION FAILED 고친 판) */
   if(typeof firebase==='undefined')names=['app','auth','firestore','storage'];
   else { if(typeof firebase.auth!=='function')names.push('auth'); if(typeof firebase.firestore!=='function')names.push('firestore'); if(typeof firebase.storage!=='function')names.push('storage'); }
   if(!names.length){ if(window.fbReady){ try{fpfNetBanner(false);}catch(e){} } return; }
@@ -1911,6 +1911,7 @@ async function cloudSet(key,value,expectTs){
   }catch(e){
     try{ if(window._lastPushTs){ if(_prevLast)window._lastPushTs[key]=_prevLast; else delete window._lastPushTs[key]; } }catch(e2){}
     if(e&&e.code==='fpf-stale'){ console.warn('[cloudSet] '+key+' — 읽은 뒤 다른 기기가 먼저 올림 → 다시 합쳐서 올림'); return 'stale'; }
+    _fpfFsAssertCheck(e);   /* 10-12b */
     console.error('cloudSet '+key+':',e);window._cloudLastErr=(e&&(e.code||e.message))||String(e);return false;
   }
 }
@@ -1939,6 +1940,7 @@ function fpfPartialBanner(on){
   (document.body||document.documentElement).appendChild(b);
 }
 async function fpfRetryCloudRead(silent){
+  if(window._fsBroken){ if(!silent){ try{ sessionStorage.setItem('fpfFsRecoverAt',String(Date.now())); }catch(e){} location.reload(); } return; }   /* 10-12b 부품 고장이면 다시 받기로 안 됨 → 새로고침 */
   if(window._retryReadBusy)return; window._retryReadBusy=true;
   try{ if(!silent&&typeof showToast==='function')showToast('다시 받는 중…',2500); }catch(e){}
   try{ window._cloudReadFail={}; }catch(e){}
@@ -1962,9 +1964,33 @@ try{ document.addEventListener('visibilitychange',function(){ try{ if(!document.
 /* 09-30a 못 받은 문서가 남아 있으면 20초마다 조용히 다시 받는다 — 맥이 잠에서 깬 직후 등 잠깐 끊겼을 때 「다시 받기」를 안 눌러도 풀리게.
    (브라우저가 online 신호를 안 주는 경우가 있어서) 화면이 보이고 로그인돼 있을 때만. 성공하면 배너가 저절로 내려간다. */
 try{ setInterval(function(){ try{ if(cloudReadFailed()&&!document.hidden&&(typeof isCloudOn!=='function'||isCloudOn())&&navigator.onLine!==false)fpfRetryCloudRead(true); }catch(e){} },20000); }catch(e){}
+/* 10-12b 구글 연결 부품(Firestore SDK)이 「INTERNAL ASSERTION FAILED: Unexpected state」로 고장 나면 그 페이지에선 다시 받기·저장이 전부 실패한다
+   (신고 10-12: 23개 못 받음 · 다시 받기 해도 그대로). 새로고침만 고친다 → 기기 저장은 이미 되어 있으니 「올릴 게 있음」 표시 후 자동 새로고침.
+   적는 중이면 자동으로 안 하고 띠에 버튼. 5분 안에 또 고장이면 되풀이 안 하고 안내만. */
+function _fpfFsAssertCheck(err){
+  try{
+    var m=String((err&&(err.message||err))||'');
+    if(!/INTERNAL ASSERTION FAILED/i.test(m))return false;
+    if(window._fsBroken)return true; window._fsBroken=true;
+    console.error('[구글 연결 부품 고장]',m);
+    try{ localStorage.setItem('fpm_dirty','1'); }catch(e){}
+    var last=0; try{ last=+(sessionStorage.getItem('fpfFsRecoverAt')||0); }catch(e){}
+    var again=(Date.now()-last<5*60*1000);
+    var editing=false; try{ editing=(typeof isEditingNow==='function'&&isEditingNow()); }catch(e){}
+    var b=document.getElementById('fpf-partial-banner'); if(b)b.remove();
+    b=document.createElement('div'); b.id='fpf-partial-banner';
+    b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#b91c1c;color:#fff;padding:9px 14px;font-size:13px;font-weight:700;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-family:inherit';
+    b.innerHTML='<span>'+(again?'구글 연결 부품이 또 고장났어요 — 크롬(사파리) 창을 모두 닫고 다시 열어 주세요. 적은 건 이 기기에 저장돼 있어요':(editing?'구글 연결 부품이 고장났어요 — 적던 걸 마치고 새로고침해 주세요 (적은 건 이 기기에 저장돼요)':'구글 연결 부품이 고장나서 새로고침합니다 — 적은 건 이 기기에 저장돼 있어요'))+'</span>'
+      +'<button onclick="try{sessionStorage.setItem(\'fpfFsRecoverAt\',String(Date.now()))}catch(e){};location.reload()" style="border:none;background:#fff;color:#7f1d1d;font-weight:800;padding:5px 11px;border-radius:6px;cursor:pointer;font-family:inherit">새로고침</button>';
+    (document.body||document.documentElement).appendChild(b);
+    if(!again&&!editing){ setTimeout(function(){ try{ if(typeof isEditingNow==='function'&&isEditingNow())return; sessionStorage.setItem('fpfFsRecoverAt',String(Date.now())); }catch(e){} location.reload(); },2500); }
+    return true;
+  }catch(e){ return false; }
+}
+try{ window.addEventListener('unhandledrejection',function(ev){ try{ _fpfFsAssertCheck(ev&&ev.reason); }catch(e){} }); window.addEventListener('error',function(ev){ try{ if(ev&&ev.message)_fpfFsAssertCheck(ev.error||ev.message); }catch(e){} }); }catch(e){}
 function cloudReadFailed(){ try{ return Object.keys(window._cloudReadFail||{}).length>0; }catch(e){ return false; } }
 function cloudReadFailedKeys(){ try{ return Object.keys(window._cloudReadFail||{}); }catch(e){ return []; } }
-function _cloudNoteFail(key,on,err){ try{ if(!window._cloudReadFail)window._cloudReadFail={}; if(on){ window._cloudReadFail[key]=Date.now(); if(err)window._cloudReadErr=String((err&&(err.code||err.name))||'')+((err&&err.message)?(' · '+String(err.message).slice(0,120)):''); } else delete window._cloudReadFail[key]; }catch(e){} }   /* 10-05a 마지막 오류 이유도 남겨 진단에 보여줌 */
+function _cloudNoteFail(key,on,err){ try{ if(on&&err)_fpfFsAssertCheck(err); if(!window._cloudReadFail)window._cloudReadFail={}; if(on){ window._cloudReadFail[key]=Date.now(); if(err)window._cloudReadErr=String((err&&(err.code||err.name))||'')+((err&&err.message)?(' · '+String(err.message).slice(0,120)):''); } else delete window._cloudReadFail[key]; }catch(e){} }   /* 10-05a 마지막 오류 이유도 남겨 진단에 보여줌 */
 function _cloudSleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
 async function cloudGetDoc(key){
   if(!isCloudOn())return null;
@@ -2746,7 +2772,7 @@ function startRealtimeSync(){
       _rtAppliedTs[key]=ts;
       if(isEditingNow()){ applyRemoteCoData(data,ts,{noRender:true}); window._rtNeedRender=true; return; }   /* 편집 중: 자료만 합치고 화면은 나중에 */
       applyRemoteCoData(data,ts);showToast('다른 기기 변경이 반영됐어요');
-    },function(err){console.error('onSnapshot 오류:',err);});
+    },function(err){_fpfFsAssertCheck(err);console.error('onSnapshot 오류:',err);});
     // 보조 상자(할일판·레퍼런스) 리스너 — 메인에서 뺀 필드는 여기서 받는다 (2026-08-18)
     _rtUnsubAuxArr=[];
     _auxKeys(curCoId).forEach(function(akey){
@@ -2766,7 +2792,7 @@ function startRealtimeSync(){
         _rtAppliedTs[akey]=ts;
         if(isEditingNow()){ applyRemoteCoData(data,ts,{baseKey:akey,noRender:true}); window._rtNeedRender=true; return; }
         applyRemoteCoData(data,ts,{baseKey:akey});showToast('다른 기기 변경이 반영됐어요');
-      },function(err){console.error('onSnapshot(aux '+akey+') 오류:',err);}));
+      },function(err){_fpfFsAssertCheck(err);console.error('onSnapshot(aux '+akey+') 오류:',err);}));
     });
     // 발주 조각 문서 리스너(8개) — 메인 문서엔 orders가 없어서 이걸 따로 들어야 폰↔컴 발주 동기화됨 (2026-08-18 조각내기)
     _rtUnsubOrdersArr=[];
@@ -2788,7 +2814,7 @@ function startRealtimeSync(){
         var _oTomb=(data._tomb&&data._tomb.orders)||null;
         if(isEditingNow()){ applyRemoteOrders(data.orders,_oTomb,ts,okey,{noRender:true}); window._rtNeedRender=true; return; }
         applyRemoteOrders(data.orders,_oTomb,ts,okey);showToast('다른 기기 발주 변경이 반영됐어요');
-      },function(err){console.error('onSnapshot(orders '+okey+') 오류:',err);}));
+      },function(err){_fpfFsAssertCheck(err);console.error('onSnapshot(orders '+okey+') 오류:',err);}));
     });
     // 공유문서(업체·단가장) 리스너 — 없어서 다른 기기의 업체·단가 변경이 부팅 전까지 안 보였음 (2026-08-17)
     var skey='fpm_shared', _firstS=true;
@@ -2807,7 +2833,7 @@ function startRealtimeSync(){
       _rtAppliedTs[skey]=ts;
       if(isEditingNow()){ applyRemoteShared(data,ts,{noRender:true}); window._rtNeedRender=true; return; }
       applyRemoteShared(data,ts);showToast('다른 기기 업체·단가장 변경이 반영됐어요');
-    },function(err){console.error('onSnapshot(shared) 오류:',err);});
+    },function(err){_fpfFsAssertCheck(err);console.error('onSnapshot(shared) 오류:',err);});
     console.log('실시간 동기화 시작:',key);
   }catch(e){console.error('startRealtimeSync 실패:',e);}
 }
@@ -4861,7 +4887,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-12a';
+var APP_BUILD=/*BUILD*/'2026-10-12b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
