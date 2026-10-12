@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261012h">
+<link rel="stylesheet" href="css/main.css?v=20261012i">
 </head>
 <body>
 
@@ -359,7 +359,7 @@ tryInitFirebase();
   <!-- Tasks (업무 관리 허브) -->
   <div id="pane-tasks" class="panel" style="display:none"><div id="tasks-body"></div></div>
 <div id="pane-route" class="panel" style="display:none"><div id="route-body"></div></div>
-<div id="pane-todoboard" class="panel" style="display:none"><div id="todoboard-chg"></div><div id="todoboard-cal"></div><div id="todoboard-body"></div></div>
+<div id="pane-todoboard" class="panel" style="display:none"><div id="todoboard-cal"></div><div id="todoboard-body"></div></div>
   <!-- Analytics (업무량 분석) -->
   <div id="pane-analytics" class="panel" style="display:none"><div id="analytics-body"></div></div>
   <!-- Notifications -->
@@ -4897,7 +4897,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-12h';
+var APP_BUILD=/*BUILD*/'2026-10-12i';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -16129,17 +16129,28 @@ function chgQuickPut(){
   try{ _chgPanelsRefresh(it.id); }catch(e){}
   showToast(it.name+' 수정 메모에 넣었어요',2500);
 }
-/* 오른쪽 칸 공통 — 작지(tp)·아이템 수정(if) */
+/* 10-12i 수정 메모 = 샘플 회차마다 (사용자 「샘플 1차, 2차 나눠서 · 작지 옆도 나뉘어야」) — it.smpRounds[i].chgMemo, 저장은 _scWrite 로만(샘플 코멘트와 같은 자리).
+   회차 만들기 전에 적은 메모(10-12h it.chgMemo)는 「회차 없는 메모」로 남겨 보여 준다(안 지움). */
+function _chgRoundLbl(r,i){ var d=(typeof _scMD==='function')?_scMD(r&&r.date):''; return ((r&&r.n)||i+1)+'차'+(d?' '+d:''); }
+function _chgTA(id,ri,val,ph){ return '<textarea class="chgp-ta" data-chgid="'+esc(id)+'" data-ri="'+ri+'" placeholder="'+esc(ph||'여기에 쭉 적어요')+'" oninput="chgMemoInput(this)">'+esc(val||'')+'</textarea>'; }
 function _chgPanelHTML(id){
   var it=S.items&&S.items[id]; if(!it)return '<div class="chgp-empty">아이템을 저장한 뒤에 쓸 수 있어요</div>';
-  return '<textarea class="chgp-ta" data-chgid="'+esc(id)+'" placeholder="여기에 쭉 적어요 — 할일판 「수정 메모 넣기」로 넣은 줄도 여기 쌓여요" oninput="chgMemoInput(this)">'+esc(it.chgMemo||'')+'</textarea>'
-    +'<div class="chgp-ft">고치면 바로 저장 · 할일판·작지·아이템 화면 다 같은 글</div>';
+  var rs=(typeof _scRounds==='function')?_scRounds(it):[], H='<div class="chgp-list">';
+  if(!rs.length)H+='<div class="chgp-empty">샘플 코멘트에 회차가 아직 없어요 — 샘플 코멘트에서 「＋ 회차」를 만들면 회차마다 나뉘어 적혀요</div>';
+  rs.forEach(function(r,i){ H+='<div class="chgp-r"><div class="chgp-rh">'+esc(_chgRoundLbl(r,i))+(r.done?' <span class="ok">확인됨</span>':'')+'</div>'+_chgTA(id,i,r.chgMemo,_chgRoundLbl(r,i)+' 수정 메모')+'</div>'; });
+  if(String(it.chgMemo||'').trim()||!rs.length)H+='<div class="chgp-r"><div class="chgp-rh">회차 없는 메모</div>'+_chgTA(id,'x',it.chgMemo,'회차 없이 적는 메모')+'</div>';
+  return H+'</div><div class="chgp-ft">고치면 바로 저장 · 샘플 코멘트·작지·아이템 화면 다 같은 글</div>';
 }
-function chgMemoInput(ta){ var id=ta.getAttribute('data-chgid'), it=S.items&&S.items[id]; if(!it)return;
-  clearTimeout(window._chgSaveT); var v=ta.value;
-  window._chgSaveT=setTimeout(function(){ if(String(it.chgMemo||'')===v)return; it.chgMemo=v; try{saveData();}catch(e){} try{ _chgBtnState(); }catch(e){} },600);
-  document.querySelectorAll('textarea.chgp-ta[data-chgid="'+id+'"]').forEach(function(x){ if(x!==ta)x.value=v; }); }
-function _chgHas(id){ var it=S.items&&S.items[id]; return !!(it&&String(it.chgMemo||'').trim()); }
+function chgMemoInput(ta){ var id=ta.getAttribute('data-chgid'), ri=ta.getAttribute('data-ri'), it=S.items&&S.items[id]; if(!it)return;
+  var v=ta.value, key=id+'|'+ri; window._chgSaveT=window._chgSaveT||{}; clearTimeout(window._chgSaveT[key]);
+  window._chgSaveT[key]=setTimeout(function(){
+    if(ri==='x'){ if(String(it.chgMemo||'')===v)return; it.chgMemo=v; try{saveData();}catch(e){} }
+    else { var i=+ri, a=(typeof _scRounds==='function')?_scRounds(it).slice():[]; if(!a[i]||String(a[i].chgMemo||'')===v)return; a[i]=Object.assign({},a[i],{chgMemo:v}); _scWrite(it,a); }
+    try{ _chgBtnState(); }catch(e){}
+  },600);
+  document.querySelectorAll('textarea.chgp-ta[data-chgid="'+id+'"][data-ri="'+ri+'"]').forEach(function(x){ if(x!==ta)x.value=v; }); }
+function _chgAllMemos(it){ var out=[]; if(!it)return out; ((typeof _scRounds==='function')?_scRounds(it):[]).forEach(function(r,i){ var t=String((r&&r.chgMemo)||'').trim(); if(t)out.push({lbl:_chgRoundLbl(r,i),t:t}); }); var x=String(it.chgMemo||'').trim(); if(x)out.push({lbl:'회차 없는 메모',t:x}); return out; }
+function _chgHas(id){ return _chgAllMemos(S.items&&S.items[id]).length>0; }
 function _chgBtnState(){
   var tb=document.getElementById('tp-chg-btn'); if(tb&&typeof _tpItemId!=='undefined'){ var on=document.getElementById('tp-modal')&&document.getElementById('tp-modal').classList.contains('chg-on'); tb.innerHTML=(on?'수정 메모 닫기':'수정 메모 열기')+(_chgHas(_tpItemId)?'<i class="chg-dot"></i>':''); tb.classList.toggle('on',!!on); }
   var ib=document.getElementById('if-chg-btn'); if(ib&&typeof editItemId!=='undefined'){ var on2=document.body.classList.contains('ifchg-on'); ib.innerHTML=(on2?'수정 메모 닫기':'수정 메모 열기')+(_chgHas(editItemId)?'<i class="chg-dot"></i>':''); ib.classList.toggle('on',on2); }
@@ -19160,9 +19171,9 @@ function createOrder(){
   // 아이템별 개별 오더 생성
   let lastOid=null;
   /* 10-12h 수정 메모가 있으면 한 번 보여주기 — 새 오더는 아이템 «지금» 정보로 만들어져서, 아이템에 안 고친 수정은 옛날대로 발주된다 */
-  try{ var _cm=selectedItems.filter(function(x){ return x.it&&String(x.it.chgMemo||'').trim(); });
+  try{ var _cm=selectedItems.filter(function(x){ return x.it&&_chgAllMemos(x.it).length; });
     if(_cm.length){ var _msg='수정 메모가 있는 아이템이에요 — 새 오더는 아이템 정보로 만들어져요.\n아이템에 다 반영했으면 [확인], 아직이면 [취소]\n';
-      _cm.forEach(function(x){ var ls=String(x.it.chgMemo).split('\n').map(function(s){return s.trim();}).filter(Boolean); _msg+='\n[ '+(x.it.name||'')+' ]\n'+ls.slice(-8).join('\n')+(ls.length>8?'\n… (앞 '+(ls.length-8)+'줄 더)':'')+'\n'; });
+      _cm.forEach(function(x){ _msg+='\n[ '+(x.it.name||'')+' ]'; _chgAllMemos(x.it).forEach(function(m){ var ls=m.t.split('\n').map(function(s){return s.trim();}).filter(Boolean); _msg+='\n· '+m.lbl+'\n'+ls.slice(-6).join('\n')+(ls.length>6?'\n… (앞 '+(ls.length-6)+'줄 더)':''); }); _msg+='\n'; });
       if(!confirm(_msg))return; } }catch(eCM){}
   for(const{it,qtyGrid,grand}of selectedItems){
     const orderItems=[{itemId:it.id,itemName:it.name,qtyGrid,grandTotal:grand}];
@@ -37370,6 +37381,8 @@ function renderSampleComment(){
       +'<button class="sc-btn d" onclick="scDelRound(\''+_id+'\','+ri+')">회차 지우기</button>'
       +'</div>';
 
+    /* 10-12i 오른쪽 = 이 회차 수정 메모장 (종이 바깥, 인쇄 안 됨) */
+    H+='<div class="sc-two"><div class="sc-left">';
     /* A4 종이 */
     H+='<div class="sc-a4wrap" id="sc-a4wrap"><div class="sc-a4" id="sc-a4">';
     var _logo=(typeof tpBrandLogo==='function')?(tpBrandLogo(it)||''):'';
@@ -37418,6 +37431,11 @@ function renderSampleComment(){
         +'<button type="button" class="sc-hx" onclick="event.stopPropagation();scDelHand(\''+_id+'\','+ri+','+hi+')">×</button></div>'; }).join('')
       +'<button type="button" class="sc-hadd" onclick="scDrawOpen(\''+_id+'\','+ri+',\'\')">＋ 손글씨</button>'
       +'</div></div>';
+    H+='</div>';   /* sc-left */
+    H+='<div class="sc-memo"><div class="sc-mh">수정 메모 · '+esc(_chgRoundLbl(rr,ri))+'<span>작지·아이템 화면 오른쪽 「수정 메모」에도 회차별로 보여요</span></div>'
+      +_chgTA(sel.id,ri,rr.chgMemo,'이 회차에 바뀐 것을 쭉 적어요 (키보드 마이크로 말해도 돼요)')
+      +rs.map(function(x,i){ if(i===ri)return ''; var t=String((x&&x.chgMemo)||'').trim(); if(!t)return ''; return '<div class="sc-mo" onclick="scPickRound('+i+')" title="눌러서 이 회차로"><b>'+esc(_chgRoundLbl(x,i))+'</b>'+esc(t)+'</div>'; }).join('')
+      +'</div></div>';   /* sc-memo / sc-two */
   }
   H+='</div></div>';
   el.innerHTML=H;
@@ -41803,7 +41821,7 @@ function tbArchiveView(ds){
   ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
   document.body.appendChild(ov);
 }
-function renderTodoBoard(){ try{ chgQuickRender(); }catch(eQ){ console.error('[수정 메모 넣기]',eQ); } try{ tcRender(); }catch(e){ console.error('[스케줄표]',e); } var el=document.getElementById('todoboard-body'); if(!el)return; tbInjectStyle(); tbEnsure(); tbAutoArchive(); var bs=tbOrderedBrands(); if(!bs.length){ el.innerHTML='<div class="empty" style="padding:30px">브랜드를 먼저 등록하세요 (아이템 탭 → 브랜드)</div>'; return; } var pairs=''; for(var i=0;i<bs.length;i+=2){ var pr=bs.slice(i,i+2).map(tbBrandBoardHTML).join(''); pairs+='<div class="tb-paircard">'+pr+'</div>'; } var tb=S.todoBoard; var legend=tb.tags.map(function(t){return '<span class="tb-lg" style="background:'+t.color+'" onclick="tbDelTag(\''+t.name.replace(/'/g,'')+'\')" title="클릭=삭제">'+esc(t.name)+'</span>';}).join(''); window._tbRendering=true; el.innerHTML='<div class="tb-wrap"><div class="tb-head"><b style="font-size:15px">할일판</b><span style="flex:1"></span><button class="btn s" onclick="tbArchiveSaveNow()" title="오늘 할일판을 보관함에 저장 (저녁 8시 자동저장)">오늘 저장</button><button class="btn s" onclick="tbOpenArchive()" title="지난 할일판 월별로 모아보기">지난 할일판</button><button class="btn s" onclick="tbPrint()">인쇄</button></div><div class="tb-boards">'+pairs+'</div><div class="tb-legend"><b style="font-size:11px">태그:</b>'+legend+'<span class="tb-lg-add" onclick="tbAddTag()">＋태그</span></div></div>'; tbInitDrag(); var fi=null; if(window._tbAdding)fi=document.getElementById('tb-add-input'); else if(window._tbAddingGroup)fi=document.getElementById('tb-addgrp-input'); else if(window._tbEditingItem){fi=document.getElementById('tb-edit-input');if(fi)fi.value=window._tbEditingItem.text;} else if(window._tbEditingGroup){fi=document.getElementById('tb-gedit-input');if(fi)fi.value=window._tbEditingGroup.title;} if(fi){try{fi.focus();var L=fi.value.length;fi.setSelectionRange(L,L);}catch(e){}} window._tbRendering=false; }
+function renderTodoBoard(){ try{ tcRender(); }catch(e){ console.error('[스케줄표]',e); } var el=document.getElementById('todoboard-body'); if(!el)return; tbInjectStyle(); tbEnsure(); tbAutoArchive(); var bs=tbOrderedBrands(); if(!bs.length){ el.innerHTML='<div class="empty" style="padding:30px">브랜드를 먼저 등록하세요 (아이템 탭 → 브랜드)</div>'; return; } var pairs=''; for(var i=0;i<bs.length;i+=2){ var pr=bs.slice(i,i+2).map(tbBrandBoardHTML).join(''); pairs+='<div class="tb-paircard">'+pr+'</div>'; } var tb=S.todoBoard; var legend=tb.tags.map(function(t){return '<span class="tb-lg" style="background:'+t.color+'" onclick="tbDelTag(\''+t.name.replace(/'/g,'')+'\')" title="클릭=삭제">'+esc(t.name)+'</span>';}).join(''); window._tbRendering=true; el.innerHTML='<div class="tb-wrap"><div class="tb-head"><b style="font-size:15px">할일판</b><span style="flex:1"></span><button class="btn s" onclick="tbArchiveSaveNow()" title="오늘 할일판을 보관함에 저장 (저녁 8시 자동저장)">오늘 저장</button><button class="btn s" onclick="tbOpenArchive()" title="지난 할일판 월별로 모아보기">지난 할일판</button><button class="btn s" onclick="tbPrint()">인쇄</button></div><div class="tb-boards">'+pairs+'</div><div class="tb-legend"><b style="font-size:11px">태그:</b>'+legend+'<span class="tb-lg-add" onclick="tbAddTag()">＋태그</span></div></div>'; tbInitDrag(); var fi=null; if(window._tbAdding)fi=document.getElementById('tb-add-input'); else if(window._tbAddingGroup)fi=document.getElementById('tb-addgrp-input'); else if(window._tbEditingItem){fi=document.getElementById('tb-edit-input');if(fi)fi.value=window._tbEditingItem.text;} else if(window._tbEditingGroup){fi=document.getElementById('tb-gedit-input');if(fi)fi.value=window._tbEditingGroup.title;} if(fi){try{fi.focus();var L=fi.value.length;fi.setSelectionRange(L,L);}catch(e){}} window._tbRendering=false; }
 /* ════════ 할일판 스케줄표 (2026-09-29a) ════════
    할일판 탭 맨 위 달력. 일정 한 줄 = S.calEvents[] {id,date:'YYYY-MM-DD',text,brandId,done,_mt}
    · 동기화: _MT_ARRS·_ID_ARRS 에 등록(한 줄씩 _mt 병합 + 묘비). 클라우드는 따로 상자 __cal — 할일판(__tb)과 따로 둬서
