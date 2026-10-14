@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261013h">
+<link rel="stylesheet" href="css/main.css?v=20261014b">
 </head>
 <body>
 
@@ -4930,7 +4930,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-14a';
+var APP_BUILD=/*BUILD*/'2026-10-14b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -6810,6 +6810,7 @@ function fcOpts(sel,typeFilter){
     // 봉제, 워싱, 자수, 나염, 완성, 검품 등 타입 필터
     opts=opts.filter(f=>!f.type||f.type===typeFilter||f.type===typeFilter+'공장'||f.type+'공장'===typeFilter);
   }
+  opts=opts.filter(f=>f&&f.name).sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko'));   /* 10-14b 이름순(가나다) — 예전엔 등록한 순서 */
   return'<option value="">없음</option>'+opts.map(f=>`<option value="${f.id}"${f.id===sel?' selected':''}>${esc(f.name)}${f.type?' ('+esc(f.type)+')':''}</option>`).join('');
 }
 
@@ -9064,6 +9065,18 @@ function _pbMinUnit(m){ var key=_pbCalcKey(m); if(key==='thread')return '콘'; i
 /* 개당 단가 = 계산 단위 하나의 값. 절이면 1절 값, 야드면 1y 값, 실은 1콘 값, 개수는 1개 값 — 헤더가 늘 「개당」이라 헷갈렸음(신고 2026-09-17) */
 function _pbEachLbl(m){ var key=_pbCalcKey(m); if(key==='jeol')return '1절 값'; if(key==='bundle')return '1묶음 값'; if(key==='roll')return '1롤 값'; if(key==='lace')return '1컷 값'; if(key==='thread')return '1콘 값'; if(key==='bias'||key==='loop')return '1y 값'; if(key==='single'&&m.orderType==='yard')return '1y 값'; return '1개 값'; }
 /* 10-09b 단가 칸 옆 「/ 1롤」 — 무엇 하나의 값인지 (사용자 「1롤 2만원인데 2만원 적어? 1야드 값 적어?」) */
+function pbPerOpen(btn,es,ek,ev){ try{ev.stopPropagation();}catch(e){}
+  var old=document.getElementById('pbt-perpop'); if(old){ var same=old.getAttribute('data-k')===es+'|'+ek; old.remove(); if(same)return; }
+  var o=(window._pbPerOpts||{})[es+'|'+ek]; if(!o)return;
+  var d=document.createElement('div'); d.id='pbt-perpop'; d.setAttribute('data-k',es+'|'+ek);
+  d.innerHTML=o.us.map(function(x){ return '<button type="button" class="'+(x[0]===o.cur?'on':'')+'" data-v="'+esc(x[0])+'">/ '+esc(x[1])+'</button>'; }).join('')
+    +'<button type="button" class="sub" data-v="__new">＋ 새 단위</button><button type="button" class="sub" data-v="__manage">단위 정리</button>';
+  d.addEventListener('click',function(e){ var b=e.target.closest('button'); if(!b)return; d.remove(); updatePBUnit(es,ek,b.getAttribute('data-v')); });
+  document.body.appendChild(d);
+  var r=btn.getBoundingClientRect(), w=d.offsetWidth, hh=d.offsetHeight, x=Math.min(r.left,window.innerWidth-w-8), y=r.bottom+4; if(y+hh>window.innerHeight-8)y=Math.max(8,r.top-hh-4);
+  d.style.left=Math.max(8,x)+'px'; d.style.top=y+'px';
+}
+try{ document.addEventListener('click',function(e){ var p=document.getElementById('pbt-perpop'); if(p&&!p.contains(e.target))p.remove(); }); window.addEventListener('scroll',function(){ var p=document.getElementById('pbt-perpop'); if(p)p.remove(); },true); }catch(e){}
 function _pbPerWord(m){ var key=_pbCalcKey(m); if(key==='jeol')return '1절'; if(key==='bundle')return '1묶음'; if(key==='roll')return '1롤'; if(key==='lace')return '1컷'; if(key==='thread')return '1콘'; if(key==='bias'||key==='loop'||(key==='single'&&m.orderType==='yard'))return '1y'; var u=_pbUnitOf(m); if(u==='set')return '1세트'; if(u&&u!=='ea'&&!_PB_UNIT_TO_OT[u])return '1'+u; return '1개'; }
 function _pbPerHTML(m,es,ek){
   var key=_pbCalcKey(m);
@@ -9072,9 +9085,10 @@ function _pbPerHTML(m,es,ek){
   /* 개수로 사는 것만 단위(개·세트·직접 만든 단위)를 고름 — 야드·롤·절·콘은 계산 방식이 정함 */
   var cur=_pbUnitOf(m); if(cur!=='set'&&!(cur&&!_PB_UNIT_TO_OT[cur]&&cur!=='ea'))cur='ea';
   var us=[['ea','1개'],['set','1세트']]; getTrimUnits().forEach(function(u){ u=String(u||'').trim(); if(u&&!_PB_UNIT_TO_OT[u]&&u!=='ea'&&u!=='set')us.push([u,'1'+u]); });
-  return '<select class="pbt-per pbt-persel" title="무엇 하나의 값인지" onchange="updatePBUnit(\''+es+'\',\''+ek+'\',this.value)">'
-    +us.map(function(x){return '<option value="'+esc(x[0])+'"'+(cur===x[0]?' selected':'')+'>/ '+esc(x[1])+'</option>';}).join('')
-    +'<option value="__new">＋ 새 단위…</option><option value="__manage">단위 정리…</option></select>';
+  /* 10-14b 기본 선택창은 맥에서 옆 칸까지 크게 덮어서(신고) — 바로 밑에 작게 뜨는 목록으로 */
+  var curL=(us.filter(function(x){return x[0]===cur;})[0]||us[0])[1];
+  window._pbPerOpts=window._pbPerOpts||{}; window._pbPerOpts[es+'|'+ek]={cur:cur,us:us};
+  return '<button type="button" class="pbt-per pbt-perbtn" title="무엇 하나의 값인지" onclick="pbPerOpen(this,\''+es+'\',\''+ek+'\',event)">/ '+esc(curL)+' ▾</button>';
 }
 function _pbPackSuf(m){ var key=_pbCalcKey(m); if(key==='bundle')return '개'; if(key==='jeol'||key==='roll'||key==='lace')return 'y'; return ''; }
 function _pbConvTxt(m,pack,each){ var key=_pbCalcKey(m); if(!(pack>0)||!(each>0))return ''; var v=Math.round(each/pack); if(key==='jeol'||key==='roll'||key==='lace')return '= 1y '+num(v)+'원'; if(key==='bundle')return '= 1개 '+num(v)+'원'; return ''; }
@@ -14354,7 +14368,7 @@ function finishSetCardNew(t,i){
   var inner='<div class="tcd-frow">'+brandSel+'<div class="tcd-fld tcd-grow"><label>발주처 <span class="muted" style="font-weight:400;font-size:10px">누구에게 주문 (비우면 브랜드)</span></label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" placeholder="'+e(brNm||'브랜드')+'"></div></div>'
     +(function(){ /* 10-12c 받는 곳 검색 (요청) — 글자 치면 공장 목록이 걸러짐. 비우면 자동 */
       var cur=(t.destFcId&&S.factories&&S.factories[t.destFcId])?S.factories[t.destFcId]:null, lab=function(f){ return f.name+(f.type?' ('+f.type+')':''); };
-      var dl=Object.keys(S.factories||{}).map(function(id){ return S.factories[id]; }).filter(function(f){ return f&&f.name; }).sort(function(a,b){ var r=function(f){ var y=String(f.type||''); return /완성/.test(y)?0:(/검품/.test(y)?1:2); }; return (r(a)-r(b))||String(a.name).localeCompare(String(b.name),'ko'); }).map(function(f){ return '<option value="'+e(lab(f))+'">'; }).join('');   /* 완성공장 → 검품공장 → 나머지, 각각 가나다 */
+      var dl=Object.keys(S.factories||{}).map(function(id){ return S.factories[id]; }).filter(function(f){ return f&&f.name; }).sort(function(a,b){ return String(a.name).localeCompare(String(b.name),'ko'); }).map(function(f){ return '<option value="'+e(lab(f))+'">'; }).join('');   /* 10-14b 이름순(가나다) (요청) */
       return '<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>받는 곳 <span class="muted" style="font-weight:400;font-size:10px">공장 이름으로 검색 · 비우면 자동</span></label><div style="display:flex;gap:6px"><input list="dl-fsdest-'+i+'" value="'+(cur?e(lab(cur)):'')+'" placeholder="자동 (완성집 → 검품소)'+(t.destFcId?'':(dNm?' — 지금 '+e(dNm):' — 아이템에 완성·검품 공장 없음'))+'" onchange="fsSetDestByName('+i+',this.value)" onfocus="this.select()" style="flex:1"><datalist id="dl-fsdest-'+i+'">'+dl+'</datalist>'+(t.destFcId?'<button type="button" class="btn s" onclick="fsSetDest('+i+',\'\')">자동으로</button>':'')+'</div></div></div>';
     })()
     +'<div style="padding:8px 10px;background:#fef3c7;border-radius:6px;margin-bottom:6px"><div style="font-size:11px;font-weight:600;color:#854d0e;margin-bottom:6px">들어갈 것 <span class="muted" style="font-size:9px;font-weight:400">(체크한 것만 발주서에 · 수량 = 오더 장수 + 여분)</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">'+fin+'</div></div>'
