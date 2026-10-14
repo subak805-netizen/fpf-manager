@@ -4930,7 +4930,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-14b';
+var APP_BUILD=/*BUILD*/'2026-10-14c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -15171,7 +15171,7 @@ function renderTrimSummary(){
       var spec=_trimSpecStr(t);
       h+='<div class="tsum-row'+(i===sel?' on':'')+'" onclick="trimSelect('+i+')">'
         +'<span class="use'+(t.part?'':' no')+'">'+(t.part?esc(t.part):'용도?')+'</span>'
-        +'<span class="nm">'+esc(t.name||'(이름 없음)')+(spec?'<small>'+esc(spec)+'</small>':'')+(reg?'':'<span class="mob-pb">미등록</span>')+'</span>'
+        +'<span class="nm">'+(t._ph&&!t.name?('<b style="color:#9a3412">미정</b> · '+esc(t.part||'')):esc(t.name||'(이름 없음)'))+(spec?'<small>'+esc(spec)+'</small>':'')+(reg?'':'<span class="mob-pb">미등록</span>')+'</span>'
         +'<span class="num qty">'+esc(_trimQtyLabel(t))+'</span>'
         +'<span class="num pr'+(hasPrice?'':' warn')+'" data-qty="'+esc(_trimQtyLabel(t))+'">'+(hasPrice?(typeof trimDispPrice==='function'?num(trimDispPrice(t)):num(t.unitPrice))+'원':'단가?')+(function(){ var w=_trimWithProcPerPcs(t); return w?'<small class="tsum-proc" title="부자재 장당 + 가공비 장당 (옷 1장 기준)">가공 포함<br>장당 '+num(w.total)+'원</small>':''; })()+'</span>'
         +'<span class="pb'+(reg?'':' no')+'">'+(reg?'등록됨':'미등록')+'</span>'
@@ -15390,12 +15390,32 @@ function _renderTrimPick(){
     addbox.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
       +'<span style="font-size:11.5px;font-weight:700;color:#475569">찾는 게 없어요? 새 부자재 등록은 단가장에서만 해요</span>'
       +'<button class="btn s" type="button" onclick="openBookWindow(\'trim\')" style="font-size:11px;white-space:nowrap;background:#fffbeb;border-color:#fcd34d;color:#92400e">부자재 단가장 새 창</button>'
-      +'<span style="font-size:10.5px;color:#94a3b8">등록하고 이 창에 돌아오면 목록에 바로 떠요</span></div>';
+      +'<span style="font-size:10.5px;color:#94a3b8">등록하고 이 창에 돌아오면 목록에 바로 떠요</span></div>'
+      /* 10-14c 「안감·단추처럼 뭐 쓸지 안 정했는데 들어가는 건 적어 두고 싶어」 — 칸만 추가(미정). 나중에 이름 칸을 눌러 단가장에서 고르면 그 칸이 진짜 부자재로 바뀜 */
+      +(window._trimPickNew?('<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed #cbd5e1">'
+        +'<span style="font-size:12px;font-weight:800;color:#0B0A05">아직 안 정했어요</span>'
+        +'<input id="trim-ph-part" placeholder="무엇 (예: 단추 · 안감 · 지퍼)" style="flex:1;min-width:160px;padding:7px 9px;font-size:14px;border:2px solid #0B0A05;font-family:inherit" onkeydown="if(event.key===\'Enter\'){event.preventDefault();trimAddPlaceholder();}">'
+        +'<button class="btn s" type="button" onclick="trimAddPlaceholder()" style="font-weight:800;white-space:nowrap">칸만 추가</button>'
+        +'<span style="font-size:10.5px;color:#94a3b8;flex-basis:100%">발주서·원가엔 안 들어가요(거래처·단가 없음) — 나중에 그 칸 이름을 눌러 단가장에서 고르면 돼요</span></div>'):'');
   }
+}
+function trimAddPlaceholder(){
+  var part=String((document.getElementById('trim-ph-part')||{}).value||'').trim();
+  if(!part){ showToast('무엇이 들어가는지 적어 주세요 (예: 단추)'); var e=document.getElementById('trim-ph-part'); if(e)e.focus(); return; }
+  closeTrimPicker();
+  try{colTR();}catch(e){}
+  addTrimRow('count');
+  var t=formTrims[formTrims.length-1]; if(t){ t.part=part; t.name=''; t.supplier=''; t._ph=true; }
+  try{ renderTrimRows(); if(typeof _lockTrimPbFields==='function')_lockTrimPbFields(); if(typeof renderTrimSummary==='function')renderTrimSummary(); }catch(e){}
+  if(typeof scheduleDraft==='function')scheduleDraft();
+  showToast('「'+part+'」 칸 추가 — 정해지면 이름 칸을 눌러 단가장에서 고르세요',3500);
 }
 function _trimPickApply(encSup,encKey){
   var sup=decodeURIComponent(encSup),key=decodeURIComponent(encKey);
   var m=((S.priceBook[sup]||{}).materials||{})[key];if(!m){closeTrimPicker();return;}
+  /* 10-14c 미정 칸에서 고르면 — 그 칸을 빼고 고른 종류로 새로 만든 뒤 같은 자리로 (용도는 이어받음) */
+  if(!window._trimPickNew){ var _phI=+String(window._trimPickRow||'').replace('tr-',''); var _phT=formTrims[_phI];
+    if(_phT&&_phT._ph){ try{colTR();}catch(e){} window._phMove={to:_phI,part:_phT.part||''}; formTrims.splice(_phI,1); try{renderTrimRows();}catch(e){} window._trimPickNew=true; } }
   if(window._trimPickNew){ // 「+ 부자재 추가」: 단가장 자재의 타입으로 줄을 먼저 만들고(타입 자동) 그 줄에 적용
     var _hostEl=document.getElementById('trim-picker-host');if(_hostEl){_hostEl.style.display='none';_hostEl.innerHTML='';}
     var _trEl=document.getElementById('trim-rows');if(_trEl)_trEl.style.display='';
@@ -15413,6 +15433,7 @@ function _trimPickApply(encSup,encKey){
   if(supInput)supInput.value=sup;
   if(nameInput){nameInput.value=nm;nameInput.style.background='#eef7ff';nameInput.placeholder='';}
   if(typeof autofillTrim==='function')autofillTrim(row);
+  if(window._phMove){ try{colTR();}catch(e){} var _mv=window._phMove; window._phMove=null; var _nt=formTrims.splice(formTrims.length-1,1)[0]; if(_nt){ if(_mv.part&&!_nt.part)_nt.part=_mv.part; delete _nt._ph; formTrims.splice(Math.min(_mv.to,formTrims.length),0,_nt); } try{renderTrimRows();}catch(e){} }
   if(typeof scheduleDraft==='function')scheduleDraft();
   closeTrimPicker();
   try{colTR();if(typeof _lockTrimPbFields==='function')_lockTrimPbFields();if(typeof renderTrimSummary==='function')renderTrimSummary();}catch(e){}
