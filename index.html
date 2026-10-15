@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261015m">
+<link rel="stylesheet" href="css/main.css?v=20261015o">
 </head>
 <body>
 
@@ -4956,7 +4956,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-15n';
+var APP_BUILD=/*BUILD*/'2026-10-15o';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7252,6 +7252,8 @@ function updateCompString(idx){
   if(hid)hid.value=s;
   updateCompSum(idx);
   var fn=window._compOnSave&&window._compOnSave[idx];
+  /* 10-15o 이름만 적고 %를 아직 안 적은 줄이 있으면 저장 미룸 — 「cotton」만 저장돼 35가 빠지던 것 (신고). 다 비우면(지우기) 저장 */
+  if(fn&&rows.some(function(r){ return String(r.name||'').trim()&&String(r.pct==null?'':r.pct).trim()===''; }))fn=null;
   if(fn){ window._compSaveT=window._compSaveT||{}; clearTimeout(window._compSaveT[idx]); window._compSaveT[idx]=setTimeout(function(){ try{ fn(s); }catch(e){ console.warn('comp save',e); } },500); }
 }
 // 혼용률 합계 계산 — {hasAny:입력값있음, sum:반올림합계, ok:딱100}
@@ -7625,6 +7627,7 @@ function _pbMergeApply(keepSup,keepKey,dropSup,dropKey){
   var keepNm=keepM.name||pbDecodeKey(keepKey)[0],keepCl=keepM.color||pbDecodeKey(keepKey)[1]||'';
   var dropNm=dropM.name||pbDecodeKey(dropKey)[0],dropCl=dropM.color||pbDecodeKey(dropKey)[1]||'';
   ['unitPrice','pricePerKg','width','composition','yardsPerKg','yardsPerRoll','pricingUnit','orderType'].forEach(function(f){if((keepM[f]==null||keepM[f]==='')&&(dropM[f]!=null&&dropM[f]!==''))keepM[f]=dropM[f];});
+  try{ var _kc=compSumInfo(parseComp(keepM.composition||'')), _dc=compSumInfo(parseComp(dropM.composition||'')); if(_dc.ok&&!_kc.ok)keepM.composition=dropM.composition; }catch(e){}   /* 10-15o */
   /* 10-15n 나머지 칸도 대표가 비어 있으면 채움(미니멈 발주·규격·무게·오무데 등이 합치며 사라지지 않게) */
   Object.keys(dropM).forEach(function(f){ if(f==='priceLog'||f==='name'||f==='lastUpdated'||f==='_mt')return; var v=dropM[f]; if(v==null||v===''||(typeof v==='object'&&!Object.keys(v).length))return; if(keepM[f]==null||keepM[f]==='')keepM[f]=(typeof v==='object')?JSON.parse(JSON.stringify(v)):v; });
   if(dropM.priceLog&&dropM.priceLog.length){keepM.priceLog=((keepM.priceLog||[]).concat(dropM.priceLog)).sort(function(a,b){return (a.ts||0)-(b.ts||0);});}
@@ -13453,7 +13456,8 @@ function wgTrimFlds(t){t=t||{};return '<div class="tcd-fld" style="flex:0 0 82px
 function _trimCompFld(t){
   var reg=false, m=null; try{ reg=!!(t.supplier&&_pbTrimName(t)&&_pbHasTrim(t.supplier,t)); m=reg?_pbFindTrimMat(t.supplier,t):null; }catch(e){}
   if(reg){ var c=String((m&&m.composition)||t.composition||'').trim();
-    return '<div class="tcd-fld" style="flex:1 1 100%"><label>혼용률 <span class="muted" style="font-weight:400;font-size:10px">단가장에서 불러옴 · 바꾸려면 단가장에서</span></label><div class="comp-ro">'+(c?esc(fmtComp(c)):'<span class="muted">단가장에 혼용률이 없어요</span>')+'</div><input type="hidden" data-f="composition" value="'+esc(c)+'"></div>'; }
+    var _ci=compSumInfo(parseComp(c)), _bad=_ci.hasAny&&!_ci.ok;
+    return '<div class="tcd-fld" style="flex:1 1 100%"><label>혼용률 <span class="muted" style="font-weight:400;font-size:10px">단가장에서 불러옴 · 바꾸려면 단가장에서</span></label><div class="comp-ro'+(_bad?' bad':'')+'">'+(c?esc(fmtComp(c)):'<span class="muted">단가장에 혼용률이 없어요</span>')+(_bad?'<span class="comp-ro-w">합계 '+_ci.sum+'% — % 빠진 성분이 있어요. 단가장에서 채워 주세요</span>':'')+'</div><input type="hidden" data-f="composition" value="'+esc(c)+'"></div>'; }
   return '<div class="tcd-fld" style="flex:1 1 100%">'+_compBlockHTML('t_'+String(t.id||'x').replace(/[^0-9a-zA-Z_]/g,'_'),t.composition||'')+'</div>';
 }
 /* 한쪽을 적으면 다른 쪽 자동 계산 — 직접 적어둔 값은 절대 안 덮음.
@@ -14410,7 +14414,7 @@ function _careLiningFabs(it){
   var fs=((it&&it.fabrics)||[]).filter(function(f){ return f&&f.name&&/안감/.test(String(f.part||'')); });
   /* 10-15g 부자재에 「안감」(용도·이름)이라고 적혀 있어도 안감으로 (요청). 혼용률 = 부자재 칸 → 없으면 단가장 */
   var ts=((it&&it.trims)||[]).filter(function(t){ return t&&t.orderType!=='careLabel'&&t.orderType!=='mainLabel'&&/안감/.test(String(t.part||'')+' '+String(t.name||'')); }).map(function(t){
-    var comp=String(t.composition||'').trim(); if(!comp){ try{ var m=_pbFindTrimMat(t.supplier,t); comp=String((m&&m.composition)||'').trim(); }catch(e){} }
+    var comp='', m=null; try{ m=t.supplier?_pbFindTrimMat(t.supplier,t):null; }catch(e){} comp=String((m&&m.composition)||t.composition||'').trim();   /* 10-15o 등록 부자재는 단가장 값이 정답 */
     return {id:t.id,name:t.name+' (부자재)',part:t.part,composition:comp,_trim:true}; });
   return fs.concat(ts); }
 function _careLiningFab(it,t){ var a=_careLiningFabs(it); if(!a.length)return null; var id=t&&t.liningFabId; return (id&&a.filter(function(f){return f.id===id;})[0])||a[0]; }
