@@ -4956,7 +4956,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-15m';
+var APP_BUILD=/*BUILD*/'2026-10-15n';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7570,6 +7570,8 @@ function pbShowDuplicates(){
 }
 // ===== 중복 부자재 자동정리 (띄어쓰기·철자 변형까지 그룹핑 → 그룹당 한 번에) =====
 function _pbNorm(s){return (s==null?'':s).toString().toLowerCase().replace(/\s+/g,'');}
+/* 10-15n 규격은 인치 표시만 다른 것(44 / 44" / 44인치)도 같은 걸로 — 186TC 가 세 줄로 갈라져 안 묶이던 것 (신고) */
+function _pbSzNorm(s){ return _pbNorm(s).replace(/["'″”“]|인치|inch(es)?/g,''); }
 function _pbMatUsage(sup,nm,cl){var c=0;Object.values(S.items||{}).forEach(function(it){(it.trims||[]).forEach(function(t){if(t.supplier===sup&&t.name===nm&&(t.color||'')===(cl||''))c++;});(it.fabrics||[]).forEach(function(f){if(f.supplier===sup&&f.name===nm)c++;});});return c;}
 // 같은 거래처 안에서 이름(공백·대소문자 무시)+색상+규격이 같은데 원문 표기만 다른 것 = 중복
 function pbFindDupGroups(){
@@ -7580,7 +7582,7 @@ function pbFindDupGroups(){
       var m=mats[k];if(!m)return;
       var nm=m.name||pbDecodeKey(k)[0]||'';if(!_pbNorm(nm))return;
       var cl=m.color||pbDecodeKey(k)[1]||'';var sz=(m.size||m.width||pbDecodeKey(k)[2]||'');
-      var gk=sup+''+_pbNorm(nm)+''+_pbNorm(cl)+''+_pbNorm(sz);
+      var gk=sup+''+_pbNorm(nm)+''+_pbNorm(cl)+''+_pbSzNorm(sz);
       (byKey[gk]=byKey[gk]||[]).push({k:k,m:m,nm:nm,cl:cl,sz:(sz||'').toString().trim()});
     });
     Object.keys(byKey).forEach(function(gk){
@@ -7600,7 +7602,7 @@ function pbFindReviewGroups(){
       var m=mats[k];if(!m)return;
       var nm=m.name||pbDecodeKey(k)[0]||'';if(!_pbNorm(nm))return;
       var cl=m.color||pbDecodeKey(k)[1]||'';var sz=(m.size||m.width||pbDecodeKey(k)[2]||'');
-      var nk=_pbNorm(nm);var spec=_pbNorm(cl)+'|'+_pbNorm(sz);
+      var nk=_pbNorm(nm);var spec=_pbNorm(cl)+'|'+_pbSzNorm(sz);
       byName[nk]=byName[nk]||{specs:{}};(byName[nk].specs[spec]=byName[nk].specs[spec]||[]).push(k);
     });
     Object.keys(byName).forEach(function(nk){
@@ -7623,11 +7625,15 @@ function _pbMergeApply(keepSup,keepKey,dropSup,dropKey){
   var keepNm=keepM.name||pbDecodeKey(keepKey)[0],keepCl=keepM.color||pbDecodeKey(keepKey)[1]||'';
   var dropNm=dropM.name||pbDecodeKey(dropKey)[0],dropCl=dropM.color||pbDecodeKey(dropKey)[1]||'';
   ['unitPrice','pricePerKg','width','composition','yardsPerKg','yardsPerRoll','pricingUnit','orderType'].forEach(function(f){if((keepM[f]==null||keepM[f]==='')&&(dropM[f]!=null&&dropM[f]!==''))keepM[f]=dropM[f];});
+  /* 10-15n 나머지 칸도 대표가 비어 있으면 채움(미니멈 발주·규격·무게·오무데 등이 합치며 사라지지 않게) */
+  Object.keys(dropM).forEach(function(f){ if(f==='priceLog'||f==='name'||f==='lastUpdated'||f==='_mt')return; var v=dropM[f]; if(v==null||v===''||(typeof v==='object'&&!Object.keys(v).length))return; if(keepM[f]==null||keepM[f]==='')keepM[f]=(typeof v==='object')?JSON.parse(JSON.stringify(v)):v; });
   if(dropM.priceLog&&dropM.priceLog.length){keepM.priceLog=((keepM.priceLog||[]).concat(dropM.priceLog)).sort(function(a,b){return (a.ts||0)-(b.ts||0);});}
   if(keepSup===dropSup&&dropPB.colorPrices){keepPB.colorPrices=keepPB.colorPrices||{};Object.keys(dropPB.colorPrices).forEach(function(ck){var parts=ck.split('|');if(parts[0]===dropNm){parts[0]=keepNm;var nk=parts.join('|');if(!keepPB.colorPrices[nk])keepPB.colorPrices[nk]=dropPB.colorPrices[ck];}});}
   var count=0;
   Object.values(S.items||{}).forEach(function(it){(it.fabrics||[]).forEach(function(f){if(f.supplier===dropSup&&f.name===dropNm){f.supplier=keepSup;f.name=keepNm;count++;}});(it.trims||[]).forEach(function(t){if(t.supplier===dropSup&&t.name===dropNm&&(t.color||'')===dropCl){t.supplier=keepSup;t.name=keepNm;t.color=keepCl;count++;}});});
   delete dropPB.materials[dropKey];
+  /* 10-15n 묘비 — 안 남기면 다른 기기·클라우드와 합칠 때 지운 줄이 되살아났다(합집합 병합). 대표 키는 혹시 묘비 있으면 지움 */
+  try{ _tombArr('pbMat',dropSup+'\u001f'+dropKey); _untombArr('pbMat',keepSup+'\u001f'+keepKey); }catch(e){}
   return count;
 }
 function pbDedupSetKeeper(encGk,encKey){window._pbDedupKeep=window._pbDedupKeep||{};window._pbDedupKeep[decodeURIComponent(encGk)]=decodeURIComponent(encKey);pbAutoDedup();}
