@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261015a">
+<link rel="stylesheet" href="css/main.css?v=20261015b">
 </head>
 <body>
 
@@ -285,6 +285,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-ledger" onclick="switchTab('ledger')">부자재 결제</button>
   <button class="ntab" id="nt-courier" onclick="switchTab('courier')">택배 시재</button>
   <button class="ntab" id="nt-material" onclick="switchTab('material')">소재 관리</button>
+  <button class="ntab" id="nt-thread" onclick="switchTab('thread')">자수실</button>
   <button class="ntab" id="nt-book" onclick="window._bookScope='fabric';switchTab('book')">원단 단가장</button>
   <button class="ntab" id="nt-booktrim" onclick="window._bookScope='trim';switchTab('book')">부자재 단가장</button>
   <button class="ntab" id="nt-oncefee" onclick="switchTab('oncefee')">1회비</button>
@@ -426,6 +427,8 @@ tryInitFirebase();
   <div id="pane-material" class="panel" style="display:none">
     <div id="material-body"></div>
   </div>
+  <!-- 자수실 (10-15b) — 실 북 사진을 번호별로 모아 두고 작지에서 번호로 불러옴 -->
+  <div id="pane-thread" class="panel" style="display:none"><div id="thread-body"></div></div>
   <!-- Orders - split -->
   <div id="pane-orders" class="split" style="display:none">
     <div class="sl">
@@ -2122,7 +2125,7 @@ function _entEnsureTomb(){ if(!S._tomb||typeof S._tomb!=='object')S._tomb={}; ['
    trimLedger·trimLedgerPaid·trimLedgerOvr·brandConfig(맵) = 값이 원시값일 수 있어 S._kmt[맵][키]=ms 사이드카.
    병합은 "더 최신이 이김"(_mergeById가 _mt 비교, _mergeMapMt가 사이드카 비교), 동률/도장 없음은 종전대로 뒤 인자(b) 승.
    맵 키 삭제도 사이드카에 삭제 시각을 남겨 전파(늦게 지운 쪽이 이김). */
-var _MT_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra','calEvents','brands'];
+var _MT_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra','calEvents','embThreads','brands'];
 var _MT_MAPS=['trimLedger','trimLedgerPaid','trimLedgerOvr','brandConfig'];
 function _mtArrList(n){ if(n==='courierEntries')return (S.courierLedger&&Array.isArray(S.courierLedger.entries))?S.courierLedger.entries:[]; return Array.isArray(S[n])?S[n]:[]; }
 function _entShadowInit(){
@@ -2498,7 +2501,7 @@ function _mergeById(a,b,tomb){
 }
 var _mergeTasksById=_mergeById;   // 구명 호환
 // ── 배열 묘비(tombstone): 지운 id를 S._tomb.<배열명>에 기록 → 병합 때 부활 차단 (items/orders의 _entMerge 무덤과 동일 사상)
-var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra','calEvents'];
+var _ID_ARRS=['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra','calEvents','embThreads'];
 /* ⚠️ 묘비 값은 «시각»(ISO, 초까지). 예전엔 날짜만이라 같은 날 «만들고(되살림)→지우기(묘비)» 를 하면
       날짜가 같아 되살림이 이겨 삭제가 무효가 됐다(신고 2026-09-04 「새 품목 다 삭제했더니 또 생겨」).
       ISO 문자열은 사전순=시간순이라 예전 날짜값('2026-09-01')과도 그대로 비교된다. */
@@ -2631,13 +2634,13 @@ function applyRemoteCoData(data,ts,opts){
   if(has('items')||_ctombR.items){ var _oldItems=S.items||{}; var _miR=_entMerge(_oldItems,has('items')?data.items:{},S._tomb.items,_ctombR.items,'cloud'); S.items=tpPreserveLocalContent(_miR.map,_oldItems); S._tomb.items=_miR.tomb; }
   if(has('orders')){var _moR=_entMerge(S.orders||{},data.orders,S._tomb.orders,_ctombR.orders,'cloud');S.orders=_moR.map;S._tomb.orders=_moR.tomb;}
   if(has('brands'))S.brands=_restoreLocalDataUrls(_mergeById(S.brands,data.brands,(S._tomb||{}).brands),S.brands||[]);
-  ['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra','calEvents'].forEach(function(n){ if(has(n))S[n]=_mergeById(S[n],data[n],S._tomb[n]); });
+  ['tasks','pickups','sampleOrders','deductions','packages','goals','defectRecs','refCards','refCollections','matExtra','calEvents','embThreads'].forEach(function(n){ if(has(n))S[n]=_mergeById(S[n],data[n],S._tomb[n]); });
   if(has('todoBoard')&&typeof _tbPick==='function')S.todoBoard=_tbPick(S.todoBoard,data.todoBoard);
   ['brandConfig','trimLedger','trimLedgerPaid','trimLedgerOvr'].forEach(function(n){ if(has(n))S[n]=_mergeMapMt(n,S[n],data[n],S._kmt,data._kmt); });
   S._kmt=_kmtCollect(S._kmt);
   if(has('courierLedger'))S.courierLedger=_mergeCourier(S.courierLedger,data.courierLedger);
   if(has('refData'))S.refData=_mergeRefData(S.refData,data.refData);
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders});}catch(e){}
   try{_entShadowInit();}catch(e){} // 병합 결과가 새 기준 — 다음 저장 때 "내가 고침" 오탐 방지
   if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -2714,6 +2717,7 @@ var AUX_GROUPS={
   '__tk':{fields:['tasks','sampleOrders','deductions','defectRecs'],tombs:['tasks','sampleOrders','deductions','defectRecs']},
   '__ledger':{fields:['trimLedger','trimLedgerPaid','trimLedgerOvr','courierLedger'],tombs:['courierEntries'],kmt:['trimLedger','trimLedgerPaid','trimLedgerOvr']},
   '__br':{fields:['brands','brandConfig','refData'],tombs:['brands'],tombPrefix:'refArr:',kmt:['brandConfig']},
+  '__thr':{fields:['embThreads'],tombs:['embThreads']},   /* 10-15b 자수실 목록 — 사진 주소·이름만(사진은 Storage) */
   '__cal':{fields:['calEvents'],tombs:['calEvents']}   /* 09-29a 할일판 스케줄표 — 할일판(__tb)과 따로 둬서 두 기기 동시 저장이 덜 겹치게 */
 };
 function _itemShardOf(id){ return _ordShardOf(id)%ITEM_SHARDS; }
@@ -2770,7 +2774,7 @@ function applyRemoteOrders(orders,tomb,ts,key,opts){
   S.orders=_mo.map; S._tomb.orders=_mo.tomb;
   if(ts)try{setSyncBase(key||('fpm_'+curCoId+'__orders'),ts);}catch(e){} // 발주 문서(조각) 기준 ts
   try{_rehydrateExtraSuppliers();}catch(e){} // 업로드에서 뺐던 추가발주 발주서 줄 다시 계산
-  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{},_kmt:S._kmt||{}});}catch(e){}
+  try{lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,deductions:S.deductions,pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,brands:S.brands,brandConfig:S.brandConfig,sampleOrders:S.sampleOrders,_tomb:S._tomb||{},_kmt:S._kmt||{}});}catch(e){}
   try{_entShadowInit();}catch(e){}
   if(!(opts&&opts.noRender)){try{var _sy9=window.scrollY||document.documentElement.scrollTop||0;switchTab(activeTab);window.scrollTo(0,_sy9);}catch(e){try{render();}catch(e2){}}} // 원격 반영 재렌더 시 보던 위치 유지(튕김 방지)
 }
@@ -3289,7 +3293,7 @@ async function cloudSyncSave(){
         S.tasks=_mergeById(cloudCurrent.tasks,S.tasks,S._tomb.tasks);
         S.brands=_mergeById(cloudCurrent.brands,S.brands,S._tomb.brands); // 브랜드 id 병합(로컬 승) — 낡은 기기가 남의 새 브랜드/라벨을 통째로 안 지움 (2026-08-17)
         S.pickups=_mergeById(cloudCurrent.pickups,S.pickups,S._tomb.pickups);S.sampleOrders=_mergeById(cloudCurrent.sampleOrders,S.sampleOrders,S._tomb.sampleOrders);S.deductions=_mergeById(cloudCurrent.deductions,S.deductions,S._tomb.deductions);
-        S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(cloudCurrent.refCards,S.refCards,S._tomb.refCards);S.refCollections=_mergeById(cloudCurrent.refCollections,S.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(cloudCurrent.matExtra,S.matExtra,S._tomb.matExtra);S.calEvents=_mergeById(cloudCurrent.calEvents,S.calEvents,S._tomb.calEvents);
+        S.packages=_mergeById(cloudCurrent.packages,S.packages,S._tomb.packages);S.goals=_mergeById(cloudCurrent.goals,S.goals,S._tomb.goals);S.defectRecs=_mergeById(cloudCurrent.defectRecs,S.defectRecs,S._tomb.defectRecs);S.refCards=_mergeById(cloudCurrent.refCards,S.refCards,S._tomb.refCards);S.refCollections=_mergeById(cloudCurrent.refCollections,S.refCollections,S._tomb.refCollections);S.matExtra=_mergeById(cloudCurrent.matExtra,S.matExtra,S._tomb.matExtra);S.calEvents=_mergeById(cloudCurrent.calEvents,S.calEvents,S._tomb.calEvents);S.embThreads=_mergeById(cloudCurrent.embThreads,S.embThreads,S._tomb.embThreads);
         // 객체맵 키 단위 병합(b=로컬 승) — 다른 기기가 추가한 키를 내 저장이 안 지움
         S.trimLedger=_mergeMapMt('trimLedger',cloudCurrent.trimLedger,S.trimLedger,cloudCurrent._kmt,S._kmt);S.trimLedgerPaid=_mergeMapMt('trimLedgerPaid',cloudCurrent.trimLedgerPaid,S.trimLedgerPaid,cloudCurrent._kmt,S._kmt);S.trimLedgerOvr=_mergeMapMt('trimLedgerOvr',cloudCurrent.trimLedgerOvr,S.trimLedgerOvr,cloudCurrent._kmt,S._kmt);
         S.courierLedger=_mergeCourier(cloudCurrent.courierLedger,S.courierLedger);S.refData=_mergeRefData(cloudCurrent.refData,S.refData);S.brandConfig=_mergeMapMt('brandConfig',cloudCurrent.brandConfig,S.brandConfig,cloudCurrent._kmt,S._kmt);S._kmt=_kmtCollect(S._kmt);
@@ -3311,7 +3315,7 @@ async function cloudSyncSave(){
       pickups:S.pickups||[],
       packages:S.packages||[],
       goals:S.goals||[],
-      trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},
+      trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},
       todoBoard:S.todoBoard||{},
       tasks:S.tasks||[],
       brandConfig:S.brandConfig||{},
@@ -3437,6 +3441,7 @@ function _collectInlineImages(){
     Object.keys(S.priceBook||{}).forEach(function(sup){ var mats=(S.priceBook[sup]||{}).materials||{};
       Object.keys(mats).forEach(function(nm){ var e=mats[nm]; if(!e||!Array.isArray(e.swatches))return;
         e.swatches.forEach(function(v,si){ if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/pbsw/'+stamp()+'.jpg',apply:function(u){ var ce=((S.priceBook[sup]||{}).materials||{})[nm]||e; if(!Array.isArray(ce.swatches))return; var ix=ce.swatches.indexOf(v); if(ix>=0)ce.swatches[ix]=u; }}); }); }); });
+    (S.embThreads||[]).forEach(function(x){ if(x&&isData(x.img))out.push({dataUrl:x.img,path:'techpack/'+co+'/thread/thr_'+stamp()+'.jpg',apply:function(u){ var cx=(S.embThreads||[]).find(function(y){return y&&y.id===x.id;})||x; if(cx.img===x.img){ cx.img=u; cx.updatedAt=Date.now(); } }}); });
     (S.matExtra||[]).forEach(function(x){ if(!x||!Array.isArray(x.swatches))return;
       x.swatches.forEach(function(v,si){ if(isData(v))out.push({dataUrl:v,path:'techpack/'+co+'/pbsw/'+stamp()+'.jpg',apply:function(u){ var cx=(S.matExtra||[]).find(function(y){return y&&y.id===x.id;})||x; if(!Array.isArray(cx.swatches))return; var ix=cx.swatches.indexOf(v); if(ix>=0){ cx.swatches[ix]=u; cx.updatedAt=Date.now(); } }}); }); });
   }catch(e){}
@@ -3638,7 +3643,7 @@ function fpfSizeReport(){
     /* 전체 합은 참고용 — 발주서는 8조각 문서에 나눠 저장되므로(08-18) 한도(문서당 1MB)와 비교하면 안 된다.
        예전엔 이 줄이 «100% 초과!»로 빨갛게 떠서 꽉 찬 줄 알게 했다(신고 2026-09-07). 실제 한도는 바로 위 «최대 조각» 줄. */
     rep.docs.push({name:'발주서 데이터 (전체 합 · 8조각에 나눠 저장돼 한도 없음)',b:_szBytes(ordersData),info:true});
-    try{ var _cd={items:S.items||{},_tomb:S._tomb||{},_kmt:S._kmt||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brandConfig:S.brandConfig||{},deductions:S.deductions||[]}; _cd=_stripDataUrlsDeep(_cd); /* 클라우드엔 인라인 사진을 뺀 채 올라가므로 «올라가는 크기»로 잰다 (2026-09-08c — 사진 든 기기에서 items 상자가 100% 초과로 오인됨) */ var _sp=_auxSplit(_cd,curCoId||'x'); rep.docs.push({name:'회사 메인 상자 (플래그·묘비)',b:_szBytes(_sp.main)}); Object.keys(_sp.aux).forEach(function(k){ rep.docs.push({name:'상자 '+k.replace(/^fpm_[^_]+_?[^_]*/,'').replace(/^_+/,''),b:_szBytes(_sp.aux[k])}); }); }catch(e){}
+    try{ var _cd={items:S.items||{},_tomb:S._tomb||{},_kmt:S._kmt||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brandConfig:S.brandConfig||{},deductions:S.deductions||[]}; _cd=_stripDataUrlsDeep(_cd); /* 클라우드엔 인라인 사진을 뺀 채 올라가므로 «올라가는 크기»로 잰다 (2026-09-08c — 사진 든 기기에서 items 상자가 100% 초과로 오인됨) */ var _sp=_auxSplit(_cd,curCoId||'x'); rep.docs.push({name:'회사 메인 상자 (플래그·묘비)',b:_szBytes(_sp.main)}); Object.keys(_sp.aux).forEach(function(k){ rep.docs.push({name:'상자 '+k.replace(/^fpm_[^_]+_?[^_]*/,'').replace(/^_+/,''),b:_szBytes(_sp.aux[k])}); }); }catch(e){}
     rep.docs.push({name:'공유 데이터 (공장·단가장)',b:_szBytes(_stripDataUrlsDeep({factories:S.factories||{},priceBook:S.priceBook||{}}))});
     rep.docs.sort(function(a,b){return b.b-a.b;});
     Object.keys(S.orders||{}).forEach(function(oid){
@@ -4146,7 +4151,7 @@ function recoverFromAutoBackup(idx){
     S.pickups=d.pickups||[];
     S.packages=d.packages||[];
     S.goals=d.goals||[];
-    S.trimLedger=d.trimLedger||{};S.trimLedgerPaid=d.trimLedgerPaid||{};S.trimLedgerOvr=d.trimLedgerOvr||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refCollections=d.refCollections||[];S.matExtra=d.matExtra||[];S.calEvents=d.calEvents||[];S.refData=d.refData||{};
+    S.trimLedger=d.trimLedger||{};S.trimLedgerPaid=d.trimLedgerPaid||{};S.trimLedgerOvr=d.trimLedgerOvr||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refCollections=d.refCollections||[];S.matExtra=d.matExtra||[];S.calEvents=d.calEvents||[];S.embThreads=d.embThreads||[];S.refData=d.refData||{};
     S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{};
     S.deductions=d.deductions||[];
@@ -4165,7 +4170,7 @@ function recoverFromAutoBackup(idx){
 // 현재 메모리 상태를 백업 파일로 즉시 다운로드 (저장 실패 시 안전망)
 function _downloadBackupNow(){
   try{
-    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions,todoBoard:S.todoBoard||{}};
+    var allCo={};allCo[curCoId]={items:S.items,orders:S.orders,brands:S.brands,sampleOrders:S.sampleOrders,pickups:S.pickups,packages:S.packages,goals:S.goals,trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},tasks:S.tasks,brandConfig:S.brandConfig,deductions:S.deductions,todoBoard:S.todoBoard||{}};
     var out={version:'pro2',ts:new Date().toISOString(),companies:companies,allCoData:allCo,shared:{factories:S.factories,priceBook:S.priceBook}};
     var blob=new Blob([JSON.stringify(out)],{type:'application/json'});var url=URL.createObjectURL(blob);
     URL.revokeObjectURL(url);fpfSaveFile(blob,'fpm복구본-'+Date.now()+'.json',{label:'복구본 저장됨'});
@@ -4182,7 +4187,7 @@ function recoverFromHourlyBackup(idx){
     if(typeof tpMergeLocalImages==='function'){ try{newItems=tpMergeLocalImages(newItems,S.items||{});}catch(e){} }
     S.items=newItems;
     S.orders=d.orders||{}; S.brands=d.brands||[]; S.sampleOrders=d.sampleOrders||[];
-    S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.trimLedger=d.trimLedger||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refCollections=d.refCollections||[];S.matExtra=d.matExtra||[];S.calEvents=d.calEvents||[];S.refData=d.refData||{}; S.tasks=d.tasks||[];
+    S.pickups=d.pickups||[]; S.packages=d.packages||[]; S.goals=d.goals||[]; S.trimLedger=d.trimLedger||{};S.courierLedger=d.courierLedger||{bank:'',entries:[]};S.defectRecs=d.defectRecs||[];S.refCards=d.refCards||[];S.refCollections=d.refCollections||[];S.matExtra=d.matExtra||[];S.calEvents=d.calEvents||[];S.embThreads=d.embThreads||[];S.refData=d.refData||{}; S.tasks=d.tasks||[];
     S.brandConfig=d.brandConfig||{}; S.deductions=d.deductions||[];
     S.todoBoard=d.todoBoard||{}; // ★할일판 복원
     var _saveOk2=true; try{saveData();}catch(se){_saveOk2=false;console.error('[매시간백업 복구] saveData 실패:',se);}
@@ -4799,7 +4804,7 @@ async function cloudSyncLoad(id,opts){
         pickups:_mergeById(S.pickups,d.pickups,_tombNew.pickups),
         packages:_mergeById(S.packages,d.packages,_tombNew.packages),todoBoard:_tbPick(S.todoBoard,d.todoBoard),
         goals:_mergeById(S.goals,d.goals,_tombNew.goals),
-        trimLedger:_mergeMapMt('trimLedger',S.trimLedger,d.trimLedger,S._kmt,d._kmt),trimLedgerPaid:_mergeMapMt('trimLedgerPaid',S.trimLedgerPaid,d.trimLedgerPaid,S._kmt,d._kmt),trimLedgerOvr:_mergeMapMt('trimLedgerOvr',S.trimLedgerOvr,d.trimLedgerOvr,S._kmt,d._kmt),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refCollections:_mergeById(S.refCollections,d.refCollections,_tombNew.refCollections),matExtra:_mergeById(S.matExtra,d.matExtra,_tombNew.matExtra),calEvents:_mergeById(S.calEvents,d.calEvents,_tombNew.calEvents),refData:_mergeRefData(S.refData,d.refData),
+        trimLedger:_mergeMapMt('trimLedger',S.trimLedger,d.trimLedger,S._kmt,d._kmt),trimLedgerPaid:_mergeMapMt('trimLedgerPaid',S.trimLedgerPaid,d.trimLedgerPaid,S._kmt,d._kmt),trimLedgerOvr:_mergeMapMt('trimLedgerOvr',S.trimLedgerOvr,d.trimLedgerOvr,S._kmt,d._kmt),courierLedger:_mergeCourier(S.courierLedger,d.courierLedger),defectRecs:_mergeById(S.defectRecs,d.defectRecs,_tombNew.defectRecs),refCards:_mergeById(S.refCards,d.refCards,_tombNew.refCards),refCollections:_mergeById(S.refCollections,d.refCollections,_tombNew.refCollections),matExtra:_mergeById(S.matExtra,d.matExtra,_tombNew.matExtra),calEvents:_mergeById(S.calEvents,d.calEvents,_tombNew.calEvents),embThreads:_mergeById(S.embThreads,d.embThreads,_tombNew.embThreads),refData:_mergeRefData(S.refData,d.refData),
         tasks:_mergeById(S.tasks,d.tasks,_tombNew.tasks),   // 할일=id병합(덮어쓰기 금지) — 로컬 추가분 보존
         brandConfig:_mergeMapMt('brandConfig',S.brandConfig,d.brandConfig,S._kmt,d._kmt),
         _kmt:_kmtCollect(S._kmt),
@@ -4813,7 +4818,7 @@ async function cloudSyncLoad(id,opts){
       lsSet('fpm_'+id,{
         items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},
         brands:S.brands,sampleOrders:S.sampleOrders,
-        pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,
+        pickups:S.pickups,packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks,
         brandConfig:S.brandConfig,deductions:S.deductions
       });
       lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
@@ -4930,7 +4935,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-15a';
+var APP_BUILD=/*BUILD*/'2026-10-15b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5353,7 +5358,7 @@ function autoLocalBackup(){
       data:{
         items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,
         orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],
-        packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],
+        packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],
         brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],priceBook:S.priceBook||{},factories:S.factories||{}
       }
     };
@@ -5376,7 +5381,7 @@ function autoHourlyBackup(){
     var list=window._hbkCache;
     if(list.length&&list[list.length-1].stamp===stamp)return; // 이번 시간 이미 저장됨
     var snap={stamp:stamp,ts:Date.now(),hr:hr,date:(now.getMonth()+1)+'/'+now.getDate(),n:Object.keys(items).length,
-      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],priceBook:S.priceBook||{},factories:S.factories||{}}};
+      data:{items:(typeof tpStripDataUrls==='function')?tpStripDataUrls(items):items,orders:S.orders||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],priceBook:S.priceBook||{},factories:S.factories||{}}};
     list.push(snap); while(list.length>HBK_MAX)list.shift();
     idbBkSet('fpm_hbk_'+curCoId,list).catch(function(){}); // IndexedDB에 비동기 저장
   }catch(e){}
@@ -5392,7 +5397,7 @@ function saveData(){
   autoHourlyBackup();
   if(!window._hbkTimer){window._hbkTimer=setInterval(function(){try{autoHourlyBackup();}catch(e){}},300000);} // 앱 켜둔 채 쉬어도 정시 백업
   window._lsQuotaErr=false;
-  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
+  var _mainOk=lsSet('fpm_'+curCoId,{items:S.items,orders:S.orders,_tomb:S._tomb||{},_kmt:S._kmt||{},deductions:S.deductions||[],pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},todoBoard:S.todoBoard||{},tasks:S.tasks||[],brands:S.brands||[],brandConfig:S.brandConfig||{},sampleOrders:S.sampleOrders||[],_compMigrated:S._compMigrated||false,_careSupMig1:S._careSupMig1||false});
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   try{_shDirtyMark();}catch(e){} // 공유문서(업체·단가장) 미푸시 편집 키 기록 (2026-08-17)
   try{_pbReviveExisting();}catch(e){} // 지금 있는 단가장 품목에 옛 묘비가 살아 있으면 되살림 표시 — 마지막 안전망 (2026-09-07a)
@@ -5430,7 +5435,7 @@ function loadCoData(id){
   const shared=lsGet('fpm_shared')||{};
   const fac=d.factories||shared.factories||{};
   const pb=d.priceBook||shared.priceBook||{};
-  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},_kmt:d._kmt||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],calEvents:d.calEvents||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
+  S={items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},_kmt:d._kmt||{},factories:fac,priceBook:pb,deductions:d.deductions||[],pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],calEvents:d.calEvents||[],embThreads:d.embThreads||[],refData:d.refData||{},tasks:d.tasks||[],brands:d.brands||[],brandConfig:d.brandConfig||{},sampleOrders:d.sampleOrders||[],todoBoard:d.todoBoard||{},_compMigrated:d._compMigrated||false,_careSupMig1:d._careSupMig1||false};   // defectRecs·trimLedgerOvr 부팅 누락 복구(빠지면 다음 저장 때 빈값으로 지워짐)
   if(d.factories||d.priceBook){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}
   migrateData();
   try{_rehydrateExtraSuppliers();}catch(e){} // 클라우드에서 뺐던 추가발주 발주서 줄 복원
@@ -5492,6 +5497,7 @@ function migrateData(){
   if(!Array.isArray(S.refCards))S.refCards=[];
   if(!Array.isArray(S.matExtra))S.matExtra=[];
   if(!Array.isArray(S.calEvents))S.calEvents=[];
+  if(!Array.isArray(S.embThreads))S.embThreads=[];
   if(!Array.isArray(S.refCollections))S.refCollections=[];
   if(!S.trimLedger)S.trimLedger={};if(!S.trimLedgerOvr)S.trimLedgerOvr={};
   if(!S.trimLedgerPaid)S.trimLedgerPaid={};
@@ -5826,13 +5832,13 @@ function _collectBackupData(){
     if(cid===curCoId){
       allCoData[cid]={
         items:S.items||{},orders:S.orders||{},_tomb:S._tomb||{},_kmt:S._kmt||{},todoBoard:S.todoBoard||{},brands:S.brands||[],sampleOrders:S.sampleOrders||[],
-        pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],refData:S.refData||{},tasks:S.tasks||[],
+        pickups:S.pickups||[],packages:S.packages||[],goals:S.goals||[],trimLedger:S.trimLedger||{},trimLedgerPaid:S.trimLedgerPaid||{},trimLedgerOvr:S.trimLedgerOvr||{},courierLedger:S.courierLedger||{bank:'',entries:[]},defectRecs:S.defectRecs||[],refCards:S.refCards||[],refCollections:S.refCollections||[],matExtra:S.matExtra||[],calEvents:S.calEvents||[],embThreads:S.embThreads||[],refData:S.refData||{},tasks:S.tasks||[],
         brandConfig:S.brandConfig||{},deductions:S.deductions||[]
       };
     }else{
       allCoData[cid]={
         items:d.items||{},orders:d.orders||{},_tomb:d._tomb||{},_kmt:d._kmt||{},todoBoard:d.todoBoard||{},brands:d.brands||[],sampleOrders:d.sampleOrders||[],
-        pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],calEvents:d.calEvents||[],refData:d.refData||{},tasks:d.tasks||[],
+        pickups:d.pickups||[],packages:d.packages||[],goals:d.goals||[],trimLedger:d.trimLedger||{},trimLedgerPaid:d.trimLedgerPaid||{},trimLedgerOvr:d.trimLedgerOvr||{},courierLedger:d.courierLedger||{bank:'',entries:[]},defectRecs:d.defectRecs||[],refCards:d.refCards||[],refCollections:d.refCollections||[],matExtra:d.matExtra||[],calEvents:d.calEvents||[],embThreads:d.embThreads||[],refData:d.refData||{},tasks:d.tasks||[],
         brandConfig:d.brandConfig||{},deductions:d.deductions||[]
       };
     }
@@ -6256,6 +6262,7 @@ var PD_NAVTABS=[   /* 2026-09-23i 웹 사이드바(.ntab)와 같은 순서 · la
   {k:'ledger',label:'부자재 결제',fn:function(){switchTab('ledger');}},
   {k:'courier',label:'택배 시재',fn:function(){switchTab('courier');}},
   {k:'material',label:'소재 관리',fn:function(){switchTab('material');}},
+  {k:'thread',label:'자수실',fn:function(){switchTab('thread');}},
   {k:'book',label:'원단 단가장',fn:function(){window._bookScope='fabric';switchTab('book');}},
   {k:'booktrim',label:'부자재 단가장',fn:function(){window._bookScope='trim';switchTab('book');}},
   {k:'oncefee',label:'1회비',fn:function(){switchTab('oncefee');}},
@@ -6269,7 +6276,7 @@ var PD_NAVGROUPS=[   /* 웹 사이드바 구분선과 같은 묶음 */
   {label:'아이템',keys:['cinv','items','linesheet','idea','dosik','ref','reference']},
   {label:'생산',keys:['dash','orders','msched','rsched','yocheok','defect','leftover']},
   {label:'작업',keys:['todoboard','ssched','sccm','tasks','route','jaedan']},
-  {label:'결제·단가',keys:['pay','ledger','courier','material','book','booktrim','oncefee']},
+  {label:'결제·단가',keys:['pay','ledger','courier','material','thread','book','booktrim','oncefee']},
   {label:'기타',keys:['vendors','brand','analytics']}
 ];
 function getBottomTabs(){
@@ -6328,7 +6335,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ssched','msched','rsched','ref','reference','yocheok','jaedan','ledger','courier','cinv','sccm','oncefee','material'].forEach(n=>{
+  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ssched','msched','rsched','ref','reference','yocheok','jaedan','ledger','courier','cinv','sccm','oncefee','material','thread'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -6386,6 +6393,7 @@ function switchTab(t){
     else if(t==='sccm'){ try{scPasteInit();}catch(e){} renderSampleComment(); }
     else if(t==='oncefee')renderOnceFee();
     else if(t==='material')renderMaterial();
+    else if(t==='thread')renderThreadTab();
   }catch(err){
     console.error('Tab render error:',err);
     if(pane)pane.innerHTML=`<div class="warn-box" style="margin:1rem">화면 오류: ${esc(err.message)}<br><div class="muted" style="margin-top:4px">새로고침 후 다시 시도해주세요</div></div>`;
@@ -8163,6 +8171,116 @@ function _mtRowHTML(m){
      +(sw?'<span class="mt-rsw">실물 '+esc(sw)+'</span>':'<span class="mt-rsw none">실물 없음</span>')+'</div>'
    +'</div>';
 }
+/* ===== 자수실 탭 (10-15b) =====
+   실 북 사진을 번호별로 모아 두면, 작지 자수 탭 「자수 실컬러」 칸에 번호만 적어도 이름·사진이 불러와진다(요청 10-15).
+   · 북 배치 THR_BOOK = 실 북 18열 × 23칸 번호(사진 보고 옮김 · 북 순서). 번호 순서는 정렬로 만든다 — 저장은 한 번만.
+   · 사용자 자료 S.embThreads[] = {id,no,name,img,updatedAt,_mt} — 사진·이름을 넣은 번호만 생긴다. 묘비 배열(_ID_ARRS·_MT_ARRS), 클라우드 상자 __thr.
+     지우기는 꼭 _arrDelWhere('embThreads',…) — 묘비가 남아야 다른 기기에서 안 되살아남.
+   · 작지 쪽: 자수 시트(emb·emb2…) 스와치 칸이 비어 있으면 그 컬러 실 번호의 사진을 «보여만» 준다(작지에 복사 안 함 — 목록에서 사진 바꾸면 작지도 따라감).
+     직접 넣은 스와치 사진이 있으면 그게 먼저. 목록에 없는 번호로 스와치 사진을 넣으면 목록에도 저절로 저장. */
+var THR_BOOK=['1001 1002 1003 1004 1006 1005 1007 1008 1009 1188 1219 1012 1189 1010 1183 1011 1405 1404 1425 1420 1013 1014 1015','1182 1184 1127 1128 1129 1185 1136 1130 1131 1137 1138 1139 1140 1426 1427 1428 1305 1306 1158 1159 1417 1429 1160','1348 1181 1312 1132 1302 1141 1142 1224 1133 1134 1303 1135 1304 1337 1338 1186 1143 1144 1307 1161 1308 1162 1310','1029 1037 1030 1038 1039 1326 1040 1041 1233 1449 1017 1018 1016 1406 1430 1187 1451 1450 1433 1452 1412 1422 1416','1042 1043 1044 1190 1191 1333 1045 1046 1194 1419 1424 1438 1409 1436 1402 1157 1418 1459 1151 1152 1244 1156 1246','1437 1031 1032 1227 1034 1035 1332 1036 1047 1048 1049 1050 1033 1234 1051 1328 1053 1052 1334 1335 1054 1243 1155','1019 1020 1021 1022 1192 1193 1023 1024 1025 1026 1075 1076 1239 1150 1027 1229 1028 1230 1329 1232 1336 1153 1154','1073 1195 1074 1261 1077 1078 1410 1079 1080 1439 1166 1145 1146 1147 1148 1149 1331 1443 1196 1241 1089 1242 1203','1260 1081 1082 1262 1083 1084 1086 1440 1448 1085 1087 1263 1088 1090 1055 1056 1411 1057 1062 1432 1407 1250 1441','1198 1058 1061 1063 1064 1065 1200 1201 1253 1254 1255 1202 1066 1069 1060 1197 1247 1248 1249 1067 1325 1068 1256','1092 1110 1093 1266 1091 1205 1267 1094 1276 1275 1277 1099 1278 1341 1108 1106 1107 1071 1098 1072 1204 1413 1070','1270 1095 1059 1199 1096 1097 1100 1101 1103 1102 1271 1104 1113 1105 1431 1274 1327 1287 1279 1434 1118 1444 1442','1109 1272 1111 1112 1119 1120 1423 1121 1123 1124 1125 1285 1435 1342 1114 1115 1116 1207 1208 1209 1289 1117 1343','1265 1169 1168 1170 1282 1171 1288 1346 1290 1291 1347 1292 1293 1445 1206 1340 1447 1122 1460 1221 1330 1284 1126','1446 1403 1344 1345 1296 1172 1294 1173 1295 1297 1298 1212 1316 1165 1211 1214 1215 1317 1174 1213 1322 1321 1458','1299 1300 1301 1339 1454 1453 1421 1414 1415 1401 1455 1456 1408 1457 1311 1163 1210 1164 1314 1175 1318 1319 1320','1167 1176 1177 1216 1323 1324 1178 1179 1180 5001 5002 5003 5004 5005 5006 5501 5502 5505 5504 5503 5508 5506 5507','5512 5511 5509 5510 5514 5515 3001 3002 3003 3105 3107 3110 3004 3005 3006 3007 3206 3008 3009 3010 3011 3012 3013'].map(function(s){ return s.split(' '); });
+var _thrBookPos=null;
+function _thrPos(no){ if(!_thrBookPos){ _thrBookPos={}; THR_BOOK.forEach(function(c,ci){ c.forEach(function(n,ri){ _thrBookPos[n]={c:ci+1,r:ri+1}; }); }); } return _thrBookPos[no]||null; }
+function _thrNo(v){ var m=String(v==null?'':v).match(/\d{3,6}/); return m?m[0]:''; }
+function _thrList(){ if(!Array.isArray(S.embThreads))S.embThreads=[]; return S.embThreads; }
+function _thrFind(v){ var n=_thrNo(v); if(!n)return null; var a=_thrList(), hit=null; for(var i=0;i<a.length;i++){ var e=a[i]; if(e&&_thrNo(e.no)===n){ if(e.img)return e; hit=hit||e; } } return hit; }
+function _thrNewId(){ return 'thr'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function _thrUpsert(no){ var e=_thrFind(no); if(e)return e; e={id:_thrNewId(),no:String(no||''),name:'',img:'',createdAt:Date.now(),updatedAt:Date.now()}; _thrList().push(e); return e; }
+/* 번호별로 쓴 아이템 (자수 시트 컬러웨이 실컬러 칸) */
+function _thrUsage(){ var m={}; Object.keys(S.items||{}).forEach(function(id){ var it=S.items[id], tp=it&&it.techpack; if(!tp)return;
+  Object.keys(tp).forEach(function(k){ if(!/^emb\d*$/.test(k)||!tp[k]||!tp[k].color)return; var c=tp[k].color;
+    Object.keys(c).forEach(function(cc){ var n=_thrNo(c[cc]); if(!n)return; m[n]=m[n]||[]; var nm=it.name||id; if(m[n].indexOf(nm)<0)m[n].push(nm); }); }); });
+  return m; }
+function _thrCard(no,e,use){
+  var pos=no?_thrPos(no):null, img=e&&e.img, u=(no&&use[no])||[], key=(no+' '+((e&&e.name)||'')).toLowerCase();
+  var ref=e?('\''+e.id+'\''):'null';
+  return '<div class="thr-c'+(img?'':' thr-none')+'" data-k="'+esc(key)+'">'
+    +'<div class="thr-ph" onclick="thrPick('+(no?'\''+esc(no)+'\'':'null')+','+ref+')" title="'+(img?'사진 바꾸기':'사진 넣기')+'">'
+      +(img?'<img loading="lazy" src="'+esc(img)+'" alt=""><button type="button" class="thr-x" onclick="event.stopPropagation();thrDelPhoto('+ref+')" aria-label="사진 빼기">×</button>':'<span>＋ 사진</span>')
+      +((window._thrUping&&window._thrUping[(e&&e.id)||no])?'<i class="thr-up">올리는 중…</i>':'')+'</div>'
+    +'<div class="thr-m">'+(no?'<b>'+esc(no)+'</b>':'<input class="thr-no" inputmode="numeric" placeholder="번호" onchange="thrSetNo('+ref+',this.value)">')
+      +'<input class="thr-nm" value="'+esc((e&&e.name)||'')+'" placeholder="이름" onchange="thrSetName('+(no?'\''+esc(no)+'\'':'null')+','+ref+',this.value)"></div>'
+    +'<div class="thr-u">'+(pos?pos.c+'열 '+pos.r+'번째':'북에 없음')+(u.length?' · <span title="'+esc(u.join(', '))+'">쓴 곳 '+u.length+'</span>':'')+'</div>'
+    +'</div>';
+}
+function renderThreadTab(){
+  var el=document.getElementById('thread-body'); if(!el)return;
+  var a=_thrList(), use=_thrUsage(), view=window._thrView||'book', byNo={}, extra=[], blank=[], H='';
+  a.forEach(function(e){ if(!e)return; var n=_thrNo(e.no); if(!n){ blank.push(e); return; } if(!byNo[n]||(!byNo[n].img&&e.img))byNo[n]=e; if(!_thrPos(n)&&extra.indexOf(n)<0)extra.push(n); });
+  var nPh=Object.keys(byNo).filter(function(n){ return byNo[n].img; }).length;
+  H+='<div class="thr"><div class="thr-top"><h2>자수실</h2><span>북 '+THR_BOOK.reduce(function(s,c){return s+c.length;},0)+'색 · 사진 '+nPh+'개 · 번호만 적으면 작지 자수 탭에 사진이 불러와져요</span></div>'
+    +'<div class="thr-bar"><input class="thr-q" id="thr-q" value="'+esc(window._thrQ||'')+'" placeholder="번호나 이름으로 찾기" autocomplete="off" oninput="thrFilter(this.value)">'
+    +'<span class="thr-seg"><button type="button" class="'+(view==='book'?'on':'')+'" onclick="thrSetView(\'book\')">북 순서</button><button type="button" class="'+(view==='num'?'on':'')+'" onclick="thrSetView(\'num\')">번호 순서</button></span>'
+    +'<button type="button" class="thr-btn" onclick="thrPick(null,null)">＋ 북에 없는 실</button></div>';
+  if(blank.length)H+='<div class="thr-sec"><div class="thr-sh">번호를 적어 주세요</div><div class="thr-grid">'+blank.map(function(e){ return _thrCard('',e,use); }).join('')+'</div></div>';
+  if(view==='num'){
+    var all=[]; THR_BOOK.forEach(function(c){ all=all.concat(c); }); all=all.concat(extra);
+    all.sort(function(x,y){ return (+x)-(+y); });
+    H+='<div class="thr-sec"><div class="thr-grid">'+all.map(function(n){ return _thrCard(n,byNo[n],use); }).join('')+'</div></div>';
+  } else {
+    THR_BOOK.forEach(function(c,ci){ H+='<div class="thr-sec"><div class="thr-sh">'+(ci+1)+'열</div><div class="thr-grid">'+c.map(function(n){ return _thrCard(n,byNo[n],use); }).join('')+'</div></div>'; });
+    if(extra.length)H+='<div class="thr-sec"><div class="thr-sh">북에 없는 실</div><div class="thr-grid">'+extra.sort(function(x,y){return (+x)-(+y);}).map(function(n){ return _thrCard(n,byNo[n],use); }).join('')+'</div></div>';
+  }
+  el.innerHTML=H+'</div>';
+  if(window._thrQ)thrFilter(window._thrQ);
+}
+function thrSetView(v){ window._thrView=v; renderThreadTab(); }
+function thrFilter(q){ window._thrQ=q; q=String(q||'').trim().toLowerCase();
+  document.querySelectorAll('#thread-body .thr-c').forEach(function(c){ c.style.display=(!q||(c.getAttribute('data-k')||'').indexOf(q)>=0)?'':'none'; });
+  document.querySelectorAll('#thread-body .thr-sec').forEach(function(s){ var any=false; s.querySelectorAll('.thr-c').forEach(function(c){ if(c.style.display!=='none')any=true; }); s.style.display=any?'':'none'; }); }
+function _thrById(id){ var a=_thrList(); for(var i=0;i<a.length;i++)if(a[i]&&a[i].id===id)return a[i]; return null; }
+function thrSetName(no,id,v){ var e=id?_thrById(id):_thrUpsert(no); if(!e)return; v=String(v||'').trim(); if((e.name||'')===v)return; e.name=v; e.updatedAt=Date.now(); try{saveData();}catch(x){} }
+function thrSetNo(id,v){ var e=_thrById(id), n=_thrNo(v); if(!e)return; if(!n){ showToast('번호는 숫자로 적어 주세요'); return; }
+  var other=_thrFind(n); if(other&&other!==e&&other.img){ showToast(n+'번은 이미 사진이 있어요'); return; }
+  if(other&&other!==e){ if(!e.name)e.name=other.name||''; _arrDelWhere('embThreads',function(x){ return x===other; }); }
+  e.no=n; e.updatedAt=Date.now(); try{saveData();}catch(x){} renderThreadTab(); }
+function thrDelPhoto(id){ var e=_thrById(id); if(!e)return;
+  if(!confirm((e.no||'이')+' 실 사진을 뺄까요?\n이 번호를 쓴 작지에서도 목록 사진이 안 보여요 (작지에 직접 넣은 사진은 그대로).'))return;
+  if(e.name&&_thrNo(e.no)){ e.img=''; e.updatedAt=Date.now(); } else _arrDelWhere('embThreads',function(x){ return x&&x.id===id; });
+  try{saveData();}catch(x){} renderThreadTab(); }
+/* 사진 올리기 — 작지 사진과 같은 길: 로그인돼 있으면 Storage(20초 제한), 안 되면 이 기기에 저장 → 나중에 자동으로 다시 올림 */
+function _thrUpload(f,tag){
+  var useCloud=!!(window.fbStorage&&(typeof fbUser!=='undefined')&&fbUser);
+  return tpCompress(f,1200,0.88,false,useCloud).then(function(c){
+    if(!useCloud)return c.dataUrl;
+    var _to, tmo=new Promise(function(res){ _to=setTimeout(function(){ res(null); },20000); });
+    return Promise.race([tpUpload(c.blob,'thread','thr_'+tag,false).catch(function(e){ console.warn('thr storage fail',e); return null; }),tmo]).then(function(u){ clearTimeout(_to);
+      if(u)return u; return tpCompress(f,900,0.8,false,false).then(function(c2){ setTimeout(function(){ try{_scheduleImgRetry();}catch(e){} },0); return c2.dataUrl; }); });
+  });
+}
+function thrPick(no,id){
+  var inp=document.getElementById('thr-file');
+  if(!inp){ inp=document.createElement('input'); inp.type='file'; inp.id='thr-file'; inp.accept='image/*'; inp.style.display='none'; document.body.appendChild(inp); }
+  inp.multiple=!no&&!id; inp.value='';
+  inp.onchange=function(){ var fs=Array.prototype.filter.call(this.files||[],function(f){ return /^image\//.test(f.type||'')||/\.(heic|heif|jpe?g|png|webp)$/i.test(f.name||''); }); this.value='';
+    if(!fs.length){ if(this.files&&this.files.length)showToast('이미지 파일만 넣을 수 있어요'); return; }
+    var seq=Promise.resolve();
+    fs.forEach(function(f){ seq=seq.then(function(){
+      var e=id?_thrById(id):(no?_thrUpsert(no):null);
+      if(!e){ e={id:_thrNewId(),no:'',name:'',img:'',createdAt:Date.now(),updatedAt:Date.now()}; _thrList().push(e); }
+      var k=e.id; window._thrUping=window._thrUping||{}; window._thrUping[k]=1; if(activeTab==='thread')renderThreadTab();
+      return _thrUpload(f,_thrNo(e.no)||k).then(function(url){ delete window._thrUping[k]; var ce=_thrById(k)||e; ce.img=url; ce.updatedAt=Date.now(); try{saveData();}catch(x){} })
+        .catch(function(err){ delete window._thrUping[k]; console.warn(err); showToast('사진 처리 실패'); });
+    }); });
+    seq.then(function(){ if(activeTab==='thread')renderThreadTab(); if(!no&&!id){ var f=document.querySelector('#thread-body .thr-no'); if(f)f.focus(); } });
+  };
+  inp.click();
+}
+/* 작지: 자수 실컬러 칸 — 번호만 적으면 「1337 겨자」로 채우고 스와치 칸을 다시 그림 */
+function tpEmbThrSet(el){ var v=el.value, n=_thrNo(v), e=n?_thrFind(n):null;
+  if(e&&e.name&&/^\s*#?\d{3,6}\s*$/.test(v)){ v=n+' '+e.name; el.value=v; }
+  tpSet(el.dataset.tp,v);
+  if(n){ if(e&&e.img)showToast(n+(e.name?' '+e.name:'')+' — 자수실 사진을 불러왔어요'); else showToast(n+'번은 자수실에 사진이 없어요 — 왼쪽 「자수실」에 넣어 두면 불러와요',3200); }
+  try{_tpRenderSafe();}catch(x){} }
+/* 작지 자수 스와치에 직접 사진을 넣으면, 그 컬러 실 번호가 자수실에 사진이 없을 때 목록에도 저장 */
+function _thrLearnFromSlot(slot,url){
+  var m=/^(emb\d*)Sw_(.*)$/.exec(String(slot||'')); if(!m||!/^https?:/.test(String(url||'')))return;
+  var it=(typeof tpItem==='function')?tpItem():null; if(!it)return; var c=null;
+  (it.colors||[]).forEach(function(x){ if((''+x).replace(/[^0-9a-zA-Z가-힣]/g,'_')===m[2])c=x; }); if(c==null)return;
+  var v=String(tpGet(m[1]+'.color.'+c,'')||''), n=_thrNo(v); if(!n)return;
+  var e=_thrFind(n); if(e&&e.img)return;
+  e=_thrUpsert(n); e.img=url; if(!e.name)e.name=v.replace(n,'').replace(/[#\s]+/g,' ').trim(); e.updatedAt=Date.now();
+  try{saveData();}catch(x){} showToast(n+' 실 사진을 자수실에도 저장했어요'); }
 function renderMaterial(){
   var el=document.getElementById('material-body'); if(!el)return;
   _mtEnsureStyle();
@@ -42753,6 +42871,7 @@ function tpProcessImageFile(f,slot){ if(!f||!slot)return; if(!/^image\//.test(f.
   }).then(function(url){ // ③ 완료 — 조용히 교체(화면 위치·입력 유지)
     delete window._tpUping[slot];
     tpSet('images.'+slot,url); _tpRenderSafe();
+    try{ _thrLearnFromSlot(slot,url); }catch(e){}
     if(_pending&&typeof _scheduleImgRetry==='function')_scheduleImgRetry(); else if(typeof _updateImgPendingBadge==='function')_updateImgPendingBadge();
   }).catch(function(e){ delete window._tpUping[slot]; console.warn(e); if(typeof showToast==='function')showToast('사진 처리 실패'); try{_tpRenderSafe();}catch(e2){} }); }
 function tpInitDrop(){ var doc=document.getElementById('tp-doc'); if(!doc||doc._dropInit)return; doc._dropInit=true;
@@ -43207,9 +43326,11 @@ function tpDesignSwatchHTML(qb,key,cfg){
       return '<td>'+(t&&String(t).trim()?'<span class="tp-thk">'+tpEsc(_lbl)+'</span> '+tpEsc(t):'<span style="color:#c4c8cf">-</span>')+'</td>';}).join('')+'</tr>'):'';
   var row=cols.map(function(c){
     var slot=key+'Sw_'+(''+c).replace(/[^0-9a-zA-Z가-힣]/g,'_');
-    var u=tpGet('images.'+slot,'');
-    return '<td class="tp-swtd"><div class="tp-swsplit"><div class="tp-swbox body dsg" onclick="tpPickImage(\''+slot+'\')">'   /* dsg=디자인시트(자수·나염·워싱) 견본 → 비율 유지(안 퍼짐). 원단 스와치는 기존대로 꽉 채움 */
-      +(u?('<img src="'+tpEsc(u)+'"><button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>'+tpUpBadge(slot)):'<span class="tp-swadd">＋</span>')
+    var u=tpGet('images.'+slot,''), _lib='';
+    /* 10-15b 자수: 직접 넣은 사진이 없으면 자수실 목록에서 그 번호 사진을 보여만 준다(작지엔 저장 안 함) */
+    if(!u&&/^emb\d*$/.test(key)&&typeof _thrFind==='function'){ var _te=_thrFind(_map[c]); if(_te&&_te.img){ u=_te.img; _lib=1; } }
+    return '<td class="tp-swtd"><div class="tp-swsplit"><div class="tp-swbox body dsg" onclick="tpPickImage(\''+slot+'\')"'+(_lib?' title="자수실 목록 사진 · 누르면 이 작지에만 다른 사진 넣기"':'')+'>'   /* dsg=디자인시트(자수·나염·워싱) 견본 → 비율 유지(안 퍼짐). 원단 스와치는 기존대로 꽉 채움 */
+      +(u?('<img src="'+tpEsc(u)+'">'+(_lib?'<span class="tp-thrlib tp-editonly">자수실</span>':'<button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>')+tpUpBadge(slot)):'<span class="tp-swadd">＋</span>')
       +'</div></div></td>';
   }).join('');
   /* 09-28g 컬러 2개 이상이면 옆으로 나누지 말고 위아래로 쌓는다 — 칸이 넓고 높아져 견본 사진이 크게 보인다(요청 · 미리보기 승인).
@@ -43903,7 +44024,7 @@ function tpPosHTML(it,pfx){ var sizes=(it.sizes&&it.sizes.length)?it.sizes:['FRE
   return h+'</table><div class="tp-editonly" style="padding:3px 0 0"><button class="gbtn" onclick="tpAddRow(\''+pfx+'.posRows\',{label:\'\',seam:\'out\',tol:\'\',vals:{}})">＋ 항목</button></div>'; }
 function tpPosSeam(pfx,ri){ var c=tpGet(pfx+'.posRows.'+ri+'.seam','out'); tpSet(pfx+'.posRows.'+ri+'.seam',c==='in'?'out':'in'); tpRender(); }
 function tpPosMove(pfx,ri,dir){ var rows=tpGet(pfx+'.posRows',null); if(!Array.isArray(rows))return; var j=ri+dir; if(j<0||j>=rows.length)return; var t=rows[ri]; rows[ri]=rows[j]; rows[j]=t; try{saveData();}catch(e){} tpRender(); }
-function tpColorSpecHTML(it,pfx,label,ph){ var colors=(it.colors&&it.colors.length)?it.colors:['']; var h='<table class="tp-tbl"><tr><th style="width:130px">옷 컬러</th><th>'+tpEsc(label)+'</th></tr>'; colors.forEach(function(c){ h+='<tr><td><span class="tp-sw">'+tpSwatchBox(c)+(tpEsc(c)||'-')+'</span></td><td class="l">'+tpInpL(pfx+'.color.'+c,ph)+'</td></tr>'; }); return h+'</table>'; }
+function tpColorSpecHTML(it,pfx,label,ph){ var colors=(it.colors&&it.colors.length)?it.colors:['']; var h='<table class="tp-tbl"><tr><th style="width:130px">옷 컬러</th><th>'+tpEsc(label)+'</th></tr>'; colors.forEach(function(c){ var _emb=/^emb\d*$/.test(pfx); h+='<tr><td><span class="tp-sw">'+tpSwatchBox(c)+(tpEsc(c)||'-')+'</span></td><td class="l">'+(_emb?tpInpL(pfx+'.color.'+c,ph).replace('onchange="tpSet(this.dataset.tp,this.value)"','onchange="tpEmbThrSet(this)"'):tpInpL(pfx+'.color.'+c,ph))+'</td></tr>'; }); return h+'</table>'; }
 
 // ===== 디자인형 시트(자수·나염·워싱) 통합 빌더 + 동적 시트(＋ 추가, 최대 3개) =====
 var TP_DESIGN_CFG={
