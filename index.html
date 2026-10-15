@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261015f">
+<link rel="stylesheet" href="css/main.css?v=20261015m">
 </head>
 <body>
 
@@ -4956,7 +4956,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-15l';
+var APP_BUILD=/*BUILD*/'2026-10-15m';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7155,9 +7155,15 @@ function fmtComp(str){
     return p.replace(/\s*%/g,'');
   }).join(', ');
 }
+/* 10-15m 줄 HTML 따로 — 부자재 카드·부자재 단가장도 원단처럼 「성분 + % + ×」 (요청). idx 는 숫자(원단 순번) 또는 글자('t_<부자재id>' · 'pb<n>') */
 function renderCompBuilder(idx,initial){
   var el=document.getElementById('comp-builder-'+idx);
   if(!el)return;
+  el.innerHTML=_compRowsHTML(idx,initial);
+  updateCompString(idx);
+}
+function _compRowsHTML(idx,initial){
+  var q='\''+String(idx).replace(/'/g,'')+'\'';
   var rows=parseComp(initial);
   // 항상 비율 큰 순 (열 때도 정렬 — 사용자 요청 2026-07-28). 비율이 하나도 없으면 순서 유지
   if(rows.length>1&&rows.some(function(r){return String(r.pct||'').trim()!=='';}))
@@ -7166,13 +7172,22 @@ function renderCompBuilder(idx,initial){
   var html='';
   rows.forEach(function(r,i){
     html+='<div class="comp-row">'
-      +'<input type="text" class="comp-name" list="dl-fiber" placeholder="성분명 (예: rayon, polyester)" value="'+esc(r.name||'')+'" oninput="updateCompString('+idx+')" onchange="compCheckSpell('+idx+')">'
-      +'<div class="comp-pct-wrap"><input type="text" inputmode="decimal" class="comp-pct" placeholder="0" value="'+(r.pct!==''&&r.pct!=null?r.pct:'')+'" oninput="this.value=this.value.replace(/[^0-9.]/g,\'\');updateCompString('+idx+')" onchange="compSortByPct('+idx+')"></div>'
-      +'<button type="button" class="comp-del" onclick="removeCompRow('+idx+','+i+')" title="삭제">×</button>'
+      +'<input type="text" class="comp-name" list="dl-fiber" placeholder="성분명 (예: rayon, polyester)" value="'+esc(r.name||'')+'" oninput="updateCompString('+q+')" onchange="compCheckSpell('+q+')">'
+      +'<div class="comp-pct-wrap"><input type="text" inputmode="decimal" class="comp-pct" placeholder="0" value="'+(r.pct!==''&&r.pct!=null?r.pct:'')+'" oninput="this.value=this.value.replace(/[^0-9.]/g,\'\');updateCompString('+q+')" onchange="compSortByPct('+q+')"></div>'
+      +'<button type="button" class="comp-del" onclick="removeCompRow('+q+','+i+')" title="삭제">×</button>'
       +'</div>';
   });
-  el.innerHTML=html;
-  updateCompString(idx);
+  return html;
+}
+/* 혼용률 칸 한 덩어리(합계·줄·＋·숨은 값) — 부자재 카드·단가장용. onSave 주면 고칠 때 저장(0.5초 모아서) */
+function _compBlockHTML(idx,initial,onSave,label){
+  if(onSave)(window._compOnSave=window._compOnSave||{})[idx]=onSave;
+  var info=compSumInfo(parseComp(initial)), cls=!info.hasAny?'empty':(info.ok?'ok':'warn'), txt=!info.hasAny?'합계 —':(info.ok?'합계: '+info.sum+'% (정상)':'합계: '+info.sum+'% (100%가 아닙니다)');
+  var q='\''+String(idx).replace(/'/g,'')+'\'';
+  return '<div class="comp-blk"><label class="fab-comp-hd">'+(label||'혼용률')+' <span class="comp-sum '+cls+'" id="comp-sum-'+idx+'">'+txt+'</span></label>'
+    +'<div class="comp-builder" id="comp-builder-'+idx+'">'+_compRowsHTML(idx,initial)+'</div>'
+    +'<button type="button" class="comp-add-btn" onclick="addCompRow('+q+')">＋ 혼용성분 추가</button>'
+    +'<input type="hidden" data-f="composition" id="comp-hidden-'+idx+'" value="'+esc(initial||'')+'"></div>';
 }
 /* 혼용률 — 비율 높은 순 자동정렬 + 성분명 맞춤법 확인 (2026-07-28 사용자 요청) */
 var _COMP_FIBERS=['cotton','polyester','nylon','rayon','wool','tencel','span','spandex','linen','acrylic','viscose','modal','silk','cashmere','acetate','lyocell','hemp','ramie','cupra','polyurethane','pu','alpaca','angora','mohair','elastane','폴리에스터','면','나일론','레이온','울','텐셀','스판','린넨','아크릴','비스코스','모달','실크','캐시미어','아세테이트','리오셀','마','헴프','대마','큐프라','알파카','앙고라','모헤어'];
@@ -7236,6 +7251,8 @@ function updateCompString(idx){
   var hid=document.getElementById('comp-hidden-'+idx);
   if(hid)hid.value=s;
   updateCompSum(idx);
+  var fn=window._compOnSave&&window._compOnSave[idx];
+  if(fn){ window._compSaveT=window._compSaveT||{}; clearTimeout(window._compSaveT[idx]); window._compSaveT[idx]=setTimeout(function(){ try{ fn(s); }catch(e){ console.warn('comp save',e); } },500); }
 }
 // 혼용률 합계 계산 — {hasAny:입력값있음, sum:반올림합계, ok:딱100}
 function compSumInfo(rows){
@@ -9657,7 +9674,7 @@ function renderPbTrimTable(lst,sups){
             ? ('<span class="pbt-setc">'+set.map(function(x){return '<span>'+esc(x.n||'')+'</span>';}).join('')+'</span>'
                +'<button type="button" class="pbt-exp" onclick="window._pbSetOpen=(window._pbSetOpen===\''+esc(s)+'|'+esc(k)+'\'?null:\''+esc(s)+'|'+esc(k)+'\');renderBookList()">구성 '+(setOpen?'▴':'▾')+'</button>')
             : ('<button type="button" class="pbt-exp" onclick="pbSetAdd(\''+es+'\',\''+ek+'\')">＋ 세트</button>'))+'</td>'
-          +'<td class="pbt-r2c" colspan="2"><span class="pbt-k">혼용률</span><input class="pbt-nm" style="min-width:170px" value="'+esc(m.composition||'')+'" placeholder="면 100%" title="혼용률 (안감 등 — 케어라벨 lining 에 씀)" onchange="pbSetMatField(\''+es+'\',\''+ek+'\',\'composition\',this.value)"></td>'
+          +'<td class="pbt-r2c pbt-comp" colspan="2">'+(function(){ window._pbCompN=(window._pbCompN||0)+1; var _es=es,_ek=ek; return _compBlockHTML('pb'+window._pbCompN,m.composition||'',function(s){ pbSetMatField(_es,_ek,'composition',s); }); })()+'</td>'
         +'</tr>';
       if(hasSet&&setOpen){
         set.forEach(function(x,i){
@@ -13426,7 +13443,13 @@ function wgTrimFlds(t){t=t||{};return '<div class="tcd-fld" style="flex:0 0 82px
   +'<div class="tcd-fld" style="flex:0 0 70px"><label>온즈 (oz)</label><input data-f="weightOz" type="number" value="'+(t.weightOz||'')+'" min="0" step="0.1" placeholder="8.3" onchange="onWeightIn(this,\'oz\')"></div>'
   +omudeTrimFld(t)
   /* 10-15l 부자재에도 혼용률 (요청 「부자재 안감 원단도 혼용률을 적어야겠다」) — 케어라벨 안감 lining 에 씀. 단가장 등록이면 단가장 값(잠금) */
-  +((t.orderType==='careLabel'||t.orderType==='mainLabel')?'':'<div class="tcd-fld" style="flex:1 1 150px;min-width:120px"><label>혼용률</label><input data-f="composition" value="'+esc(t.composition||'')+'" placeholder="면 100%"></div>');}
+  +((t.orderType==='careLabel'||t.orderType==='mainLabel')?'':_trimCompFld(t));}
+function _trimCompFld(t){
+  var reg=false, m=null; try{ reg=!!(t.supplier&&_pbTrimName(t)&&_pbHasTrim(t.supplier,t)); m=reg?_pbFindTrimMat(t.supplier,t):null; }catch(e){}
+  if(reg){ var c=String((m&&m.composition)||t.composition||'').trim();
+    return '<div class="tcd-fld" style="flex:1 1 100%"><label>혼용률 <span class="muted" style="font-weight:400;font-size:10px">단가장에서 불러옴 · 바꾸려면 단가장에서</span></label><div class="comp-ro">'+(c?esc(fmtComp(c)):'<span class="muted">단가장에 혼용률이 없어요</span>')+'</div><input type="hidden" data-f="composition" value="'+esc(c)+'"></div>'; }
+  return '<div class="tcd-fld" style="flex:1 1 100%">'+_compBlockHTML('t_'+String(t.id||'x').replace(/[^0-9a-zA-Z_]/g,'_'),t.composition||'')+'</div>';
+}
 /* 한쪽을 적으면 다른 쪽 자동 계산 — 직접 적어둔 값은 절대 안 덮음.
    ⚠️ 2026-09-07d: 예전엔 키 하나 칠 때마다 계산해서 «2»80 을 치는 순간 온즈가 0.1 로 박히고(빈칸이 아니게 되어) 다시는 안 고쳐졌다
       (신고 「온즈가 자꾸 0.1로 나오는데」). 이제 ①칸을 떠날 때(change)만 계산 ②자동으로 채운 값(data-auto)은 다시 계산하거나 지운다. */
@@ -15384,7 +15407,7 @@ document.addEventListener('input',function(e){
       바이어스 카드는 이름이 늘 「바이어스재단」이라 **모든 아이템이 단가장 항목 하나를 같이 쓴다**.
       그 둘은 아이템마다 다른 값이라, 잠그거나 자동채움하면 다른 아이템 값이 튀어나온다
       (신고 2026-08-25 「원단출처가 뜬금없이 이티가 됨」). */
-var _TRIM_PB_LOCK_FIELDS=['size','buttonSize','weightGsm','weightOz','composition','color','omude','buttonStyle','zipperSize','zipperLength','zipperDirection','toothColor','snapSize','yardsPerRoll','yardsPerJeol','threadMin','loopPerYard','unitPrice','rollUnit','packUnit','unit'];
+var _TRIM_PB_LOCK_FIELDS=['size','buttonSize','weightGsm','weightOz','color','omude','buttonStyle','zipperSize','zipperLength','zipperDirection','toothColor','snapSize','yardsPerRoll','yardsPerJeol','threadMin','loopPerYard','unitPrice','rollUnit','packUnit','unit'];
 /* ⚠️ 「크기」 칸은 종류마다 이름이 다르다 — 일반=size · 단추=buttonSize · 지퍼=zipperSize · 스냅=snapSize.
       새 종류를 만들면 그 크기 칸 이름을 **여기에 꼭 넣을 것**. 빠지면 그 칸만 잠기지 않아
       아이템에서 고칠 수 있게 되고, 단가장에서 고쳐도 다시 안 불러온다(단추가 그랬다, 2026-09-01). */
@@ -15795,7 +15818,7 @@ function pbRegisterFormMat(type,idx){
       weightGsm:t.weightGsm||existing.weightGsm||'',weightOz:t.weightOz||existing.weightOz||'',
       yardsPerRoll:t.yardsPerRoll!=null?t.yardsPerRoll:existing.yardsPerRoll||null,lastUpdated:today()};
     /* 카드에 적은 규격·무게·온즈·오무데·색상·지퍼·단추 정보를 전부 올린다(비어 있지 않은 것만, 단가장 값이 비었을 때만) — 2026-09-07c */
-    try{ var _dst=pb.materials[key]; _TRIM_PB_LOCK_FIELDS.forEach(function(f){ if(f==='unitPrice')return; var v=t[f]; if(v==null||v==='')return; if(_dst[f]==null||_dst[f]==='')_dst[f]=v; }); if(t.category&&!_dst.category)_dst.category=t.category; }catch(e){}
+    try{ var _dst=pb.materials[key]; _TRIM_PB_LOCK_FIELDS.forEach(function(f){ if(f==='unitPrice')return; var v=t[f]; if(v==null||v==='')return; if(_dst[f]==null||_dst[f]==='')_dst[f]=v; }); if(t.composition&&!_dst.composition)_dst.composition=t.composition; if(t.category&&!_dst.category)_dst.category=t.category; }catch(e){}
     try{_untombArr('pbMat',t.supplier+'\u001f'+key);}catch(e){}   /* 되살림 표시 — 없으면 동기화가 다시 지움 (2026-09-07a 「다 등록했는데 또 미등록」 원인) */
     savePB();showToast('단가장 등록: '+t.name+(t.color?' ('+t.color+')':''));
   }
