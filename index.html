@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261015o">
+<link rel="stylesheet" href="css/main.css?v=20261016d">
 </head>
 <body>
 
@@ -4975,7 +4975,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-16c';
+var APP_BUILD=/*BUILD*/'2026-10-16d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -21453,6 +21453,9 @@ function _refreshOrderSuppliersRaw(o){
     for(var sn2 in fresh){(fresh[sn2].materials||[]).forEach(function(m){if(m.type==='fabric'&&m.itemId&&_hasAO(m))_ovItems[m.itemId]=true;});}
     Object.keys(_ovItems).forEach(function(iid){try{propagateEffectiveRatio(o.id,iid);}catch(e){}});
   }
+  /* 10-16d 자재 0개 거래처는 뺀다 — 적용 컬러에 이 오더 컬러가 없는 부자재 거래처가 빈 카드로 남아 「미발주」로 세였다(용진 신고).
+     보냈거나 입고·정정 기록이 있으면 그대로(보낸 기록은 지우지 않음). 나중에 컬러가 들어가면 다시 계산될 때 새로 생긴다. */
+  try{ Object.keys(o.suppliers||{}).forEach(function(sn3){ var s=o.suppliers[sn3]; if(s&&!((s.materials||[]).length)&&s.status!=='sent'&&!s.arrivalDate&&!s.actualShipDate&&!((s.poCorr||[]).length))delete o.suppliers[sn3]; }); }catch(e){}
 }
 
 // 거래처 자재 종류 판별 (우선순위: 브랜드라벨 > 케어라벨 > 원단 > 부자재)
@@ -21814,8 +21817,13 @@ function renderPoTab(o){
     _reg.sort(function(a,b){ var ra=(_rk[a]!=null)?_rk[a]:(1000+_pos[a]), rb=(_rk[b]!=null)?_rk[b]:(1000+_pos[b]); return ra-rb; });
   }catch(e){}
   var _ex=sns.filter(function(sn){return sn.indexOf('(추가발주)')>=0;});
+  /* 10-16d 자재 0개 카드 숨김 (신고 「용진은 발주 수량 없는데 왜 뜨지?」) — 부자재 「적용 컬러」에 이 오더 컬러가 하나도 없으면
+     자재는 0개인데 거래처 카드만 생겨서 요청사항만 있는 빈 발주서가 떴다. 보냈거나 입고·정정 기록이 있는 카드는 그대로 둔다. */
+  var _empty=function(sn){ var s=o.suppliers[sn]; return !!s&&!((s.materials||[]).length)&&s.status!=='sent'&&!s.arrivalDate&&!((s.poCorr||[]).length); };
+  var _hid=_reg.concat(_ex).filter(_empty); _reg=_reg.filter(function(sn){return !_empty(sn);}); _ex=_ex.filter(function(sn){return !_empty(sn);});
   var _tray=_reg.map(function(sn){return poCardHTML(o,sn)+(typeof poCorrCardsHTML==='function'?poCorrCardsHTML(o,sn):'');}).join('');   /* 2026-09-15h 정정 카드는 원래 카드 바로 아래 */
   if(_ex.length)_tray+='<div class="po2-extra-div">＋ 추가발주 <span>· 첫 발주와 별도 거래처</span></div>'+_ex.map(function(sn){return poCardHTML(o,sn);}).join('');
+  if(_hid.length)_tray+='<div class="po2-hidnote">발주할 자재가 없어 뺀 거래처: <b>'+_hid.map(esc).join(', ')+'</b> <span>— 아이템 부자재 「적용 컬러」에 이 오더 컬러가 없어요</span></div>';
   var _c2=_po2ColMeasure();
   return orderLossPanelHTML(o)+poChangePanelHTML(o)+'<div class="po2-cq"><div class="po2-tray'+(_c2.on?' po2-2col':'')+'" style="--po2-side:'+_c2.side+'px">'+_tray+'</div></div>'+(typeof extraOrdersSectionHTML==='function'?extraOrdersSectionHTML(o):'');  // 로스 패널 + 발주서 카드들(일반→추가발주 점선구분) + 재단 추가 발주
 }
