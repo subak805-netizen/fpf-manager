@@ -4689,6 +4689,25 @@ async function forceCloudRefresh(){
 // 일괄 변경 1회 (2026-07-08 사용자 요청): 모든 아이템의 케어라벨 부자재처 "에이스라벨" → "하나라벨".
 // 반드시 동기화로 최신 데이터를 확보한 뒤에만 호출 — 스테일 데이터에 _mt 도장이 찍혀 최신을 이기는 사고 방지.
 // 바꾼 아이템엔 _mt를 직접 찍어 항목별 병합에서 전 기기로 전파. 플래그(S._careSupMig1)로 1회만, 재실행해도 무해(멱등).
+/* 10-16c 메이드 186TC 세 줄 → 하나 (사용자 요청 「세개 하나로 합쳐줘 · 쓰고있는 아이템에서 삭제되지 않도록」).
+   최신 자료 받은 뒤(_careSupMig1Run 과 같은 자리)에 한 번. 대표 = 가장 짧은 키(「186TC」) — 어느 기기에서 돌아도 같은 줄을 남겨
+   폰·맥이 서로 다른 줄을 지우는 일이 없게. 합치기 전 단가장 백업, 아이템 부자재는 대표로 이어 붙임(_pbMergeApply), 지운 줄은 묘비. */
+function _pbFix186Run(){
+  try{
+    if(localStorage.getItem('fpm_fix186tc'))return;
+    if(!S.priceBook||!S.priceBook['메이드'])return;
+    var gs=pbFindDupGroups().filter(function(g){ return g.sup==='메이드'&&g.items.length>1&&_pbNorm(g.items[0].nm)==='186tc'; });
+    if(!gs.length){ localStorage.setItem('fpm_fix186tc','1'); return; }
+    try{ pbBackupNow(true); }catch(e){}
+    var n=0;
+    gs.forEach(function(g){ var keep=g.items.map(function(x){return x.k;}).sort(function(a,b){ return (a.length-b.length)||(a<b?-1:a>b?1:0); })[0];
+      g.items.forEach(function(it){ if(it.k!==keep){ _pbMergeApply(g.sup,keep,g.sup,it.k); n++; } }); });
+    savePB(); saveData(); localStorage.setItem('fpm_fix186tc','1');
+    if(n&&typeof showToast==='function')showToast('메이드 186TC '+(n+1)+'줄을 하나로 합쳤어요 (쓰는 아이템은 그대로)',5000);
+    if(typeof activeTab!=='undefined'&&activeTab==='book'&&typeof renderBookList==='function')renderBookList();
+  }catch(e){ console.warn('[186TC 합치기]',e); }
+}
+setTimeout(function(){ try{ _pbFix186Run(); }catch(e){} },20000);   /* 받기 경로를 안 타도 한 번 (대표 줄이 늘 같아 안전) */
 function _careSupMig1Run(){
   try{
     if(S._careSupMig1)return;
@@ -4792,7 +4811,7 @@ async function cloudSyncLoad(id,opts){
           if(_coTs&&!_base)setSyncBase('fpm_'+id,_coTs); // 최초 1회 기준 등록(부트스트랩)
           Object.keys(_ordTsMap).forEach(function(k){ if(_ordTsMap[k]&&!getSyncBase(k))setSyncBase(k,_ordTsMap[k]); }); Object.keys(_auxTsMap).forEach(function(k){ if(_auxTsMap[k]&&!getSyncBase(k))setSyncBase(k,_auxTsMap[k]); }); if(_shTs&&!_baseS)setSyncBase('fpm_shared',_shTs);
           if(!window._shShadow)_shShadowInit();
-          if(_base)_careSupMig1Run(); // 기준 ts 있음 = 로컬이 최신임이 확인된 상태 → 1회 일괄변경 실행 가능
+          if(_base){ _careSupMig1Run(); _pbFix186Run(); } // 기준 ts 있음 = 로컬이 최신임이 확인된 상태 → 1회 일괄변경 실행 가능
           setCloudInd('ok');
           _flushDirtySoon(); // 지난번에 못 올린 편집(백그라운드·오프라인·닫힘)이 있으면 밀어 올림
           return false;
@@ -4847,7 +4866,7 @@ async function cloudSyncLoad(id,opts){
       try{_entShadowInit();}catch(e){} // 병합 결과가 이 세션의 새 기준(마이그레이션 이후 시점)
       try{ if(_coTs)setSyncBase('fpm_'+id,_coTs); Object.keys(_ordTsMap).forEach(function(k){ if(_ordTsMap[k])setSyncBase(k,_ordTsMap[k]); }); Object.keys(_auxTsMap).forEach(function(k){ if(_auxTsMap[k])setSyncBase(k,_auxTsMap[k]); }); if(_shTs)setSyncBase('fpm_shared',_shTs); }catch(e){} // 클라우드를 반영했으니 그 문서 ts가 내 새 기준(메인·조각들·공유)
       try{_shShadowInit();}catch(e){} // 공유문서 그림자 = 병합 결과
-      if(coData)_careSupMig1Run(); // 병합 직후 = 최신 확보 상태 → 1회 일괄변경
+      if(coData){ _careSupMig1Run(); _pbFix186Run(); } // 병합 직후 = 최신 확보 상태 → 1회 일괄변경
     }
     setCloudInd('ok');
     _flushDirtySoon();
@@ -4956,7 +4975,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-16b';
+var APP_BUILD=/*BUILD*/'2026-10-16c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -12308,11 +12327,12 @@ function renderItemsList(){
           </div>
         </div>
         <div class="nc-acts">
+          ${''/* 10-16c 「정보」를 맨 앞으로 (요청) */}
+          <button type="button" class="nc-ab ghost" onclick="showItemForm('${it.id}')" title="아이템 정보 고치기">정보</button>
           <button type="button" class="nc-ab" onclick="tpOpen('${it.id}')" title="작업지시서 작성·인쇄">작지</button>
           <button type="button" class="nc-ab nc-prog" onclick="scOpenItem('${it.id}')" title="샘플 사진·코멘트 (미팅용)">진행${_scFixN(it)?(' <b>'+_scFixN(it)+'</b>'):''}</button>
           <button type="button" class="nc-ab ghost" onclick="showItemCost('${it.id}')" title="원가계산서">원가</button>
           <button type="button" class="nc-ab ghost" onclick="openYocheokHist('${it.id}')" title="요척 히스토리 (실제발주÷재단장수)">요척</button>
-          <button type="button" class="nc-ab ghost" onclick="showItemForm('${it.id}')" title="아이템 정보 고치기">정보</button>
           <button type="button" class="nc-ab ghost nc-more" onclick="event.stopPropagation();this.closest('.nc-card').querySelector('.nc-more-row').classList.toggle('open')" title="더보기(복제·삭제)">⋯</button>
         </div>
         <div class="nc-more-row">
