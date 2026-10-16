@@ -4956,7 +4956,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-16a';
+var APP_BUILD=/*BUILD*/'2026-10-16b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -8797,6 +8797,25 @@ window.addEventListener('hashchange',function(){
   if(h==='booktrim'){window._bookScope='trim';if(typeof switchTab==='function')switchTab('book');}
   else if(h==='book'){window._bookScope='fabric';if(typeof switchTab==='function')switchTab('book');}
 });
+/* 10-16b 원단 카드에서 네고가(협상가) 적기 (요청) — 오더 「거래처 확인」의 협상가와 같은 자리(단가장 negotiatedPrice·negoUnit·negoAt).
+   적은 날 이후 새로 만드는 오더에 결제용 단가로 자동으로 들어가고, 원가·발주서 매장가는 기본 단가 그대로. 이미 만든 오더는 안 바뀜. */
+function fabNegoFld(f,i,isKg){
+  var e=(f&&f.supplier&&f.name)?_fabE(f.supplier,f.name):null, v='';
+  if(e&&+e.negotiatedPrice>0&&(e.negoUnit||'')===(isKg?'kg':'unit'))v=+e.negotiatedPrice;
+  return '<div style="flex:.8;min-width:68px"><label>네고가(원) <span class="muted" style="font-size:9px">결제용</span></label><input data-nego="1" type="number" min="0" value="'+v+'" placeholder="없음" title="적은 날 이후 새 오더에 결제 단가로 들어가요 (원가는 기본 단가 그대로)" onchange="fabNegoSet('+i+',this.value,'+(isKg?'true':'false')+')"></div>';
+}
+function fabNegoSet(i,val,isKg){
+  try{ if(typeof colFR==='function')colFR(); }catch(e){}
+  var f=formFabs[i]; if(!f)return; var sup=String(f.supplier||'').trim(), nm=String(f.name||'').trim();
+  if(!sup||!nm){ showToast('원단처·원단명을 먼저 적어 주세요'); return; }
+  var price=String(val==null?'':val).trim()===''?0:(+val||0);
+  var mat=_fabE(sup,nm);
+  if(!mat){ if(!price)return; if(!S.priceBook[sup])S.priceBook[sup]={email:'',phone:'',kakaoId:'',bank:'',materials:{}}; S.priceBook[sup].materials[nm]={type:'fabric',name:nm,pricingUnit:isKg?'kg':'yard',unitPrice:+f.unitPrice||0,pricePerKg:+f.pricePerKg||0}; mat=S.priceBook[sup].materials[nm]; try{_pbReviveKey(sup,nm);}catch(e){} }
+  if(price>0){ mat.negotiatedPrice=price; mat.negoUnit=isKg?'kg':'unit'; mat.negoAt=todayISO(); }
+  else { delete mat.negotiatedPrice; delete mat.negoUnit; delete mat.negoAt; }
+  mat.lastUpdated=todayISO(); savePB();
+  showToast(price>0?(nm+' 네고가 '+num(price)+'원 — 오늘부터 새 오더 결제에 들어가요 (원가는 기본 단가 그대로)'):(nm+' 네고가 지움'),4500);
+}
 function _fabE(sup,name){return (S.priceBook[sup]&&S.priceBook[sup].materials&&S.priceBook[sup].materials[name])||null;}
 function _flFabrics(){
   var out=[];
@@ -13562,6 +13581,7 @@ function fabRowHTML(f,i){
         ${wgFabFlds(f)}
         ${isKg?`<div style="flex:.8;min-width:68px"><label>기본 KG단가(원)</label><input data-f="pricePerKg" type="number" value="${f.pricePerKg||0}" min="0" oninput="fabCpRecalc(${i})"></div><div style="flex:.7;min-width:58px"><label>야드/KG</label><input data-f="yardsPerKg" type="number" value="${f.yardsPerKg||1}" min="0.01" step="0.01"></div>`
         :`<div style="flex:.8;min-width:68px"><label>기본 야드단가(원)</label><input data-f="unitPrice" type="number" value="${f.unitPrice||0}" min="0" oninput="fabCpRecalc(${i})"></div>`}
+        ${fabNegoFld(f,i,isKg)}
       </div>
       ${fabPriceBoxHTML(f,i)}
       <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
