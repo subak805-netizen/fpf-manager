@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261016d">
+<link rel="stylesheet" href="css/main.css?v=20261016h">
 </head>
 <body>
 
@@ -4975,7 +4975,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-16g';
+var APP_BUILD=/*BUILD*/'2026-10-16h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -6710,6 +6710,28 @@ function _lsEnsureStyle(){
 function lsSetBrand(v){window._lsBrand=v;renderLinesheet();}
 function lsSetSeason(v){window._lsSeason=v;renderLinesheet();}
 function lsToggleCost(){window._lsCost=(window._lsCost===false);renderLinesheet();}
+/* 10-16h 라인시트 라벨 (요청 「라벨 어디에 어떤 거 쓰는지」 · 미리보기 승인) — 카드마다 메인·케어 라벨 사진·이름, 위 「라벨」 줄로 그 라벨 쓰는 아이템만.
+   사진 = 브랜드관리 라벨 사진(작지 라벨 사진과 같은 찾기 tpBrandLabelImgByName). 완성자재는 뺌. 「라벨 표시」 끄면 예전 라인시트. */
+function lsToggleLab(){ window._lsLab=(window._lsLab===false); if(window._lsLab===false)window._lsLabSel=''; renderLinesheet(); }
+function lsSetLab(k){ try{ k=decodeURIComponent(k); }catch(e){} window._lsLabSel=(window._lsLabSel===k)?'':k; renderLinesheet(); }
+function _lsLabels(it){
+  var out=[], seen={};
+  (it.trims||[]).forEach(function(t){
+    if(!t)return; var kind=(t.orderType==='mainLabel'&&!t.isFinishSet)?'main':(t.orderType==='careLabel'?'care':''); if(!kind)return;
+    var nms=(kind==='main'&&Array.isArray(t.labelNames)&&t.labelNames.length)?t.labelNames:[kind==='main'?(t.labelName||t.midSize||''):(t.labelName||'')];
+    nms.forEach(function(nm){ nm=String(nm||'').trim(); var key=kind+'|'+(nm||'(이름 없음)'); if(seen[key])return; seen[key]=1;
+      var img=''; try{ img=nm?tpBrandLabelImgByName(it,nm):''; if(!img&&kind==='care'&&typeof tpSelectedLabelImg==='function')img=tpSelectedLabelImg(it,'care'); }catch(e){}
+      out.push({kind:kind,key:key,name:nm||'(이름 없음)',part:kind==='care'?String(t.labelPart||'').trim():'',img:img||''}); });
+  });
+  return out;
+}
+function _lsLabRowHTML(it,sel){
+  var labs=_lsLabels(it), mains=labs.filter(function(x){return x.kind==='main';}), cares=labs.filter(function(x){return x.kind==='care';});
+  var box=function(x,k){ if(!x)return '<div class="ls-lab none"><div class="ph">라벨 없음</div><span class="k">'+k+'</span></div>';
+    return '<div class="ls-lab'+(sel&&sel===x.key?' hl':'')+'"><div class="ph">'+(x.img?'<img src="'+esc(x.img)+'" alt="">':'<span>'+esc(x.name)+'</span>')+'</div><span class="k">'+k+'</span><span class="n">'+esc(x.name)+(x.part?' ['+esc(x.part)+']':'')+'</span></div>'; };
+  var h=(mains.length?mains.map(function(x){return box(x,'메인');}).join(''):box(null,'메인'))+(cares.length?cares.map(function(x){return box(x,'케어');}).join(''):box(null,'케어'));
+  return '<div class="ls-labrow">'+h+'</div>';
+}
 function lsSaveImg(){
   var el=document.getElementById('ls-sheet');if(!el){showToast('시트가 없어요');return;}
   var go=function(){
@@ -6740,6 +6762,8 @@ function renderLinesheet(){
   seasons.forEach(function(s2){h+='<button class="ls-chip'+(seasonSel===s2?' on':'')+'" onclick="lsSetSeason(\''+esc(s2)+'\')">'+esc(s2)+'</button>';});
   h+='<span style="margin-left:auto"></span>';
   h+='<button class="ls-chip'+(showCost?' on':'')+'" onclick="lsToggleCost()">'+(showCost?'원가 표시':'원가 숨김')+'</button>';
+  var showLab=window._lsLab!==false, labSel=showLab?(window._lsLabSel||''):'';
+  h+='<button class="ls-chip'+(showLab?' on':'')+'" onclick="lsToggleLab()">'+(showLab?'라벨 표시':'라벨 숨김')+'</button>';
   h+='<button class="ls-chip" onclick="lsSaveImg()">이미지 저장</button>';
   h+='</div>';
   // 필터
@@ -6749,6 +6773,15 @@ function renderLinesheet(){
     if(seasonSel&&(it.season||'')!==seasonSel)return false;
     return true;
   });
+  if(showLab){
+    var _lc={}, _li={};
+    list.forEach(function(it){ _lsLabels(it).forEach(function(x){ if(!_lc[x.key]){ _lc[x.key]=0; _li[x.key]=x; } _lc[x.key]++; }); });
+    var _keys=Object.keys(_lc).sort(function(a,b){ var A=_li[a],B=_li[b]; return (A.kind===B.kind?0:(A.kind==='main'?-1:1))||String(A.name).localeCompare(String(B.name),'ko'); });
+    if(labSel&&!_lc[labSel]){ labSel=''; window._lsLabSel=''; }
+    if(_keys.length)h+='<div class="ls-labbar"><b>라벨</b><button class="ls-lchip'+(labSel?'':' on')+'" onclick="lsSetLab(\'\')">전체</button>'+_keys.map(function(k){ var x=_li[k];
+      return '<button class="ls-lchip'+(labSel===k?' on':'')+'" onclick="lsSetLab(\''+encodeURIComponent(k).replace(/'/g,'%27')+'\')"><span class="th">'+(x.img?'<img src="'+esc(x.img)+'" alt="">':'')+'</span>'+esc(x.name)+' <i>'+(x.kind==='main'?'메인':'케어')+' · '+_lc[k]+'개</i></button>'; }).join('')+'</div>';
+    if(labSel)list=list.filter(function(it){ return _lsLabels(it).some(function(x){return x.key===labSel;}); });
+  }
   var brandNm=brandSel?((brands.find(function(b){return b.id===brandSel;})||{}).name||''):'전체 브랜드';
   h+='<div id="ls-sheet">';
   h+='<div class="ls-head"><span class="ls-brand">'+esc(brandNm)+'</span><span class="ls-sub">'+esc(seasonSel||'ALL SEASONS')+' · LINE SHEET</span><span style="font-size:11px;color:#888">'+esc((typeof fmtKoDate==='function'?fmtKoDate(todayISO()):todayISO()))+'</span></div>';
@@ -6789,6 +6822,7 @@ function renderLinesheet(){
           +(fabStr?('<b>원단:</b> '+esc(fabStr)+'<br>'):'')
           +(showCost&&cost>0?('<b>원가:</b> <span class="ls-cost">'+num(cost)+'원</span> · <b>판매가:</b> '+num(sale)+'원'):'')
           +'</div>'
+          +(showLab?_lsLabRowHTML(it,labSel):'')
           +'<div><select class="ls-edit" onchange="lsSetCat(\''+it.id+'\',this.value)" title="품목 구분 (이미지 저장 땐 숨겨져요)">'+LS_CATS.map(function(c){return '<option'+(lsCatOf(it)===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'
           +'</div>';
       });
