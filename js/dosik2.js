@@ -193,7 +193,7 @@ function layout(r){
     cs.forEach(function(c){ c.ax=g.x+c.an[0]*g.w; c.ay=g.y+c.an[1]*g.h; c.band=c.an[1]<0.5?'top':'bottom'; c.lx=null; });
     var need=function(b){ var a=free.filter(function(c){return c.band===b;}); return a.reduce(function(s,c){return s+c.w;},0)+GAP*Math.max(0,a.length-1); };
     for(var k=0;k<free.length;k++)[['top','bottom'],['bottom','top']].forEach(function(p){
-      if(need(p[0])>xmax-xmin&&need(p[1])<(xmax-xmin)*0.8){ var cand=free.filter(function(c){return c.band===p[0];}); if(cand.length){ cand.sort(function(a,b){return Math.abs(a.an[1]-0.5)-Math.abs(b.an[1]-0.5);}); cand[0].band=p[1]; } } });
+      if(need(p[0])>xmax-xmin){ var cand=free.filter(function(c){return c.band===p[0]&&Math.abs(c.an[1]-0.5)<=0.15&&need(p[1])+c.w+GAP<=xmax-xmin;}); if(cand.length){   /* 10-20: 가운데쯤 가리키는 것만, 반대 줄에 한 줄로 들어갈 때만 옮김 */ cand.sort(function(a,b){return Math.abs(a.an[1]-0.5)-Math.abs(b.an[1]-0.5);}); cand[0].band=p[1]; } } });
     var o={}; ['top','bottom'].forEach(function(band){ o[band]=rowsFor(free.filter(function(c){return c.band===band;}).sort(function(a,b){return a.ax-b.ax;})); });
     return o;
   }
