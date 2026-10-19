@@ -149,23 +149,70 @@ function placeBand(items,xmin,xmax,GAP){
   if(last&&last.x+last.w>xmax){ last.x=xmax-last.w; for(var j=items.length-2;j>=0;j--){ var n=items[j+1]; if(items[j].x+items[j].w+GAP>n.x)items[j].x=n.x-GAP-items[j].w; } }
   return !items.length||items[0].x>=xmin-1;
 }
+function placeVertical(rows,xmin,xmax,GAP){   /* 여러 줄: 지시선 전부 수직, 안쪽 줄 상자는 바깥 줄 지시선 자리를 비움 → 화살표가 글자·다른 화살표와 안 겹침. 되면 비켜난 정도 합, 안 되면 null */
+  var pad=22, dev=0;
+  for(var r=0;r<rows.length;r++){
+    var forb=[]; rows.slice(r+1).forEach(function(rr){ rr.forEach(function(c){ forb.push(c.ax); }); });
+    var row=rows[r].slice().sort(function(a,b){return a.ax-b.ax;}), plan=null;
+    ['near','left'].some(function(strat){
+      var prevEnd=xmin-GAP, p=[];
+      for(var i=0;i<row.length;i++){ var c=row[i], lo=Math.max(prevEnd+GAP,c.ax-c.w+24,xmin), hi=Math.min(c.ax-24,xmax-c.w), ideal=Math.min(Math.max(c.ax-c.w/2,lo),hi), cands=[ideal,lo,hi];
+        forb.forEach(function(f){ cands.push(f+pad,f-pad-c.w); });
+        var valid=cands.filter(function(x){ return x>=lo-0.01&&x<=hi+0.01&&!forb.some(function(f){return x-pad<f&&f<x+c.w+pad;}); });
+        if(!valid.length)return false;
+        var x=strat==='near'?valid.reduce(function(a,b){return Math.abs(b-ideal)<Math.abs(a-ideal)?b:a;}):Math.min.apply(null,valid);
+        p.push([c,x]); prevEnd=x+c.w; }
+      plan=p; return true; });
+    if(!plan)return null;
+    plan.forEach(function(q){ q[0].x=q[1]; q[0].lx=q[0].ax; dev+=Math.abs(q[1]+q[0].w/2-q[0].ax); });
+  }
+  return dev;
+}
 function layout(r){
   if(!r)return; pageOf(r); if(!r.doc)return;
   var d=r.doc, fs=d.fs, lh=Math.round(fs*1.3), cs=d.callouts, GAP=46, MAXW=fs*12.5;
   cs.forEach(function(c){ c.ls=[].concat.apply([],lines(c).map(function(t){return wrapLine(t,fs,MAXW);})); c.w=Math.max.apply(null,[fs*2].concat(c.ls.map(function(t){return measure(t,fs);}))); c.h=c.ls.length*lh; });
   var M=90, minBand=lh*3+110, gw=PAGE_W-2*M, gh=gw*d.asp, maxGh=PAGE_H-2*minBand-60;
   if(gh>maxGh){ gh=maxGh; gw=gh/d.asp; }
-  var g=d.geo={x:(PAGE_W-gw)/2,y:(PAGE_H-gh)/2+10,w:gw,h:gh};
-  cs.forEach(function(c){ c.ax=g.x+c.an[0]*g.w; c.ay=g.y+c.an[1]*g.h; c.band=c.an[1]<0.5?'top':'bottom'; c.lx=null; });
+  var xmin=60,xmax=PAGE_W-60, free=cs.filter(function(c){return !c.moved;}), g, plan, pad=30;
+  function rowsFor(all){   /* 한 줄에 다 들어가면 한 줄. 아니면 2줄(→3줄)로 나누는 모든 경우 중 지시선을 전부 수직으로 세울 수 있는 것(10-20, annotate.py 와 같은 순서·규칙) */
+    if(placeBand(all,xmin,xmax,GAP))return {mode:'one',rows:[all]};
+    var k=all.length,best=null;
+    [2,3].some(function(n){ if((n===2&&k>12)||(n===3&&k>7))return false;
+      for(var m=0,total=Math.pow(n,k);m<total;m++){ var asg=new Array(k),t=m; for(var i=k-1;i>=0;i--){ asg[i]=t%n; t=Math.floor(t/n); }
+        var used={}; asg.forEach(function(a){used[a]=1;}); if(Object.keys(used).length<n)continue;
+        var rows=[]; for(var r=0;r<n;r++)rows.push(all.filter(function(_,j){return asg[j]===r;}));
+        var dev=placeVertical(rows,xmin,xmax,GAP); if(dev!=null&&(best==null||dev<best.dev))best={dev:dev,rows:rows}; }
+      return !!best; });
+    if(best)return {mode:'vert',rows:best.rows};
+    for(var n=2;n<=4;n++){ var rows=[]; for(var i=0;i<n;i++)rows.push(all.filter(function(_,j){return j%n===i;}));
+      if(rows.every(function(rw){return placeBand(rw,xmin,xmax,GAP);})||n===4)return {mode:'route',rows:rows}; } }
+  function bandH(pb){ var rs=pb.rows.filter(function(rw){return rw.length;}); if(!rs.length)return 0;
+    return 40+rs.reduce(function(s,rw){return s+Math.max.apply(null,rw.map(function(c){return c.h;}));},0)+34*(rs.length-1); }
+  function planBands(g){
+    cs.forEach(function(c){ c.ax=g.x+c.an[0]*g.w; c.ay=g.y+c.an[1]*g.h; c.band=c.an[1]<0.5?'top':'bottom'; c.lx=null; });
+    var need=function(b){ var a=free.filter(function(c){return c.band===b;}); return a.reduce(function(s,c){return s+c.w;},0)+GAP*Math.max(0,a.length-1); };
+    for(var k=0;k<free.length;k++)[['top','bottom'],['bottom','top']].forEach(function(p){
+      if(need(p[0])>xmax-xmin&&need(p[1])<(xmax-xmin)*0.8){ var cand=free.filter(function(c){return c.band===p[0];}); if(cand.length){ cand.sort(function(a,b){return Math.abs(a.an[1]-0.5)-Math.abs(b.an[1]-0.5);}); cand[0].band=p[1]; } } });
+    var o={}; ['top','bottom'].forEach(function(band){ o[band]=rowsFor(free.filter(function(c){return c.band===band;}).sort(function(a,b){return a.ax-b.ax;})); });
+    return o;
+  }
+  /* 2026-10-20 설명 줄이 많으면 종이 밖으로 안 나가게: 먼저 옷+설명 덩어리를 가운데로, 그래도 넘치면 옷을 줄임 */
+  for(var it=0;it<5;it++){
+    g={x:(PAGE_W-gw)/2,y:(PAGE_H-gh)/2+10,w:gw,h:gh}; plan=planBands(g);
+    var ht=bandH(plan.top), hb=bandH(plan.bottom);
+    if(g.y-ht>=pad&&g.y+g.h+hb<=PAGE_H-pad)break;
+    var room=PAGE_H-2*pad-ht-hb;
+    if(room>=gh){ g.y=pad+ht+(room-gh)/2; plan=planBands(g); break; }
+    gh=Math.max(room,PAGE_H*0.3); gw=gh/d.asp;
+  }
+  d.geo=g;
   d.marks.forEach(function(m){ if(m.rn)m.r2=[g.x+m.rn[0]*g.w,g.y+m.rn[1]*g.h,m.rn[2]*g.w,m.rn[3]*g.h]; if(m.pn)m.p2=[g.x+m.pn[0]*g.w,g.y+m.pn[1]*g.h]; if(m.sn!=null)m.s2=m.sn*g.w; });
-  var xmin=60,xmax=PAGE_W-60, free=cs.filter(function(c){return !c.moved;});
-  var need=function(b){ var a=free.filter(function(c){return c.band===b;}); return a.reduce(function(s,c){return s+c.w;},0)+GAP*Math.max(0,a.length-1); };
-  for(var k=0;k<free.length;k++)[['top','bottom'],['bottom','top']].forEach(function(p){
-    if(need(p[0])>xmax-xmin&&need(p[1])<(xmax-xmin)*0.8){ var cand=free.filter(function(c){return c.band===p[0];}); if(cand.length){ cand.sort(function(a,b){return Math.abs(a.an[1]-0.5)-Math.abs(b.an[1]-0.5);}); cand[0].band=p[1]; } } });
   ['top','bottom'].forEach(function(band){
-    var all=free.filter(function(c){return c.band===band;}).sort(function(a,b){return a.ax-b.ax;});
-    var rows=[all]; if(!placeBand(all,xmin,xmax,GAP)){ rows=[all.filter(function(_,i){return i%2===0;}),all.filter(function(_,i){return i%2===1;})]; rows.forEach(function(rw){placeBand(rw,xmin,xmax,GAP);}); }
-    var edge=band==='top'?g.y-40:g.y+g.h+40, inner=[];
+    var pb=plan[band], rows=pb.rows, edge=band==='top'?g.y-40:g.y+g.h+40, inner=[];
+    if(pb.mode==='vert'){ placeVertical(rows,xmin,xmax,GAP);
+      rows.forEach(function(row){ if(!row.length)return; row.forEach(function(c){ c.y=band==='top'?edge-c.h:edge; }); var rh=Math.max.apply(null,row.map(function(c){return c.h;})); edge=band==='top'?edge-rh-34:edge+rh+34; });
+      return; }
     rows.forEach(function(row,ri){ if(!row.length)return; var rh=Math.max.apply(null,row.map(function(c){return c.h;}));
       row.forEach(function(c){ c.y=band==='top'?edge-c.h:edge; c.lx=Math.min(Math.max(c.ax,c.x+24),c.x+c.w-24);
         if(ri>0&&inner.some(function(b){return b.x-12<c.lx&&c.lx<b.x+b.w+12;})){
