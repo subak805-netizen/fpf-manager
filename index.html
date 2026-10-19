@@ -4981,7 +4981,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-19a';
+var APP_BUILD=/*BUILD*/'2026-10-19b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9281,12 +9281,37 @@ function setPbCalcMode(encSup,encKey,key){
   window._pbRowIdxC=null;
   try{lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}catch(e){}
   try{savePB();}catch(e){} try{saveData();}catch(e){}
+  try{_formTrimCalcSyncLive();}catch(e){}   /* 10-19b 같은 창에 열린 아이템 폼 카드도 바로 */
   showToast(m.name+' → '+lbl+(n?(' · 아이템 줄 '+n+'개 같이 바꿈'):''));
   if(typeof pbSoftRender==='function')pbSoftRender(true);
 }
 /* 09-18d 「줄 N 다름」 배지 클릭 — 단가장 계산 방식과 다른 아이템 줄을 단가장에 맞춤 (사용자 「줄 1 다름이 뭐야」) */
 /* 10-08l 단가장 계산 방식 = 기준. 아이템 줄이 다르면 조용히 맞춤 (「줄 N 다름」 배지 대신).
    같은 거래처·같은 이름인데 단가장 줄끼리 계산 방식이 다르면(어느 쪽인지 모름) 건드리지 않음. 바뀐 게 있으면 저장 */
+/* 10-19b 열려 있는 아이템 폼(formTrims)도 단가장 계산 방식으로 맞춤 — 사용자 「계산방식 롤로 바꾸면 부자재 삭제했다가 다시 추가해야 적용돼」.
+   원인: _pbAutoSyncCalcRows·setPbCalcMode 는 S.items 만 바꾸고, 폼 사본·임시저장본·카드 DOM(colTR 이 orderType 을 DOM 에서 다시 읽음)은 옛 방식 그대로였음.
+   규칙은 _pbAutoSyncCalcRows 와 같음(거래처+이름, 단가장 줄끼리 방식이 다르면 안 건드림). 바뀐 줄 수를 돌려줌 */
+function _formTrimCalcSync(){
+  var n=0;
+  try{
+    if(!Array.isArray(formTrims)||!formTrims.length)return 0;
+    var want={};
+    Object.keys(S.priceBook||{}).forEach(function(sup){ var ms=(S.priceBook[sup]||{}).materials||{};
+      Object.keys(ms).forEach(function(k){ var m=ms[k]; if(!m||m.type==='fabric'||!m.name)return; var kk=sup+'\u001f'+m.name, key=_pbCalcKey(m);
+        if(!(kk in want))want[kk]={key:key,unit:_pbUnitOf(m)}; else if(want[kk]&&want[kk].key!==key)want[kk]=null; }); });
+    formTrims.forEach(function(t){ if(!t||!t.supplier||!t.name)return; var w=want[t.supplier+'\u001f'+t.name]; if(!w||_pbCalcKey(t)===w.key)return;
+      if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbCalcApply(t,w.key,w.unit); n++; });
+  }catch(e){ console.warn('[폼 부자재 계산 방식 맞춤]',e); }
+  return n;
+}
+/* 화면에 떠 있는 부자재 카드까지: 적은 값 먼저 모으고(colTR) → 맞추고 → 카드 다시 그리기 */
+function _formTrimCalcSyncLive(){
+  if(!document.getElementById('trim-rows'))return 0;
+  try{colTR();}catch(e){}
+  var n=_formTrimCalcSync();
+  if(n){ try{renderTrimRows();}catch(e){} try{scheduleDraft();}catch(e){} }
+  return n;
+}
 function _pbAutoSyncCalcRows(){
   if(window._pbAutoSyncBusy)return 0; window._pbAutoSyncBusy=true; var n=0;
   try{
@@ -13033,6 +13058,7 @@ function loadDraft(){
   try{_migrateFabProcYo(d);}catch(e){}
   formFabs=JSON.parse(JSON.stringify(d.fabrics||[]));
   formTrims=JSON.parse(JSON.stringify(d.trims||[]));
+  try{_formTrimCalcSync();}catch(e){}   /* 10-19b 임시저장본이 옛 계산 방식이어도 단가장 기준으로 */
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
   try{renderLaborSizes();}catch(e){}
   setTimeout(refreshWorkRoute,0);
@@ -13147,6 +13173,7 @@ function showItemForm(id){
   formColors=it?.colors?[...it.colors]:[];formSizes=it?.sizes?[...it.sizes]:[];
   formFabs=it?.fabrics?JSON.parse(JSON.stringify(it.fabrics)):[];
   formTrims=it?.trims?JSON.parse(JSON.stringify(it.trims)):[];
+  try{_formTrimCalcSync();}catch(e){}   /* 10-19b 단가장 계산 방식 기준으로 열기 */
   formTrimCosts=it?.trimCosts?JSON.parse(JSON.stringify(it.trimCosts)):[];
   formLaborBySize=(it&&it.laborBySize)?Object.assign({},it.laborBySize):{};
   formLaborTiers=(it&&Array.isArray(it.laborTiers))?it.laborTiers.map(function(x){return {min:+x.min||0,rate:+x.rate||0};}):[]; formLaborReorder=+((it&&it.laborReorder)||0);
@@ -15615,6 +15642,7 @@ function _pbRefreshOpenTrims(){
     });
   });
   try{colTR();}catch(e){}
+  try{ var _cs=_formTrimCalcSync(); if(_cs){ renderTrimRows(); changed+=_cs; } }catch(e){}   /* 10-19b 단가장 새 창에서 계산 방식 바꾼 것도 카드에 바로 */
   try{_lockTrimPbFields();renderTrimSummary();}catch(e){}
   if(document.getElementById('trim-pick-list'))try{_renderTrimPick();}catch(e){} // 피커 열려 있으면 목록도 갱신(새로 등록한 자재 바로 보이게)
   if(changed){try{scheduleDraft();}catch(e){}if(typeof showToast==='function')showToast('단가장에서 고친 값 '+changed+'칸 다시 불러옴');}
