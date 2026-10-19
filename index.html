@@ -4981,7 +4981,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-19c';
+var APP_BUILD=/*BUILD*/'2026-10-19d';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9260,6 +9260,34 @@ function _pbTrimIssues(s,m){
   (_pbRowIdx()[s+'\u001f'+(m.name||'')]||[]).forEach(function(r){ if(_pbCalcKey(r.t)!==key){out.rowsDiff++;out.rows.push(r);} });
   return out;
 }
+/* 10-19d 단추고리(개수로 쓰고 묶음·야드로 사는 것) 줄은 단가장 계산 방식을 바꿔도 「1묶음·1y 에 N개」 계산을 지킨다.
+   사용자: 「1야드에 70개니까 2야드라고 떠야」「합계도 두 묶음」. 예전엔 묶음=롤 계산·야드=요척 계산으로 바뀌어 벌당 개수(loopPerPiece)를 못 써서
+   「92묶음 (필요수량 0개)」·「합계 4롤」이 나왔다. 단가장 묶음 → 단위 묶음, 야드 → 단위 y, 단추고리 → 단위 그대로. N개 = 단가장 「1롤·1묶음 양」 */
+function _pbRowIsLoop(t){ return !!(t&&(t.isButtonLoop||+t.loopPerPiece>0)); }
+function _pbRowYardish(key,unit){ return key==='single'&&(unit==='Y'||unit==='절'||unit==='R'); }
+function _pbLoopPer(m){ return m?(+m.yardsPerRoll>0?+m.yardsPerRoll:(+m.loopPerYard>0?+m.loopPerYard:0)):0; }   /* 단가장 표에 보이는 「1롤·1묶음 양」 우선 */
+function _pbRowLoopKeep(t,key,unit){ return _pbRowIsLoop(t)&&(key==='bundle'||key==='loop'||_pbRowYardish(key,unit)); }
+function _pbRowCalcOk(t,key,unit,m,strictOt){
+  if(_pbRowLoopKeep(t,key,unit)){
+    if(!(t.orderType==='yard'&&t.isButtonLoop))return false;
+    var pu=(key==='bundle')?'묶음':(_pbRowYardish(key,unit)?'y':null); if(pu&&t.packUnit!==pu)return false;
+    var per=_pbLoopPer(m); if(per>0&&+t.loopPerYard!==per)return false;
+    return true;
+  }
+  if(_pbCalcKey(t)!==key)return false;
+  if(strictOt&&t.orderType!==strictOt)return false;
+  return true;
+}
+function _pbRowCalcApply(t,key,unit,m){
+  if(_pbRowLoopKeep(t,key,unit)){
+    t.orderType='yard'; t.isButtonLoop=true; t.plainYard=false; t.isLace=false; t.yardsPerJeol=0;
+    if(key==='bundle')t.packUnit='묶음'; else if(_pbRowYardish(key,unit))t.packUnit='y';
+    var per=_pbLoopPer(m); if(per>0)t.loopPerYard=per;
+    t.consumptionPerPiece=(+t.loopPerYard>0)?((+t.loopPerPiece||0)/(+t.loopPerYard)):0;
+    return;
+  }
+  _pbCalcApply(t,key,unit);
+}
 function setPbCalcMode(encSup,encKey,key){
   var s=decodeURIComponent(encSup),k=decodeURIComponent(encKey); var m=_pbMat(s,k); if(!m)return;
   if(!PB_CALC_MODES.some(function(x){return x[0]===key;})&&!_PB_CALC_LEGACY[key]&&!_PB_CALC_FIXED[key]){ if(typeof pbSoftRender==='function')pbSoftRender(true); return; }
@@ -9271,14 +9299,14 @@ function setPbCalcMode(encSup,encKey,key){
   var lbl=_lbl0, unit=_pbUnitOf(m), shape=!!(_PB_CALC_FIXED[key]||_PB_CALC_FIXED[old]);
   if(_wantYard===true)unit='Y'; else if(_wantYard===false&&(unit==='Y'||unit==='절'||unit==='R'||unit==='콘'||unit==='묶음'))unit='ea';
   var _ot1=(key==='single')?(_wantYard?'yard':'count'):null;
-  var rows=(_pbRowIdx()[s+'\u001f'+(m.name||'')]||[]).filter(function(r){return _pbCalcKey(r.t)!==key||(_ot1&&r.t.orderType!==_ot1);});
-  _pbCalcApply(m,key,unit); m.unit=_pbCalcUnit(key,unit); m.lastUpdated=todayISO();
+  _pbCalcApply(m,key,unit);   /* 10-19d 단가장 줄 먼저 바꾸고, 아이템 줄은 바뀐 단가장 기준으로 비교 */
+  var rows=(_pbRowIdx()[s+'\u001f'+(m.name||'')]||[]).filter(function(r){return !_pbRowCalcOk(r.t,key,unit,m,_ot1);}); m.unit=_pbCalcUnit(key,unit); m.lastUpdated=todayISO();
   var n=0;
   if(rows.length){
     var names=[]; rows.forEach(function(r){ var nm=(r.it&&r.it.name)||''; if(nm&&names.indexOf(nm)<0)names.push(nm); });
     var msg=m.name+' 계산 방식을 「'+lbl+'」로 바꿔요.\n\n이 품목을 쓰는 아이템 줄 '+rows.length+'개('+names.slice(0,6).join(', ')+(names.length>6?' …':'')+')도 같이 바꿀까요?\n요척·단가·적용 컬러는 그대로 두고 계산 방식만 바뀌어요. 이미 발송한 발주서는 안 바뀌어요.'+(shape?'\n카드 모양도 「'+lbl+'」 칸으로 바뀌어요 (전에 적은 전용 칸 값은 지워지지 않아요).':'')+'\n\n[확인] 같이 바꾸기   [취소] 단가장만';
     /* 10-08l 사용자 「그냥 맞추고 안 뜨게」 — 확인창 없이 아이템 줄도 단가장 계산 방식으로 */
-    rows.forEach(function(r){ var t=r.t; if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbCalcApply(t,key,unit); n++; });
+    rows.forEach(function(r){ var t=r.t; if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbRowCalcApply(t,key,unit,m); n++; });
   }
   window._pbRowIdxC=null;
   try{lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}catch(e){}
@@ -9300,9 +9328,9 @@ function _formTrimCalcSync(){
     var want={};
     Object.keys(S.priceBook||{}).forEach(function(sup){ var ms=(S.priceBook[sup]||{}).materials||{};
       Object.keys(ms).forEach(function(k){ var m=ms[k]; if(!m||m.type==='fabric'||!m.name)return; var kk=sup+'\u001f'+m.name, key=_pbCalcKey(m);
-        if(!(kk in want))want[kk]={key:key,unit:_pbUnitOf(m)}; else if(want[kk]&&want[kk].key!==key)want[kk]=null; }); });
-    formTrims.forEach(function(t){ if(!t||!t.supplier||!t.name)return; var w=want[t.supplier+'\u001f'+t.name]; if(!w||_pbCalcKey(t)===w.key)return;
-      if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbCalcApply(t,w.key,w.unit); n++; });
+        if(!(kk in want))want[kk]={key:key,unit:_pbUnitOf(m),m:m}; else if(want[kk]&&want[kk].key!==key)want[kk]=null; }); });
+    formTrims.forEach(function(t){ if(!t||!t.supplier||!t.name)return; var w=want[t.supplier+'\u001f'+t.name]; if(!w||_pbRowCalcOk(t,w.key,w.unit,w.m))return;
+      if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbRowCalcApply(t,w.key,w.unit,w.m); n++; });
   }catch(e){ console.warn('[폼 부자재 계산 방식 맞춤]',e); }
   return n;
 }
@@ -9321,10 +9349,10 @@ function _pbAutoSyncCalcRows(){
     var want={};   /* 거래처\u001f이름 → {key,unit} | null(애매) */
     Object.keys(S.priceBook||{}).forEach(function(sup){ var ms=(S.priceBook[sup]||{}).materials||{};
       Object.keys(ms).forEach(function(k){ var m=ms[k]; if(!m||m.type==='fabric'||!m.name)return; var kk=sup+'\u001f'+m.name, key=_pbCalcKey(m);
-        if(!(kk in want))want[kk]={key:key,unit:_pbUnitOf(m)}; else if(want[kk]&&want[kk].key!==key)want[kk]=null; }); });
+        if(!(kk in want))want[kk]={key:key,unit:_pbUnitOf(m),m:m}; else if(want[kk]&&want[kk].key!==key)want[kk]=null; }); });
     window._pbRowIdxC=null; var idx=_pbRowIdx();
-    Object.keys(want).forEach(function(kk){ var w=want[kk]; if(!w)return; (idx[kk]||[]).forEach(function(r){ var t=r.t; if(_pbCalcKey(t)===w.key)return;
-      if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbCalcApply(t,w.key,w.unit); n++; }); });
+    Object.keys(want).forEach(function(kk){ var w=want[kk]; if(!w)return; (idx[kk]||[]).forEach(function(r){ var t=r.t; if(_pbRowCalcOk(t,w.key,w.unit,w.m))return;
+      if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbRowCalcApply(t,w.key,w.unit,w.m); n++; }); });
     if(n){ window._pbRowIdxC=null; try{ saveData(); }catch(e){} console.log('[단가장 계산 방식 자동 맞춤]',n+'줄'); }
   }catch(e){ console.warn('[단가장 계산 방식 자동 맞춤]',e); }
   finally{ window._pbAutoSyncBusy=false; }
@@ -9414,7 +9442,8 @@ function pbSetPack(encSup,encKey,val){
   /* 09-30b 롤당 yard 도 단가장 기준 — 이 자재를 쓰는 아이템 줄에 같이 넣는다. 예전엔 단가장만 바뀌고 아이템 줄은 빈 채로 남아
      발주 계산이 1롤=1y 로 돌았다 (신고: 1롤 100y 인데 필요 22.4y → 23롤). 규격(pbSetSpecPart)과 같은 방식. */
   try{ var _sup=decodeURIComponent(encSup), _n=0;
-    if(+m.yardsPerRoll>0) Object.keys(S.items||{}).forEach(function(iid){ var it=S.items[iid]; (it&&it.trims||[]).forEach(function(t){ if(!t||t.supplier!==_sup)return; if(_pbFindTrimMat(_sup,t)!==m)return; if(+t.yardsPerRoll!==+m.yardsPerRoll){ t.yardsPerRoll=+m.yardsPerRoll; _n++; } }); });
+    if(+m.yardsPerRoll>0) Object.keys(S.items||{}).forEach(function(iid){ var it=S.items[iid]; (it&&it.trims||[]).forEach(function(t){ if(!t||t.supplier!==_sup)return; if(_pbFindTrimMat(_sup,t)!==m)return; if(+t.yardsPerRoll!==+m.yardsPerRoll){ t.yardsPerRoll=+m.yardsPerRoll; _n++; }
+       if(t.isButtonLoop&&t.orderType==='yard'&&+t.loopPerYard!==+m.yardsPerRoll){ t.loopPerYard=+m.yardsPerRoll; t.consumptionPerPiece=(+t.loopPerPiece||0)/(+t.loopPerYard); _n++; }   /* 10-19d 단추고리 줄 = 1묶음·1y 에 N개 */ }); });
     if(_n){ saveData(); if(typeof showToast==='function')showToast('롤당 yard → 이 부자재를 쓰는 아이템 줄 '+_n+'개도 맞춤'); }
   }catch(e){}
   savePB(); pbSoftRender();
@@ -14764,7 +14793,7 @@ function buttonCardNew(t,i,colorSec){
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 앞판 / 속단추"></div></div>'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-dong"><label>시장</label><input data-f="market" list="dl-mkt" value="'+e(t.market||'동대문시장')+'" placeholder="동대문시장"></div><div class="tcd-fld w-dong"><label>동</label><input data-f="building" list="dl-bldg" value="'+e(t.building||'')+'" placeholder="B동"></div><div class="tcd-fld w-dong"><label>층</label><input data-f="floor" list="dl-flr" value="'+e(t.floor||'')+'" placeholder="2F"></div><div class="tcd-fld w-room"><label>호수</label><input data-f="floorRoom" value="'+e(t.floorRoom||'')+'" placeholder="215호"></div></div>'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재명</label><input list="dl-tnm" data-f="name" value="'+e(t.name||'단추')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld tcd-grow"><label>스타일</label><input data-f="buttonStyle" value="'+e(t.buttonStyle||'')+'" placeholder="예: 4구 흰색"></div></div>'
-    +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>크기</label><input data-f="buttonSize" list="dl-tsz-'+i+'" value="'+e(t.buttonSize||'')+'" placeholder="15mm" onchange="onButtonSizeChange('+i+',this.value)"><datalist id="dl-tsz-'+i+'">'+(t.sizeRates||[]).map(function(sr){return '<option value="'+e(sr.size||'')+'">';}).join('')+'</datalist></div>'+wgTrimFlds(t)+'<div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="색상" list="dl-clr"></div><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 몸판 / 허리"></div></div>'
+    +'<div class="tcd-frow"><div class="tcd-fld w-sz"><label>크기</label><input data-f="buttonSize" list="dl-tsz-'+i+'" value="'+e(t.buttonSize||'')+'" placeholder="15mm" onchange="onButtonSizeChange('+i+',this.value)"><datalist id="dl-tsz-'+i+'">'+(t.sizeRates||[]).map(function(sr){return '<option value="'+e(sr.size||'')+'">';}).join('')+'</datalist></div>'+wgTrimFlds(t)+'<div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="색상" list="dl-clr"></div></div>'
     +'<div class="tcd-calcbar"><span class="ch">계산</span>'
     +'<div class="cf"><label>벌당개수<span class="tcd-flow"><span class="fl-po">발</span><span class="fl-cost">원</span></span></label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece>0?t.qtyPerPiece:'')+'" step="0.01" placeholder="0"></div>'
     +'<div class="cf"><label>단가<span class="tcd-flow"><span class="fl-cost">원</span><span class="fl-pb">장</span></span></label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
@@ -15622,7 +15651,8 @@ function _lockTrimPbFields(){
 function _pbMatVal(m,f){
   if(!m)return null;var v;
   if(f==='unitPrice')v=(+m.unitPrice>0)?+m.unitPrice:null;
-  else if(['yardsPerRoll','yardsPerJeol','threadMin','loopPerYard','sliderCost','sliderLogoCost','weightGsm','weightOz'].indexOf(f)>=0)v=(+m[f]>0)?+m[f]:null;
+  else if(f==='loopPerYard'){ var _lp=_pbLoopPer(m); v=_lp>0?_lp:null; }   /* 10-19d 단추고리 1묶음·1y 당 개수 = 단가장 「양」 칸 */
+  else if(['yardsPerRoll','yardsPerJeol','threadMin','sliderCost','sliderLogoCost','weightGsm','weightOz'].indexOf(f)>=0)v=(+m[f]>0)?+m[f]:null;
   else if(f==='zipperSize'||f==='buttonSize'||f==='snapSize')v=String(m[f]||m.size||'').trim()||null;
   else v=String(m[f]||'').trim()||null;
   return v;
@@ -19487,7 +19517,7 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
       if(_s.length){ if(_tln>0)L.push(''); L.push('스와치 전달'); _tln+=emitTMerged(_s); }   /* 09-17r */
       // 합계 (표시 줄 2개 이상일 때)
       if(_tln>1){
-        if(isRoll)L.push(`합계 ${totRolls}롤`);
+        if(isRoll)L.push(`합계 ${totRolls}${_ruLbl(g.colors[0])}`);   /* 10-19d 묶음·절이면 그 단위로 (「합계 4롤」→「합계 4묶음」) */
         else L.push(`합계 ${totQty}${(g.colors[0]?.calc?.unit||'개').replace(/yard|야드/,'y')}`);
       }
       // 추가 옵션: 로고/팁 (총 개수 기준 계산)
