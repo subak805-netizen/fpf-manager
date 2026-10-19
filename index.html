@@ -15,6 +15,7 @@
 <meta name="theme-color" content="#3a352e">
 
 <link rel="stylesheet" href="css/main.css?v=20261019e">
+<link rel="stylesheet" href="css/dosik2.css?v=20261019f">
 </head>
 <body>
 
@@ -262,7 +263,7 @@ tryInitFirebase();
   <button class="ntab" id="nt-items" onclick="setItemView('list');switchTab('items')">아이템</button>
   <button class="ntab" id="nt-linesheet" onclick="switchTab('linesheet')">라인시트</button>
   <button class="ntab" id="nt-idea" onclick="setItemView('idea');switchTab('items')">아이디어</button>
-  <button class="ntab" id="nt-dosik" onclick="dosikOpen()">도식화</button>
+  <button class="ntab" id="nt-dosik" onclick="switchTab('dosik')">도식화</button>
   <button class="ntab" id="nt-ref" onclick="switchTab('ref')">샘플 참고</button>
   <button class="ntab" id="nt-reference" onclick="switchTab('reference')">레퍼런스</button>
   <div class="nav-sep"></div>
@@ -424,6 +425,8 @@ tryInitFirebase();
   <div id="pane-reference" class="panel" style="display:none">
     <div id="reference-body"></div>
   </div>
+  <!-- 도식화 탭 v2 (2026-10-19f) — 내용은 js/dosik2.js 가 그림 -->
+  <div id="pane-dosik" class="panel" style="display:none"></div>
   <!-- 소재 관리 (원단·부자재를 사진으로 훑고 용도로 찾는 탭) -->
   <div id="pane-material" class="panel" style="display:none">
     <div id="material-body"></div>
@@ -4982,7 +4985,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-19e';
+var APP_BUILD=/*BUILD*/'2026-10-19f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -6289,7 +6292,7 @@ var PD_NAVTABS=[   /* 2026-09-23i 웹 사이드바(.ntab)와 같은 순서 · la
   {k:'items',label:'아이템',fn:function(){setItemView('list');switchTab('items');}},
   {k:'linesheet',label:'라인시트',fn:function(){switchTab('linesheet');}},
   {k:'idea',label:'아이디어',fn:function(){setItemView('idea');switchTab('items');}},
-  {k:'dosik',label:'도식화',fn:function(){if(typeof dosikOpen==='function')dosikOpen();}},
+  {k:'dosik',label:'도식화',fn:function(){switchTab('dosik');}},
   {k:'ref',label:'샘플 참고',fn:function(){switchTab('ref');}},
   {k:'reference',label:'레퍼런스',fn:function(){switchTab('reference');}},
   {k:'dash',label:'대시보드',full:'생산 대시보드',fn:function(){switchTab('dash');}},
@@ -6382,7 +6385,7 @@ function switchTab(t){
   // 원가계산서 진입 시: 아이템에서 들어왔을 때만 돌아가기 바 표시 (탭 직접 클릭은 숨김)
   if(t==='costs'&&!window._csFromItems){const bar=document.getElementById('cs-back-bar');if(bar)bar.style.display='none';}
   if(t!=='costs')window._csFromItems=false;
-  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ssched','msched','rsched','ref','reference','yocheok','jaedan','ledger','courier','cinv','sccm','oncefee','material','thread'].forEach(n=>{
+  ['dash','items','linesheet','factories','vendors','book','orders','track','defect','pay','costs','leftover','notif','pickup','tasks','route','analytics','board','sample','todoboard','ssched','msched','rsched','ref','reference','yocheok','jaedan','ledger','courier','cinv','sccm','oncefee','material','thread','dosik'].forEach(n=>{
     const p=document.getElementById('pane-'+n);if(p)p.style.display='none';
     const tb=document.getElementById('nt-'+n);if(tb)tb.className='ntab'+(n===t?' on':'');
   });
@@ -6438,6 +6441,7 @@ function switchTab(t){
     else if(t==='courier')renderCourierLedger();
     else if(t==='cinv')renderCiTab();
     else if(t==='sccm'){ try{scPasteInit();}catch(e){} renderSampleComment(); }
+    else if(t==='dosik'){ if(typeof renderDosikPane==='function')renderDosikPane(window._dosikOpenOpts||null); window._dosikOpenOpts=null; }   /* 2026-10-19f 도식화 탭 v2 (js/dosik2.js) — 새 창 대신 앱 안 */
     else if(t==='oncefee')renderOnceFee();
     else if(t==='material')renderMaterial();
     else if(t==='thread')renderThreadTab();
@@ -45051,10 +45055,9 @@ function tpPrint(){ document.body.classList.add('tp-printing'); if(typeof tpFit=
 function tpInitDefaults(){ var _preI=_entPre('items',_tpItemId); var d=tpData(); if(!d)return; if(!d.spat)d.spat={};
   /* 2차 이상은 만들 때 직전 회차를 복사하므로 기본문구를 따로 안 넣는다 (덮어쓰면 적어둔 게 날아감) */ var _oldS='원단 축률 테스트\n불량 확인\n패턴 확인\n요척 (심지·부속까지)\n공임 적어서 보내주세요\n패턴·샘플감·견본·지시서 회수해서 보내주세요',_newS='원단 축률 테스트, 원단 문제(불량) 확인, 패턴 확인 해주세요\n요척 (심지·부속까지), 공임 적어서 보내주세요, 패턴·샘플감·견본·지시서 회수해서 보내주세요'; if(!d.spat.sampleMemo||d.spat.sampleMemo===_oldS)d.spat.sampleMemo=_newS; var _oldP='새 패턴입니다\n기존 패턴에서 수정입니다\n그래이딩입니다',_newP='새 패턴입니다, 기존 패턴에서 수정입니다, 그래이딩입니다'; if(!d.spat.patternMemo||d.spat.patternMemo===_oldP)d.spat.patternMemo=_newP;
   if(!d.grd)d.grd={}; if(!d.grd.patternMemo)d.grd.patternMemo='그레이딩입니다\n기준 사이즈: \n사이즈 전개: '; if(!d.sew)d.sew={}; var _itB=tpItem(); if(_itB&&!d.sew.wash&&/프루토/.test(tpBrandName(_itB)||''))d.sew.wash='노말워싱'; if(!d.sew.threadColor)d.sew.threadColor='몸판매칭'; if(!Array.isArray(d.sew.legend)||!d.sew.legend.length)d.sew.legend=[{sym:'★',desc:'',stitch:''},{sym:'☆',desc:'',stitch:''}]; if(!Array.isArray(d.sew.spec)||!d.sew.spec.length)d.sew.spec=TP_SPEC_TOP.map(function(p){return {part:p};}); if(!d.head)d.head={}; if(!d.head.manager)d.head.manager='박수빈'; _entMechAbsorb('items',_tpItemId,_preI); try{saveData();}catch(e){} }
-function dosikOpen(itemId){
-  var url='dosik.html'; try{ if(itemId)url+='?item='+encodeURIComponent(itemId); }catch(e){}
-  var w=window.open(url,'_blank');
-  if(!w&&typeof showToast==='function')showToast('팝업이 막혔어요 — 브라우저 팝업 허용 후 다시 눌러주세요');
+function dosikOpen(itemId){   /* 2026-10-19f 새 창 금지(사용자 명시) — 앱 안 도식화 탭으로, 그 아이템 도식화가 있으면 그걸 펼침 */
+  window._dosikOpenOpts=itemId?{itemId:itemId}:null;
+  switchTab('dosik');
 }
 function _dosikLib(){ try{return JSON.parse(localStorage.getItem('fpf_dosik_projects')||'[]');}catch(e){return [];} }   // 레거시 폴백
 // 도식화 저장소(IndexedDB) — dosik.html·에디터와 공유. IDB 우선, 비었으면(이전 전) 레거시 localStorage
@@ -45078,7 +45081,8 @@ async function _dosikLegacyCleanup(){
 }
 function dosikPick(slot){
   window._dosikPickSlot=slot;
-  _dosikLibAsync().then(function(lib){
+  Promise.all([_dosikLibAsync().catch(function(){return [];}),(typeof dk2PickList==='function')?dk2PickList():Promise.resolve([])]).then(function(two){
+  var lib=(two[1]||[]).concat(two[0]||[]);   /* 2026-10-19f 새 도식화 탭(v2) 것을 앞에 */
   lib=(lib||[]).slice().sort(function(a,b){return (b.updated||0)-(a.updated||0);});
   window._dosikPickLib=lib;
   var o=document.getElementById('dosik-pick'); if(o)o.remove();
@@ -45473,3 +45477,5 @@ function renderPriceComparePane(){
 }
 </script>
 <script src="js/boot.js?v=20260706"></script>
+<script src="js/dosik2-parts.js?v=20261019f"></script>
+<script src="js/dosik2.js?v=20261019f"></script>
