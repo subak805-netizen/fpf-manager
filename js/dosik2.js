@@ -61,7 +61,7 @@ function clean(r){
   return {id:r.id,itemId:r.itemId||'',name:r.name||'',code:r.code||'',updated:r.updated||Date.now(),ver:r.ver||0,del:r.del||0,orient:r.orient||(d&&d.orient)||'land',
     base:{url:(r.base&&r.base.url)||'',w:r.base.w,h:r.base.h},
     doc:d?{asp:d.asp,fs:d.fs,orient:d.orient||'land',ar:d.ar||undefined,
-      callouts:d.callouts.map(function(c){ var o={id:c.id,kind:c.kind||'etc',text:c.text,value:c.value||'',an:c.an}; if(c.moved){o.moved=true;o.x=c.x;o.y=c.y;} return o; }),
+      callouts:d.callouts.map(function(c){ var o={id:c.id,kind:c.kind||'etc',text:c.text,value:c.value||'',an:c.an}; if(c.moved){o.moved=true;o.x=c.x;o.y=c.y;} if(c.free)o.free=true; return o; }),
       marks:d.marks.map(function(m){ var o={type:m.type}; if(m.rn)o.rn=m.rn; if(m.pn)o.pn=m.pn; if(m.sn!=null)o.sn=m.sn; if(m.dir!=null)o.dir=m.dir; return o; }),
       notes:(d.notes||[]).map(function(n){return {text:n.text};})}:null,
     parts:(r.parts||[]).map(function(p){return {id:p.id,k:p.k,nm:p.nm,src:p.src||null,pn:p.pn,s:p.s};}),
@@ -301,8 +301,8 @@ function sheetSVG(r,opt){   /* opt.ui=화면(선택·옮기기 표시) / opt.noB
     });
     (d.notes||[]).forEach(function(n,i){ var nf=Math.max(60,fs*1.5),x=60,y=50+i*(nf*1.5+20),tw=measure(n.text,nf);
       s+='<rect x="'+x+'" y="'+y+'" width="'+(tw+50).toFixed(0)+'" height="'+(nf*1.5).toFixed(0)+'" fill="#fff" stroke="#f0a0a8" stroke-width="3"/><text x="'+(x+25)+'" y="'+(y+nf*1.1).toFixed(0)+'" font-size="'+nf+'" font-weight="700" fill="#231f20" font-family=\''+FONT_STACK+'\'>'+esc(n.text)+'</text>'; });
-    d.callouts.forEach(function(c){ s+='<line x1="'+c.ax.toFixed(1)+'" y1="'+c.ay.toFixed(1)+'" x2="'+c.sx.toFixed(1)+'" y2="'+c.sy.toFixed(1)+'" stroke="#231f20" stroke-width="'+LEADER_W+'"/>'+arrowhead(c.sx,c.sy,c.ax,c.ay,ah); });
-    if(opt.ui)d.callouts.forEach(function(c){ if(!st.moving&&st.sel!==c.id)return; s+='<circle class="ah" data-cid="'+c.id+'" cx="'+c.ax.toFixed(1)+'" cy="'+c.ay.toFixed(1)+'" r="13" fill="#fff1a1" stroke="#231f20" stroke-width="2.4"/>'; });
+    d.callouts.forEach(function(c){ if(c.free)return; s+='<line x1="'+c.ax.toFixed(1)+'" y1="'+c.ay.toFixed(1)+'" x2="'+c.sx.toFixed(1)+'" y2="'+c.sy.toFixed(1)+'" stroke="#231f20" stroke-width="'+LEADER_W+'"/>'+arrowhead(c.sx,c.sy,c.ax,c.ay,ah); });
+    if(opt.ui)d.callouts.forEach(function(c){ if(c.free||(!st.moving&&st.sel!==c.id))return; s+='<circle class="ah" data-cid="'+c.id+'" cx="'+c.ax.toFixed(1)+'" cy="'+c.ay.toFixed(1)+'" r="13" fill="#fff1a1" stroke="#231f20" stroke-width="2.4"/>'; });
     d.callouts.forEach(function(c){ var on=opt.ui&&st.sel===c.id, w=written(c);
       if(!opt.ui&&!w)return;   /* 내보내기·작지: 안 쓴 예시 글은 빼고 */
       s+='<g class="co" data-cid="'+c.id+'">';
@@ -369,7 +369,7 @@ function shell(){
    +   '<button class="dk2-btn sm" id="dk2-info" type="button">정보</button><button class="dk2-btn" id="dk2-export" type="button">내보내기</button>'
    +   '<button class="dk2-btn" id="dk2-send" type="button">작지로 보내기</button><button class="dk2-btn save" id="dk2-save" type="button">저장</button></div>'
    +  '<div class="dk2-tool" role="toolbar" aria-label="편집 도구">'
-   +   '<button class="dk2-btn sm" id="dk2-add" type="button" aria-pressed="false">＋ 화살표</button><button class="dk2-btn sm" id="dk2-move" type="button" aria-pressed="false">상자 옮기기</button>'
+   +   '<button class="dk2-btn sm" id="dk2-add" type="button" aria-pressed="false">＋ 화살표</button><button class="dk2-btn sm" id="dk2-addtext" type="button" aria-pressed="false">＋ 글</button><button class="dk2-btn sm" id="dk2-move" type="button" aria-pressed="false">상자 옮기기</button>'
    +   '<button class="dk2-btn sm dk2-phone" id="dk2-parts" type="button">부품</button><span class="dk2-sep" aria-hidden="true"></span>'
    +   '<span class="dk2-fs" role="group" aria-label="글씨 크기"><button class="dk2-btn sm" id="dk2-fs-down" type="button">글씨 −</button><b id="dk2-fs-val">20pt</b><button class="dk2-btn sm" id="dk2-fs-up" type="button">글씨 +</button></span>'
    +   '<div class="dk2-grow"></div><span class="dk2-sent" id="dk2-sent"></span><button class="dk2-btn sm" id="dk2-zoom" type="button" aria-pressed="false">크게 보기</button></div>'
@@ -410,7 +410,7 @@ function renderSheet(){
   svg.style.display=''; em.hidden=true;
   var pg=pageOf(r); svg.setAttribute('viewBox','0 0 '+pg.w+' '+pg.h); svg.classList.toggle('port',pg===PORT);
   svg.innerHTML=sheetSVG(r,{ui:true});
-  svg.classList.toggle('moving',st.moving); svg.classList.toggle('adding',st.adding||!!st.placing); svg.classList.toggle('zoom',st.zoom);
+  svg.classList.toggle('moving',st.moving); svg.classList.toggle('selco',!!st.sel&&isPhone()); svg.classList.toggle('adding',st.adding||!!st.addingText||!!st.placing); svg.classList.toggle('zoom',st.zoom);
 }
 function partsHTML(inFloat){
   var r=cur();
@@ -439,11 +439,11 @@ function renderSide(){
     var BO={top:0,A:0,Lf:0,Rf:0,bottom:1,B:1,Lb:1,Rb:1}, order=r.doc.callouts.slice().sort(function(a,b){ return ((BO[a.band]||0)-(BO[b.band]||0))||a.ax-b.ax; });
     h+='<div class="dk2-sec"><h3>설명 글 <span class="dk2-n" id="dk2-count">'+countText(r)+'</span></h3>'
       +order.map(function(c){ var isNew=c.text===NEW_TEXT;
-        return '<div class="dk2-co'+(st.sel===c.id?' on':'')+'" data-cid="'+c.id+'"><div class="dk2-co-h">'+kindSel(c)+'<span class="dk2-side-l">'+esc(c.moved?'옮긴 상자':SIDE[c.band])+'</span><span class="dk2-grow"></span>'
-          +'<span class="dk2-w '+(written(c)?'y':'e')+'">'+(written(c)?'씀':(isNew?'새 화살표':'예시 글'))+'</span></div>'
+        return '<div class="dk2-co'+(st.sel===c.id?' on':'')+'" data-cid="'+c.id+'"><div class="dk2-co-h">'+kindSel(c)+'<span class="dk2-side-l">'+esc(c.free?'글만(화살표 없음)':c.moved?'옮긴 상자':SIDE[c.band])+'</span><span class="dk2-grow"></span>'
+          +'<span class="dk2-w '+(written(c)?'y':'e')+'">'+(written(c)?'씀':(isNew?(c.free?'새 글':'새 화살표'):'예시 글'))+'</span></div>'
           +'<textarea id="dk2-ta-'+c.id+'" rows="'+Math.max(2,lines(c).length)+'" placeholder="'+esc(c.text.replace(/\s+\/\s+/g,'\n'))+'">'+esc(c.value||'')+'</textarea>'
           +'<div class="dk2-co-f">'+(written(c)?'<button type="button" class="dk2-btn sm ghost" data-clear="'+c.id+'">지우기</button>':(isNew?'':'<button type="button" class="dk2-btn sm ghost" data-fill="'+c.id+'">예시 그대로 쓰기</button>'))
-          +'<button type="button" class="dk2-btn sm ghost" data-del="'+c.id+'">화살표 빼기</button></div></div>'; }).join('')
+          +'<button type="button" class="dk2-btn sm ghost" data-del="'+c.id+'">'+(c.free?'글 지우기':'화살표 빼기')+'</button></div></div>'; }).join('')
       +'<div class="dk2-note">줄을 바꾸면 도식화에서도 줄이 바뀌어요. 「부위) 내용」 형식으로 써 주세요. 안 쓴 회색 예시 글은 작지·내보내기에 안 나가요.</div></div>';
   } else if(r.kind==='old'){
     h+='<div class="dk2-sec"><h3>옛 도식화</h3><div class="dk2-note">예전 도식화 편집기로 그린 <b>그림만</b> 있어요. 이 그림 그대로 <b>작지로 보내기</b>는 돼요. 설명 상자를 붙이려면 클로드에게 「이 도식화에 설명 붙여줘」라고 해 주세요.</div></div>';
@@ -471,13 +471,14 @@ function renderTitle(){
   var it=r&&itemOf(r);
   $('dk2-sub').textContent=r?(((it&&it.code)||r.code||'품번 없음')+' · '+recBrand(r)+' · '+stat(r).t):'';
   var editable=!!(r&&r.kind!=='old');
-  ['dk2-add','dk2-move','dk2-parts','dk2-fs-down','dk2-fs-up','dk2-info'].forEach(function(id){ $(id).disabled=!editable&&id!=='dk2-info'; });
+  ['dk2-add','dk2-addtext','dk2-move','dk2-parts','dk2-fs-down','dk2-fs-up','dk2-info'].forEach(function(id){ $(id).disabled=!editable&&id!=='dk2-info'; });
   $('dk2-info').disabled=!r; $('dk2-send').disabled=!r; $('dk2-export').disabled=!r; $('dk2-save').disabled=!editable;
   $('dk2-fs-down').disabled=$('dk2-fs-up').disabled=!(r&&r.doc);
-  [['dk2-move',st.moving],['dk2-add',st.adding],['dk2-zoom',st.zoom]].forEach(function(p){ $(p[0]).classList.toggle('on',p[1]); $(p[0]).setAttribute('aria-pressed',p[1]); });
+  [['dk2-move',st.moving],['dk2-add',st.adding],['dk2-addtext',!!st.addingText],['dk2-zoom',st.zoom]].forEach(function(p){ $(p[0]).classList.toggle('on',p[1]); $(p[0]).setAttribute('aria-pressed',p[1]); });
   $('dk2-zoom').textContent=st.zoom?'한눈에 보기':'크게 보기';
   $('dk2-fs-val').textContent=r&&r.doc?Math.round(r.doc.fs/PX_PT)+'pt':'—';
   $('dk2-hint').innerHTML=!r?'':st.placing?'<b>'+esc(placingName())+'</b> — 종이에서 놓을 곳을 누르세요. 부품을 다시 누르면 취소.'
+    :st.addingText?'<b>＋ 글</b> — 글을 놓을 곳을 누르세요(화살표 없는 설명 글). 놓은 뒤 끌어서 옮길 수 있어요. 다시 누르면 취소.'
     :st.adding?'<b>＋ 화살표</b> — 옷에서 화살표가 가리킬 곳을 누르세요. 새 설명 상자가 생겨요. 다시 누르면 취소.'
     :st.moving?'<b>상자 옮기기</b> — 설명 상자, 노란 점(가리키는 곳), 라벨, 부품을 끌어서 옮겨요.'
     :r.doc?('설명 상자를 누르면 '+(isPhone()?'아래':'오른쪽')+'에서 글을 써요. 케어·메인라벨 상자는 언제든 끌어서 옮길 수 있어요.'):'';
@@ -653,8 +654,9 @@ function wire(){
   $('dk2-file').addEventListener('change',onImportFiles);
   $('dk2-file-part').addEventListener('change',function(e){ var f=e.target.files[0]; e.target.value=''; if(!f)return;
     readURL(f).then(function(u){ return shrinkImage(u,400); }).then(function(img){ var id='c'+Date.now(); st.custom.push({id:id,nm:f.name.replace(/\.[^.]+$/,'').slice(0,6)||'내 부품',src:img.data}); saveMyParts(); st.placing=id; renderSide(); renderTitle(); renderSheet(); toast('내 부품을 추가했어요 — 종이를 누르면 찍혀요'); }); });
-  var mode=function(k){ var v=!st[k]; st.moving=false; st.adding=false; st.placing=null; st[k]=v; renderTitle(); renderSheet(); renderSide(); };
+  var mode=function(k){ var v=!st[k]; st.moving=false; st.adding=false; st.addingText=false; st.placing=null; st[k]=v; renderTitle(); renderSheet(); renderSide(); };
   $('dk2-move').addEventListener('click',function(){ mode('moving'); });
+  $('dk2-addtext').addEventListener('click',function(){ mode('addingText'); if(st.addingText&&isPhone())toast('글을 놓을 곳을 누르세요'); });
   $('dk2-add').addEventListener('click',function(){ mode('adding'); if(st.adding&&isPhone())toast('옷에서 화살표가 가리킬 곳을 누르세요'); });
   $('dk2-zoom').addEventListener('click',function(){ st.zoom=!st.zoom; renderTitle(); renderSheet(); });
   var setFs=function(dl){ var r=cur(); if(!r||!r.doc)return; r.doc.fs=Math.max(32,Math.min(104,r.doc.fs+dl)); touch(r); renderTitle(); renderSheet(); };
@@ -678,7 +680,7 @@ function wire(){
     var f=e.target.closest('[data-fill]'), cl=e.target.closest('[data-clear]'), dl=e.target.closest('[data-del]'), pt=e.target.closest('[data-part]'), cu=e.target.closest('[data-custom]')||e.target.closest('[data-asset]'), ps=e.target.closest('[data-ps]');
     if(f){ var c=r.doc.callouts.find(function(x){return x.id===f.getAttribute('data-fill');}); c.value=c.text.replace(/\s+\/\s+/g,'\n'); st.sel=c.id; touch(r); renderAll(); return; }
     if(cl){ var c2=r.doc.callouts.find(function(x){return x.id===cl.getAttribute('data-clear');}); c2.value=''; touch(r); renderAll(); return; }
-    if(dl){ var i=r.doc.callouts.findIndex(function(x){return x.id===dl.getAttribute('data-del');}); if(i<0)return; r.doc.callouts.splice(i,1); st.sel=null; touch(r); renderAll(); toast('화살표를 뺐어요'); return; }
+    if(dl){ var i=r.doc.callouts.findIndex(function(x){return x.id===dl.getAttribute('data-del');}); if(i<0)return; var wasFree=r.doc.callouts[i].free; r.doc.callouts.splice(i,1); st.sel=null; touch(r); renderAll(); toast(wasFree?'글을 지웠어요':'화살표를 뺐어요'); return; }
     if(pt||cu){ var key=pt?pt.getAttribute('data-part'):(cu.getAttribute('data-custom')||cu.getAttribute('data-asset')); st.moving=false; st.adding=false; st.placing=st.placing===key?null:key; renderTitle(); renderSheet(); renderSide();
       if(isPhone()&&st.placing){ $('dk2-float').innerHTML=''; toast(placingName()+' — 종이에서 놓을 곳을 누르세요'); } return; }
     if(e.target.closest('[data-addpart]')){ $('dk2-file-part').click(); return; }
@@ -696,7 +698,10 @@ function wire(){
       if(!def&&!cu){ st.placing=null; renderAll(); return; }
       r.parts=r.parts||[]; r.parts.push({id:id,k:def?def.k:'custom',nm:def?def.nm:cu.nm,src:cu?(cu.src||cu.img):null,pn:toN(r,p),s:def?1.4:2.2});
       st.selPart=id; st.placing=null; touch(r); renderAll(); toast((def?def.nm:cu.nm)+' 찍었어요'); return; }
-    if(st.adding){ if(!r.doc)r.doc={asp:r.base.h/r.base.w,fs:52,callouts:[],marks:[],notes:[]};
+    if(st.addingText){ if(!r.doc)r.doc={asp:r.base.h/r.base.w,fs:DEF_FS,callouts:[],marks:[],notes:[]};   /* 10-20 화살표 없는 설명 글 */
+      var tid='t'+Date.now(); r.doc.callouts.push({id:tid,kind:'etc',text:'설명) 내용',value:'',an:toN(r,p),free:true,moved:true,x:p.x,y:p.y-r.doc.fs*0.6});
+      st.addingText=false; st.sel=tid; touch(r); renderAll(); selectCallout(tid,!isPhone()); toast('글 상자를 놓았어요 — 글을 써 주세요(끌어서 옮길 수 있어요)'); return; }
+    if(st.adding){ if(!r.doc)r.doc={asp:r.base.h/r.base.w,fs:DEF_FS,callouts:[],marks:[],notes:[]};
       var nid='n'+Date.now(); r.doc.callouts.push({id:nid,kind:'etc',text:NEW_TEXT,value:'',an:toN(r,p)});
       st.adding=false; st.sel=nid; touch(r); renderAll(); selectCallout(nid,!isPhone()); toast('화살표를 더했어요 — 글을 써 주세요'); return; }
     var t=e.target, ahEl=t.closest('.ah'), lbEl=t.closest('.lb'), ptEl=t.closest('.pt'), coEl=t.closest('.co');
@@ -708,16 +713,21 @@ function wire(){
     if(ptEl){ st.selPart=ptEl.getAttribute('data-pid'); st.sel=null; var part=r.parts.find(function(x){return x.id===st.selPart;}), n=toN(r,p);
       drag={type:'part',obj:part,off:[n[0]-part.pn[0],n[1]-part.pn[1]]}; renderSheet(); renderSide(); e.preventDefault(); return; }
     if(coEl){ var c=r.doc.callouts.find(function(x){return x.id===coEl.getAttribute('data-cid');});
-      if(st.moving){ drag={type:'co',obj:c,ox:p.x-c.x,oy:p.y-c.y}; e.preventDefault(); } else selectCallout(c.id,!isPhone()); return; }
+      /* 10-20 글 상자는 「상자 옮기기」 없이도 바로 끌어 옮김(웹은 언제나, 폰은 한 번 눌러 고른 상자만 — 화면 밀기와 안 섞이게). 6px 넘게 움직여야 끌기 */
+      if(st.moving||!isPhone()||st.sel===c.id){ drag={type:'co',obj:c,ox:p.x-c.x,oy:p.y-c.y,cx:e.clientX,cy:e.clientY,pending:true}; e.preventDefault(); }
+      if(!st.moving&&st.sel!==c.id)selectCallout(c.id,!isPhone()); return; }
     if(st.sel||st.selPart){ st.sel=null; st.selPart=null; renderSheet(); renderSide(); }
   });
-  window.addEventListener('pointermove',function(e){ if(!drag)return; var r=cur(); if(!r)return; var p=svgPt(e), n=toN(r,p); drag.moved=true;
+  window.addEventListener('pointermove',function(e){ if(!drag)return; var r=cur(); if(!r)return;
+    if(drag.pending){ if(Math.hypot(e.clientX-drag.cx,e.clientY-drag.cy)<6)return; drag.pending=false; }
+    var p=svgPt(e), n=toN(r,p); drag.moved=true;
     if(drag.type==='part')drag.obj.pn=[n[0]-drag.off[0],n[1]-drag.off[1]];
     else if(drag.type==='anchor')drag.obj.an=n;
     else if(drag.type==='label'){ var du=n[0]-drag.last[0],dv=n[1]-drag.last[1]; drag.last=n; [drag.obj].concat(drag.inner).forEach(function(m){ m.rn[0]+=du; m.rn[1]+=dv; }); drag.linked.forEach(function(c){ c.an[0]+=du; c.an[1]+=dv; }); }
     else { var o=drag.obj; o.x=Math.max(10,Math.min(PAGE_W-o.w-10,p.x-drag.ox)); o.y=Math.max(10,Math.min(PAGE_H-o.h-10,p.y-drag.oy)); o.moved=true; }
     renderSheet(); });
   window.addEventListener('pointerup',function(){ if(drag&&drag.moved){ touch(); if(drag.type==='label')toast('라벨 위치를 옮겼어요 — 가리키던 화살표도 같이 따라가요'); renderSide(); } drag=null; });
+  window.addEventListener('pointercancel',function(){ drag=null; });
   window.addEventListener('resize',function(){ if(!$('dosik2-root')||$('pane-dosik').style.display==='none')return; if(!isPhone())st.view='detail'; applyView(); fitHeight(); renderTitle(); });
 }
 function saveMyParts(){ idbPut({id:'__myparts',del:1,list:st.custom}).catch(function(){}); }
