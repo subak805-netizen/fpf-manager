@@ -16,7 +16,7 @@ var PAGE_W=3300, PAGE_H=2334;   /* 지금 그리는 도식화의 종이 — page
 function pageOf(r){ var p=(r&&r.doc&&r.doc.orient==='port')||(r&&r.orient==='port')?PORT:LAND; PAGE_W=p.w; PAGE_H=p.h; return p; }
 var FONT_STACK='"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif';
 var KIND={label:'라벨',band:'밴드',stitch:'봉제·스티치',tuck:'턱·주름',lining:'안감·안쪽',art:'아트웍',etc:'기타'};
-var SIDE={top:'옷 위 줄',bottom:'옷 아래 줄',A:'앞판 옆(위)',B:'뒷판 옆(아래)',Lf:'앞판 왼쪽',Rf:'앞판 오른쪽',Lb:'뒷판 왼쪽',Rb:'뒷판 오른쪽'};
+var SIDE={top:'옷 위 줄',bottom:'옷 아래 줄',A:'앞판 옆(위)',B:'뒷판 옆(아래)',C:'아래 가운데',Lf:'앞판 왼쪽',Rf:'앞판 오른쪽',Lb:'뒷판 왼쪽',Rb:'뒷판 오른쪽'};
 var NEED=[['main','메인라벨'],['care','케어라벨'],['stitch','봉제'],['band','밴드'],['lining','안감']];
 var SLOT_LBL={sewSketch:'메인 지시서',cutSketch:'메인 재단',innSketch:'메인 안사양'};
 var PARTS=[
@@ -246,7 +246,7 @@ function arRegionFor(d,c){
   var inV=function(v){ return x>=v[0]-0.02&&x<=v[0]+v[2]+0.02&&y>=v[1]-0.02&&y<=v[1]+v[3]+0.02; };
   var dist=function(v){ return Math.hypot(x-(v[0]+v[2]/2),y-(v[1]+v[3]/2)); };
   var front=inV(f)&&!inV(b)?true:(!inV(f)&&inV(b)?false:dist(f)<=dist(b));
-  if(A.mode==='diag')return front?(y<b[1]?'A':'B'):(y<f[1]+f[3]?'A':'B');
+  if(A.mode==='diag'){ var k=front?(y<b[1]?'A':'B'):(y<f[1]+f[3]?'A':'B'); if(k==='B'&&A.regions&&A.regions.C&&y>=A.regions.C.r[1])k='C'; return k; }   /* C = 아래 확대 그림 옆 빈자리 */
   var v=front?f:b; return (x<v[0]+v[2]/2?'L':'R')+(front?'f':'b');
 }
 function arLeadEnd(c,lh){ var x0=c.x,x1=c.x+c.w,y0=c.y,y1=c.y+c.h;
@@ -264,7 +264,7 @@ function layoutAr(r){
   d.callouts.forEach(function(c){ c.ax=c.an[0]*PAGE_W; c.ay=c.an[1]*PAGE_H; c.band=arRegionFor(d,c); if(!R[c.band])c.band=keys[0]; meas(c); });
   var free=d.callouts.filter(function(c){return !c.moved;});
   var hsum=function(k){ var a=free.filter(function(c){return c.band===k;}); return a.reduce(function(s,c){return s+c.h;},0)+GAP*Math.max(0,a.length-1); };
-  var pairs=d.ar.mode==='diag'?[['A','B']]:[['Lf','Rf'],['Lb','Rb']];   /* 한쪽 빈자리가 넘치면 짝 빈자리로 (annotate_ar.py 와 같음) */
+  var pairs=d.ar.mode==='diag'?[['A','B'],['B','C']]:[['Lf','Rf'],['Lb','Rb']];   /* 한쪽 빈자리가 넘치면 짝 빈자리로 (annotate_ar.py 와 같음) */
   pairs.forEach(function(pr){ if(!R[pr[0]]||!R[pr[1]])return; [[pr[0],pr[1]],[pr[1],pr[0]]].forEach(function(ko){ var k=ko[0],o=ko[1];
     for(var guard=0;guard<20&&hsum(k)>R[k].y1-R[k].y0;guard++){ var ro=R[o], dst=function(c){ return Math.hypot(Math.max(ro.x0-c.ax,0,c.ax-ro.x1),Math.max(ro.y0-c.ay,0,c.ay-ro.y1)); }, cand=free.filter(function(c){return c.band===k;}).sort(function(a,b){return dst(a)-dst(b);})[0];   /* 옮길 빈자리에 가장 가까운 설명부터 */
       if(!cand)break; cand.band=o; meas(cand); if(hsum(o)>R[o].y1-R[o].y0){ cand.band=k; meas(cand); break; } } }); });
@@ -436,7 +436,7 @@ function renderSide(){
   if(r.kind!=='old')h+='<div class="dk2-sec"><h3>필수 표시 확인</h3><div class="dk2-need">'+NEED.map(function(p){ return '<div class="'+(need[p[0]]?'y':'n')+'">'+p[1]+'<i>'+(need[p[0]]?'있음':'없음')+'</i></div>'; }).join('')+'</div></div>';
   if(r.doc){
     layout(r);
-    var BO={top:0,A:0,Lf:0,Rf:0,bottom:1,B:1,Lb:1,Rb:1}, order=r.doc.callouts.slice().sort(function(a,b){ return ((BO[a.band]||0)-(BO[b.band]||0))||a.ax-b.ax; });
+    var BO={top:0,A:0,Lf:0,Rf:0,bottom:1,B:1,C:2,Lb:1,Rb:1}, order=r.doc.callouts.slice().sort(function(a,b){ return ((BO[a.band]||0)-(BO[b.band]||0))||a.ax-b.ax; });
     h+='<div class="dk2-sec"><h3>설명 글 <span class="dk2-n" id="dk2-count">'+countText(r)+'</span></h3>'
       +order.map(function(c){ var isNew=c.text===NEW_TEXT;
         return '<div class="dk2-co'+(st.sel===c.id?' on':'')+'" data-cid="'+c.id+'"><div class="dk2-co-h">'+kindSel(c)+'<span class="dk2-side-l">'+esc(c.free?'글만(화살표 없음)':c.moved?'옮긴 상자':SIDE[c.band])+'</span><span class="dk2-grow"></span>'
