@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-20y';
+var APP_BUILD=/*BUILD*/'2026-10-20z';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9112,7 +9112,7 @@ function renderBook(){
       <button class="btn s" onclick="window._bookSearch='';var i=document.getElementById('book-search');if(i)i.value='';renderBookList()">✕</button>
       <span id="book-count" class="muted" style="font-size:11px;white-space:nowrap">${allSups.length+'곳'}</span>
     </div>
-    <div style="margin-top:8px;display:flex;align-items:center;gap:8px"><span style="font-size:11.5px;font-weight:700;color:${_scope==='trim'?'#92580b':'#1e40af'}">${_scope==='trim'?'부자재 단가장':'원단 단가장'} <span class="muted" style="font-weight:400;font-size:10px">— ${_scope==='trim'?'부자재처만 표시 (부자재는 여기서 추가·관리)':'원단처만 표시'}</span></span><button class="btn s" onclick="openBookWindow('${_scope}')" title="새 창으로 열어 아이템 편집이랑 나란히 보기" style="margin-left:auto;font-size:11px;white-space:nowrap">새 창으로 열기</button></div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px"><span style="font-size:11.5px;font-weight:700;color:${_scope==='trim'?'#92580b':'#1e40af'}">${_scope==='trim'?'부자재 단가장':'원단 단가장'} <span class="muted" style="font-weight:400;font-size:10px">— ${_scope==='trim'?'부자재처만 표시 (부자재는 여기서 추가·관리)':'원단처만 표시'}</span></span><span id="pb-saved" class="muted" style="margin-left:auto;font-size:11px;white-space:nowrap">${window._pbSavedAt?('저장됨 · '+_pbHM(window._pbSavedAt)):''}</span><button class="btn s" onclick="pbSaveNow()" title="단가장은 고칠 때마다 저절로 저장돼요 — 눌러서 지금 바로 한 번 더 저장" style="font-size:12px;font-weight:800;white-space:nowrap;background:var(--neon-green,#A5E6BA);border-color:var(--ink,#0B0A05);color:var(--ink,#0B0A05)">저장</button><button class="btn s" onclick="openBookWindow('${_scope}')" title="새 창으로 열어 아이템 편집이랑 나란히 보기" style="font-size:11px;white-space:nowrap">새 창으로 열기</button></div>
   </div>`;
   /* 큰 폼이 늘 펼쳐져 있어 자리를 많이 먹었다 → **버튼 하나**, 누르면 창에서 입력 (요청 2026-08-26) */
   const addForm=`<div style="margin-bottom:10px"><button class="btn s" onclick="openAddSupModal('${_scope}')" style="font-weight:700">＋ 거래처 추가</button></div>`;
@@ -10794,7 +10794,14 @@ function pbShowPriceLog(encSup,encKey){
 /* ★2026-08-17: savePB는 로컬(fpm_shared)만 쓰고 클라우드 푸시가 없었다 — 57곳 중 saveData 동반 8곳뿐.
    단가·업체정보·품목 삭제(묘비)·가공단가 편집이 다음 '다른 저장'까지 클라우드에 안 올라가던 원인.
    → 저장 뒤 saveData를 짧게 모아서 호출(연속 편집 몰아치기 방지). */
-function savePB(){lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook}); try{ if(window._pbSaveT)clearTimeout(window._pbSaveT); window._pbSaveT=setTimeout(function(){ window._pbSaveT=null; try{saveData();}catch(e){} },300); }catch(e){} }
+/* 10-20 단가장 「저장」 버튼 (요청 「저장된 건지 확인이 안 돼」) — 고칠 때마다 저절로 저장되는 건 그대로, 저장 시각을 보여 주고 버튼은 지금 바로 한 번 더 */
+function _pbHM(t){ var d=new Date(t); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
+function _pbSavedMark(){ window._pbSavedAt=Date.now(); try{ var el=document.getElementById('pb-saved'); if(el)el.textContent='저장됨 · '+_pbHM(window._pbSavedAt); }catch(e){} }
+function pbSaveNow(){
+  try{ var a=document.activeElement; if(a&&a.blur&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))a.blur(); }catch(e){}   /* 고치던 칸 값부터 반영(onchange) */
+  setTimeout(function(){ try{ savePB(); if(window._pbSaveT){ clearTimeout(window._pbSaveT); window._pbSaveT=null; } saveData(); }catch(e){} _pbSavedMark(); if(typeof showToast==='function')showToast('단가장 저장했어요 · '+_pbHM(window._pbSavedAt)); },60);
+}
+function savePB(){_pbSavedMark();lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook}); try{ if(window._pbSaveT)clearTimeout(window._pbSaveT); window._pbSaveT=setTimeout(function(){ window._pbSaveT=null; try{saveData();}catch(e){} },300); }catch(e){} }
 // 시즌 최근순 정렬 (예: 27SS > 26FW > 26SS > 25FW). SS=상반기, FW=하반기
 function seasonKey(s){var m=(''+s).match(/(\d{2})\s*(SS|SP|SU|FW|AW|FA)?/i);if(!m)return -1;var y=+m[1];var h=(m[2]||'').toUpperCase();var half=(h==='SS'||h==='SP'||h==='SU')?1:((h==='FW'||h==='AW'||h==='FA')?2:0);return y*10+half;}
 function sortSeasonsDesc(arr){return (arr||[]).slice().sort(function(a,b){var ka=seasonKey(a),kb=seasonKey(b);if(kb!==ka)return kb-ka;return (''+b).localeCompare(''+a);});}
@@ -45018,7 +45025,7 @@ function tpRender(){
   var _logo=tpBrandLogo(it);
   var logoCell=_logo?('<div class="logo"><img src="'+tpEsc(_logo)+'" alt="로고"></div>'):'<div class="logo">＋ 브랜드<br>로고</div>';
   var _routeIn='<input class="tp-cell tp-route" style="text-align:left" readonly title="작업경로는 아이템 편집창에서 수정해요" value="'+tpEsc(_routeVal)+'" placeholder="(아이템에서 작업경로 입력 또는 공장 연결)">';
-  var head='<div class="htop">'+logoCell+'<div class="ttl"><span class="tp-pfx" id="tp-pfx">'+tpEsc(titlePfx)+'</span> '+tpEsc(it.name||'')+' <span>'+_sub+'</span></div><div class="who"><div class="h">담당자</div><div>'+tpInp('head.manager','')+'</div><div class="h">전달일</div><div>'+tpInpDate(tpIsSpat(active)?(active+'.date'):(active==='grd'?'grd.date':((active==='pack'||active==='pack2')?(active+'.date'):'head.date')))   /* 10-20q 완성·포장은 전달일 따로 (요청) */+'</div></div></div>'
+  var head='<div class="htop">'+logoCell+'<div class="ttl"><span class="tp-pfx" id="tp-pfx">'+tpEsc(titlePfx)+'</span> '+tpEsc(it.name||'')+' <span>'+_sub+'</span></div><div class="who"><div class="h">담당자</div><div>'+tpInp('head.manager','')+'</div><div class="h">전달일</div><div>'+tpInpDate(tpIsSpat(active)?(active+'.date'):(active==='grd'?'grd.date':((active==='pack'||active==='pack2')?'pack.date':'head.date')))   /* 10-20q 완성·포장은 전달일 따로 — 둘은 한 날짜(pack.date) 같이 씀 (요청 「하나로」) */+'</div></div></div>'
     +'<table class="tp-meta"><tr>'
       +'<th style="width:46px">브랜드</th><td style="width:62px">'+tpEsc(brand)+'</td>'
       +'<th style="width:40px">품명</th><td>'+tpEsc(it.name||'')+'</td>'
