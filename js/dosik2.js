@@ -266,7 +266,7 @@ function layoutAr(r){
   var hsum=function(k){ var a=free.filter(function(c){return c.band===k;}); return a.reduce(function(s,c){return s+c.h;},0)+GAP*Math.max(0,a.length-1); };
   var pairs=d.ar.mode==='diag'?[['A','B']]:[['Lf','Rf'],['Lb','Rb']];   /* 한쪽 빈자리가 넘치면 짝 빈자리로 (annotate_ar.py 와 같음) */
   pairs.forEach(function(pr){ if(!R[pr[0]]||!R[pr[1]])return; [[pr[0],pr[1]],[pr[1],pr[0]]].forEach(function(ko){ var k=ko[0],o=ko[1];
-    for(var guard=0;guard<20&&hsum(k)>R[k].y1-R[k].y0;guard++){ var oc=(R[o].x0+R[o].x1)/2, cand=free.filter(function(c){return c.band===k;}).sort(function(a,b){return Math.abs(a.ax-oc)-Math.abs(b.ax-oc);})[0];
+    for(var guard=0;guard<20&&hsum(k)>R[k].y1-R[k].y0;guard++){ var ro=R[o], dst=function(c){ return Math.hypot(Math.max(ro.x0-c.ax,0,c.ax-ro.x1),Math.max(ro.y0-c.ay,0,c.ay-ro.y1)); }, cand=free.filter(function(c){return c.band===k;}).sort(function(a,b){return dst(a)-dst(b);})[0];   /* 옮길 빈자리에 가장 가까운 설명부터 */
       if(!cand)break; cand.band=o; meas(cand); if(hsum(o)>R[o].y1-R[o].y0){ cand.band=k; meas(cand); break; } } }); });
   keys.forEach(function(k){ var rg=R[k], items=free.filter(function(c){return c.band===k;}).sort(function(a,b){return a.ay-b.ay;});
     var place=function(){ items.forEach(function(c){ c.x=rg.al==='l'?rg.x0:rg.x1-c.w; c.y=Math.min(Math.max(c.ay-lh*0.5,rg.y0),rg.y1-c.h); });
