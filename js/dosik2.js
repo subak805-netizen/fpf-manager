@@ -280,8 +280,9 @@ function layoutAr(r){
 }
 
 /* ---------- 종이 그리기(화면·내보내기 공용) ---------- */
-function arrowhead(x,y,fx,fy,s){ var d=Math.hypot(x-fx,y-fy)||1,ux=(x-fx)/d,uy=(y-fy)/d,bx=x-ux*s,by=y-uy*s,nx=-uy*s*0.42,ny=ux*s*0.42;
-  return '<path d="M'+x.toFixed(1)+','+y.toFixed(1)+' L'+(bx+nx).toFixed(1)+','+(by+ny).toFixed(1)+' L'+(bx-nx).toFixed(1)+','+(by-ny).toFixed(1)+' Z" fill="#231f20"/>'; }
+function arrowhead(x,y,fx,fy,s){   /* 10-20 사용자 지정: 열린 V자 촉(선 두 개), 채운 삼각형 아님 */
+  var d=Math.hypot(x-fx,y-fy)||1,ux=(x-fx)/d,uy=(y-fy)/d,L=s*1.05,bx=x-ux*L,by=y-uy*L,nx=-uy*L*0.5,ny=ux*L*0.5;
+  return '<path d="M'+(bx+nx).toFixed(1)+','+(by+ny).toFixed(1)+' L'+x.toFixed(1)+','+y.toFixed(1)+' L'+(bx-nx).toFixed(1)+','+(by-ny).toFixed(1)+'" fill="none" stroke="#231f20" stroke-width="'+LEADER_W+'" stroke-linecap="round" stroke-linejoin="round"/>'; }
 function foldArrow(p,s,dir){ var x=p[0],y=p[1],x0=dir>0?x-s:x+s,x1=dir>0?x+s:x-s,tip=[x1+dir*s*0.05,y+s*0.45],a=Math.atan2(tip[1]-y,tip[0]-x1),hs=Math.max(s*0.5,11);
   var l=[tip[0]-hs*Math.cos(a-0.5),tip[1]-hs*Math.sin(a-0.5)],rr=[tip[0]-hs*Math.cos(a+0.5),tip[1]-hs*Math.sin(a+0.5)];
   return '<path d="M'+x0+','+y+' Q'+x+','+(y-s*0.55)+' '+x1+','+y+' L'+tip[0]+','+tip[1]+'" fill="none" stroke="#e8402c" stroke-width="3.6" stroke-linecap="round"/><path d="M'+tip[0]+','+tip[1]+' L'+l[0]+','+l[1]+' L'+rr[0]+','+rr[1]+' Z" fill="#e8402c"/>'; }
