@@ -447,6 +447,7 @@ function renderSide(){
     layout(r);
     var BO={top:0,A:0,Lf:0,Rf:0,bottom:1,B:1,C:2,Lb:1,Rb:1,F:0}, order=r.doc.callouts.slice().sort(function(a,b){ return ((BO[a.band]||0)-(BO[b.band]||0))||a.ax-b.ax; });
     h+='<div class="dk2-sec"><h3>설명 글 <span class="dk2-n" id="dk2-count">'+countText(r)+'</span></h3>'
+      +'<div class="dk2-addrow"><button type="button" class="dk2-btn sm" data-addmode="adding">＋ 화살표 달린 설명</button><button type="button" class="dk2-btn sm" data-addmode="addingText">＋ 글만</button></div>'   /* 10-20 설명 글 칸에서도 바로 추가 */
       +order.map(function(c){ var isNew=c.text===NEW_TEXT;
         return '<div class="dk2-co'+(st.sel===c.id?' on':'')+'" data-cid="'+c.id+'"><div class="dk2-co-h">'+kindSel(c)+'<span class="dk2-side-l">'+esc(c.free?'글만(화살표 없음)':c.moved?'옮긴 상자':SIDE[c.band])+'</span><span class="dk2-grow"></span>'
           +'<span class="dk2-w '+(written(c)?'y':'e')+'">'+(written(c)?'씀':(isNew?(c.free?'새 글':'새 화살표'):'예시 글'))+'</span></div>'
@@ -686,6 +687,8 @@ function wire(){
   side.addEventListener('focusout',function(e){ if(e.target.closest('textarea'))setTimeout(function(){ var a=document.activeElement; if(!a||!a.closest('#dk2-side-in'))renderSide(); },150); });
   var sideClick=function(e){
     var r=cur(); if(!r)return;
+    var am=e.target.closest('[data-addmode]');
+    if(am){ $(am.getAttribute('data-addmode')==='adding'?'dk2-add':'dk2-addtext').click(); var sh=$('dk2-sheet'); if(sh)sh.scrollIntoView({block:'center',behavior:'smooth'}); return; }
     var f=e.target.closest('[data-fill]'), cl=e.target.closest('[data-clear]'), dl=e.target.closest('[data-del]'), pt=e.target.closest('[data-part]'), cu=e.target.closest('[data-custom]')||e.target.closest('[data-asset]'), ps=e.target.closest('[data-ps]');
     if(f){ var c=r.doc.callouts.find(function(x){return x.id===f.getAttribute('data-fill');}); c.value=c.text.replace(/\s+\/\s+/g,'\n'); st.sel=c.id; touch(r); renderAll(); return; }
     if(cl){ var c2=r.doc.callouts.find(function(x){return x.id===cl.getAttribute('data-clear');}); c2.value=''; touch(r); renderAll(); return; }
