@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261020v">
+<link rel="stylesheet" href="css/main.css?v=20261020y">
 <link rel="stylesheet" href="css/dosik2.css?v=20261020h">
 </head>
 <body>
@@ -1645,7 +1645,7 @@ let companies={},curCoId='';
 let S={items:{},orders:{},factories:{},priceBook:{}};
 let curOid=null,curOTab='po',curPayTab='all';
 let editFcId=null,editItemId=null,_itemListScrollY=0;
-let formColors=[],formSizes=[],formFabs=[],formTrims=[],formTrimCosts=[],formLaborBySize={},formLaborTiers=[],formLaborReorder=0,formLaborByColor={};
+let formColors=[],formSizes=[],formFabs=[],formTrims=[],formTrimCosts=[],formLaborBySize={},formLaborTiers=[],formLaborReorder=0,formLaborByColor={},formOnceFees={};
 
 const COST_DEFS=[
   ['laborCost','공임','sewingFcId','봉제공임공장'],
@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-20x';
+var APP_BUILD=/*BUILD*/'2026-10-20y';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -6816,7 +6816,7 @@ function lsItemCost(it){ // 원가계산서 요약 탭과 동일 공식 (양산 
   try{
     var fab=Math.round((it.fabrics||[]).reduce(function(s,f){return s+calcFabYards(f,REP).cost;},0)/REP);
     var trm=Math.round((it.trims||[]).reduce(function(s,t){return s+calcTrimNeed(t,REP).cost;},0)/REP);
-    var proc=COST_DEFS.reduce(function(s,d){return s+(+it[d[0]]||0);},0);
+    var proc=COST_DEFS.reduce(function(s,d){return s+(+it[d[0]]||0);},0)+oncePerPcs(it);   /* 10-20 1회비 ÷ 나누는 수 */
     var tproc=(typeof trimCostPerPcs==='function')?trimCostPerPcs(it):0;
     var fin=(it.finishCosts||[]).reduce(function(s,fc2){return s+(+fc2.costPerPcs||0);},0);
     return fab+trm+proc+tproc+fin;
@@ -7074,6 +7074,61 @@ function _fcRatesClean(a){ var out=[]; (Array.isArray(a)?a:[]).forEach(function(
 function _crMatch(rates,price,memo){ memo=String(memo||'').trim(); if(memo){ for(var i=0;i<rates.length;i++){ if(String(rates[i].name||'').trim()===memo)return rates[i]; } } var same=rates.filter(function(x){ return +price>0&&+x.price===+price; }); return same.length===1?same[0]:null; }
 function _crDef(ck){ for(var i=0;i<COST_DEFS.length;i++){ if(COST_DEFS[i][0]===ck)return COST_DEFS[i]; } return null; }
 function crRenderAll(){ COST_DEFS.forEach(function(cd){ if(cd[0]!=='laborCost')crRender(cd[0]); }); }
+/* ===== 10-20 거래처 1회비 (사용자 「1회비 진행해줘」, 미리보기 FAdTHpTpr92XRdXLRRCGKA) =====
+   it.onceFees = {가공비 키(laborCost·embroideryCost…): [{id,name,amount,div,reo}]} — 오더마다 그 공장에 한 번 내는 돈 (예: 자수 컷팅비 15,000)
+   · 원가: amount ÷ div(줄마다 따로, 비면 30) 를 1장당 원가에 더함 (원가계산서 가공비 밑 줄)
+   · 결제: 오더마다 그 공장 결제 o.payFees['fc:'+공장] 에 한 줄 {auto:'once'} — 원래 있던 「운임·기타 비용」 칸이라 결제·명세서 화면은 손 안 대고 같이 더해짐(과세)
+   · 리오더(2차~)는 「리오더에도」(reo) 체크한 것만 · 결제 끝난(paymentSent) 공장 줄은 안 건드림
+   · 맞추는 때 = 아이템 저장(1회비가 바뀌었을 때만)·새 오더·오더 복사 — 사용자가 한 일에서만 (부팅 때 혼자 맞추지 않음) */
+function _onceList(it,ck){ var m=it&&it.onceFees; var a=(m&&Array.isArray(m[ck]))?m[ck]:[]; return a.filter(function(l){ return l&&+l.amount>0; }); }
+function _onceDiv(l){ return (+l.div>0)?+l.div:30; }
+function oncePerPcs(it){ var s=0; COST_DEFS.forEach(function(cd){ _onceList(it,cd[0]).forEach(function(l){ s+=(+l.amount)/_onceDiv(l); }); }); return Math.round(s); }
+function _onceIsReorder(o,it){ try{ var rn=(typeof getItemReorderNum==='function')?getItemReorderNum(o.id,it.id):null; return !!(rn&&+rn.num>1); }catch(e){ return false; } }
+/* 이 오더에서 이 아이템이 내는 1회비 합계(원) — 오더 원가 추정용 */
+function onceOrderAmt(o,it){ var re=_onceIsReorder(o,it), s=0; COST_DEFS.forEach(function(cd){ _onceList(it,cd[0]).forEach(function(l){ if(!re||l.reo)s+=+l.amount; }); }); return s; }
+function onceSyncOrder(o){
+  if(!o||!Array.isArray(o.orderItems))return false;
+  var before=JSON.stringify(o.payFees||{});
+  var paid=function(fc){ var s=o.factorySchedules&&o.factorySchedules[fc]; return !!(s&&s.paymentSent); };
+  o.orderItems.forEach(function(oi){ var it=oi&&S.items[oi.itemId]; if(!it)return;
+    var re=_onceIsReorder(o,it);
+    COST_DEFS.forEach(function(cd){ var ck=cd[0], fc=orderFc(o,it,cd[2]);
+      var keep={};   /* 사용자가 결제 화면에서 바꾼 과세 여부는 지킨다 */
+      Object.keys(o.payFees||{}).forEach(function(k){ if(k.indexOf('fc:')!==0||paid(k.slice(3)))return;
+        o.payFees[k]=(o.payFees[k]||[]).filter(function(f){ if(f&&f.auto==='once'&&f.itemId===it.id&&f.ck===ck){ keep[f.lid]=f; return false; } return true; });
+        if(!o.payFees[k].length)delete o.payFees[k]; });
+      if(!fc||!S.factories[fc]||paid(fc))return;
+      var ls=_onceList(it,ck).filter(function(l){ return !re||l.reo; }); if(!ls.length)return;
+      if(!o.payFees)o.payFees={}; var arr=o.payFees['fc:'+fc]=o.payFees['fc:'+fc]||[];
+      ls.forEach(function(l){ var old=keep[l.id]; arr.push({name:(it.name?it.name+' ':'')+(l.name||'1회비')+' (1회)',qty:1,unitPrice:+l.amount,amount:+l.amount,noVat:old?!!old.noVat:false,auto:'once',itemId:it.id,ck:ck,lid:l.id}); });
+    });
+  });
+  return JSON.stringify(o.payFees||{})!==before;
+}
+function onceSyncItem(itemId){ var n=0; Object.keys(S.orders||{}).forEach(function(oid){ var o=S.orders[oid]; if(!o||!(o.orderItems||[]).some(function(x){ return x&&x.itemId===itemId; }))return; if(onceSyncOrder(o))n++; }); return n; }
+/* 아이템 수정 — 가공비 줄 밑 1회비 */
+function onceRender(ck){
+  var box=document.getElementById('once-'+ck); if(!box)return;
+  var a=(formOnceFees&&formOnceFees[ck])||[];
+  var e=function(v){ return esc(String(v==null?'':v)); };
+  box.innerHTML=(a.length?'<div class="once-h">1회비 <small>오더마다 이 공장에 한 번 · 나누는 수로 나눠 1장당 원가에 · 결제에도 한 줄</small></div>':'')
+    +a.map(function(l,i){ var per=(+l.amount>0)?Math.round((+l.amount)/_onceDiv(l)):0;
+      return '<div class="once-ln"><input value="'+e(l.name)+'" placeholder="이름 (예: 컷팅비)" oninput="onceSet(\''+ck+'\','+i+',\'name\',this.value)">'
+        +'<input type="number" min="0" inputmode="numeric" class="n" value="'+(+l.amount||'')+'" placeholder="금액" oninput="onceSet(\''+ck+'\','+i+',\'amount\',this.value)"><span class="u">원 ÷</span>'
+        +'<input type="number" min="1" inputmode="numeric" class="n d" value="'+(+l.div>0?+l.div:30)+'" title="나누는 수 (미니멈)" oninput="onceSet(\''+ck+'\','+i+',\'div\',this.value)">'
+        +'<span class="eq" id="once-eq-'+ck+'-'+i+'">= '+num(per)+'원/pcs</span>'
+        +'<label class="ro"><input type="checkbox"'+(l.reo?' checked':'')+' onchange="onceSet(\''+ck+'\','+i+',\'reo\',this.checked)">리오더에도</label>'
+        +'<button type="button" class="once-x" title="빼기" onclick="onceDel(\''+ck+'\','+i+')">×</button></div>'; }).join('')
+    +'<button type="button" class="btn s once-add" onclick="onceAdd(\''+ck+'\')">＋ 1회비</button>';
+}
+function onceRenderAll(){ COST_DEFS.forEach(function(cd){ onceRender(cd[0]); }); }
+function onceAdd(ck){ formOnceFees=formOnceFees||{}; (formOnceFees[ck]=formOnceFees[ck]||[]).push({id:uid(),name:'',amount:0,div:30,reo:false}); onceRender(ck); try{scheduleDraft();}catch(e){} var b=document.getElementById('once-'+ck); var ln=b&&b.querySelectorAll('.once-ln'); var last=ln&&ln[ln.length-1]; var nm=last&&last.querySelector('input'); if(nm){ try{nm.focus();}catch(e){} } }
+function onceDel(ck,i){ var a=formOnceFees&&formOnceFees[ck]; if(!a)return; a.splice(i,1); if(!a.length)delete formOnceFees[ck]; onceRender(ck); try{scheduleDraft();}catch(e){} }
+function onceSet(ck,i,f,v){ var l=formOnceFees&&formOnceFees[ck]&&formOnceFees[ck][i]; if(!l)return;
+  if(f==='name')l.name=v; else if(f==='reo')l.reo=!!v; else l[f]=(v===''?'':(+v||0));
+  var eq=document.getElementById('once-eq-'+ck+'-'+i); if(eq)eq.textContent='= '+num((+l.amount>0)?Math.round((+l.amount)/_onceDiv(l)):0)+'원/pcs';
+  try{scheduleDraft();}catch(e){} }
+function _onceClean(m){ var out={},any=false; COST_DEFS.forEach(function(cd){ var a=((m||{})[cd[0]]||[]).filter(function(l){ return l&&(+l.amount>0||String(l.name||'').trim()); }).map(function(l){ return {id:l.id||uid(),name:String(l.name||'').trim(),amount:+l.amount||0,div:(+l.div>0?+l.div:30),reo:!!l.reo}; }); if(a.length){ out[cd[0]]=a; any=true; } }); return any?out:null; }
 function crRender(ck){
   var box=document.getElementById('cr-'+ck), cd=_crDef(ck); if(!box||!cd||ck==='laborCost')return;
   var fcId=(document.getElementById('f-'+cd[2])||{}).value||'', fc=fcId&&S.factories&&S.factories[fcId];
@@ -13299,6 +13354,7 @@ function collectFormData(){
   COST_DEFS.forEach(([ck,,fk])=>{d[ck]=+document.getElementById('f-'+ck)?.value||0;d[fk]=document.getElementById('f-'+fk)?.value||'';});
   d.costMemo={}; COST_DEFS.forEach(([ck])=>{var _m=document.getElementById('f-cm-'+ck); if(_m&&_m.value.trim())d.costMemo[ck]=_m.value;});   /* 10-02a 가공비 메모 */
   d.laborBySize=colLaborBySize();
+  d.onceFees=JSON.parse(JSON.stringify(formOnceFees||{}));   /* 10-20 1회비 */
   d.laborByColor=colLaborByColor();   /* 10-08c */
   d.laborTiers=(formLaborTiers||[]).map(function(x){return {min:+x.min||0,rate:+x.rate||0};}); d.laborReorder=+formLaborReorder||0;   /* 수량별·리오더 공임 (2026-09-11b) */
   d.workRoute=document.getElementById('f-workRoute')?.value||'';
@@ -13337,6 +13393,7 @@ function loadDraft(){
   COST_DEFS.forEach(([ck,,fk])=>{s('f-'+ck,d[ck]||0);s('f-'+fk,d[fk]||'');});
   if(d.costMemo&&typeof d.costMemo==='object')COST_DEFS.forEach(([ck])=>{s('f-cm-'+ck,d.costMemo[ck]||'');});
   try{crRenderAll();}catch(e){}   /* 10-20v 불러온 공장·금액 기준으로 단가 버튼 다시 */
+  if(d.onceFees&&typeof d.onceFees==='object'){ formOnceFees=JSON.parse(JSON.stringify(d.onceFees)); try{onceRenderAll();}catch(e){} }   /* 10-20 1회비 */
   formLaborBySize=Object.assign({},d.laborBySize||{});
   formLaborByColor=Object.assign({},d.laborByColor||{}); window._laborColOn=Object.keys(formLaborByColor).length>0;
   formLaborTiers=Array.isArray(d.laborTiers)?d.laborTiers.map(function(x){return {min:+x.min||0,rate:+x.rate||0};}):[]; formLaborReorder=+d.laborReorder||0;
@@ -13464,6 +13521,7 @@ function showItemForm(id){
   try{_formTrimCalcSync();}catch(e){}   /* 10-19b 단가장 계산 방식 기준으로 열기 */
   formTrimCosts=it?.trimCosts?JSON.parse(JSON.stringify(it.trimCosts)):[];
   formLaborBySize=(it&&it.laborBySize)?Object.assign({},it.laborBySize):{};
+  formOnceFees=(it&&it.onceFees)?JSON.parse(JSON.stringify(it.onceFees)):{};   /* 10-20 1회비 */
   formLaborTiers=(it&&Array.isArray(it.laborTiers))?it.laborTiers.map(function(x){return {min:+x.min||0,rate:+x.rate||0};}):[]; formLaborReorder=+((it&&it.laborReorder)||0);
   window._laborSzOn=hasLaborBySize(it); // 이미 쓰던 아이템이면 펼친 채로 연다
   formLaborByColor=(it&&it.laborByColor)?Object.assign({},it.laborByColor):{}; window._laborColOn=hasLaborByColor(it);   /* 10-08c 컬러별 공임 */
@@ -13514,7 +13572,7 @@ function showItemForm(id){
     </div><div class="itf-col itf-r">
     <div class="sec" style="margin-top:0"><span>가공비 및 담당 공장 연결</span></div>
     <div class="info-box">공장을 미리 연결하면 오더 생성 시 자동 배정됩니다</div>
-    ${COST_DEFS.map(([ck,lbl,fk,ft])=>`<div class="fr cm-row" style="margin-bottom:8px;align-items:flex-end;gap:8px"><div style="flex:1"><label>${lbl} (원/pcs)</label><input id="f-${ck}" type="number" value="${p[ck]||0}" min="0" oninput="scheduleDraft();crRender('${ck}')"></div><div style="flex:1.6"><label>${ft}</label><select id="f-${fk}" onchange="scheduleDraft();refreshWorkRoute();crRender('${ck}')">${fcOpts(p[fk]||'',ft)}</select></div><div class="cm-fld" style="flex:1.6"><label>메모</label><input id="f-cm-${ck}" value="${esc(((p.costMemo||{})[ck])||'')}" placeholder="메모" oninput="scheduleDraft();crRender('${ck}')"></div></div>${ck==='laborCost'?'<div id="labor-size-wrap" style="margin:-4px 0 10px"></div>':'<div class="cr-box" id="cr-'+ck+'"></div>'}`).join('')}
+    ${COST_DEFS.map(([ck,lbl,fk,ft])=>`<div class="fr cm-row" style="margin-bottom:8px;align-items:flex-end;gap:8px"><div style="flex:1"><label>${lbl} (원/pcs)</label><input id="f-${ck}" type="number" value="${p[ck]||0}" min="0" oninput="scheduleDraft();crRender('${ck}')"></div><div style="flex:1.6"><label>${ft}</label><select id="f-${fk}" onchange="scheduleDraft();refreshWorkRoute();crRender('${ck}')">${fcOpts(p[fk]||'',ft)}</select></div><div class="cm-fld" style="flex:1.6"><label>메모</label><input id="f-cm-${ck}" value="${esc(((p.costMemo||{})[ck])||'')}" placeholder="메모" oninput="scheduleDraft();crRender('${ck}')"></div></div>${ck==='laborCost'?'<div id="labor-size-wrap" style="margin:-4px 0 10px"></div>':'<div class="cr-box" id="cr-'+ck+'"></div>'}<div class="once-box" id="once-${ck}"></div>`).join('')}
     </div></div>
     <div class="sec" style="margin-top:14px"><span>작업경로 <span class="muted" style="font-weight:400;font-size:10px">— 여기서 정하면 작업지시서에 자동으로 들어가요</span></span></div>
     <div class="info-box">위에 연결한 공장들로 만든 경로가 <b>이미 적혀 있어요</b> — 그대로 두거나 자유롭게 고치면 돼요. 작업지시서에 <b>그대로 자동 표시</b>돼요. (싹 비우면 공장 연결로 다시 자동)</div>
@@ -13587,6 +13645,7 @@ function showItemForm(id){
   renderColorChips();renderSizeChips();renderFabRows();renderTrimRows();renderTrimCostRows();
   try{renderLaborSizes();}catch(e){}
   window._crUndo=null; window._crAddCk=null; try{crRenderAll();}catch(e){}   /* 10-20v 가공비 단가 버튼 */
+  try{onceRenderAll();}catch(e){}   /* 10-20 거래처 1회비 */
   setTimeout(refreshWorkRoute,0);
 }
 function refreshWorkRoute(){
@@ -16984,7 +17043,7 @@ function renderCSSummary(){
   const rows=filtered.map(it=>{
     const fabCost=Math.round((it.fabrics||[]).reduce((s,f)=>s+calcFabYards(f,REP).cost,0)/REP);
     const trimCost=Math.round((it.trims||[]).reduce((s,t)=>s+calcTrimNeed(t,REP).cost,0)/REP);
-    const processCost=COST_DEFS.reduce((s,[k])=>s+(it[k]||0),0);
+    const processCost=COST_DEFS.reduce((s,[k])=>s+(it[k]||0),0)+oncePerPcs(it);   /* 10-20 1회비 */
     const trimProcCost=trimCostPerPcs(it);
     const finishCost=(it.finishCosts||[]).reduce((s,fc2)=>s+(fc2.costPerPcs||0),0);
     const total=fabCost+trimCost+processCost+trimProcCost+finishCost;
@@ -17179,6 +17238,12 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
     var _pvC=(editItemId&&S.items[editItemId])||{};
     if(_any){ item.laborByColor=_keep; item.laborColorSince=item.laborColorSince||_pvC.laborColorSince||todayISO(); }
     else { delete item.laborByColor; delete item.laborColorSince; }
+  })();
+  (function(){ /* 10-20 거래처 1회비 저장 — 폼 값 기준, 다 비면 칸 안 만듦. 바뀌었으면 저장 뒤 결제 안 끝난 오더에 맞춤 */
+    var _pv=(editItemId&&S.items[editItemId])||{};
+    var c=_onceClean(formOnceFees);
+    if(c)item.onceFees=c; else delete item.onceFees;
+    window._onceDirtyId=(JSON.stringify(_pv.onceFees||null)!==JSON.stringify(item.onceFees||null))?item.id:null;
   })();
   (function(){ /* 수량별·리오더 공임 저장 (2026-09-11b) */
     var tiers=(formLaborTiers||[]).filter(function(x){return x&&+x.min>0&&+x.rate>0;}).map(function(x){return {min:+x.min,rate:+x.rate};}).sort(function(a,b){return a.min-b.min;});
@@ -17408,6 +17473,7 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
   var isNewItem=!editItemId;
   try{var _uw=pbCheckUnits(item);if(_uw.length&&!_silent)showToast('단위 확인 — '+_uw.join(' / ')+' (다른 단위로 저장돼요)',7000);}catch(e){}
   saveToPB(item);saveData();
+  try{ if(window._onceDirtyId===item.id){ window._onceDirtyId=null; var _on=onceSyncItem(item.id); if(_on){ saveData(); if(!_silent)showToast('1회비 → 결제 안 끝난 오더 '+_on+'개 결제에 맞춤'); } } }catch(eOn){ console.warn('[1회비 맞춤]',eOn); }
   if(!_silent){renderItemsList();renderCSDropdown();} // 자동 저장 땐 무거운 재렌더 생략 (폼 닫을 때 갱신)
   // 폼은 닫지 않고 그대로 유지 (사용자가 추가 편집할 수 있도록)
   // 다만 신규 → 편집 모드로 전환되어야 다음 저장 시 동일 아이템 업데이트됨
@@ -19904,6 +19970,7 @@ function createOrder(){
     const id=uid();
     S.orders[id]={id,name:autoNm,createdAt:today(),shippingDate:'',clientName:'',orderItems,suppliers:calcSups(orderItems),factorySchedules:{},payments:{},trackBlocks:[],clientNotified:false,notes:''};
     snapshotOrderFc(S.orders[id]);autoAssignFactories(id);initTrackBlocks(id);
+    try{onceSyncOrder(S.orders[id]);}catch(eOn){}   /* 10-20 거래처 1회비 → 그 공장 결제 한 줄 */
     lastOid=id;
   }
   saveData();closeModal('o-new-modal');
@@ -19936,7 +20003,7 @@ function cloneOrder(oid){
   for(const sn in clone.suppliers||{}){const sup=clone.suppliers[sn];sup.status='draft';sup.sentAt='';sup.stockOk=false;sup.invoiceReceived=false;sup.invoiceCorrect=false;sup.arrivalDate='';sup.actualShipDate='';}
   for(const fcId in clone.factorySchedules||{}){const sch=clone.factorySchedules[fcId];sch.cuttingDate='';sch.cuttingQty=0;sch.sewingCompleteDate='';sch.shippingQty=0;sch.paymentSent=false;sch.paymentSentAt='';}
   clone.payments={};clone.trackBlocks=[];
-  S.orders[nid]=clone;initTrackBlocks(nid);saveData();curOid=nid;switchTab('orders');showToast('오더 복사 완료. 날짜를 업데이트하세요.');
+  S.orders[nid]=clone;initTrackBlocks(nid);try{onceSyncOrder(clone);}catch(eOn){}saveData();curOid=nid;switchTab('orders');showToast('오더 복사 완료. 날짜를 업데이트하세요.');
 }
 
 /* 개당 가공비가 걸린 부자재의 벌당 개수(요척) — 개당=부자재1개당이라 벌당개수만큼 곱해야 함. 연결 부자재 없으면 1 */
@@ -20063,6 +20130,7 @@ function calcOrderCost(o){
     for(const f of it.fabrics||[])fab+=calcFabYards(f,qty).cost;
     for(const t of it.trims||[])trim+=calcTrimNeed(t,qty).cost;
     COST_DEFS.forEach(([ck])=>proc+=(it[ck]||0)*qty);
+    proc+=onceOrderAmt(o,it);   /* 10-20 1회비 = 오더마다 한 번 */
     proc+=trimCostPerPcs(it)*qty;}
   return{fab,trim,proc,total:fab+trim+proc};
 }
@@ -27839,7 +27907,7 @@ function renderTrack(onlyOid,targetId){
       // 총 원단 단가 (all fabrics combined)
       const fabUnitPriceSum=it.fabrics.reduce((s,f)=>s+fabPricePerY(f),0);
       // 비용 계산 함수
-      const otherPerPcs=COST_DEFS.reduce((s,[k])=>s+(it[k]||0),0);
+      const otherPerPcs=COST_DEFS.reduce((s,[k])=>s+(it[k]||0),0)+oncePerPcs(it);   /* 10-20 1회비 */
       const trimPerPcs=(qty)=>(it.trims||[]).reduce((s,t)=>s+calcTrimNeed(t,qty).cost,0)/qty;
       const procPerPcs=otherPerPcs;
 
@@ -32805,6 +32873,7 @@ function renderCS(){
   // 가공비
   /* 공임은 사이즈별 단가까지 본다 — 기본 공임 0원이어도 사이즈별이 있으면 나온다 (2026-09-08l) */
   const pArr=COST_DEFS.map(([k,l,fk])=>{const v=(k==='laborCost')?csLaborRate(it):(it[k]||0);if(!v)return null;const fcNm=it[fk]&&S.factories[it[fk]]?S.factories[it[fk]].name:'';return{ck:k,lbl:l+((k==='laborCost')?csLaborNote(it):''),val:v,fcNm};}).filter(Boolean);
+  COST_DEFS.forEach(([k,l,fk])=>{_onceList(it,k).forEach(x=>{const fcNm=it[fk]&&S.factories[it[fk]]?S.factories[it[fk]].name:'';pArr.push({ck:'once-'+k+'-'+x.id,lbl:l+' 1회비 · '+esc(x.name||''),val:Math.round((+x.amount)/_onceDiv(x)),fcNm,once:x});});});   /* 10-20 거래처 1회비 */
   let pt=0;for(const p of pArr){if(!isEx('p-'+p.ck))pt+=p.val*qty;}
   // 부자재 가공비
   const tcArr=_tcAll(it).filter(tc=>(tc.costPerPcs||tc.costPerLot)>0).filter(tc=>_csOnColor(tc,_csC));   /* 2026-09-15n 원단 가산 정액 포함 · 10-08j 컬러별 */
@@ -32940,7 +33009,7 @@ function renderCS(){
     </style>
     ${it.fabrics.length?`<div class="sec" style="margin-top:0">원단비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:13%"><col style="width:19%"><col style="width:16%"><col style="width:18%"><col style="width:9%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">원단처</th><th style="text-align:left">원단명</th><th style="text-align:left">계산식</th><th style="text-align:right">단가<br><span class="cs-hide-on-img" style="font-size:10px;font-weight:400;color:var(--green)">원가용</span></th><th style="text-align:center">미니멈</th><th style="text-align:right">원단비</th><th style="text-align:right">로스포함</th></tr></thead><tbody>${frX}</tbody></table><div class="cs-subtotal-box"><span>소계 <span style="font-size:11px;font-weight:400;color:var(--t2)">(로스 미포함)</span>${_subBreak(tf,_fabProcSum,'원단')}</span><span class="cs-amt">${num(Math.round(tf+_fabProcSum))}원 <span style="font-size:12px;font-weight:600;color:var(--blue)">· 로스포함 ${num(Math.round(tfL+_fabProcSum))}원</span></span></div>${_csFabMixWarn?`<div class="cs-hide-on-img" style="margin-top:6px;padding:9px 12px;background:#FFF8E1;border:1.5px solid #F0C24B;border-radius:8px;font-size:12px;color:#7a5310;line-height:1.65"><b>확인 필요</b> — 컬러별로 다른 원단(${esc(_csMixNames)})이 <b>전부 합산</b>돼 있어요. 이 원단비는 모든 컬러의 원단을 한 벌에 다 넣은 값이라 실제 1벌 원가보다 클 수 있어요. 한 컬러 기준으로 보려면 그 컬러가 안 쓰는 원단의 <b>사용량을 0으로 수정</b>하세요.</div>`:''}`:''}
     ${_basicObjs.length?`<div class="sec">부자재비</div><table class="cs-tbl"><colgroup><col style="width:5%"><col style="width:13%"><col style="width:19%"><col style="width:16%"><col style="width:18%"><col style="width:9%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th style="text-align:center"></th><th style="text-align:left">부자재처</th><th style="text-align:left">부자재명</th><th style="text-align:left">계산식</th><th style="text-align:right">단가</th><th style="text-align:center">미니멈</th><th style="text-align:right">부자재비</th><th style="text-align:right">로스포함</th></tr></thead><tbody>${trX}</tbody></table><div class="cs-subtotal-box"><span>소계 <span style="font-size:11px;font-weight:400;color:var(--t2)">(로스 미포함)</span>${_subBreak(tt,_trimProcSum,'부자재')}</span><span class="cs-amt">${num(Math.round(tt+_trimProcSum))}원 <span style="font-size:12px;font-weight:600;color:var(--blue)">· 로스포함 ${num(Math.round(ttL+_trimProcSum))}원</span></span></div>`:''}
-    ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${num(p.val)}원/pcs×${qty}</td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(pt))}원</span></div>`:''}
+    ${pArr.length?`<div class="sec">가공비</div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${pArr.map(p=>{const k='p-'+p.ck;return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${p.lbl}${p.fcNm?` <span class="muted">(${esc(p.fcNm)})</span>`:''}</td><td class="muted">${p.once?(num(+p.once.amount)+'원 ÷ '+_onceDiv(p.once)+' = '+num(p.val)+'원/pcs×'+qty):(num(p.val)+'원/pcs×'+qty)}</td><td style="text-align:right;font-weight:700">${num(p.val*qty)}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(pt))}원</span></div>`:''}
     ${tcRest.length?`<div class="sec">기타 가공비 <span class="muted" style="font-size:11px;font-weight:400">(원단·부자재에 안 붙은 가공)</span></div><table class="cs-tbl"><colgroup><col style="width:6%"><col style="width:39%"><col style="width:30%"><col style="width:25%"></colgroup><tbody>${tcRest.map(tc=>{const k='tc-'+tc.id;const isLot=tc.costType==='perLot';const isOnce=tc.costType==='once';const tcAllColors=_csC?[_csC]:(it.colors?.length?it.colors:['']);const tcHasLinks=tc.colorLinks&&tc.colorLinks.length>0;const tcActive=tcHasLinks?tcAllColors.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):tcAllColors;const _qpp=_tcQtyPerPiece(tc,it.trims,it.fabrics);const _tcFlat=_tcTierIsFlat(tc,it.trims,qty,it.fabrics);const tcAmt=isOnce?(tc.costPerLot||0)/LOT_MIN:isLot?(tc.costPerLot||0)*tcActive.length/LOT_MIN:_tcFlat?(tc.tierUnder||0)/LOT_MIN*qty:(tc.costPerPcs||0)*qty*_qpp*(tcActive.length/(tcAllColors.length||1));return`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td>${esc(tc.name||'가공비')}${tc.factory?` <span class="muted">(${esc(tc.factory)})</span>`:''}</td><td class="muted">${isOnce?`${num(tc.costPerLot)}원÷${LOT_MIN} (한번에)`:isLot?`${num(tc.costPerLot)}원×${tcActive.length}컬러÷${LOT_MIN}`:_tcFlat?`${num(tc.tierUnder)}원÷${LOT_MIN}장 (${num(qty*_qpp)}개 ≤ ${num(tc.tierQty||300)}개)`:(tc.fabId?`${num(tc.costPerPcs)}원/y×요척 ${Math.round(_qpp*100)/100}y${qty>1?'×'+qty:''}`:`${num(tc.costPerPcs)}원/개×${_qpp}개${qty>1?'×'+qty:''}`)}</td><td style="text-align:right;font-weight:700">${num(Math.round(tcAmt))}원</td></tr>`;}).join('')}</tbody></table><div class="cs-subtotal-box"><span>소계</span><span class="cs-amt">${num(Math.round(_restSum))}원</span></div>`:''}
     <div class="sec">
       <span>완성 부자재 비용 <span class="muted" style="font-size:10px;font-weight:400">(라벨·택·케어라벨·포장 등)</span></span>
