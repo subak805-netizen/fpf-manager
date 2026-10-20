@@ -16,7 +16,7 @@ var PAGE_W=3300, PAGE_H=2334;   /* 지금 그리는 도식화의 종이 — page
 function pageOf(r){ var p=(r&&r.doc&&r.doc.orient==='port')||(r&&r.orient==='port')?PORT:LAND; PAGE_W=p.w; PAGE_H=p.h; return p; }
 var FONT_STACK='"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif';
 var KIND={label:'라벨',band:'밴드',stitch:'봉제·스티치',tuck:'턱·주름',lining:'안감·안쪽',art:'아트웍',etc:'기타'};
-var SIDE={top:'옷 위 줄',bottom:'옷 아래 줄',A:'앞판 옆(위)',B:'뒷판 옆(아래)',C:'아래 가운데',Lf:'앞판 왼쪽',Rf:'앞판 오른쪽',Lb:'뒷판 왼쪽',Rb:'뒷판 오른쪽'};
+var SIDE={top:'옷 위 줄',bottom:'옷 아래 줄',A:'앞판 옆(위)',B:'뒷판 옆(아래)',C:'아래 가운데',F:'빈 곳',Lf:'앞판 왼쪽',Rf:'앞판 오른쪽',Lb:'뒷판 왼쪽',Rb:'뒷판 오른쪽'};
 var NEED=[['main','메인라벨'],['care','케어라벨'],['stitch','봉제'],['band','밴드'],['lining','안감']];
 var SLOT_LBL={sewSketch:'메인 지시서',cutSketch:'메인 재단',innSketch:'메인 안사양'};
 var PARTS=[
@@ -117,7 +117,7 @@ function normalizeRec(r){
   if(r.doc&&r.doc.baseRect){   // annotate.py 가 만든 도식화.json (종이 좌표) → 0~1
     var br=r.doc.baseRect, bx=br[0],by=br[1],bw=br[2],bh=br[3], d=r.doc;
     d.asp=bh/bw; d.fs=d.fs||DEF_FS; d.orient=(d.page&&d.page[1]>d.page[0])?'port':(d.orient||'land'); delete d.page;
-    d.callouts=(d.callouts||[]).map(function(c){ return {id:c.id||newId(),kind:c.kind||'etc',text:c.text||NEW_TEXT,value:'',an:[(c.anchor[0]-bx)/bw,(c.anchor[1]-by)/bh]}; });
+    d.callouts=(d.callouts||[]).map(function(c){ var o={id:c.id||newId(),kind:c.kind||'etc',text:c.text||NEW_TEXT,value:'',an:[(c.anchor[0]-bx)/bw,(c.anchor[1]-by)/bh]}; if(c.fixed&&c.box){ o.moved=true; o.x=c.box[0]; o.y=c.box[1]; } return o; });   /* fixed = 클로드가 빈 곳에 놓은 자리 그대로(10-20 아루드 상의) */
     d.marks=(d.marks||[]).map(function(m){ var o={type:m.type}; if(m.prect)o.rn=[(m.prect[0]-bx)/bw,(m.prect[1]-by)/bh,m.prect[2]/bw,m.prect[3]/bh];
       if(m.pat)o.pn=[(m.pat[0]-bx)/bw,(m.pat[1]-by)/bh]; if(m.pspan)o.sn=m.pspan/bw; if(m.dir!=null)o.dir=m.dir; return o; });
     d.notes=(d.notes||[]).map(function(n){return {text:n.text};}); delete d.baseRect;
@@ -256,6 +256,13 @@ function segCross(p,q){ var d=(p[2]-p[0])*(q[3]-q[1])-(p[3]-p[1])*(q[2]-q[0]); i
   var t=((q[0]-p[0])*(q[3]-q[1])-(q[1]-p[1])*(q[2]-q[0]))/d, u=((q[0]-p[0])*(p[3]-p[1])-(q[1]-p[1])*(p[2]-p[0]))/d; return t>0.01&&t<0.99&&u>0.01&&u<0.99; }
 function layoutAr(r){
   var d=r.doc, fs=d.fs, lh=Math.round(fs*1.3), GAP=34, g=d.geo={x:0,y:0,w:PAGE_W,h:PAGE_H}, R={};
+  if(d.ar.mode==='free'){   /* 10-20 빈 곳 배치(넓은 상의): 상자 자리는 고정, 새 화살표만 가리키는 곳 오른쪽에 */
+    d.marks.forEach(function(m){ if(m.rn)m.r2=[m.rn[0]*PAGE_W,m.rn[1]*PAGE_H,m.rn[2]*PAGE_W,m.rn[3]*PAGE_H]; if(m.pn)m.p2=[m.pn[0]*PAGE_W,m.pn[1]*PAGE_H]; if(m.sn!=null)m.s2=m.sn*PAGE_W; });
+    d.callouts.forEach(function(c){ c.ax=c.an[0]*PAGE_W; c.ay=c.an[1]*PAGE_H; c.band='F';
+      c.ls=[].concat.apply([],lines(c).map(function(t){return wrapLine(t,fs,fs*30,true);})); c.w=Math.max.apply(null,[fs*2].concat(c.ls.map(function(t){return measure(t,fs);}))); c.h=c.ls.length*lh;
+      if(!c.moved){ c.x=Math.min(Math.max(c.ax+80,30),PAGE_W-c.w-30); c.y=Math.min(Math.max(c.ay-lh/2,30),PAGE_H-c.h-30); }
+      var e=arLeadEnd(c,lh); c.sx=e[0]; c.sy=e[1]; });
+    return; }
   d.marks.forEach(function(m){ if(m.rn)m.r2=[g.x+m.rn[0]*g.w,g.y+m.rn[1]*g.h,m.rn[2]*g.w,m.rn[3]*g.h]; if(m.pn)m.p2=[g.x+m.pn[0]*g.w,g.y+m.pn[1]*g.h]; if(m.sn!=null)m.s2=m.sn*g.w; });
   Object.keys(d.ar.regions||{}).forEach(function(k){ var q=d.ar.regions[k]; R[k]={x0:q.r[0]*PAGE_W,y0:q.r[1]*PAGE_H,x1:q.r[2]*PAGE_W,y1:q.r[3]*PAGE_H,al:q.al}; });
   var keys=Object.keys(R); if(!keys.length)return;
@@ -438,7 +445,7 @@ function renderSide(){
   if(r.kind!=='old')h+='<div class="dk2-sec"><h3>필수 표시 확인</h3><div class="dk2-need">'+NEED.map(function(p){ return '<div class="'+(need[p[0]]?'y':'n')+'">'+p[1]+'<i>'+(need[p[0]]?'있음':'없음')+'</i></div>'; }).join('')+'</div></div>';
   if(r.doc){
     layout(r);
-    var BO={top:0,A:0,Lf:0,Rf:0,bottom:1,B:1,C:2,Lb:1,Rb:1}, order=r.doc.callouts.slice().sort(function(a,b){ return ((BO[a.band]||0)-(BO[b.band]||0))||a.ax-b.ax; });
+    var BO={top:0,A:0,Lf:0,Rf:0,bottom:1,B:1,C:2,Lb:1,Rb:1,F:0}, order=r.doc.callouts.slice().sort(function(a,b){ return ((BO[a.band]||0)-(BO[b.band]||0))||a.ax-b.ax; });
     h+='<div class="dk2-sec"><h3>설명 글 <span class="dk2-n" id="dk2-count">'+countText(r)+'</span></h3>'
       +order.map(function(c){ var isNew=c.text===NEW_TEXT;
         return '<div class="dk2-co'+(st.sel===c.id?' on':'')+'" data-cid="'+c.id+'"><div class="dk2-co-h">'+kindSel(c)+'<span class="dk2-side-l">'+esc(c.free?'글만(화살표 없음)':c.moved?'옮긴 상자':SIDE[c.band])+'</span><span class="dk2-grow"></span>'
