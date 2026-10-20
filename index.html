@@ -2761,15 +2761,64 @@ function applyRemoteCoData(data,ts,opts){
    ⚠️ _entShadowInit(메인문서 수신마다 호출)에 얹지 말 것 — 푸시 전 1초 창에서 내 단가 편집이 '안 고침'으로 오인됨. */
 window._shShadow=null;
 /* 아직 클라우드에 못 올린 편집 키 목록 — localStorage(fpm_shdirty)에 남겨 새로고침·오프라인 뒤에도 내 편집이 원격에 안 덮이게 */
-function _shDirtyLoad(){ if(window._shDirtySet)return window._shDirtySet; var v=null; try{v=JSON.parse(localStorage.getItem('fpm_shdirty')||'null');}catch(e){} window._shDirtySet={f:(v&&v.f)||{},p:(v&&v.p)||{}}; return window._shDirtySet; }
-function _shDirtySave(){ try{ var d=_shDirtyLoad(); if(Object.keys(d.f).length||Object.keys(d.p).length)localStorage.setItem('fpm_shdirty',JSON.stringify(d)); else localStorage.removeItem('fpm_shdirty'); }catch(e){} }
+/* 10-20 단가장은 거래처 «통째» 대신 품목·칸 단위로 더티 표시 — 예전엔 옛 창이 한 품목 단가만 바꿔도 그 거래처 전체가 «내가 고침»이 돼
+   같은 거래처의 다른 품목(다른 기기에서 고침)을 옛값으로 덮었다(검사 S20).
+   d.p[거래처] = 거래처 통째(새 거래처·지운 거래처·예전 기록) — 예전처럼 로컬 우선 합집합
+   d.q[거래처␞칸] = 거래처 정보 칸(연락처·컬러단가 등) / d.m[거래처␞품목키] = 품목 통째(새로 넣음·지움) / d.m[거래처␞품목키␞칸] = 품목 안 칸
+   (품목키 안에 이미 \x1F 가 쓰여서 구분 글자는 \u001e) */
+var _PBD_SEP='\u001e';
+function _shDirtyLoad(){ if(window._shDirtySet)return window._shDirtySet; var v=null; try{v=JSON.parse(localStorage.getItem('fpm_shdirty')||'null');}catch(e){} window._shDirtySet={f:(v&&v.f)||{},p:(v&&v.p)||{},q:(v&&v.q)||{},m:(v&&v.m)||{}}; return window._shDirtySet; }
+function _shDirtyAny(d){ return !!(d&&(Object.keys(d.f||{}).length||Object.keys(d.p||{}).length||Object.keys(d.q||{}).length||Object.keys(d.m||{}).length)); }
+function _shDirtySave(){ try{ var d=_shDirtyLoad(); if(_shDirtyAny(d))localStorage.setItem('fpm_shdirty',JSON.stringify(d)); else localStorage.removeItem('fpm_shdirty'); }catch(e){} }
+/* 그림자(JSON)와 지금 거래처를 비교해 바뀐 정보 칸·품목·품목 칸을 표시. 그림자를 못 읽으면 거래처 통째 */
+function _pbDiffMark(sup,shJson,cur,d){
+  var old=null; try{ old=JSON.parse(shJson); }catch(e){}
+  if(!old||typeof old!=='object'||!cur||typeof cur!=='object'){ if(!d.p[sup]){ d.p[sup]=1; return true; } return false; }
+  var P=_PBD_SEP, ch=false, f, mk, J=function(v){ return (v===undefined)?'\u0000u':JSON.stringify(v); }, ks={}, mks={};
+  var mark=function(o,key){ if(!o[key]){ o[key]=1; ch=true; } };
+  for(f in old)ks[f]=1; for(f in cur)ks[f]=1;
+  for(f in ks){ if(f!=='materials'&&J(old[f])!==J(cur[f]))mark(d.q,sup+P+f); }
+  var om=(old.materials&&typeof old.materials==='object')?old.materials:{}, cm=(cur.materials&&typeof cur.materials==='object')?cur.materials:{};
+  for(mk in om)mks[mk]=1; for(mk in cm)mks[mk]=1;
+  for(mk in mks){ var a=om[mk], b=cm[mk]; if(J(a)===J(b))continue;
+    if(!a||!b||typeof a!=='object'||typeof b!=='object'){ mark(d.m,sup+P+mk); continue; }
+    var fs={}; for(f in a)fs[f]=1; for(f in b)fs[f]=1;
+    for(f in fs){ if(J(a[f])!==J(b[f]))mark(d.m,sup+P+mk+P+f); } }
+  return ch;
+}
+/* d.q·d.m 을 거래처별로 묶음 {거래처:{info:{칸:1}, whole:{품목:1}, flds:{품목:{칸:1}}}} */
+function _pbDirtyIdx(d){ var P=_PBD_SEP, out={}, k, a;
+  var g=function(s){ return out[s]||(out[s]={info:{},whole:{},flds:{}}); };
+  for(k in (d.q||{})){ a=k.split(P); if(a.length===2)g(a[0]).info[a[1]]=1; }
+  for(k in (d.m||{})){ a=k.split(P); if(a.length===2)g(a[0]).whole[a[1]]=1; else if(a.length===3){ var x=g(a[0]).flds; (x[a[1]]||(x[a[1]]={}))[a[2]]=1; } }
+  return out; }
+/* 일부만 고친 거래처 합치기: 원격을 바탕으로 내가 고친 정보 칸·품목·품목 칸만 내 것. 지운 품목 묘비는 그대로 지킴 */
+function _pbMergeSup(sup,L,R,ix){
+  var o={}, f, mk, H=Object.prototype.hasOwnProperty, ks={}, m={};
+  for(f in R){ if(f!=='materials')o[f]=R[f]; }
+  for(f in ix.info){ if(f==='materials')continue; if(H.call(L,f))o[f]=L[f]; else delete o[f]; }
+  var lm=(L.materials&&typeof L.materials==='object')?L.materials:{}, rm=(R.materials&&typeof R.materials==='object')?R.materials:{};
+  for(mk in rm)ks[mk]=1; for(mk in lm)ks[mk]=1;
+  for(mk in ks){ if(_tombHas('pbMat',sup+'\u001f'+mk))continue;
+    var a=lm[mk], b=rm[mk], fd=ix.flds[mk];
+    if(ix.whole[mk]){ if(a)m[mk]=a; continue; }   /* 내가 새로 넣음·지움·통째 바꿈 */
+    if(fd&&a&&b&&typeof a==='object'&&typeof b==='object'){ var c={}, x; for(x in b)c[x]=b[x]; for(x in fd){ if(H.call(a,x))c[x]=a[x]; else delete c[x]; } m[mk]=c; continue; }
+    if(b){ m[mk]=(fd&&a)?a:b; continue; }
+    if(a)m[mk]=a;   /* 내 쪽에만 있음 = 예전처럼 합집합 */
+  }
+  o.materials=m; return o;
+}
 /* saveData마다: 그림자와 다른 키를 더티 목록에 누적(푸시 성공 때 비움) */
 function _shDirtyMark(){ try{ var sh=window._shShadow; if(!sh)return; var d=_shDirtyLoad(),k,ch=false; var m1=S.factories||{},m2=S.priceBook||{};
   for(k in m1){ if(!d.f[k]&&JSON.stringify(m1[k])!==(sh.f[k]||'')){d.f[k]=1;ch=true;} } for(k in sh.f){ if(!m1[k]&&!d.f[k]){d.f[k]=1;ch=true;} }
-  for(k in m2){ if(!d.p[k]&&JSON.stringify(m2[k])!==(sh.p[k]||'')){d.p[k]=1;ch=true;} } for(k in sh.p){ if(!m2[k]&&!d.p[k]){d.p[k]=1;ch=true;} }
+  for(k in m2){ if(d.p[k])continue; var _cj=JSON.stringify(m2[k]); if(_cj===(sh.p[k]||''))continue;
+    if(!sh.p[k]){ d.p[k]=1; ch=true; continue; }   /* 새 거래처 = 통째 */
+    if(_pbDiffMark(k,sh.p[k],m2[k],d))ch=true; }
+  for(k in sh.p){ if(!m2[k]&&!d.p[k]){d.p[k]=1;ch=true;} }
   if(ch)_shDirtySave(); }catch(e){} }
-/* 그림자 초기화. clearDirty=true(푸시 성공)면 더티 목록도 비움. 그 외(수신·부팅)는 더티 키의 옛 그림자를 유지해 계속 '내가 고침'으로 남김 */
-function _shShadowInit(clearDirty){ try{ var old=window._shShadow, d=_shDirtyLoad(); if(clearDirty){ d.f={}; d.p={}; _shDirtySave(); }
+/* 그림자 초기화. clearDirty=true(푸시 성공)면 더티 목록도 비움. 그 외(수신·부팅)는 통째 더티 거래처·업체의 옛 그림자를 유지해 계속 '내가 고침'으로 남김
+   (품목·칸 표시는 목록에 남아 있으니 그림자는 합친 결과로 — 그래야 원격에서 받은 다른 품목이 «내가 고침»으로 잘못 잡히지 않음) */
+function _shShadowInit(clearDirty){ try{ var old=window._shShadow, d=_shDirtyLoad(); if(clearDirty){ d.f={}; d.p={}; d.q={}; d.m={}; _shDirtySave(); }
   var sh={f:{},p:{}},k; for(k in (S.factories||{})){ sh.f[k]=(!clearDirty&&d.f[k]&&old&&old.f[k]!==undefined)?old.f[k]:JSON.stringify(S.factories[k]); } for(k in (S.priceBook||{})){ sh.p[k]=(!clearDirty&&d.p[k]&&old&&old.p[k]!==undefined)?old.p[k]:JSON.stringify(S.priceBook[k]); }
   window._shShadow=sh; }catch(e){} }
 function _shDirty(kind,key){ var d=_shDirtyLoad(); if(d[kind]&&d[kind][key])return true; var sh=window._shShadow; if(!sh)return true; /* 그림자 없음(부팅 전) = 안전하게 로컬 승 */ var m=(kind==='f'?S.factories:S.priceBook)||{}; var cur=''; try{cur=m[key]?JSON.stringify(m[key]):'';}catch(e){return true;} return cur!==(sh[kind][key]||''); }
@@ -2780,10 +2829,14 @@ function _mergeSharedSmart(local,remote){
   var lf=local.factories||{},rf=remote.factories||{},lp=local.priceBook||{},rp=remote.priceBook||{};
   for(k in lf){ if(_tombHas('factories',k))continue; out.factories[k]=(rf[k]&&!_shDirty('f',k))?rf[k]:lf[k]; }
   for(k in rf){ if(_tombHas('factories',k)||out.factories[k])continue; out.factories[k]=rf[k]; }
+  /* 10-20 단가장 = 품목·칸 단위: 아직 표시 안 된 내 편집부터 표시하고, 거래처 통째 더티(새 거래처·예전 기록)·그림자 없음(부팅 전)만 예전처럼 로컬 우선 */
+  try{ _shDirtyMark(); }catch(eDM){}
+  var _pd=_shDirtyLoad(), _px=_pbDirtyIdx(_pd), _noSh=!window._shShadow;
   for(k in lp){ if(_tombHas('pbSup',k))continue;
-    if(rp[k]&&!_shDirty('p',k)){ out.priceBook[k]=rp[k]; }
-    else if(rp[k]){ out.priceBook[k]=_mergePB({x:lp[k]},{x:rp[k]}).x; } /* 내가 고친 거래처: 로컬 우선이되 원격에만 있는 품목은 합집합(묘비 필터) */
-    else out.priceBook[k]=lp[k]; }
+    if(!rp[k]){ out.priceBook[k]=lp[k]; continue; }
+    if(_noSh||_pd.p[k]){ out.priceBook[k]=_mergePB({x:lp[k]},{x:rp[k]}).x; continue; } /* 통째로 고친 거래처: 로컬 우선이되 원격에만 있는 품목은 합집합(묘비 필터) */
+    if(!_px[k]){ out.priceBook[k]=rp[k]; continue; }   /* 안 고친 거래처 = 원격 */
+    try{ out.priceBook[k]=_pbMergeSup(k,lp[k],rp[k],_px[k]); }catch(ePS){ out.priceBook[k]=_mergePB({x:lp[k]},{x:rp[k]}).x; } }
   for(k in rp){ if(_tombHas('pbSup',k)||out.priceBook[k])continue; out.priceBook[k]=rp[k]; }
   /* 원격 승 거래처라도 품목 묘비는 지킨다 */
   for(k in out.priceBook){ var e=out.priceBook[k]; if(e&&e.materials&&typeof e.materials==='object'){ var mk; for(mk in e.materials){ if(_tombHas('pbMat',k+'\u001f'+mk)){ if(e===rp[k]){ e=out.priceBook[k]=JSON.parse(JSON.stringify(e)); } delete e.materials[mk]; } } } }
@@ -4813,7 +4866,7 @@ function _careSupMig1Run(){
    다음 편집 때까지 남아 있어 다른 기기엔 한참 뒤에 나타났고, 그 사이 상대가 저장하면 병합에서 밀렸다.
    → saveData가 fpm_dirty를 남기고, 부팅 로드 뒤·화면 복귀·온라인 복귀 때 남아 있으면 saveData()로 밀어 올린다.
      화면이 숨겨질 때는 대기 중인 디바운스 타이머를 기다리지 않고 즉시 푸시를 시작한다. */
-function _hasDirtyLocal(){ try{ if(localStorage.getItem('fpm_dirty'))return true; var d=(typeof _shDirtyLoad==='function')?_shDirtyLoad():null; return !!(d&&(Object.keys(d.f).length||Object.keys(d.p).length)); }catch(e){ return false; } }
+function _hasDirtyLocal(){ try{ if(localStorage.getItem('fpm_dirty'))return true; var d=(typeof _shDirtyLoad==='function')?_shDirtyLoad():null; return _shDirtyAny(d); }catch(e){ return false; } }   /* 10-20 단가장 품목·칸 표시(q·m)도 */
 function _flushDirtySoon(){ try{ if(!isCloudOn()||!curCoId||!_hasDirtyLocal())return; if(window._flushDirtyT)clearTimeout(window._flushDirtyT); window._flushDirtyT=setTimeout(function(){ window._flushDirtyT=null; try{ if(_hasDirtyLocal()){ console.log('[sync] 미푸시 편집 되밀기'); saveData(); } }catch(e){} },1500); }catch(e){} }
 try{
   document.addEventListener('visibilitychange',function(){
@@ -5059,7 +5112,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-20t';
+var APP_BUILD=/*BUILD*/'2026-10-20u';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
