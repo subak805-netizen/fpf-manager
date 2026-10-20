@@ -88,6 +88,24 @@ async function tbSeed(){
   if(!got.ok)throw new Error('B 가 할일판을 못 받음: '+got.v);
 }
 
+/* 부자재 자동 맞춤 시험 자료 (10-20): 단가장 메이드 「40/2합」(실) + 지퍼집 슬라이더 DA(300원),
+   아이템1 = 40/2합 줄 r1 + 단추 줄 r2(150원), 아이템2 = 슬라이더 고른 지퍼 줄 z1 + 납작이 줄 z2(100원). 두 기기 다 받을 때까지 */
+var TRQ='[S.items.it1.trims[1].price,S.items.it2.trims[1].price].join("|")';
+async function trimSeed(){
+  await ev('A','S.priceBook["메이드"]={materials:{"40/2합":{name:"40/2합",type:"trim",orderType:"thread",unit:"콘"}}};'
+    +'S.priceBook["지퍼집"]={materials:{"DA":{name:"DA",type:"trim",pbId:"pbSL1",unitPrice:300}}};'
+    +'S.items.it1.trims=[{id:"r1",supplier:"메이드",name:"40/2합",orderType:"thread",price:5000,consumptionPerPiece:1},{id:"r2",supplier:"단추집",name:"자개 11mm",orderType:"count",price:150,consumptionPerPiece:4}];'
+    +'S.items.it2.trims=[{id:"z1",supplier:"지퍼집",name:"YKK",orderType:"zipper",slMode:"pick",slRef:{sup:"지퍼집",id:"pbSL1"},slSup:"지퍼집",sliderModel:"DA",sliderCost:300,sliderLogoCost:0,price:500},{id:"z2",supplier:"끈집",name:"납작이",orderType:"count",price:100}];'
+    +'saveData();1');
+  var got=await until('B','(S.priceBook["메이드"]&&S.priceBook["지퍼집"]&&S.items.it1.trims.length===2&&S.items.it2.trims.length===2)?'+TRQ+':""',function(v){return v==='150|100';},12000);
+  if(!got.ok)throw new Error('B 가 부자재 시험 자료를 못 받음: '+got.v);
+  await sleep(4000);   /* 받은 직후 일회성 정리(migrateData)가 2.5초 뒤 저장을 부름 — 그게 끝난 뒤에 장면 시작 */
+}
+/* B 가 정말 옛 자료인지(받기 죽은 사이 A 수정을 못 받았는지) — 아니면 장면이 성립 안 함 */
+async function trimStale(){ var p=await ev('B',TRQ); if(p!=='150|100')throw new Error('B 가 옛 자료가 아님(장면 성립 안 됨): '+p); }
+/* 옛 자료를 든 창(B)에서 단가장 계산 방식·슬라이더 값이 바뀐 걸 보고 자동 맞춤이 돎 (B 의 단가장만 바꾸고 저장은 자동 맞춤이 함) */
+var TR_MECH='S.priceBook["메이드"].materials["40/2합"].orderType="count";S.priceBook["메이드"].materials["40/2합"].unit="ea";S.priceBook["지퍼집"].materials["DA"].unitPrice=350;';
+
 /* ===== 장면들 — weak:true 는 지금 방식의 «알려진 약한 곳»(실패가 예상됨, 올리기를 막지 않음) ===== */
 var SCENES=[
  {id:'S1',name:'한쪽에서 고치면 다른 기기에 나타난다',run:async function(){
@@ -248,6 +266,39 @@ var SCENES=[
    var b3=await until('B',code,function(v){return v==='thC';},8000);
    var box=!!CLOUD.docs[DOCP+CO+'__thr'];
    return {pass:a.ok&&a2.ok&&b2.ok&&b3.ok&&box,detail:'A 받음='+a.ok+' · A='+a2.v+' · B='+b2.v+' · B 다시 켬='+b3.v+' · __thr 문서 '+(box?'있음':'없음')}; }},
+ /* S14 (10-20): 10-12 13:02:11 사고 — 실시간 받기가 죽은 채 옛 부자재를 든 창에서 「단가장 계산 방식 자동 맞춤」·「슬라이더 맞춤」이
+       돌면 그 옛 부자재 목록에 지금 시각 도장이 찍혀, 다른 기기에서 고친 단가(150→200 · 100→20000)가 옛값으로 되돌아갔다.
+       자동 맞춤은 «사람이 고친 것»이 아니므로 도장을 안 찍어야 하고, 최신 창에서 돌면 맞춤 결과는 그대로 퍼져야 한다. */
+ {id:'S14',name:'옛 자료를 든 창에서 부자재 자동 맞춤이 돌아도 다른 기기에서 고친 부자재를 안 덮는다',run:async function(){
+   await twoDevices(); await trimSeed();
+   await ev('B','__syncTest.setDeaf(true);1');
+   await ev('A','S.items.it1.trims[1].price=200;S.items.it2.trims[1].price=20000;saveData();1');
+   await sleep(2500); await trimStale();
+   /* B 는 아이템1 메모를 고치는 중(아직 저장 전)에 자동 맞춤이 돎 → 메모는 B 것으로 올라가고, 부자재는 A 것이 남아야 함 */
+   var n=await ev('B','S.items.it1.memo="B메모";'+TR_MECH+'[_pbAutoSyncCalcRows(),_zipSlSyncAll()].join("+")');
+   await sleep(5000);
+   var MEQ=TRQ+'+"|"+(S.items.it1.memo||"")';
+   var a=await ev('A',MEQ);
+   await ev('B','__syncTest.setDeaf(false);cloudSyncLoad(curCoId).then(function(){return 1;})');
+   var b=await until('B',MEQ,function(v){return v==='200|20000|B메모';},8000);
+   /* 이제 최신이 된 B 에서 다시 돌면 맞춤 결과(실=개수·슬라이더 350원)는 A 에도 가야 함 — 고친 단가는 그대로 */
+   await ev('B','[_pbAutoSyncCalcRows(),_zipSlSyncAll()].join("+")');
+   var MQ='[S.items.it1.trims[0].orderType,S.items.it2.trims[0].sliderCost,'+TRQ+'].join("|")';
+   var a2=await until('A',MQ,function(v){return v==='count|350|200|20000';},12000);
+   return {pass:a==='200|20000|B메모'&&b.ok&&a2.ok,detail:'B 자동 맞춤 '+n+'줄 · A='+a+' · B='+b.v+' (둘 다 「200|20000|B메모」) · 최신 창 맞춤 뒤 A='+a2.v+' (「count|350|200|20000」)'}; }},
+ /* S15 (10-20): 부팅 때 클라우드를 받기 «전»(9초 타이머가 느린 로그인보다 먼저)에 옛 자료로 자동 맞춤이 돌면
+       저장이 «내가 고침»으로 찍혀, 곧이어 받은 최신 부자재를 이겼다. 받기 전엔 안 돌고, 돌아도 도장이 없어야 함. */
+ {id:'S15',name:'클라우드 받기 전(부팅 중) 옛 자료로 자동 맞춤이 돌아도 받은 최신 부자재가 이긴다',run:async function(){
+   await twoDevices(); await trimSeed();
+   await ev('B','__syncTest.setDeaf(true);1');
+   await ev('A','S.items.it1.trims[1].price=200;S.items.it2.trims[1].price=20000;saveData();1');
+   await sleep(2500); await trimStale();
+   var n=await ev('B','window._cloudSyncReady=false;'+TR_MECH+'[_pbAutoSyncCalcRows(),_zipSlSyncAll()].join("+")');
+   await sleep(1500);
+   await ev('B','__syncTest.setDeaf(false);cloudSyncLoad(curCoId).then(function(){window._cloudSyncReady=true;saveData();return 1;})');
+   await sleep(5000);
+   var a=await ev('A',TRQ), b=await ev('B',TRQ);
+   return {pass:a==='200|20000'&&b==='200|20000',detail:'받기 전 자동 맞춤 '+n+'줄 · A='+a+' · B='+b+' (둘 다 「200|20000」)'}; }},
 ];
 
 async function main(){

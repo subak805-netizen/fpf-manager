@@ -57,6 +57,7 @@
     var m=e.data; if(!m||!m.__st)return;
     if(m.kind==='rpcRes'){ var w=waiting[m.id]; if(!w)return; delete waiting[m.id]; if(m.ok)w.res(m.result); else w.rej(new Error(m.error||'fail')); return; }
     if(m.kind==='snap'){   // 다른 기기가 쓴 것이 창고에 들어옴
+      if(T.deaf){ log('deaf: 받기 버림',m.path); return; }   /* 실시간 받기가 조용히 죽은 창 흉내 — 다시 들려도 안 돌려줌(진짜와 같음) */
       if(T.offline){ pendingSnap[m.path]=m.doc; return; }
       lastSeen[m.path]=m.doc&&m.doc.ts; deliver(m.path,m.doc,false); return; }
     if(m.kind==='eval'){
@@ -77,6 +78,8 @@
     Object.keys(pendingSnap).forEach(function(path){ var doc=pendingSnap[path]; delete pendingSnap[path]; lastSeen[path]=doc&&doc.ts; deliver(path,doc,false); });
     try{ window.dispatchEvent(new Event('online')); }catch(e){}
   };
+  /* 10-20 실시간 받기만 죽은 창(오래 켜 둔 창·Firestore 고장 등): 인터넷·읽기·쓰기는 되는데 다른 기기 변경이 안 들어옴 = 옛 자료를 든 채 «준비됨» */
+  T.setDeaf=function(on){ T.deaf=!!on; };
   T.setHidden=function(hid){ T.hidden=!!hid; try{ document.dispatchEvent(new Event('visibilitychange')); }catch(e){} if(hid){ try{ window.dispatchEvent(new Event('pagehide')); }catch(e){} } };
   T.pendingWrites=function(){ return writeQueue.length+Object.keys(waiting).length; };
 
