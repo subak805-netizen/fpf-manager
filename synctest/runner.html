@@ -106,6 +106,15 @@ async function trimStale(){ var p=await ev('B',TRQ); if(p!=='150|100')throw new 
 /* 옛 자료를 든 창(B)에서 단가장 계산 방식·슬라이더 값이 바뀐 걸 보고 자동 맞춤이 돎 (B 의 단가장만 바꾸고 저장은 자동 맞춤이 함) */
 var TR_MECH='S.priceBook["메이드"].materials["40/2합"].orderType="count";S.priceBook["메이드"].materials["40/2합"].unit="ea";S.priceBook["지퍼집"].materials["DA"].unitPrice=350;';
 
+/* 단가장 단가·이름 전파 시험 자료 (10-20): 메이드 40/2합 5000원 · 60/3합 800원, 아이템1 = r1(40/2합) + r2(단추 150원). 두 기기 다 받을 때까지 */
+var PRQ='S.items.it1.trims.map(function(t){return t.id+":"+t.unitPrice+":"+(t.consumptionPerPiece||"")}).join("|")';
+async function prSeed(){
+  await ev('A','S.priceBook["메이드"]={materials:{"40/2합":{name:"40/2합",type:"trim",orderType:"count",unit:"ea",unitPrice:5000},"60/3합":{name:"60/3합",type:"trim",orderType:"count",unit:"ea",unitPrice:800}}};'
+    +'S.items.it1.trims=[{id:"r1",supplier:"메이드",name:"40/2합",orderType:"count",unitPrice:5000,consumptionPerPiece:1},{id:"r2",supplier:"단추집",name:"자개 11mm",orderType:"count",unitPrice:150,consumptionPerPiece:4}];saveData();1');
+  var got=await until('B','(S.priceBook["메이드"]&&S.priceBook["메이드"].materials["60/3합"]&&S.items.it1.trims.length===2)?'+PRQ+':""',function(v){return v==='r1:5000:1|r2:150:4';},12000);
+  if(!got.ok)throw new Error('B 가 단가 시험 자료를 못 받음: '+got.v);
+  await sleep(4000);   /* trimSeed 와 같은 이유(받은 직후 일회성 정리 저장) */
+}
 /* ===== 장면들 — weak:true 는 지금 방식의 «알려진 약한 곳»(실패가 예상됨, 올리기를 막지 않음) ===== */
 var SCENES=[
  {id:'S1',name:'한쪽에서 고치면 다른 기기에 나타난다',run:async function(){
@@ -324,6 +333,99 @@ var SCENES=[
    var MQ='[S.items.it1.trims[0].orderType,S.items.it1.trims[0].rollUnit,'+P1+'].join("|")';
    var a2=await until('A',MQ,function(v){return v==='roll|절|6000|200';},12000);
    return {pass:a==='6000|200'&&b.ok&&a2.ok,detail:'B 옛 창 줄 바뀜 '+n+' (「yard,절,count」) · A='+a+' · B='+b.v+' (둘 다 「6000|200」) · 최신 창 계산 방식 뒤 A='+a2.v+' (「roll|절|6000|200」)'}; }},
+ /* S17~S19 (10-20): S16 과 같은 구멍의 남은 길 — 오래 켜 둔 단가장 새 창(받기 죽음)에서 단가(propagatePriceToItems)·이름(renamePBMaterial)을 바꾸면
+       그 품목을 쓰는 아이템 부자재 줄을 같이 바꾸며 trims 칸 통째에 «내가 고침» 도장 → 다른 기기에서 고친 다른 줄 단가·같은 줄 다른 칸·새 줄·지운 줄이
+       옛 판으로 되돌아갔다. 줄(id)·칸 단위로 도장·합치기 → 바꾼 칸만 퍼지고 나머지는 최신이 남아야 함.
+   S20 (10-20): 단가장 공유문서가 거래처 단위 «내가 고친 거래처 = 로컬 우선» → 옛 창이 한 품목만 고쳐도 같은 거래처 다른 품목을 옛값으로 덮었다. 품목·칸 단위로. */
+ {id:'S17',name:'옛 단가장 창에서 단가를 바꿔도 다른 기기에서 고친 부자재 줄·칸·새 줄을 안 덮는다',run:async function(){
+   await twoDevices(); await prSeed();
+   await ev('B','__syncTest.setDeaf(true);1');
+   await ev('A','var t=S.items.it1.trims;t[1].unitPrice=200;t[0].consumptionPerPiece=2;t.push({id:"r3",supplier:"끈집",name:"납작이",orderType:"count",unitPrice:300});saveData();1');
+   await sleep(2500);
+   var p0=await ev('B',PRQ); if(p0!=='r1:5000:1|r2:150:4')throw new Error('B 가 옛 자료가 아님: '+p0);
+   var n=await ev('B','var _e=encodeURIComponent;updatePBPrice(_e("메이드"),_e("40/2합"),"unit",7000);S.items.it1.trims[0].unitPrice');
+   await sleep(5000);
+   var a=await ev('A',PRQ);
+   await ev('B','__syncTest.setDeaf(false);cloudSyncLoad(curCoId).then(function(){return 1;})');
+   var want='r1:7000:2|r2:200:4|r3:300:';
+   var b=await until('B',PRQ,function(v){return v===want;},8000);
+   return {pass:a===want&&b.ok,detail:'B 단가 전파 r1='+n+' · A='+a+' · B='+b.v+' (둘 다 「'+want+'」)'}; }},
+ {id:'S18',name:'옛 단가장 창에서 품목 이름을 바꿔도 다른 기기에서 고친 부자재를 안 덮는다',run:async function(){
+   await twoDevices(); await prSeed();
+   await ev('B','__syncTest.setDeaf(true);1');
+   await ev('A','var t=S.items.it1.trims;t[1].unitPrice=200;t.push({id:"r3",supplier:"끈집",name:"납작이",orderType:"count",unitPrice:300});saveData();1');
+   await sleep(2500);
+   var p0=await ev('B',PRQ); if(p0!=='r1:5000:1|r2:150:4')throw new Error('B 가 옛 자료가 아님: '+p0);
+   await ev('B','var _e=encodeURIComponent;renamePBMaterial(_e("메이드"),_e("40/2합"),"40/2합 실","name");1');
+   await sleep(5000);
+   var NQ='S.items.it1.trims.map(function(t){return t.id+":"+t.name+":"+t.unitPrice}).join("|")';
+   var a=await ev('A',NQ);
+   await ev('B','__syncTest.setDeaf(false);cloudSyncLoad(curCoId).then(function(){return 1;})');
+   var want='r1:40/2합 실:5000|r2:자개 11mm:200|r3:납작이:300';
+   var b=await until('B',NQ,function(v){return v===want;},8000);
+   return {pass:a===want&&b.ok,detail:'A='+a+' · B='+b.v+' (둘 다 「'+want+'」)'}; }},
+ {id:'S19',name:'옛 단가장 창에서 단가를 바꿔도 다른 기기가 지운 줄이 살아나지 않고 줄 순서도 유지',run:async function(){
+   await twoDevices(); await prSeed();
+   await ev('B','__syncTest.setDeaf(true);1');
+   await ev('A','var t=S.items.it1.trims;S.items.it1.trims=[{id:"r3",supplier:"끈집",name:"납작이",orderType:"count",unitPrice:300},t[0]];saveData();1');
+   await sleep(2500);
+   var p0=await ev('B',PRQ); if(p0!=='r1:5000:1|r2:150:4')throw new Error('B 가 옛 자료가 아님: '+p0);
+   await ev('B','var _e=encodeURIComponent;updatePBPrice(_e("메이드"),_e("40/2합"),"unit",7000);1');
+   await sleep(5000);
+   var a=await ev('A',PRQ);
+   await ev('B','__syncTest.setDeaf(false);cloudSyncLoad(curCoId).then(function(){return 1;})');
+   var want='r3:300:|r1:7000:1';
+   var b=await until('B',PRQ,function(v){return v===want;},8000);
+   return {pass:a===want&&b.ok,detail:'A='+a+' · B='+b.v+' (둘 다 「'+want+'」)'}; }},
+ {id:'S20',weak:true,name:'옛 단가장 창에서 한 품목 단가를 바꿔도 같은 거래처의 다른 품목(다른 기기에서 고침)을 안 덮는다',run:async function(){
+   await twoDevices(); await prSeed();
+   await ev('B','__syncTest.setDeaf(true);1');
+   await ev('A','var _e=encodeURIComponent;updatePBPrice(_e("메이드"),_e("60/3합"),"unit",900);1');
+   await sleep(3000);
+   var PBQ='[S.priceBook["메이드"].materials["40/2합"].unitPrice,S.priceBook["메이드"].materials["60/3합"].unitPrice].join("|")';
+   var p0=await ev('B',PBQ); if(p0!=='5000|800')throw new Error('B 가 옛 자료가 아님: '+p0);
+   await ev('B','var _e=encodeURIComponent;updatePBPrice(_e("메이드"),_e("40/2합"),"unit",7000);1');
+   await sleep(5000);
+   var a=await ev('A',PBQ);
+   await ev('B','__syncTest.setDeaf(false);cloudSyncLoad(curCoId).then(function(){return 1;})');
+   var b=await until('B',PBQ,function(v){return v==='7000|900';},8000);
+   return {pass:a==='7000|900'&&b.ok,detail:'A='+a+' · B='+b.v+' (둘 다 「7000|900」)'}; }},
+ /* S21 (10-20): 줄 단위 합치기 규칙을 함수로 바로 검사 (기기 하나). 옛 자료(줄 도장 없음)·줄 번호 없는 줄·번호 겹침은 예전과 똑같이,
+       줄 도장이 있으면 줄·칸마다 더 최신, 지운 줄은 묘비, 칸만 고친 걸로는 지운 줄이 안 살아남, 순서는 더 최신 판 기준. */
+ {id:'S21',name:'부자재·원단·가공비 줄 단위 합치기 규칙 (옛 자료는 예전과 같게)',run:async function(){
+   await open('A',{seed:'basic'});
+   var code='(function(){var F="\\u001f",T=function(p){return "trims"+F+p;},o=function(x){return JSON.parse(JSON.stringify(x));},'
+     +'R=function(e){return (e.trims||[]).map(function(t){return (t.id||"")+(t.p!==undefined?":"+t.p:"")+(t.q!==undefined?":"+t.q:"");}).join("|");},out=[],m,fm;'
+     /* 1 옛 칸 도장만 → 예전처럼 칸 통째(더 늦은 쪽) */
+     +'m=_entMergeRec({_mt:200,_fm:{trims:200},trims:[{id:"a",p:1}]},{_mt:100,_fm:{trims:100},trims:[{id:"a",p:2},{id:"b",p:3}]},"cloud");out.push(R(m));'
+     /* 2 줄·칸마다 더 최신 */
+     +'fm={};fm[T("a"+F+"p")]=300;var L2={_mt:300,_fm:fm,trims:[{id:"a",p:9,q:1},{id:"b",p:3}]};fm={};fm[T("b"+F+"p")]=200;fm[T("a"+F+"q")]=150;'
+     +'m=_entMergeRec(L2,{_mt:200,_fm:fm,trims:[{id:"a",p:1,q:5},{id:"b",p:7}]},"cloud");out.push(R(m));'
+     /* 3 상대가 지운 줄은 지운 채로 */
+     +'fm={};fm[T("a"+F+"p")]=300;var L3={_mt:300,_fm:fm,trims:[{id:"a",p:9},{id:"b",p:3}]};fm={};fm[T("b")]=200;fm[T("#order")]=200;'
+     +'m=_entMergeRec(L3,{_mt:200,_fm:fm,trims:[{id:"a",p:1}]},"cloud");out.push(R(m));'
+     /* 4 지운 줄에 칸만 고친 건(옛 창 단가 전파) 안 살림 */
+     +'fm={};fm[T("b"+F+"p")]=300;var L4={_mt:300,_fm:fm,trims:[{id:"a",p:1},{id:"b",p:9}]};fm={};fm[T("b")]=200;'
+     +'m=_entMergeRec(L4,{_mt:200,_fm:fm,trims:[{id:"a",p:1}]},"cloud");out.push(R(m));'
+     /* 5 양쪽 새 줄 + 순서 = 더 최신 판, 상대 새 줄은 그 앞 줄 뒤에 */
+     +'fm={};fm[T("d")]=300;fm[T("#order")]=300;var L5={_mt:300,_fm:fm,trims:[{id:"a"},{id:"d"},{id:"b"}]};fm={};fm[T("c")]=200;fm[T("#order")]=200;'
+     +'m=_entMergeRec(L5,{_mt:200,_fm:fm,trims:[{id:"c"},{id:"a"},{id:"b"}]},"cloud");out.push(R(m));'
+     /* 6 번호 없는 줄 → 예전처럼 통째(줄 도장까지 쳐서 더 늦게 고친 쪽) */
+     +'fm={};fm[T("a"+F+"p")]=300;m=_entMergeRec({_mt:300,_fm:fm,trims:[{id:"a",p:9},{p:5}]},{_mt:200,_fm:{trims:250},trims:[{id:"a",p:1},{id:"b",p:2}]},"cloud");out.push(R(m));'
+     /* 7 번호 겹침 → 통째 */
+     +'fm={};fm[T("a"+F+"p")]=100;m=_entMergeRec({_mt:100,_fm:fm,trims:[{id:"a",p:9},{id:"a",p:8}]},{_mt:200,_fm:{trims:250},trims:[{id:"a",p:1}]},"local");out.push(R(m));'
+     /* 8 같은 줄 같은 칸 = 늦은 쪽 */
+     +'fm={};fm[T("a"+F+"p")]=300;var L8={_mt:300,_fm:fm,trims:[{id:"a",p:9}]};fm={};fm[T("a"+F+"p")]=400;'
+     +'m=_entMergeRec(L8,{_mt:400,_fm:fm,trims:[{id:"a",p:4}]},"local");out.push(R(m));'
+     /* 9 결과가 한쪽과 같으면 그 객체 그대로(화면 다시 그리기 판단) */
+     +'fm={};fm[T("a"+F+"p")]=300;var L9={_mt:300,_fm:fm,trims:[{id:"a",p:9}]};fm={};fm[T("a"+F+"p")]=200;m=_entMergeRec(L9,{_mt:200,_fm:fm,trims:[{id:"a",p:1}]},"cloud");out.push(m===L9?"same":"new");'
+     /* 10 저장 도장: 바뀐 줄 칸·새 줄·지운 줄·순서만, 칸 통째 도장 없음. 번호 없는 줄은 칸 통째 */
+     +'var e={trims:[{id:"a",p:5},{id:"c",p:3}],memo:"x"};_entStampFields(e,JSON.stringify({trims:[{id:"a",p:1},{id:"b",p:2}],memo:"y"}),500);out.push(Object.keys(e._fm).sort().join(",").split(F).join("/"));'
+     +'var e2={trims:[{p:2}]};_entStampFields(e2,JSON.stringify({trims:[{p:1}]}),500);out.push(Object.keys(e2._fm).join(","));'
+     +'return out.join(" ; ");})()';
+   var r=await ev('A',code);
+   var want='a:1 ; a:9:5|b:7 ; a:9 ; a:1 ; c|a|d|b ; a:9|:5 ; a:1 ; a:4 ; same ; memo,trims/#order,trims/a/p,trims/b,trims/c ; trims';
+   return {pass:r===want,detail:'결과 「'+r+'」 · 기대 「'+want+'」'}; }},
 ];
 
 async function main(){

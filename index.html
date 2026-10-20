@@ -2106,6 +2106,50 @@ function _entJson(e){ try{ return e?JSON.stringify(e,function(k,v){return (k==='
 var _FM_SEP='\u001f', _FM_KEEP=60*86400000;
 function _fmPlain(v){ return !!v&&typeof v==='object'&&!Array.isArray(v); }
 function _fmJ(v){ try{ return (v===undefined)?'\u0000u':JSON.stringify(v,function(k,x){ return (k==='_mt'||k==='_fm')?undefined:x; }); }catch(e){ return '\u0000e'; } }
+/* ===== 10-20 부자재·원단·가공비 «줄» 단위 (동기화 4번 이어서) =====
+   trims·fabrics·trimCosts 는 배열이라 예전엔 칸 하나 통째로 승부했다 → 오래 켜 둔 단가장 새 창(옛 자료)에서 단가·이름을 바꾸면
+   (propagatePriceToItems·renamePBMaterial) 그 창의 옛 부자재 목록 통째가 최신으로 판정돼 다른 기기에서 고친 다른 줄·새 줄이 사라지고
+   지운 줄이 살아났다(검사 S17~S19, 10-12 13:02:11 사고와 같은 뿌리).
+   → 줄마다 번호(id)가 있으면: 바뀐 줄의 바뀐 칸만 «trims␟줄id␟칸», 새 줄·지운 줄은 «trims␟줄id»(지운 줄 = 묘비), 순서 바뀜은 «trims␟#order».
+     합칠 때 줄·칸마다 더 최신을 고른다. 예전 칸 통째 도장(_fm.trims)은 바닥값으로만 쓴다(옛 자료와 섞여도 예전처럼).
+   · 칸만 고친 도장은 줄을 살리지 못한다(옛 창의 단가 전파가 다른 기기에서 지운 줄을 되살리지 않게).
+   · 번호 없는 줄·번호 겹침·배열 아님이면 예전처럼 칸 통째(줄 도장까지 쳐서 더 늦게 고친 쪽). */
+var _FM_ROWS={trims:1,fabrics:1,trimCosts:1}, _FM_ORD='#order';
+function _fmRowsOk(v){ if(v===undefined||v===null)return true; if(!Array.isArray(v))return false; var seen={}, i, r, id;
+  for(i=0;i<v.length;i++){ r=v[i]; if(!_fmPlain(r))return false; id=r.id; if((typeof id!=='string'&&typeof id!=='number')||id===''||seen['#'+id])return false; seen['#'+id]=1; } return true; }
+function _fmRowMap(a){ var m={}; (Array.isArray(a)?a:[]).forEach(function(r){ m[String(r.id)]=r; }); return m; }
+function _fmRowIds(a){ return (Array.isArray(a)?a:[]).map(function(r){ return String(r.id); }).join(_FM_SEP); }
+function _fmStampRows(fm,k,ov,nv,now){
+  var om=_fmRowMap(ov), nm=_fmRowMap(nv), p=k+_FM_SEP, id, f;
+  for(id in om){ if(!Object.prototype.hasOwnProperty.call(nm,id))fm[p+id]=now; }   /* 지운 줄 = 묘비 */
+  for(id in nm){ var o=om[id], n=nm[id];
+    if(!o){ fm[p+id]=now; continue; }   /* 새 줄 */
+    if(_fmJ(o)===_fmJ(n))continue;
+    var fk={}; for(f in o)fk[f]=1; for(f in n)fk[f]=1;
+    for(f in fk){ if(_fmJ(o[f])!==_fmJ(n[f]))fm[p+id+_FM_SEP+f]=now; } }
+  if(_fmRowIds(ov)!==_fmRowIds(nv))fm[p+_FM_ORD]=now;
+}
+/* 줄 배열 합치기. tl/tc = 예전 칸 통째 도장(바닥), sl/sc = 줄 도장(_fmSubs), recL = 동률이면 로컬 */
+function _fmMergeRows(la,ca,tl,tc,sl,sc,recL){
+  la=Array.isArray(la)?la:[]; ca=Array.isArray(ca)?ca:[]; sl=sl||{}; sc=sc||{};
+  var lm=_fmRowMap(la), cm=_fmRowMap(ca), H=Object.prototype.hasOwnProperty, keep={}, ids={}, id, f;
+  var isL=function(a,b){ return (a!==b)?(a>b):recL; };
+  for(id in lm)ids[id]=1; for(id in cm)ids[id]=1;
+  for(id in ids){
+    var a=Math.max(tl,+sl[id]||0), b=Math.max(tc,+sc[id]||0), lr=lm[id], cr=cm[id];
+    if(lr&&cr){
+      if(_fmJ(lr)===_fmJ(cr)){ keep[id]=isL(a,b)?lr:cr; continue; }
+      var fk={}, o={}; for(f in lr)fk[f]=1; for(f in cr)fk[f]=1;
+      for(f in fk){ var src=isL(Math.max(a,+sl[id+_FM_SEP+f]||0),Math.max(b,+sc[id+_FM_SEP+f]||0))?lr:cr; if(H.call(src,f))o[f]=src[f]; }
+      var oj=_fmJ(o); keep[id]=(oj===_fmJ(lr))?lr:((oj===_fmJ(cr))?cr:o);
+    }else{ var one=isL(a,b)?lr:cr; if(one)keep[id]=one; }
+  }
+  var base=isL(Math.max(tl,+sl[_FM_ORD]||0),Math.max(tc,+sc[_FM_ORD]||0))?la:ca, other=(base===la)?ca:la, seq=[], put={}, prev=null;
+  base.forEach(function(r){ var i=String(r.id); if(keep[i]&&!put[i]){ seq.push(i); put[i]=1; } });
+  other.forEach(function(r){ var i=String(r.id); if(keep[i]&&!put[i]){ seq.splice((prev===null)?0:(seq.indexOf(prev)+1),0,i); put[i]=1; } if(put[i])prev=i; });   /* 상대에만 있는 줄 = 그쪽 앞 줄 바로 뒤에 */
+  return seq.map(function(i){ return keep[i]; });
+}
+function _fmMaxSub(t,subs){ var m=t, x; if(subs)for(x in subs){ if(subs[x]>m)m=subs[x]; } return m; }
 function _entStampFields(e,oldJson,now){
   if(!e||!oldJson)return;
   var old; try{ old=JSON.parse(oldJson); }catch(err){ return; }
@@ -2116,6 +2160,7 @@ function _entStampFields(e,oldJson,now){
   for(k in keys){
     var ov=old[k], nv=e[k];
     if(_fmJ(ov)===_fmJ(nv))continue;
+    if(_FM_ROWS[k]&&_fmRowsOk(ov)&&_fmRowsOk(nv)){ _fmStampRows(fm,k,ov,nv,now); continue; }   /* 10-20 줄 단위 */
     if(_fmPlain(ov)&&_fmPlain(nv)){ var sk={}; for(s in ov)sk[s]=1; for(s in nv)sk[s]=1; for(s in sk){ if(_fmJ(ov[s])!==_fmJ(nv[s]))fm[k+_FM_SEP+s]=now; } }
     else fm[k]=now;
   }
@@ -2135,6 +2180,10 @@ function _entMergeRec(le,ce,tieWin){
   for(k in ce)if(k!=='_mt'&&k!=='_fm')keys[k]=1;
   for(k in keys){
     var tl=+lf[k]||0, tc=+cf[k]||0, lv=le[k], cv=ce[k], hl=H.call(le,k), hc=H.call(ce,k), sl=_fmSubs(lf,k), sc=_fmSubs(cf,k);
+    if(_FM_ROWS[k]&&(sl||sc)){   /* 10-20 줄 단위 (번호 없는 줄이면 예전처럼 통째 — 줄 도장까지 쳐서 더 늦게 고친 쪽) */
+      if(_fmRowsOk(lv)&&_fmRowsOk(cv)){ var rows=_fmMergeRows(lv,cv,tl,tc,sl,sc,recL); if(hl||hc)out[k]=rows; continue; }
+      tl=_fmMaxSub(tl,sl); tc=_fmMaxSub(tc,sc);
+    }
     if((sl||sc)&&(!hl||_fmPlain(lv))&&(!hc||_fmPlain(cv))){
       var lo=_fmPlain(lv)?lv:{}, co=_fmPlain(cv)?cv:{}, sk={}, o={};
       for(s in lo)sk[s]=1; for(s in co)sk[s]=1;
@@ -2326,7 +2375,11 @@ function _tcLossWatch(L,C,out){
   var lost=[];
   Object.keys(L||{}).forEach(function(id){ var le=L[id], oe=out[id]; if(!le||!oe||!Array.isArray(le.trimCosts)||!le.trimCosts.length)return;
     var have={}; (oe.trimCosts||[]).forEach(function(tc){ if(tc&&tc.id)have[tc.id]=1; });
-    le.trimCosts.forEach(function(tc){ if(tc&&tc.id&&!have[tc.id]){ var ce=(C||{})[id]||{}; lost.push({at:Date.now(),itemId:id,name:le.name||'',tc:JSON.parse(JSON.stringify(tc)),lmt:+le._mt||0,cmt:+ce._mt||0,lfm:(le._fm&&le._fm.trimCosts)||0,cfm:(ce._fm&&ce._fm.trimCosts)||0}); } });
+    le.trimCosts.forEach(function(tc){ if(tc&&tc.id&&!have[tc.id]){ var ce=(C||{})[id]||{};
+      /* 10-20 줄 단위: 다른 기기가 이 줄을 더 늦게 지웠으면(줄 묘비) 정상 삭제 — 보관 안 함 */
+      var _cf=_fmPlain(ce._fm)?ce._fm:{}, _lf=_fmPlain(le._fm)?le._fm:{}, _rk='trimCosts'+_FM_SEP+tc.id;
+      if(!(ce.trimCosts||[]).some(function(x){return x&&x.id===tc.id;})&&(+_cf[_rk]||0)>Math.max(+_lf.trimCosts||0,+_lf[_rk]||0))return;
+      lost.push({lrow:+_lf[_rk]||0,crow:+_cf[_rk]||0,at:Date.now(),itemId:id,name:le.name||'',tc:JSON.parse(JSON.stringify(tc)),lmt:+le._mt||0,cmt:+ce._mt||0,lfm:(le._fm&&le._fm.trimCosts)||0,cfm:(ce._fm&&ce._fm.trimCosts)||0}); } });
   });
   if(!lost.length)return;
   var arr=[]; try{ arr=JSON.parse(localStorage.getItem('fpfLostTc')||'[]')||[]; }catch(e){ arr=[]; }
@@ -5006,7 +5059,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-20s';
+var APP_BUILD=/*BUILD*/'2026-10-20t';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
