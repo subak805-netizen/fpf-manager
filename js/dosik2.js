@@ -348,6 +348,7 @@ function stat(r){
 function needStatus(r){
   var o={main:false,care:false,stitch:false,band:false,lining:false};
   if(r.doc){ r.doc.marks.forEach(function(m){ if(m.type==='main')o.main=true; if(m.type==='care')o.care=true; });
+    r.doc.callouts.forEach(function(c){ var t=(c.value||'')+' '+(c.text||''); if(/메인\s*,?\s*(·|케어)?\s*라벨|메인라벨/.test(t))o.main=true; if(/케어\s*라벨/.test(t))o.care=true; });   /* 10-20 라벨 상자를 그림에서 뺀 도식화도 설명 글로 확인 */
     r.doc.callouts.forEach(function(c){ if(c.kind==='stitch'||c.kind==='tuck')o.stitch=true; if(c.kind==='band')o.band=true; if(c.kind==='lining')o.lining=true; }); }
   (r.parts||[]).forEach(function(p){ var def=allParts().find(function(x){return x.k===p.k;}); if(def&&def.need)o[def.need]=true; });
   return o;
