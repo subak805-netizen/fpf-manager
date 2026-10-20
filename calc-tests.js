@@ -739,6 +739,30 @@ TEST('문제 30. 지퍼 슬라이더 1개 값 1,190 · 다른 집이면 나눔 �
   CHECK('원가는 다른 집이어도 슬라이더 포함', 850+_zipSlAdd(sep), 1190);
 });
 
+// ── 문제 31. 원가계산서 롤 ÷N 분배 = N장에 드는 롤 수 × 롤값 ÷ N (10-20l) ─────────
+// 스웨이드 자켓 실크 다데테이프 6mm: 요척 5.5y/장 · 1롤 50y · 롤값 1,200원 · 메이드 원장 60장에 7롤.
+// 손계산(÷30): 5.5×30=165y → 165÷50=3.3 → 올림 4롤 → 4×1,200=4,800 ÷30 = 160원/장 (예전 버그: 1롤÷30=40원).
+// 손계산(÷60): 5.5×60=330y → 6.6 → 7롤 → 8,400 ÷60 = 140원/장 (원장 7롤·60장과 같음).
+// 실크 심지 60": 0.5y/장 · 1절 100y · 120,000원 · ÷30 → 15y → 1절 → 120,000÷30 = 4,000원 (예전과 같음).
+// 로스 20% 넣은 줄(ty=6.6/장): 6.6×30=198y → 4롤 → 160원. 분배 끔이면 그대로 1,200원.
+TEST('문제 31. 롤 분배 = 30장 4롤 160원 · 60장 7롤 140원 · 심지 4,000 그대로', function(){
+  function rollRes(per,ypr,up){ var ty=per; var rolls=Math.ceil(ty/ypr); return {rolls:rolls,ty:ty,ay:rolls*ypr,cost:rolls*up,extrasCost:0,isRoll:true,_up:up}; }
+  var tape={orderType:'roll',consumptionPerPiece:5.5,yardsPerRoll:50,unitPrice:1200,useMinSplit:true,minSplitQty:30};
+  var r30=csMinSplitApply(tape, rollRes(5.5,50,1200), 1);
+  CHECK('테이프 ÷30 장당', Math.round(r30.cost), 160);
+  CHECK('테이프 ÷30 롤 수', r30.lotRolls, 4);
+  var tape60=Object.assign({},tape,{minSplitQty:60});
+  var r60=csMinSplitApply(tape60, rollRes(5.5,50,1200), 1);
+  CHECK('테이프 ÷60 장당', Math.round(r60.cost), 140);
+  CHECK('테이프 ÷60 롤 수', r60.lotRolls, 7);
+  var sim={orderType:'roll',consumptionPerPiece:0.5,yardsPerRoll:100,unitPrice:120000,useMinSplit:true,minSplitQty:30};
+  CHECK('심지 ÷30 그대로', Math.round(csMinSplitApply(sim, rollRes(0.5,100,120000), 1).cost), 4000);
+  var lossRes={rolls:1,ty:6.6,ay:50,cost:1200,isRoll:true,_up:1200};
+  CHECK('로스 20% 줄 ÷30', Math.round(csMinSplitApply(tape, lossRes, 1).cost), 160);
+  var off=Object.assign({},tape,{useMinSplit:false});
+  CHECK('분배 끔이면 1롤 1,200원', csMinSplitApply(off, rollRes(5.5,50,1200), 1).cost, 1200);
+});
+
 if(_fails.length){
   print('CALC TESTS: FAIL — ' + _fails.length + '건 실패 (통과 ' + _okCount + ')');
   print('실패 목록: ' + _fails.join(' / '));

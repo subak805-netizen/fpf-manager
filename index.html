@@ -5005,7 +5005,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-20k';
+var APP_BUILD=/*BUILD*/'2026-10-20l';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -32427,6 +32427,38 @@ function csLaborNote(it){
     var mx=ks.reduce(function(a,b){return (+m[b]>+m[a])?b:a;},ks[0]);
     return ' · 최대 '+mx+' 기준';
   }catch(e){ return ''; } }
+/* 원가계산서 미니멈 분배(÷N장) — 10-20l renderCS 안에서 꺼냄(검산 채점용).
+   롤(요척 있음) = N장에 드는 롤 수 × 롤값 ÷ N. 예전엔 「1장 몫 롤(=1롤) ÷ N」이라 5.5y·50y롤 테이프가 30장에 4롤 드는데 1롤값÷30 으로 계산됐음(사용자 신고 10-20: 스웨이드 자켓 7롤/60장=140원인데 40원). */
+function csMinSplitApply(t,res,q){
+  // 미니멈으로 나누기: 원가(extras 제외 본체)를 minSplitQty로 나눠서 1장당 × 생산수량
+  if(t.useMinSplit&&t.minSplitQty>0&&q>0){
+    const minQ=t.minSplitQty;
+    const ex=res.extrasCost||0;
+    let perPcs;
+    if(res.isYard){
+      // 루프·야드형: 미니멈(minQ장) 생산 기준 올림야드 × 단가 ÷ minQ (보수적)
+      const per=t.consumptionPerPiece||((t.loopPerYard&&t.loopPerPiece)?(t.loopPerPiece/t.loopPerYard):0)||0;
+      const up=res._up||0;
+      const lotY=per>0?Math.ceil(per*minQ):0;
+      res.lotYards=lotY;
+      perPcs=minQ>0?(lotY*up/minQ):0;
+    }else if(res.isRoll&&(+t.yardsPerRoll>0)&&(+res.ty>0)){
+      // 롤: minQ장에 드는 야드(장당 야드 × minQ) → 올림 롤 수 × 롤값 ÷ minQ
+      const ypr=+t.yardsPerRoll;
+      const lotTy=(+res.ty/q)*minQ;
+      const lotRolls=Math.ceil(lotTy/ypr-1e-9);
+      const rollPrice=(res._up!==undefined)?(+res._up||0):((res.rolls>0)?((res.cost-ex)/res.rolls):0);
+      res.lotRolls=lotRolls;
+      perPcs=lotRolls*rollPrice/minQ;
+    }else{
+      const bodyCost=res.cost-ex; // 본체 원가
+      perPcs=bodyCost/minQ; // 미니멈으로 나눈 1장당
+    }
+    res.cost=perPcs*q+ex; // 생산수량만큼
+    res.isMinSplit=true;res.minSplitQty=minQ;
+  }
+  return res;
+}
 function renderCS(){
   try{_csRestoreSet();}catch(e){} // 저장된 미니멈·판매배수·로스율·수량 복원 (최초 1회)
   const id=document.getElementById('cs-sel').value;
@@ -32495,28 +32527,7 @@ function renderCS(){
         +`<input type="number" class="cs-hide-on-img" value="${poVal!==undefined?poVal:''}" placeholder="${num(storePrice)}" min="0" style="width:72px;font-size:10px;padding:1px 4px;margin-top:1px;${poVal!==undefined?'background:#ecfdf5;border-color:var(--green);font-weight:700':''}" onchange="csSetPriceOverride('${id}','fab','${f.id}',this.value)" title="원가용 단가 (비우면 매장가 적용)">`;
     })()}</td><td style="text-align:center;color:var(--t3,#9ca3af);font-size:12px">–</td><td style="text-align:right"><div class="cs-amt" style="font-size:15px;font-weight:700;color:#374151;text-align:right">${num(Math.round(cp.cost))}원</div></td><td style="text-align:right">${fabLoss>0?`<div class="cs-amt" style="font-size:12px;color:var(--blue);text-align:right">${num(Math.round(cl.cost))}원</div><div class="cs-hide-on-img" style="font-size:10px;color:var(--blue);background:var(--bbg);border-radius:4px;padding:1px 6px;display:inline-block;margin-top:2px;font-weight:600">+${fabLoss}%</div>`:'<span class="muted">–</span>'}</td></tr>`;}).join('');
   // 부자재 순수원가/로스반영 계산
-  const _applyMinSplit=(t,res,q)=>{
-    // 미니멈으로 나누기: 원가(extras 제외 본체)를 minSplitQty로 나눠서 1장당 × 생산수량
-    if(t.useMinSplit&&t.minSplitQty>0&&q>0){
-      const minQ=t.minSplitQty;
-      const ex=res.extrasCost||0;
-      let perPcs;
-      if(res.isYard){
-        // 루프·야드형: 미니멈(minQ장) 생산 기준 올림야드 × 단가 ÷ minQ (보수적)
-        const per=t.consumptionPerPiece||((t.loopPerYard&&t.loopPerPiece)?(t.loopPerPiece/t.loopPerYard):0)||0;
-        const up=res._up||0;
-        const lotY=per>0?Math.ceil(per*minQ):0;
-        res.lotYards=lotY;
-        perPcs=minQ>0?(lotY*up/minQ):0;
-      }else{
-        const bodyCost=res.cost-ex; // 본체 원가
-        perPcs=bodyCost/minQ; // 미니멈으로 나눈 1장당
-      }
-      res.cost=perPcs*q+ex; // 생산수량만큼
-      res.isMinSplit=true;res.minSplitQty=minQ;
-    }
-    return res;
-  };
+  const _applyMinSplit=(t,res,q)=>csMinSplitApply(t,res,q);   /* 10-20l 바깥 함수로(검산 채점용) */
   // 부자재 단가: 기본 단가가 0이고 컬러별 단가가 있으면 가장 비싼 컬러별 단가 사용 (원가 보수적 계산)
   const trimUnitPrice=(t)=>{
     // 사이즈·규격별 단가표에 이 트림 조건이 맞으면 그 단가 사용(없으면 아래 기존 로직)
@@ -32554,7 +32565,7 @@ function renderCS(){
     // 부자재 사이즈(단추/스냅/지퍼/바이어스 포함) + 용도(몸판/소매 등) — 표시 전용
     const _csSz=(t.size||t.buttonSize||t.snapSize||t.zipperSize||t.zipperLength||t.biasSpec||'').toString().trim();
     const _csPart=(t.part||'').toString().trim();
-    const msBtn=canMinSplit?`<span class="cs-hide-on-img" style="display:inline-flex;gap:3px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:3px"><button onclick="toggleCsMinSplit('${id}','${t.id}')" style="padding:2px 7px;font-size:10px;border-radius:100px;cursor:pointer;border:1px solid ${t.useMinSplit?'#10b981':'var(--bd)'};background:${t.useMinSplit?'#ecfdf5':'var(--bg)'};color:${t.useMinSplit?'#047857':'var(--t2)'};font-weight:600;white-space:nowrap">${t.useMinSplit?`✓ ÷${t.minSplitQty||30}`:'미니멈'}</button>${t.useMinSplit?`<input type="number" value="${t.minSplitQty||30}" min="1" onchange="setCsMinSplitQty('${id}','${t.id}',this.value)" style="width:38px;font-size:10px;padding:1px 3px" title="미니멈 장수">`:''}</span>`:'';
+    const msBtn=canMinSplit?`<span class="cs-hide-on-img" style="display:inline-flex;gap:3px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:3px"><button onclick="toggleCsMinSplit('${id}','${t.id}')" style="padding:2px 7px;font-size:10px;border-radius:100px;cursor:pointer;border:1px solid ${t.useMinSplit?'#10b981':'var(--bd)'};background:${t.useMinSplit?'#ecfdf5':'var(--bg)'};color:${t.useMinSplit?'#047857':'var(--t2)'};font-weight:600;white-space:nowrap">${t.useMinSplit?`✓ ÷${t.minSplitQty||30}`:'미니멈'}</button>${t.useMinSplit?`<input type="number" value="${t.minSplitQty||30}" min="1" onchange="setCsMinSplitQty('${id}','${t.id}',this.value)" style="width:38px;font-size:10px;padding:1px 3px" title="미니멈 장수">`:''}${(t.useMinSplit&&cp&&cp.lotRolls)?`<span style="font-size:9px;color:#047857;white-space:nowrap" title="${t.minSplitQty||30}장에 드는 롤 수 × 롤값 ÷ ${t.minSplitQty||30}">${cp.lotRolls}롤×${num(Math.round(cp._up||0))}원</span>`:''}</span>`:'';
     return {isLabel:_isLabel,inc:inc,cost:cp.cost,costL:cl.cost,html:`<tr class="${isEx(k)?'cs-excluded-row':''}" style="${exClass(k)}"><td style="text-align:center">${chkBox(k)}</td><td class="muted" style="font-size:12px">${esc(t.supplier||'')}</td><td><b style="word-break:keep-all;line-height:1.25">${esc(t.name||t.labelName||'')}</b>${_csSz?` <span class="muted" style="font-size:11px">${esc(_csSz)}</span>`:''}${_csPart?` <span style="font-size:9px;font-weight:600;background:#eef2f7;color:#475569;border:1px solid #d6dde6;padding:0 5px;border-radius:4px;white-space:nowrap">${esc(_csPart)}</span>`:''}${t.orderType==='roll'?` <span class="badge b3" style="font-size:9px">${t.isLace?'컷':(t.rollUnit||'롤')}</span>`:''}${t.orderType==='thread'?' <span class="badge b3" style="font-size:9px">실</span>':''}${minNote}</td><td class="muted" style="font-size:13px;text-align:left">${(function(){
       var _eff=(csOvr!==undefined)?csOvr:_origYo;
       var _unit=(t.orderType==='thread')?'개/색':((t.orderType==='roll'||t.orderType==='yard')?'y/벌':'개/벌');
