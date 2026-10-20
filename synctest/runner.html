@@ -299,6 +299,31 @@ var SCENES=[
    await sleep(5000);
    var a=await ev('A',TRQ), b=await ev('B',TRQ);
    return {pass:a==='200|20000'&&b==='200|20000',detail:'받기 전 자동 맞춤 '+n+'줄 · A='+a+' · B='+b+' (둘 다 「200|20000」)'}; }},
+ /* S16 (10-20): S14 와 같은 구멍의 «사람 클릭» 길 — 오래 켜 둔 단가장 새 창(받기 죽음)에서 단위·계산 방식을 바꾸면
+       updatePBUnit·setPbCalcMode·pbSyncCalcRows 가 그 품목을 쓰는 아이템 부자재 줄을 같이 바꾸며 «내가 고침» 도장을 찍어,
+       다른 기기에서 고친 부자재(같은 아이템 다른 줄 단가 150→200 · 같은 줄 단가 5000→6000)를 옛값으로 되돌렸다.
+       아이템 줄은 단가장을 따라가는 것뿐이라 도장 없이 → 옛 창이면 최신이 이기고, 최신 창이면 바꾼 계산 방식이 그대로 퍼져야 한다. */
+ {id:'S16',name:'옛 자료를 든 단가장 창에서 단위·계산 방식을 바꿔도 다른 기기에서 고친 부자재를 안 덮는다',run:async function(){
+   await twoDevices(); await trimSeed();
+   await ev('B','__syncTest.setDeaf(true);1');
+   await ev('A','S.items.it1.trims[0].price=6000;S.items.it1.trims[1].price=200;saveData();1');
+   await sleep(2500);
+   var P1='[S.items.it1.trims[0].price,S.items.it1.trims[1].price].join("|")';
+   var p0=await ev('B',P1); if(p0!=='5000|150')throw new Error('B 가 옛 자료가 아님(장면 성립 안 됨): '+p0);
+   /* B(옛 창): 단위 Y(실→야드) → 계산 방식 절 → 단가장만 낱개로 바꾼 뒤 「줄 맞추기」 — 세 길 모두 아이템1 줄 r1 을 바꿈 */
+   var n=await ev('B','window.confirm=function(){return true;};var _e=encodeURIComponent,_r=[];'
+     +'updatePBUnit(_e("메이드"),_e("40/2합"),"Y");_r.push(S.items.it1.trims[0].orderType);'
+     +'setPbCalcMode(_e("메이드"),_e("40/2합"),"jeol");_r.push(S.items.it1.trims[0].rollUnit);'
+     +'var _m=S.priceBook["메이드"].materials["40/2합"];_m.orderType="count";_m.unit="ea";pbSyncCalcRows(_e("메이드"),_e("40/2합"));_r.push(S.items.it1.trims[0].orderType);_r.join(",")');
+   await sleep(5000);
+   var a=await ev('A',P1);
+   await ev('B','__syncTest.setDeaf(false);cloudSyncLoad(curCoId).then(function(){return 1;})');
+   var b=await until('B',P1,function(v){return v==='6000|200';},8000);
+   /* 이제 최신이 된 B 에서 계산 방식을 바꾸면 A 에도 가야 함 — 고친 단가는 그대로 */
+   await ev('B','var _e=encodeURIComponent;setPbCalcMode(_e("메이드"),_e("40/2합"),"jeol");1');
+   var MQ='[S.items.it1.trims[0].orderType,S.items.it1.trims[0].rollUnit,'+P1+'].join("|")';
+   var a2=await until('A',MQ,function(v){return v==='roll|절|6000|200';},12000);
+   return {pass:a==='6000|200'&&b.ok&&a2.ok,detail:'B 옛 창 줄 바뀜 '+n+' (「yard,절,count」) · A='+a+' · B='+b.v+' (둘 다 「6000|200」) · 최신 창 계산 방식 뒤 A='+a2.v+' (「roll|절|6000|200」)'}; }},
 ];
 
 async function main(){

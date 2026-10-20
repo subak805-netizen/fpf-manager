@@ -5005,7 +5005,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-20m';
+var APP_BUILD=/*BUILD*/'2026-10-20n';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9267,7 +9267,10 @@ function updatePBUnit(supEnc,nmEnc,unit){
   if(_ru)m.rollUnit=_ru;
   if(ot&&!_PB_OT_KEEP[cur]&&(cur!==ot||_ru)){
     m.orderType=ot;
-    for(var iid in S.items){ var it=S.items[iid]; if(it.trims)for(var ti=0;ti<it.trims.length;ti++){ var _t=it.trims[ti]; if(_t.supplier===s&&_t.name===nm){ _t.orderType=ot; if(_ru)_t.rollUnit=_ru; } } }
+    /* 10-20 아이템 줄은 단가장을 따라가는 것뿐 → 수정 도장 없이(_entMechItems). 옛 자료를 든 창(오래 켜 둔 단가장 새 창)에서 눌러도
+       그 아이템들의 옛 부자재 목록이 «최신»이 돼 다른 기기에서 고친 단가·줄을 덮지 않게 (검사 S16). 최신 창이면 그대로 퍼짐 */
+    var _uIds=Object.keys(S.items||{}).filter(function(iid){ var it=S.items[iid]; return !!(it&&Array.isArray(it.trims)&&it.trims.some(function(_t){ return _t&&_t.supplier===s&&_t.name===nm; })); });
+    _entMechItems(_uIds,function(){ _uIds.forEach(function(iid){ S.items[iid].trims.forEach(function(_t){ if(_t&&_t.supplier===s&&_t.name===nm){ _t.orderType=ot; if(_ru)_t.rollUnit=_ru; } }); }); });
   }
   lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});
   saveData();
@@ -9355,7 +9358,9 @@ function setPbCalcMode(encSup,encKey,key){
     var names=[]; rows.forEach(function(r){ var nm=(r.it&&r.it.name)||''; if(nm&&names.indexOf(nm)<0)names.push(nm); });
     var msg=m.name+' 계산 방식을 「'+lbl+'」로 바꿔요.\n\n이 품목을 쓰는 아이템 줄 '+rows.length+'개('+names.slice(0,6).join(', ')+(names.length>6?' …':'')+')도 같이 바꿀까요?\n요척·단가·적용 컬러는 그대로 두고 계산 방식만 바뀌어요. 이미 발송한 발주서는 안 바뀌어요.'+(shape?'\n카드 모양도 「'+lbl+'」 칸으로 바뀌어요 (전에 적은 전용 칸 값은 지워지지 않아요).':'')+'\n\n[확인] 같이 바꾸기   [취소] 단가장만';
     /* 10-08l 사용자 「그냥 맞추고 안 뜨게」 — 확인창 없이 아이템 줄도 단가장 계산 방식으로 */
-    rows.forEach(function(r){ var t=r.t; if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbRowCalcApply(t,key,unit,m); n++; });
+    /* 10-20 아이템 줄은 단가장을 따라가는 것 → 수정 도장 없이(_entMechItems, 검사 S16). 옛 창에서 눌러도 다른 기기 최신 부자재를 안 덮음 */
+    _entMechItems(rows.map(function(r){ return _itemIdOf(r.it); }).filter(Boolean),function(){
+      rows.forEach(function(r){ var t=r.t; if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbRowCalcApply(t,key,unit,m); n++; }); });
   }
   window._pbRowIdxC=null;
   try{lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook});}catch(e){}
@@ -9422,7 +9427,8 @@ function pbSyncCalcRows(encSup,encKey){
   var names=[]; rows.forEach(function(r){ var nm=(r.it&&r.it.name)||''; if(nm&&names.indexOf(nm)<0)names.push(nm); });
   var msg='「'+m.name+'」 단가장 계산 방식은 「'+lbl+'」인데, 아래 아이템의 이 부자재 줄은 다르게 되어 있어요:\n\n'+rows.map(function(r){return '· '+((r.it&&r.it.name)||'')+' — 지금 「'+_pbCalcLbl(_pbCalcKey(r.t))+'」';}).join('\n')+'\n\n전부 「'+lbl+'」로 맞출까요? (요척·단가·적용 컬러는 그대로, 이미 발송한 발주서는 안 바뀌어요)';
   if(!confirm(msg))return;
-  rows.forEach(function(r){ var t=r.t; if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbCalcApply(t,key,unit); });
+  _entMechItems(rows.map(function(r){ return _itemIdOf(r.it); }).filter(Boolean),function(){   /* 10-20 도장 없이 (검사 S16) */
+    rows.forEach(function(r){ var t=r.t; if(!t._calcOld)t._calcOld={orderType:t.orderType,rollUnit:t.rollUnit,isLace:t.isLace,plainYard:t.plainYard}; _pbCalcApply(t,key,unit); }); });
   window._pbRowIdxC=null; try{saveData();}catch(e){}
   showToast('아이템 줄 '+rows.length+'개 → '+lbl);
   if(typeof pbSoftRender==='function')pbSoftRender(true);
