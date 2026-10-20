@@ -763,6 +763,21 @@ TEST('문제 31. 롤 분배 = 30장 4롤 160원 · 60장 7롤 140원 · 심지 4
   CHECK('분배 끔이면 1롤 1,200원', csMinSplitApply(off, rollRes(5.5,50,1200), 1).cost, 1200);
 });
 
+// ── 문제 32. 원단 가공 「컬러마다 원단 더 시킴」 장당 몫 (10-20o) ─────────
+// 스웨이드 자켓 인타록 합포: 컬러마다 +2y · 원단 맥스460s 12,000원/y · 합포 2,000원/y · 미니멈 30장.
+// 손계산(한 컬러): 2y×1 = 2y → 원단 2×12,000÷30 = 800 · 합포 2×2,000÷30 = 133.33 → 933.33원/장.
+// 손계산(두 컬러 합산): 4y → 원단 1,600 · 합포 266.67 → 1,866.67원/장.
+// 정액 가공(가공 1y값 0)이면 원단 몫만 800. 더 시킴 0y 면 0.
+TEST('문제 32. 합포 컬러마다 +2y = 한 컬러 933원 · 두 컬러 1,867원', function(){
+  var a=csFabExtraOnce(2,1,12000,2000,30);
+  CHECK('한 컬러 원단 몫', Math.round(a.fab), 800);
+  CHECK('한 컬러 합포 몫', Math.round(a.proc), 133);
+  CHECK('한 컬러 합계', Math.round(a.total), 933);
+  CHECK('두 컬러 합계', Math.round(csFabExtraOnce(2,2,12000,2000,30).total), 1867);
+  CHECK('정액 가공이면 원단 몫만', Math.round(csFabExtraOnce(2,1,12000,0,30).total), 800);
+  CHECK('더 시킴 0y', csFabExtraOnce(0,1,12000,2000,30).total, 0);
+});
+
 if(_fails.length){
   print('CALC TESTS: FAIL — ' + _fails.length + '건 실패 (통과 ' + _okCount + ')');
   print('실패 목록: ' + _fails.join(' / '));
