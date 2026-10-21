@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-20zg';
+var APP_BUILD=/*BUILD*/'2026-10-21a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -18570,6 +18570,9 @@ function calcSups(orderItems,opts){
     }
   }return sups;
 }
+/* 10-21a 발주 자재 줄의 «아이템 컬러» — 같은 부자재 컬러(검정)를 여러 아이템 컬러(베이지·블랙)가 쓰면 calcSups 가 줄을 컬러마다 따로 내는데
+   그 줄들은 이것만 다르다. 줄을 짝짓거나 중복을 거를 때 이름·컬러와 함께 본다. 원단 줄·공통 사용 줄은 '' */
+function _matIcKey(m){ if(!m)return ''; if(Array.isArray(m.itemColors)&&m.itemColors.length)return m.itemColors.join(', '); return String(m.itemColorName==null?'':m.itemColorName); }
 // === 자재 동기화: 아이템 변경 사항을 진행 중인 오더에 반영 ===
 // 정책: 추가/삭제 양방향 반영, 단가는 유지, 발송 전이면 기존 supplier에 추가/제거, 발송 후면 새 supplier
 function syncOrderMaterialsFromItems(orderId, opts){
@@ -18600,20 +18603,33 @@ function syncOrderMaterialsFromItems(orderId, opts){
       
       // 비교 키: type + name + colorName + itemId (오더에 같은 자재가 여러 컬러로 들어갈 수 있음)
       function matKey(m){return (m.type||'')+'|'+(m.name||'')+'|'+(m.colorName||'')+'|'+(m.itemId||'');}
-      
-      var curKeys={};
+      /* 10-21a 줄 구분에 용도·«아이템 컬러»까지. 단추·패드처럼 롤·야드가 아닌 부자재는 calcSups 가 아이템 컬러마다 줄을 따로 내는데
+         (베이지→검정 · 블랙→검정) 부자재 컬러가 같아 matKey 로는 한 줄로 보였다 → 블랙 줄이 «중복»으로 지워짐(롱코트·헨리 메이드 신고 10-21). */
+      function matKeyP(m){return matKey(m)+'|'+(m.part||'')+'|'+(m.labelPart||'');}
+      function matKeyIc(m){return matKeyP(m)+'|'+_matIcKey(m);}
+
+      var curKeys={}, _spK={};
       (cur.materials||[]).forEach(function(m){curKeys[matKey(m)]=m;});
       // 이미 "(추가발주)"로 분리된 자재도 포함 — 중복 추가 방지
       var splitNameChk=sn+' (추가발주)';
       if(currentSups[splitNameChk]){
-        (currentSups[splitNameChk].materials||[]).forEach(function(m){if(!curKeys[matKey(m)])curKeys[matKey(m)]=m;});
+        (currentSups[splitNameChk].materials||[]).forEach(function(m){if(!curKeys[matKey(m)])curKeys[matKey(m)]=m; _spK[matKeyIc(m)]=1; if(!_matIcKey(m))_spK['~'+matKey(m)]=1;});
       }
       var freshKeys={};
       freshMats.forEach(function(m){freshKeys[matKey(m)]=m;});
-      
+      /* 10-21a 미발송 카드는 줄마다 짝짓기: ① 용도·아이템 컬러까지 같은 줄 → 그 줄 수량 갱신
+         ② 없으면 같은 자재·부자재 컬러·용도인데 이번 계산에 안 쓰인 옛 줄(컬러 묶음이 바뀐 줄)을 이어받음 — 직접 적은 실제 발주·단가 보존
+         ③ 그래도 없으면 새 줄. 발송된 카드는 예전 기준(matKey) 그대로 — 보낸 종이에 이미 있는 자재·컬러를 추가발주로 다시 내지 않는다. */
+      var _cm0=(cur.materials||[]).slice(), _claim=[], _match=[], _addNew=[];
+      if(!isSent){
+        freshMats.forEach(function(m,fi){ var k=matKeyIc(m); for(var j=0;j<_cm0.length;j++){ if(!_claim[j]&&_cm0[j]&&matKeyIc(_cm0[j])===k){ _claim[j]=1; _match[fi]=j; return; } } });
+        freshMats.forEach(function(m,fi){ if(_match[fi]!==undefined)return; var k=matKeyP(m); for(var j=0;j<_cm0.length;j++){ if(!_claim[j]&&_cm0[j]&&matKeyP(_cm0[j])===k){ _claim[j]=1; _match[fi]=j; return; } } });
+      }
+
       // 추가: fresh에 있지만 cur에 없는 것
-      freshMats.forEach(function(m){
-        if(!curKeys[matKey(m)]){
+      freshMats.forEach(function(m,fi){
+        var _has=isSent?!!curKeys[matKey(m)]:(_match[fi]!==undefined||!!_spK[matKeyIc(m)]||!!_spK['~'+matKey(m)]);
+        if(!_has){
           if(isSent){
             // 발송 후 — 새 supplier(_v2 같은 이름)로 분리
             var splitName=sn+' (추가발주)';
@@ -18621,13 +18637,14 @@ function syncOrderMaterialsFromItems(orderId, opts){
             currentSups[splitName].materials.push(m);
             if(result.newSuppliers.indexOf(splitName)<0)result.newSuppliers.push(splitName);
           }else{
-            // 발송 전 — 기존 supplier에 추가
-            cur.materials.push(m);
+            // 발송 전 — 기존 supplier에 추가 (아래 «삭제» 정리 뒤 끝에 붙인다)
+            _addNew.push(m);
           }
           result.added.push({supplier:sn,material:m});
         }else{
           // 양쪽에 있음
-          var curMat=curKeys[matKey(m)];
+          var curMat=isSent?curKeys[matKey(m)]:(_match[fi]!==undefined?_cm0[_match[fi]]:null);
+          if(!curMat)return;   /* 미발송인데 «(추가발주)» 카드에만 있는 줄 — 예전처럼 원래 카드엔 안 넣음 */
           /* ⚠️ 발송된 발주서는 **실제로 보낸 종이**라 수량을 절대 안 건드린다 (2026-08-19 신고).
                 예전엔 isSent 상관없이 totalYards/totalKg/calc 를 최신으로 덮어써서,
                 「요척 0.71로 발주 → 발송완료 → 아이템 요척 0.77로 수정」 하면
@@ -18641,18 +18658,18 @@ function syncOrderMaterialsFromItems(orderId, opts){
             if(_chg)result.frozenQty.push({supplier:sn,material:curMat,
               was:(+curMat.totalYards||+curMat.totalKg||0), now:(+m.totalYards||+m.totalKg||0)});
           }else{
-            // 단가는 유지. 수량 관련 필드는 최신으로
-            ['totalYards','totalKg','calc'].forEach(function(field){
+            // 단가는 유지. 수량 관련 필드는 최신으로 (+ 이어받은 줄이면 아이템 컬러 표시도 새 묶음으로 — 10-21a)
+            ['totalYards','totalKg','calc','itemColorName','itemColors'].forEach(function(field){
               if(m[field]!==undefined)curMat[field]=m[field];
             });
           }
         }
       });
-      
+
       // 삭제: cur에 있지만 fresh에 없는 것
       var keptMaterials=[];
-      (cur.materials||[]).forEach(function(m){
-        if(freshKeys[matKey(m)]){
+      _cm0.forEach(function(m,j){
+        if(isSent?freshKeys[matKey(m)]:_claim[j]){
           keptMaterials.push(m);
         }else{
           // 이미 발주 진행됐는지 체크
@@ -18670,7 +18687,7 @@ function syncOrderMaterialsFromItems(orderId, opts){
           }
         }
       });
-      cur.materials=keptMaterials;
+      cur.materials=keptMaterials.concat(_addNew);
     }
   });
   
@@ -18694,13 +18711,16 @@ function syncOrderMaterialsFromItems(orderId, opts){
   });
   
   // 추가발주 거래처 등에서 같은 자재 중복 제거 (matKey 기준)
+  /* 10-21a ① 아이템 컬러까지 같아야 중복 — 베이지→검정 · 블랙→검정 두 줄은 다른 줄(예전엔 블랙 줄을 지워 메이드 원장 128개가 앱엔 64개로 남음)
+           ② 발송·출고·입고 카드는 실제로 보낸 종이라 줄을 지우지 않는다 */
   Object.keys(currentSups).forEach(function(sn){
     var sup=currentSups[sn];
     if(!sup||!sup.materials)return;
+    if(sup.status==='sent'||sup.status==='shipped'||sup.status==='arrived')return;
     var seen={};
     var deduped=[];
     sup.materials.forEach(function(m){
-      var key=(m.type||'')+'|'+(m.name||'')+'|'+(m.colorName||'')+'|'+(m.itemId||'')+'|'+(m.part||'')+'|'+(m.labelPart||'');
+      var key=(m.type||'')+'|'+(m.name||'')+'|'+(m.colorName||'')+'|'+(m.itemId||'')+'|'+(m.part||'')+'|'+(m.labelPart||'')+'|'+_matIcKey(m);
       if(!seen[key]){seen[key]=true;deduped.push(m);}
     });
     sup.materials=deduped;
@@ -22942,9 +22962,13 @@ function _propagateEffectiveRatioRaw(orderId,itemId){
         // 매칭: type + name + colorName + itemId + 용도(part) + fabId
         // ★part 필수: 같은 원단 이름·같은 컬러가 몸판/소매로 중복될 때, part 없이 매칭하면
         //   엉뚱한 쪽(소매)을 집어 몸판이 갱신 안 되고 옛 수량에 멈추는 버그.
-        var idx=curMats.findIndex(function(cm){
+        var _same=function(cm){
           return cm.type===fm.type&&cm.name===fm.name&&(cm.colorName||'')===(fm.colorName||'')&&cm.itemId===fm.itemId&&(cm.part||'')===(fm.part||'')&&(cm.fabId||'')===(fm.fabId||'');
-        });
+        };
+        /* 10-21a 아이템 컬러까지 맞춘다 — 베이지→검정 · 블랙→검정 줄은 이름·컬러가 같아 예전엔 첫 줄(베이지)에 마지막 컬러(블랙) 수량을 덮어썼다
+           (롱코트 베이지 줄 = 블랙 몫 64, 플라워 조끼 아이보리 줄 = 블루 몫 138). 아이템 컬러 표시 없는 옛 줄만 예전처럼 짝짓기 */
+        var idx=curMats.findIndex(function(cm){ return _same(cm)&&_matIcKey(cm)===_matIcKey(fm); });
+        if(idx<0)idx=curMats.findIndex(function(cm){ return _same(cm)&&!_matIcKey(cm); });
         if(idx<0)return;
         var cur=curMats[idx];
         // actualOrderedQty 있는 원단은 totalYards 유지 (원래 의뢰량 그대로 보존)
