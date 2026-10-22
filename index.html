@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-21f';
+var APP_BUILD=/*BUILD*/'2026-10-22a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -13729,8 +13729,7 @@ function _itemSavedInd(msg){ var el=document.getElementById('draft-ind'); if(el)
 function hideItemForm(){
   // 닫기 전 마지막 변경 저장 (자동 저장 대기 중이던 것 즉시 반영)
   try{ if(window._itemAutoT){clearTimeout(window._itemAutoT);window._itemAutoT=null; saveItemForm({silent:true});} }catch(e){}
-  /* 자동저장만 하고 닫는 경우에도 '이 아이템 쓰는 진행중 발주에 반영할까요?'를 딱 한 번 묻는다.
-     (자동저장 중엔 confirm을 못 띄우니 닫을 때로 미뤄둔 것. 쓰는 발주가 없으면 안 뜸.) */
+  /* 자동저장만 하고 닫는 경우에도 이 아이템 쓰는 진행 중 발주에 자재 변경을 맞춘다 (10-22a 확인창 없이 자동 · 바뀐 게 없으면 아무것도 안 뜸) */
   try{ if(window._itemDirty&&editItemId&&S.items[editItemId]){ window._itemDirty=false; notifyOrdersAffectedByItemChange(editItemId,S.items[editItemId].name); } }catch(e){}
   document.getElementById('ipl').style.display='';document.getElementById('ipf').style.display='none';
   try{renderItemsList();}catch(e){} // 자동 저장 동안 생략한 리스트 갱신
@@ -18591,10 +18590,12 @@ function syncOrderMaterialsFromItems(orderId, opts){
   // 2) 각 fresh supplier에 대해 현재와 비교
   Object.keys(freshSups).forEach(function(sn){
     var freshMats=freshSups[sn].materials;
+    if(!currentSups[sn]&&!(freshMats&&freshMats.length))return;   /* 10-22a 자재 0줄인 새 거래처는 빈 카드만 생겨서 안 만든다 (자동 반영이 되면서 확인 없이 생기던 것) */
     if(!currentSups[sn]){
       // 완전히 새로운 supplier — 통째로 추가하되, 발송 전 상태로
       var newSup=mkSupWithDefaults(sn);
       newSup.materials=freshMats.slice();
+      newSup.deliveryFcId=poDeliveryFcId(order,newSup);   /* 10-22a 나중에 생긴 카드도 출고처 기본값 저장 */
       currentSups[sn]=newSup;
       result.newSuppliers.push(sn);
       freshMats.forEach(function(m){result.added.push({supplier:sn,material:m});});
@@ -18634,7 +18635,7 @@ function syncOrderMaterialsFromItems(orderId, opts){
           if(isSent){
             // 발송 후 — 새 supplier(_v2 같은 이름)로 분리
             var splitName=sn+' (추가발주)';
-            if(!currentSups[splitName])currentSups[splitName]=mkSupWithDefaults(sn);
+            if(!currentSups[splitName]){ currentSups[splitName]=mkSupWithDefaults(sn); currentSups[splitName].deliveryFcId=cur.deliveryFcId||poDeliveryFcId(order,cur); }   /* 10-22a 원래 카드 출고처 그대로 */
             currentSups[splitName].materials.push(m);
             if(result.newSuppliers.indexOf(splitName)<0)result.newSuppliers.push(splitName);
           }else{
@@ -18768,41 +18769,54 @@ function getActiveOrdersUsingItem(itemId){
   return result;
 }
 
-// 아이템 저장 후 알림: 이 아이템을 쓰는 진행 중 오더가 있으면 동기화 제안
+// 아이템 저장 후: 이 아이템을 쓰는 진행 중 발주(출고 전)에 자재 변경을 자동으로 맞춘다
+/* 10-22a 확인창 없앰 (사용자 「항상 확인 누르니까 … 확인창 없애고 자동으로, 바뀐 게 없으면 아무것도 안 뜨게」)
+   · 하는 일은 예전 [확인]과 똑같다 — syncOrderMaterialsFromItems (안 보낸 카드만 자재·수량 맞춤, 보낸 카드 수량은 고정)
+   · 발주서가 실제로 바뀌었을 때만 아래 알림 한 줄. 공임·메모만 고친 저장은 아무것도 안 뜬다
+   · 보낸 발주서에서 빠진 자재(반품 검토)는 창으로 — 같은 내용은 앱을 다시 열기 전까지 한 번만(매 저장마다 안 뜨게)
+   · 발주 화면 「아이템 변경 반영」 버튼은 그대로 */
 function notifyOrdersAffectedByItemChange(itemId, itemName){
   var orders=getActiveOrdersUsingItem(itemId);
   if(orders.length===0)return;
   setTimeout(function(){
-    var msg='"'+itemName+'"을(를) 사용하는 진행 중 발주가 '+orders.length+'건 있어요.\n\n변경 사항을 그 발주들에도 반영할까요?\n\n[확인] 모든 발주에 동기화\n[취소] 나중에 직접 동기화';
-    if(confirm(msg)){
-      var totalAdded=0,totalRemoved=0,totalNewSup=0,totalFrozen=0,paidIssues=[];
-      orders.forEach(function(o){
-        var r=syncOrderMaterialsFromItems(o.id,{silent:true});
-        totalAdded+=r.added.length;
-        totalRemoved+=r.removed.length;
-        totalNewSup+=r.newSuppliers.length;
-        totalFrozen+=(r.frozenQty||[]).length;
-        if(r.paidRemovals.length>0)paidIssues.push({order:o,removals:r.paidRemovals});
-      });
-      render();
-      var resultMsg='동기화 완료!\n\n• 추가된 자재: '+totalAdded+'건\n• 삭제된 자재: '+totalRemoved+'건';
-      if(totalNewSup>0)resultMsg+='\n• 추가 발주 supplier: '+totalNewSup+'건';
-      if(totalFrozen>0)resultMsg+='\n• 이미 발송한 발주서 '+totalFrozen+'건은 수량을 그대로 뒀어요 (보낸 종이와 맞추려고). 더 필요하면 추가발주로 보내주세요.';
-      if(paidIssues.length>0){
-        resultMsg+='\n\n다음 자재는 이미 발주됐어요 (반품 검토 필요):';
-        paidIssues.forEach(function(pi){
-          pi.removals.forEach(function(r){
-            resultMsg+='\n• ['+pi.order.name+'] '+r.supplier+' - '+r.material.name+' ('+(r.reason==='arrived'?'도착':'발송')+')';
-          });
-        });
-      }
-      alert(resultMsg);
-    }
+    var nOrd=0,totalAdded=0,totalRemoved=0,totalNewSup=0,frozen=[],paidIssues=[],pk0=(S.pickups||[]).length;
+    orders.forEach(function(o){
+      var before=JSON.stringify(o.suppliers||{});
+      var r=syncOrderMaterialsFromItems(o.id,{silent:true});
+      if(JSON.stringify(((S.orders[o.id]||{}).suppliers)||{})!==before)nOrd++;
+      totalAdded+=r.added.length; totalRemoved+=r.removed.length; totalNewSup+=r.newSuppliers.length;
+      (r.frozenQty||[]).forEach(function(f){ frozen.push(o.id+'|'+f.supplier+'|'+((f.material||{}).name||'')+'|'+f.now); });
+      if(r.paidRemovals.length>0)paidIssues.push({order:o,removals:r.paidRemovals});
+    });
+    var seen=window._ordSyncSeen||(window._ordSyncSeen={}), mem=seen[itemId]||(seen[itemId]={});
+    var changed=nOrd>0||(S.pickups||[]).length!==pk0;
+    var fSig=frozen.sort().join('\n'), fNew=!!fSig&&fSig!==mem.frozen; mem.frozen=fSig;
+    if(changed){ try{render();}catch(e){} }
+    var msg=[];
+    if(changed){ var parts=[]; if(totalAdded)parts.push('추가 '+totalAdded); if(totalRemoved)parts.push('삭제 '+totalRemoved); if(totalNewSup)parts.push('새 거래처 '+totalNewSup); if(!parts.length)parts.push('수량 맞춤');
+      msg.push('「'+itemName+'」 발주 '+nOrd+'건에 자재 변경 반영 ('+parts.join(' · ')+')'); }
+    if(fNew)msg.push('이미 보낸 발주서 '+frozen.length+'건은 수량 그대로 — 더 필요하면 추가발주로');
+    if(msg.length)showToast(msg.join(' / '),6000);
+    var pLines=[]; paidIssues.forEach(function(pi){ pi.removals.forEach(function(r){ pLines.push('• ['+pi.order.name+'] '+r.supplier+' - '+r.material.name+' ('+(r.reason==='arrived'?'도착':'발송')+')'); }); });
+    var pSig=pLines.join('\n');
+    if(pSig&&pSig!==mem.paid)alert('「'+itemName+'」에서 빠진 자재가 이미 발주됐어요 (반품 검토 필요):\n\n'+pSig);
+    mem.paid=pSig;
   },400);
 }
 
 function mkSup(){return{materials:[],recipient:'',status:'draft',sentAt:'',deliveryFcId:'',poOpts:{...DEFAULT_PO_OPTS},stockOk:false,negotiated:false,negotiatedNote:'',sampleRequested:false,sampleReceived:false,expectedShipDate:'',invoiceReceived:false,invoiceCorrect:false,invoiceHasVat:false,invoiceNote:'',shippingCost:0,actualShipDate:'',arrivalDate:'',fabricReadyColors:{},trimReadyItems:{},negotiatedAmount:0};}
 function mkSupWithDefaults(sn){const s=mkSup();const pb=S.priceBook[sn];if(pb?.defaultPoOpts)s.poOpts={...s.poOpts,...pb.defaultPoOpts};return s;}
+/* 10-22a 출고처 기본값 한 곳 — 카드에 출고처가 비어 있으면: 완성자재만 있는 카드는 그 받는 곳, 아니면 첫 아이템 봉제공장.
+   예전엔 「거래처 확인」 칸을 그릴 때만 화면 안에서 채우고 저장도 안 해서, 그보다 먼저 만드는 발주서 본문·복사·카톡에는
+   [출고처]가 빠졌다 (신고 10-22 「출고처 주소까지 포함 눌려 있고 출고처도 정해져 있는데 주소가 안 떠」 — 나중에 생긴 거래처 카드에서) */
+function poDeliveryFcId(o,sup){
+  if(!sup)return '';
+  if(sup.deliveryFcId)return sup.deliveryFcId;
+  var mats=sup.materials||[], fs=mats.filter(function(m){return m&&m.isFinishSet;}).map(function(m){return m.fsDestId||'';});
+  if(fs.length&&fs.length===mats.length&&fs[0]&&fs.every(function(x){return x===fs[0];})&&S.factories[fs[0]])return fs[0];
+  var d=((o&&o.orderItems)||[]).map(function(oi){var it=S.items[oi.itemId];return it&&it.sewingFcId;}).find(Boolean)||'';
+  return (d&&S.factories[d])?d:'';
+}
 // #od-tab innerHTML 교체 시 스크롤이 위로 튀는 문제 방지 — 스크롤 컨테이너 위치 보존
 function _renderOTabKeepScroll(){
   var el=document.getElementById('od-tab');
@@ -19161,7 +19175,8 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
   const showPrice=_poShowPrice(sup);   /* 「발주 내용 선택」의 단가 표시 */
   const _r5By=opts.trimRound5By||{};   /* 09-30e 부자재별 5단위 — 키=_poR5Key(이름+규격), 없으면 위 전체 값 */
   function r5(q,m){var md=(m&&_r5By[_poR5Key(m)])||trimR5;if(md==='up')return Math.ceil(q/5)*5;if(md==='down')return Math.floor(q/5)*5;return q;}
-  const fc=sup.deliveryFcId&&S.factories[sup.deliveryFcId]?S.factories[sup.deliveryFcId]:null;
+  const _dfc=poDeliveryFcId(order,sup);   /* 10-22a 비어 있으면 기본 출고처(봉제공장) — 거래처 확인 칸과 같은 값 */
+  const fc=_dfc&&S.factories[_dfc]?S.factories[_dfc]:null;
   const fabs=sup.materials.filter(m=>m.type==='fabric');
   const trims=sup.materials.filter(m=>m.type==='trim');
   const _procs=sup.materials.filter(m=>m&&m.type==='proc');   /* 2026-09-15f 가공 담당 집 카드 */
