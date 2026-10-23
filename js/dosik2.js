@@ -175,7 +175,7 @@ function placeVertical(rows,xmin,xmax,GAP){   /* 여러 줄: 지시선 전부 �
 function layout(r){
   if(!r)return; pageOf(r); if(!r.doc)return;
   if(r.doc.ar){ layoutAr(r); return; }   /* 아루드 배치(10-20) */
-  var d=r.doc, fs=d.fs, lh=Math.round(fs*1.3), cs=d.callouts, GAP=46, MAXW=Math.min(fs*12.5,(PAGE_W-120)*0.34);   /* 세로 종이는 글 상자 조금 좁게 → 수직 계단 배치 잘 나옴 (annotate.py 와 같음) */
+  var d=r.doc, fs=d.fs, lh=Math.round(fs*1.3), cs=d.callouts, GAP=Math.max(46,Math.round(fs*1.0)), MAXW=Math.min(fs*12.5,(PAGE_W-120)*0.34);   /* 세로 종이는 글 상자 조금 좁게 → 수직 계단 배치 잘 나옴 (annotate.py 와 같음) */
   cs.forEach(function(c){ c.ls=[].concat.apply([],lines(c).map(function(t){return wrapLine(t,fs,MAXW);})); c.w=Math.max.apply(null,[fs*2].concat(c.ls.map(function(t){return measure(t,fs);}))); c.h=c.ls.length*lh; });
   var M=90, minBand=lh*3+110, gw=PAGE_W-2*M, gh=gw*d.asp, maxGh=PAGE_H-2*minBand-60;
   if(gh>maxGh){ gh=maxGh; gw=gh/d.asp; }
