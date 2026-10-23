@@ -381,6 +381,7 @@ function shell(){
    +   '<button class="dk2-btn sm" id="dk2-add" type="button" aria-pressed="false">＋ 화살표</button><button class="dk2-btn sm" id="dk2-addtext" type="button" aria-pressed="false">＋ 글</button><button class="dk2-btn sm" id="dk2-move" type="button" aria-pressed="false">상자 옮기기</button>'
    +   '<button class="dk2-btn sm dk2-phone" id="dk2-parts" type="button">부품</button><span class="dk2-sep" aria-hidden="true"></span>'
    +   '<span class="dk2-fs" role="group" aria-label="글씨 크기"><button class="dk2-btn sm" id="dk2-fs-down" type="button">글씨 −</button><b id="dk2-fs-val">20pt</b><button class="dk2-btn sm" id="dk2-fs-up" type="button">글씨 +</button></span>'
+   +   '<span class="dk2-pbar" id="dk2-pbar" role="group" aria-label="고른 부품" hidden><span class="dk2-sep" aria-hidden="true"></span><b id="dk2-pname"></b><button class="dk2-btn sm" data-pbar="-" type="button">작게</button><button class="dk2-btn sm" data-pbar="+" type="button">크게</button><button class="dk2-btn sm" data-pbar="del" type="button">빼기</button></span>'
    +   '<div class="dk2-grow"></div><span class="dk2-sent" id="dk2-sent"></span><button class="dk2-btn sm" id="dk2-zoom" type="button" aria-pressed="false">크게 보기</button></div>'
    +  '<div class="dk2-paper" id="dk2-paper"><svg id="dk2-sheet" viewBox="0 0 '+PAGE_W+' '+PAGE_H+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="도식화 종이"></svg><div class="dk2-empty" id="dk2-empty" hidden></div></div>'
    +  '<div class="dk2-hint" id="dk2-hint"></div></main>'
@@ -415,10 +416,10 @@ function renderList(){
 /* ---------- 종이·오른쪽 칸 ---------- */
 function renderSheet(){
   var r=cur(), svg=$('dk2-sheet'), em=$('dk2-empty');
-  if(!r){ svg.innerHTML=''; svg.style.display='none'; em.hidden=false; em.innerHTML='왼쪽 목록에서 도식화를 고르거나, 「도식화 파일 불러오기」로 새 도식화를 넣어 주세요.'; return; }
+  if(!r){ renderPartBar(); svg.innerHTML=''; svg.style.display='none'; em.hidden=false; em.innerHTML='왼쪽 목록에서 도식화를 고르거나, 「도식화 파일 불러오기」로 새 도식화를 넣어 주세요.'; return; }
   svg.style.display=''; em.hidden=true;
   var pg=pageOf(r); svg.setAttribute('viewBox','0 0 '+pg.w+' '+pg.h); svg.classList.toggle('port',pg===PORT);
-  svg.innerHTML=sheetSVG(r,{ui:true});
+  svg.innerHTML=sheetSVG(r,{ui:true}); renderPartBar();
   svg.classList.toggle('moving',st.moving); svg.classList.toggle('selco',!!st.sel&&isPhone()); svg.classList.toggle('adding',st.adding||!!st.addingText||!!st.placing); svg.classList.toggle('zoom',st.zoom);
 }
 function partsHTML(inFloat){
@@ -435,7 +436,7 @@ function partsHTML(inFloat){
   var sp=r&&(r.parts||[]).find(function(p){return p.id===st.selPart;});
   return (inFloat?'<div class="dk2-note" style="margin-bottom:8px">눌러서 고르고 → 종이를 누르면 찍혀요</div>':'<h3>부품 서랍 <span class="dk2-n">눌러서 고르고 → 종이를 누르면 찍혀요</span></h3>')
     +'<div class="dk2-tiles">'+tiles+'</div>'+more
-    +(sp?'<div class="dk2-selpart"><b>고른 부품: '+esc(sp.nm)+'</b><div class="dk2-grow"></div><button type="button" class="dk2-btn sm" data-ps="-">작게</button><button type="button" class="dk2-btn sm" data-ps="+">크게</button><button type="button" class="dk2-btn sm" data-ps="del">빼기</button></div>':'');
+    +(sp?'<div class="dk2-selpart"><b>고른 부품: '+esc(sp.nm)+'</b><span class="dk2-n">크기·빼기는 종이 위 도구 줄에서</span></div>':'');
 }
 function kindSel(c){ return '<select class="dk2-kind" data-kind="'+c.id+'" aria-label="설명 종류">'+Object.keys(KIND).map(function(k){return '<option value="'+k+'"'+(c.kind===k?' selected':'')+'>'+KIND[k]+'</option>';}).join('')+'</select>'; }
 function countText(r){ var w=r.doc.callouts.filter(written).length; return w+'/'+r.doc.callouts.length+' 씀 · 상자를 누르거나 여기서 바로 쓰기'; }
@@ -499,6 +500,16 @@ function renderSent(){
   var seen={}, last=tpInfo(r).log.slice().reverse().filter(function(x){ if(seen[x.to])return false; seen[x.to]=1; return true; }).reverse();
   host.innerHTML=last.length?last.map(function(x){ var old=(r.ver||0)>x.ver; return '<span class="'+(old?'old':'')+'" title="'+(old?'보낸 뒤 고쳤어요 — 다시 보내면 최신으로 바뀌어요':'보낸 그대로예요')+'">'+esc(x.lbl)+' '+esc(x.at)+(old?' · 다시 보내기':'')+'</span>'; }).join(''):'<span>작지 안 보냄</span>';
 }
+/* 10-23f 고른 부품 작게·크게·빼기 = 종이 위 도구 줄(옆 칸 맨 아래라 안 보이던 것). 크기는 처음 찍은 크기 대비 % 로 보여 줌 */
+function partBase(p){ return p.k==='custom'?2.2:1.4; }
+function partAct(act){ var r=cur(); if(!r)return; var p=(r.parts||[]).find(function(x){return x.id===st.selPart;}); if(!p)return;
+  if(act==='del'){ r.parts=r.parts.filter(function(x){return x!==p;}); st.selPart=null; }
+  else p.s=Math.max(0.4,Math.min(12,+(p.s*(act==='+'?1.2:1/1.2)).toFixed(2)));
+  touch(r); renderSheet(); renderSide(); }
+function renderPartBar(){ var bar=$('dk2-pbar'); if(!bar)return; var r=cur(), p=r&&r.kind!=='old'&&(r.parts||[]).find(function(x){return x.id===st.selPart;});
+  bar.hidden=!p; if(!p)return;
+  $('dk2-pname').textContent=(p.nm||'부품')+' '+Math.round(p.s/partBase(p)*100)+'%';
+  bar.querySelector('[data-pbar="+"]').disabled=p.s>=12; bar.querySelector('[data-pbar="-"]').disabled=p.s<=0.4; }
 function renderAll(){ if(!$('dosik2-root'))return; renderList(); renderTitle(); renderSheet(); renderSide(); renderSent(); }
 
 /* ---------- 좌표 ---------- */
@@ -696,11 +707,9 @@ function wire(){
     if(pt||cu){ var key=pt?pt.getAttribute('data-part'):(cu.getAttribute('data-custom')||cu.getAttribute('data-asset')); st.moving=false; st.adding=false; st.placing=st.placing===key?null:key; renderTitle(); renderSheet(); renderSide();
       if(isPhone()&&st.placing){ $('dk2-float').innerHTML=''; toast(placingName()+' — 종이에서 놓을 곳을 누르세요'); } return; }
     if(e.target.closest('[data-addpart]')){ $('dk2-file-part').click(); return; }
-    if(ps){ var p=(r.parts||[]).find(function(x){return x.id===st.selPart;}); if(!p)return;
-      if(ps.getAttribute('data-ps')==='del'){ r.parts=r.parts.filter(function(x){return x!==p;}); st.selPart=null; }
-      else p.s=Math.max(0.4,Math.min(4,+(p.s*(ps.getAttribute('data-ps')==='+'?1.2:1/1.2)).toFixed(2)));
-      touch(r); renderSheet(); renderSide(); }
+    if(ps){ partAct(ps.getAttribute('data-ps')); }
   };
+  $('dk2-pbar').addEventListener('click',function(e){ var b=e.target.closest('[data-pbar]'); if(b)partAct(b.getAttribute('data-pbar')); });
   side.addEventListener('click',sideClick); $('dk2-float').addEventListener('click',sideClick);
   /* 종이: 부품 찍기 · 화살표 더하기 · 끌어 옮기기 */
   var sheet=$('dk2-sheet');
