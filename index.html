@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-26a';
+var APP_BUILD=/*BUILD*/'2026-10-26b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -22425,12 +22425,13 @@ function poCardHTML(o,sn){
         if(!_fcG[key]){_fcG[key]={name:(f.name||f.displayName||'').replace(/\s*\([^)]*\)\s*$/,''),part:_part,fc:fc,colors:{},corder:[],final:0,raw:0};_fcGo.push(key);}
         var g=_fcG[key];
         var fin=(f.actualOrderedQty!==undefined&&f.actualOrderedQty!=='')?+f.actualOrderedQty:(+f.totalYards||0);g.final+=fin;
-        var sb=f.sizeBreakdown||{};var pcs=0,raw=0;Object.keys(sb).forEach(function(sz){var e=sb[sz];if(!e||!e.qty)return;pcs+=e.qty;raw+=(+e.consumption||0)*e.qty;});
+        var sb=f.sizeBreakdown||{};var pcs=0,raw=0,_szq={};Object.keys(sb).forEach(function(sz){var e=sb[sz];if(!e||!e.qty)return;pcs+=e.qty;raw+=(+e.consumption||0)*e.qty;_szq[sz]={c:+e.consumption||0,q:+e.qty||0};});   /* 10-26b 사이즈별 요척 계산식용 */
         if(!pcs&&+f.garmentPcs>0){pcs=Math.round(+f.garmentPcs);var _ufc=fc||g.fc;if(_ufc)raw=(+_ufc.consumption||0)*pcs;}
         g.raw+=raw;
         var fcol=f.fabricColor||f.colorName||'';
-        if(!g.colors[fcol]){g.colors[fcol]={pcs:0,raw:0,items:[]};g.corder.push(fcol);}
+        if(!g.colors[fcol]){g.colors[fcol]={pcs:0,raw:0,items:[],sz:{},szOrd:(S.items[f.itemId]&&S.items[f.itemId].sizes)||[]};g.corder.push(fcol);}
         var cg=g.colors[fcol];cg.pcs+=pcs;cg.raw+=raw;
+        Object.keys(_szq).forEach(function(sz){ var k=sz+'\u001f'+_szq[sz].c; if(!cg.sz[k])cg.sz[k]={sz:sz,c:_szq[sz].c,q:0}; cg.sz[k].q+=_szq[sz].q; });
         var ic=f.colorName||'';var ex=cg.items.find(function(x){return x.ic===ic;});if(ex)ex.pcs+=pcs;else cg.items.push({ic:ic,pcs:pcs});
       });
       var fFml={};
@@ -22442,6 +22443,16 @@ function poCardHTML(o,sn){
           var yo=cg.pcs?(Math.round((cg.raw/cg.pcs)*1000)/1000):0;
           var ics=cg.items.filter(function(x){return x.pcs>0;}).map(function(x){return esc(x.ic||'기본');});
           var icTag=(ics.length>1)?' <span class="po-icp">('+ics.join('+')+')</span>':'';
+          /* 10-26b 사이즈마다 요척이 다르면 평균(예: 0.148) 대신 사이즈별로 — 「3·4 60장 × 0.14 + 5 15장 × 0.18」 (신고 「안감 요척이 사이즈별로 다르면 발주서 수식도 달라져야」). 야드 계산은 원래부터 사이즈별(calcFabYards) — 표시만 */
+          var _sv=Object.keys(cg.sz||{}).map(function(k){return cg.sz[k];}), _cs={};
+          _sv.forEach(function(e){ _cs[e.c]=1; });
+          if(Object.keys(_cs).length>1){
+            var _so=cg.szOrd||[], _gb={}, _go=[];
+            _sv.sort(function(a,b){ var ia=_so.indexOf(a.sz), ib=_so.indexOf(b.sz); return (ia<0?999:ia)-(ib<0?999:ib); });
+            _sv.forEach(function(e){ var k=String(e.c); if(!_gb[k]){_gb[k]={c:e.c,szs:[],q:0};_go.push(k);} _gb[k].szs.push(e.sz); _gb[k].q+=e.q; });
+            var _fx=_go.map(function(k){ var x=_gb[k]; return esc(x.szs.join('·'))+' '+x.q+'장 × '+(Math.round(x.c*1000)/1000); }).join(' + ');
+            return '<div class="po-cl2"><span class="po-fc2">#'+esc(fcol||'기본')+'</span> = '+_fx+' = <b>'+r1(cg.raw)+'y</b>'+icTag+'</div>';
+          }
           return '<div class="po-cl2"><span class="po-fc2">#'+esc(fcol||'기본')+'</span> = '+cg.pcs+'장 × 요척 '+yo+' = <b>'+r1(cg.raw)+'y</b>'+icTag+'</div>';
         }).join('');
         var line='<div class="po-cl">총 '+totPcs+'장 · '+r1(g.raw)+'y → 로스 '+buf+'% = <b>'+r1(g.final)+'y 발주</b></div>';
