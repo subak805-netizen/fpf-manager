@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-23g';
+var APP_BUILD=/*BUILD*/'2026-10-26a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -19102,6 +19102,8 @@ function _poFabProcNotes(g,sup){
    ⚠️ 개당(perPcs)·조건부(tier) 가공만. 「한번에」·「컬러별」은 개수 개념이 아니라 지금처럼 이름 줄로만 나간다.
    ⚠️ 가공 담당업체(tc.factory)가 **이 발주서 거래처와 같을 때만** 넣는다 — 남의 집 발주서에 끼면 안 된다.
    ⚠️ 개수 = 그 컬러 장수 × 개당요척(_tcQtyPerPiece). */
+/* 10-26a 가공 블록 붙이기 — 한 줄짜리(개수 부자재 개당 가공)는 「가공:」 줄들 바로 밑에, 컬러별 개수 블록은 빈 줄 띄우고 */
+function _poPushProcBlocks(L,bs){ (bs||[]).forEach(function(b){ if(b&&b.inline)b.forEach(function(x){L.push(x);}); }); (bs||[]).forEach(function(b){ if(!b||b.inline)return; L.push(''); b.forEach(function(x){L.push(x);}); }); }
 function _poProcBlocks(g,sup){
   var out=[],seen={};
   ((g&&g.colors)||[]).forEach(function(m){
@@ -19156,6 +19158,11 @@ function _poProcBlocks(g,sup){
       /* 최소 작업수량 — 전체 합계가 모자라면 그 개수로 올린다(가장 큰 컬러에 몰아주지 않고 «최소 N» 로 적는다) */
       var _tot=0; ord.forEach(function(c){ _tot+=(+byC[c]||0); });
       var _minNote=(_mnQ>0&&_tot<_mnQ)?(' · 최소 '+_fmt(_mnQ)+_u+' (합계 '+_fmt(_tot)+_u+')'):'';
+      /* 10-26a 개수로 시키는 부자재(단추·스냅·지퍼·낱개)의 개당 가공 = 「가공:」 한 줄만, 컬러별 개수 안 붙임
+         (신고 「덤브링 베스트 단추 발주서가 가공비까지 수량을 적어 — 수량을 더블로 발주하게 돼서 큰일나」 — 가공 개수 = 위 부자재 개수와 같아 두 번 시키는 것처럼 보임).
+         끈·원단처럼 단위가 다른 것(야드 자재 + 개수 가공, 스트링 제작 등)은 예전처럼 컬러별 개수 블록 (2026-08-26 요청 그대로). */
+      var _cntLike=!_fid&&!_yU&&['count','button','snap','zipper',''].indexOf(String(m.orderType||''))>=0&&!m.isButtonLoop;
+      if(_cntLike){ var _il=['가공: '+hdr+' ('+num(fee)+'원 · '+(mode==='tier'?'조건부':'개당')+')'+((_mnQ>0&&_tot<_mnQ)?(' · 최소 '+_fmt(_mnQ)+_u):'')]; _il.inline=true; out.push(_il); return; }
       var lines=[hdr+' ('+num(fee)+'원'+(_yU?'/y':'')+')'+_minNote];
       var tot=0;
       ord.forEach(function(c){ tot+=byC[c]; lines.push((c?('#'+c):'')+' - '+_fmt(byC[c])+_u); });
@@ -19331,7 +19338,7 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
       (function(){ var _nt=[],_sn={}; g.colors.forEach(function(c){ (c.appliedAdditions||[]).forEach(function(a){ var _y=+a.extraYd||0; if(!(_y>0))return; var _t=(a.name||'여유')+' '+(Math.round(_y*100)/100)+'y'; if(!_sn[_t]){_sn[_t]=1;_nt.push(_t);} }); }); if(_nt.length)L.push('※ 컬러마다 '+_nt.join(' · ')+' 포함'); })();
       if(g.memo)L.push(`${g.memo}`);
       /* 원단 가공비(fabId) — 이 원단처가 담당인 것만 (2026-09-04l): 컬러별·한번에 = 「가공: …」 줄, 개당·조건부 = 컬러별 야드 블록 */
-      try{ _poFabProcNotes(g,sn).forEach(function(x){L.push(x);}); var _fpb=_poProcBlocks(g,sn); if(_fpb.length){_fpb.forEach(function(b){L.push('');b.forEach(function(x){L.push(x);});});} }catch(e){}
+      try{ _poFabProcNotes(g,sn).forEach(function(x){L.push(x);}); var _fpb=_poProcBlocks(g,sn); _poPushProcBlocks(L,_fpb); }catch(e){}
       // 원단(그룹)이 바뀔 때만 한 줄 띄움
       if(grpOrder.indexOf(k)<grpOrder.length-1)L.push('');
       if(g.colors&&g.colors.length&&g.colors.every(function(c){return isSkippedMat(order,sn,c);}))_markFrom(_sk0);   /* 09-18h 발주안함(전 컬러) 블록 표시 */
@@ -19908,9 +19915,9 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
           L.push('※ 원단 재고에 맞춰 '+t.effectivePcsApplied+'장 기준 발주');
         }
         var _pbs1=[]; try{ _pbs1=_poProcBlocks(g,sn); }catch(eP1){}   /* 10-12g 컬러 안 나뉜 부자재도 개당·야드당 가공 블록 (예전엔 빠졌음) — 여러 컬러 쪽과 같은 방식 */
-        var _pbH1={}; _pbs1.forEach(function(b){ _pbH1[String(b[0]).replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
+        var _pbH1={}; _pbs1.forEach(function(b){ _pbH1[String(b[0]).replace(/^가공:\s*/,'').replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
         _poTrimProcNotes(g,sn).forEach(function(nm){ if(_pbH1[String(nm).trim()])return; L.push('가공: '+nm); });
-        if(_pbs1.length){ _pbs1.forEach(function(b){ L.push(''); b.forEach(function(x){L.push(x);}); }); }
+        _poPushProcBlocks(L,_pbs1);   /* 10-26a 한 줄 가공은 바로 밑에, 블록은 빈 줄 띄우고 */
         L.push('');
         if(g.colors&&g.colors.length&&g.colors.every(function(c){return isSkippedMat(order,sn,c);}))_markFrom(_sk1);   /* 09-18h */
         continue;
@@ -19979,9 +19986,9 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
       /* 개당 가공(스트링 제작 등)은 «컬러별 개수»가 있는 자기 블록으로 (2026-08-26).
          나머지(한번에·컬러별)는 예전처럼 「가공: 이름」 한 줄. */
       var _pbs=(typeof _poProcBlocks==='function')?_poProcBlocks(g,sn):[];
-      var _pbHdrs={}; _pbs.forEach(function(b){ _pbHdrs[String(b[0]).replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
+      var _pbHdrs={}; _pbs.forEach(function(b){ _pbHdrs[String(b[0]).replace(/^가공:\s*/,'').replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
       _poTrimProcNotes(g,sn).forEach(function(nm){ if(_pbHdrs[String(nm).trim()])return; L.push('가공: '+nm); });
-      if(_pbs.length){ _pbs.forEach(function(b){ L.push(''); b.forEach(function(x){L.push(x);}); }); }
+      _poPushProcBlocks(L,_pbs);   /* 10-26a */
       L.push(''); // 부자재 그룹 사이 항상 줄바꿈
       if(g.colors&&g.colors.length&&g.colors.every(function(c){return isSkippedMat(order,sn,c);}))_markFrom(_sk1);   /* 09-18h */
     }
