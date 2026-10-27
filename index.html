@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-26b';
+var APP_BUILD=/*BUILD*/'2026-10-27a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -19842,14 +19842,28 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
           const origQ=sni.calc?.qty||0;
           sTotQty+=r5((typeof hasMatOverride==='function'&&hasMatOverride(sni))?+sni.actualOrderedQty:origQ,sni);
         });
+        /* 10-27a 적용컬러에 적은 발주 컬러(예: 흑니켈)를 발주서에 — 예전엔 「수량 N세트」만 찍고 컬러를 안 읽었다
+           (신고 「컬러 흑니켈이라고 적어놨는데 발주서에 왜 안 떠」). 단추 줄과 같은 모양 「#흑니켈 (네이비, 카키 사용) - 50세트」 */
+        var _sbC={},_sbO=[];
+        sg.items.forEach(function(sni){
+          var k=String(sni.colorName||'').replace(/\s+/g,' ').trim();
+          if(!_sbC[k]){_sbC[k]={q:0,orig:0,ovr:false,ics:[]};_sbO.push(k);}
+          var oq=sni.calc?.qty||0, ov=(typeof hasMatOverride==='function'&&hasMatOverride(sni));
+          _sbC[k].q+=r5(ov?+sni.actualOrderedQty:oq,sni); _sbC[k].orig+=oq; if(ov)_sbC[k].ovr=true;
+          (sni.itemColors&&sni.itemColors.length?sni.itemColors:(sni.itemColorName?[sni.itemColorName]:[])).forEach(function(ic){ if(_sbC[k].ics.indexOf(ic)<0)_sbC[k].ics.push(ic); });
+        });
+        var _sbHasC=_sbO.some(function(k){return !!k;});
+        var _sbLbl=function(k){ var e=_sbC[k]; var src=(e.ics.length&&(e.ics.length>1||e.ics[0]!==k))?' ('+e.ics.join(', ')+' 사용)':''; return '#'+(k||'기본')+src; };
         if(allSameFaceQty){
           // 모든 면 요척 같음 → 면별 처리방법만 나열하고 수량 한줄
           sfEnabled.forEach(function(f){
             L.push(f.face+'면 — '+f.process+(f.color?' ('+f.color+')':'')+(f.hasDye?' 염색':''));
           });
-          L.push('수량 '+sTotQty+'세트');
+          if(!_sbHasC)L.push('수량 '+sTotQty+'세트');
+          else{ _sbO.forEach(function(k){ var e=_sbC[k]; L.push(_sbLbl(k)+' - '+e.q+'세트'+(e.ovr?' ※실제(원래'+e.orig+')':'')); }); if(_sbO.length>1)L.push('합계 '+sTotQty+'세트'); }
         }else{
-          // 면별 요척 다름 → 면마다 수량 표시
+          // 면별 요척 다름 → 면마다 수량 표시 (컬러는 이름만 — 개수를 또 적으면 두 번 시키는 것처럼 보임)
+          if(_sbHasC)_sbO.forEach(function(k){ L.push(_sbLbl(k)); });
           sfEnabled.forEach(function(f){
             const fq=faceQtysCalc[f.face]||sTotQty;
             L.push(f.face+'면 — '+f.process+(f.color?' ('+f.color+')':'')+(f.hasDye?' 염색':'')+': '+r5(fq,sg)+'개');
