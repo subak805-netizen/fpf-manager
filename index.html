@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-27a';
+var APP_BUILD=/*BUILD*/'2026-10-27b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -18620,6 +18620,32 @@ function calcSups(orderItems,opts){
 }
 /* 10-21a 발주 자재 줄의 «아이템 컬러» — 같은 부자재 컬러(검정)를 여러 아이템 컬러(베이지·블랙)가 쓰면 calcSups 가 줄을 컬러마다 따로 내는데
    그 줄들은 이것만 다르다. 줄을 짝짓거나 중복을 거를 때 이름·컬러와 함께 본다. 원단 줄·공통 사용 줄은 '' */
+/* ===== 10-27b 부자재 수량 기준 「재단 장수 + 여분」 (사용자 「부자재발주칸에도 만들어줘」 → 「발주서·자재 표·결제 예상 다 같이 바뀌게」) =====
+   거래처 카드 poOpts.trimCutBase 이면 그 카드의 부자재(라벨·완성자재·원단 빼고)를 봉제공장 재단 기록 장수로 다시 계산한다.
+   로스·여분(o.loss)·5단위는 그대로. 재단 기록이 없거나 이름이 안 맞는 아이템은 오더 수량 그대로.
+   ⚠️ 오더 자재 계산은 이 함수 하나로 — 다시 계산(refresh)·아이템 저장 자동 반영(sync)·정정 카드·부자재 원장이 같은 값을 봐야
+      저장할 때마다 「수량 맞춤」이 뜨거나 결제 예상이 어긋나지 않는다. */
+function _sdCutMat(m){ return !!m&&(m.type==='trim'||m.type==='proc')&&m.orderType!=='careLabel'&&m.orderType!=='mainLabel'&&!m.isFinishSet; }
+function calcSupsForOrder(o,opts){
+  var fresh=calcSups((o&&o.orderItems)||[],opts);
+  try{
+    if(!o||!o.suppliers||!fresh)return fresh;
+    var sns=Object.keys(fresh).filter(function(sn){ var s=o.suppliers[sn]; return s&&s.poOpts&&s.poOpts.trimCutBase; });
+    if(!sns.length)return fresh;
+    var cutIds={}, items2=(o.orderItems||[]).map(function(oi){ var it=S.items[oi.itemId]; var r=_poCutGrid(o,oi,it,false); if(!r.cut)return oi; cutIds[oi.itemId]=1; return Object.assign({},oi,{qtyGrid:r.g,grandTotal:r.total}); });
+    if(!Object.keys(cutIds).length)return fresh;
+    if(typeof ensureOrderLoss==='function')ensureOrderLoss(o);
+    var cf=calcSups(items2,Object.assign({},opts||{},{lossMap:o.loss||{},trimEffectivePcs:false}))||{};
+    sns.forEach(function(sn){
+      var cur=(fresh[sn].materials||[]), cut=((cf[sn]||{}).materials||[]).filter(function(m){ return _sdCutMat(m)&&cutIds[m.itemId]; });
+      var at=-1, keep=[];
+      cur.forEach(function(m){ if(_sdCutMat(m)&&cutIds[m.itemId]){ if(at<0)at=keep.length; return; } keep.push(m); });
+      if(at<0)at=keep.length;
+      fresh[sn].materials=keep.slice(0,at).concat(cut,keep.slice(at));
+    });
+  }catch(e){ console.warn('[재단 장수 기준 계산]',e); }
+  return fresh;
+}
 function _matIcKey(m){ if(!m)return ''; if(Array.isArray(m.itemColors)&&m.itemColors.length)return m.itemColors.join(', '); return String(m.itemColorName==null?'':m.itemColorName); }
 // === 자재 동기화: 아이템 변경 사항을 진행 중인 오더에 반영 ===
 // 정책: 추가/삭제 양방향 반영, 단가는 유지, 발송 전이면 기존 supplier에 추가/제거, 발송 후면 새 supplier
@@ -18630,7 +18656,7 @@ function syncOrderMaterialsFromItems(orderId, opts){
   if(!order)return {added:0,removed:0,reorderedSuppliers:[]};
   
   // 1) 아이템에서 최신 자재 구성을 다시 계산
-  var freshSups=calcSups(order.orderItems||[]);
+  var freshSups=calcSupsForOrder(order);   /* 10-27b 재단 장수 기준 카드 포함 */
   var currentSups=order.suppliers||{};
   
   var result={added:[], removed:[], newSuppliers:[], paidRemovals:[], frozenQty:[]};
@@ -19208,11 +19234,17 @@ function _poShowPrice(sup){ return true; }   /* 2026-09-14d 사용자: 「단가
 /* 10-02b 라벨·완성자재 수량 기준 — 발주 내용 선택 「재단 장수 + 여분」(poOpts.lblCutBase) 이면 봉제공장 재단 기록 그리드를 쓴다.
    재단 기록이 없거나 컬러·사이즈 이름이 안 맞으면 예전처럼 오더(effective) 그리드. 발주서 숫자만 — 원가·결제 불변. */
 function _poLblGrid(order,oi,it,sn){
+  var po=(((order&&order.suppliers)||{})[sn]||{}).poOpts||{};
+  return _poCutGrid(order,oi,it,!po.lblCutBase);
+}
+/* 10-27b 재단 장수 그리드 (봉제공장 재단 기록) — 라벨(lblCutBase, 발주서 글만)·부자재(trimCutBase, 계산까지) 공용.
+   off=true 면 오더(effective) 그리드 그대로. 재단 기록이 없으면 noCut, 컬러·사이즈 이름이 안 맞으면 mismatch → 둘 다 오더 그리드. */
+function _poCutGrid(order,oi,it,off){
   var bd=(typeof getEffectivePcsBreakdown==='function')?getEffectivePcsBreakdown(order,oi):null;
   var base=(bd&&bd.effGrid)?bd.effGrid:(oi&&oi.qtyGrid)||{};
-  var po=(((order&&order.suppliers)||{})[sn]||{}).poOpts||{};
-  if(!po.lblCutBase||!it)return {g:base,cut:false};
-  var sch=(it.sewingFcId&&order.factorySchedules)?order.factorySchedules[it.sewingFcId]:null;
+  if(off||!it)return {g:base,cut:false};
+  var _sfc=(typeof orderFc==='function')?orderFc(order,it,'sewingFcId'):it.sewingFcId;
+  var sch=(_sfc&&order.factorySchedules)?order.factorySchedules[_sfc]:null;
   var cg=(sch&&typeof pdCutSizeGrid==='function')?pdCutSizeGrid(sch,oi.itemId,(order.orderItems||[]).length===1):{};
   var sizes=(it.sizes&&it.sizes.length)?it.sizes:['free'], colors=(it.colors&&it.colors.length)?it.colors:[''];
   var tot=0,ng={},hit=0;
@@ -21937,7 +21969,7 @@ function _refreshOrderSuppliersRaw(o){
   }
   // 3) 재계산 (최신 아이템 정의 반영)
   let fresh;
-  try{fresh=calcSups(o.orderItems);}catch(e){console.error('[refreshOrderSuppliers]',e);return;}
+  try{fresh=calcSupsForOrder(o);}catch(e){console.error('[refreshOrderSuppliers]',e);return;}   /* 10-27b */
   if(!fresh)return;
   // 3-b) 안전장치: 거래처가 사라지거나, 원단처의 원단이 통째로 사라지면 교체 취소
   /* ★09-22b 「(추가발주)」 카드는 세지 않는다. 재계산(calcSups)엔 그 이름이 원래 없어서, 추가발주 카드가 하나라도 생긴 오더는
@@ -22284,7 +22316,7 @@ function _poCorrRerender(){ if(typeof _renderOTabKeepScroll==='function')_render
 function _poCorrFind(oid,sn,id){ var o=S.orders[oid]; var list=(o&&o.poCorr&&o.poCorr[sn])||[]; return {o:o,list:list,c:list.find(function(x){return x&&x.id===id;})}; }
 function poCorrCreate(oid,sn){
   var o=S.orders[oid]; if(!o||!o.suppliers||!o.suppliers[sn])return;
-  var fresh=null; try{ fresh=(calcSups(o.orderItems)||{})[sn]; }catch(e){}
+  var fresh=null; try{ fresh=(calcSupsForOrder(o)||{})[sn]; }catch(e){}   /* 10-27b */
   var lines=_poCorrLines(_poCorrBase(o,sn),(fresh&&fresh.materials)||[]);
   if(!lines.length){ showToast('보낸 발주서와 달라진 수량이 없어요'); return; }
   if(!o.poCorr||typeof o.poCorr!=='object')o.poCorr={}; if(!Array.isArray(o.poCorr[sn]))o.poCorr[sn]=[];
@@ -22328,7 +22360,7 @@ function poChangePanelHTML(o,freshOpt){
     if(!o||!o.suppliers)return '';
     var frozenSns=Object.keys(o.suppliers).filter(function(sn){ var st=(o.suppliers[sn]||{}).status; return st==='sent'||st==='shipped'||st==='arrived'; });
     if(!frozenSns.length)return '';
-    var fresh=freshOpt||calcSups(o.orderItems)||{};
+    var fresh=freshOpt||calcSupsForOrder(o)||{};   /* 10-27b */
     var blocks=[];
     frozenSns.forEach(function(sn){ var d=_poChangeDiff(_poCorrBase(o,sn),(fresh[sn]||{}).materials); if(!(d.changed.length+d.added.length+d.removed.length))return; blocks.push({sn:sn,d:d,st:o.suppliers[sn].status}); });
     if(!blocks.length)return '';
@@ -22632,6 +22664,12 @@ function poCardHTML(o,sn){
               var on=!!opts.lblCutBase, hint='';
               if(on){ var st=[]; (o.orderItems||[]).forEach(function(oi){ var it=S.items[oi.itemId]; if(!it||!mats.some(function(m){return m.itemId===oi.itemId;}))return; var r=_poLblGrid(o,oi,it,sn); st.push(r.cut?('재단 '+num(r.total)+'장'):(r.noCut?'재단 전 — 오더 수량으로':'재단 컬러·사이즈가 안 맞아 오더 수량으로')); }); hint=st.join(' · '); }
               return '<div class="po2-og"><div class="gl">라벨·완성자재 수량 기준</div><div class="po2-seg"><button type="button" class="'+(on?'':'on')+'" onclick="setPoLblCut(\''+o.id+'\',\''+sn+'\',false)">오더 수량 + 여분</button><button type="button" class="'+(on?'on':'')+'" onclick="setPoLblCut(\''+o.id+'\',\''+sn+'\',true)">재단 장수 + 여분</button></div>'+(hint?'<div class="po2-tip" style="margin-top:6px">'+esc(hint)+'</div>':'')+'</div>';
+            })()}
+          ${(function(){ /* 10-27b 부자재 수량 기준 — 부자재(라벨·완성자재 빼고) 있는 카드에만. 발주서·자재 표·결제 예상 다 같이 */
+              var mats=(sup.materials||[]).filter(_sdCutMat); if(!mats.length||/ \(추가발주\)$/.test(String(sn)))return '';
+              var on=!!opts.trimCutBase, hint='';
+              if(on){ var st=[]; (o.orderItems||[]).forEach(function(oi){ var it=S.items[oi.itemId]; if(!it||!mats.some(function(m){return m.itemId===oi.itemId;}))return; var r=_poCutGrid(o,oi,it,false); st.push(((o.orderItems||[]).length>1?(it.name+' '):'')+(r.cut?('재단 '+num(r.total)+'장 기준'):(r.noCut?'재단 전 — 오더 수량으로':'재단 컬러·사이즈가 안 맞아 오더 수량으로'))); }); hint=st.join(' · '); }
+              return '<div class="po2-og"><div class="gl">부자재 수량 기준 <span class="hint">발주서·자재 표·결제 예상 다 같이</span></div><div class="po2-seg"><button type="button" class="'+(on?'':'on')+'" onclick="setPoTrimCut(\''+o.id+'\',\''+sn+'\',false)">오더 수량 + 여분</button><button type="button" class="'+(on?'on':'')+'" onclick="setPoTrimCut(\''+o.id+'\',\''+sn+'\',true)">재단 장수 + 여분</button></div>'+(hint?'<div class="po2-tip" style="margin-top:6px">'+esc(hint)+'</div>':'')+'</div>';
             })()}
           ${orderLossCardGroupHTML(o,sn)}
           <div class="po2-og"><div class="gl">요청사항</div><div class="po2-chips">${PO_OPT_DEFS.filter(d=>d.cat==='req').map(def=>`<button type="button" class="po2-chip${opts[def.key]?' on':''}" onclick="togglePoReqOpt('${o.id}','${sn}','${def.key}',${opts[def.key]?'false':'true'})">${def.label}</button>`).join('')}</div></div>
@@ -23046,7 +23084,7 @@ function _propagateEffectiveRatioRaw(orderId,itemId){
   try{
     var o=S.orders[orderId];if(!o||!o.orderItems||!o.suppliers)return;
     // calcSups를 다시 돌려 fresh 계산값 얻기
-    var fresh=calcSups(o.orderItems);
+    var fresh=calcSupsForOrder(o);   /* 10-27b */
     if(!fresh||typeof fresh!=='object')return;
     // o.suppliers의 같은 아이템 자재들에 대해 totalYards/calc만 갱신 (사용자 입력 필드는 보존)
     for(var sn in fresh){
@@ -29594,7 +29632,7 @@ function trimLedgerAuto(){
   Object.keys(S.orders||{}).forEach(function(oid){
     var o=S.orders[oid];if(!o||!o.orderItems||!o.orderItems.length)return;
     var dISO=(typeof createdToISO==='function'?createdToISO(o.createdAt):'')||toISO(o.createdAt)||'';
-    var sups;try{sups=calcSups(o.orderItems);}catch(e){
+    var sups;try{sups=calcSupsForOrder(o);}catch(e){   /* 10-27b 부자재 원장(결제 예상)도 재단 장수 기준 카드 따라감 */
       /* 조용히 return 하면 그 오더의 부자재 줄이 통째로 사라진다 — 어디서 깨졌는지 남긴다 (2026-08-19 진단) */
       console.warn('[원장] calcSups 실패',oid,e);
       window._tlCalcFail=window._tlCalcFail||[];
@@ -34573,6 +34611,14 @@ function setPoTrimRoundMat(oid,sn,encKey,val){
   var by=po.trimRound5By=(po.trimRound5By&&typeof po.trimRound5By==='object')?po.trimRound5By:{};
   var k=decodeURIComponent(encKey);
   if(val===(po.trimRound5||'none'))delete by[k]; else by[k]=val;   /* 전체 값과 같으면 따로 적어 둘 필요 없음 */
+  saveData();
+  if(typeof _renderOTabKeepScroll==='function')_renderOTabKeepScroll();else if(typeof renderOTab==='function')renderOTab();
+}
+/* 10-27b 부자재 수량 기준 바꾸기 — 다시 계산해서 자재 표·발주서·결제 예상이 같이 바뀜 (보낸 카드는 refresh 가 그대로 둠) */
+function setPoTrimCut(oid,sn,on){
+  var o=poResolveOrder(oid);if(!o||!o.suppliers||!o.suppliers[sn])return;
+  var po=o.suppliers[sn].poOpts=o.suppliers[sn].poOpts||{}; if(on)po.trimCutBase=true; else delete po.trimCutBase;
+  try{ if(S.orders[o.id]===o)refreshOrderSuppliers(o); }catch(e){ console.warn('[부자재 수량 기준]',e); }
   saveData();
   if(typeof _renderOTabKeepScroll==='function')_renderOTabKeepScroll();else if(typeof renderOTab==='function')renderOTab();
 }
