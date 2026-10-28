@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261023c">
+<link rel="stylesheet" href="css/main.css?v=20261028b">
 <link rel="stylesheet" href="css/dosik2.css?v=20261023g">
 </head>
 <body>
@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-28a';
+var APP_BUILD=/*BUILD*/'2026-10-28b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7085,13 +7085,20 @@ function _crState(rates,price,memo){
   memo=String(memo||'').trim(); price=+price||0;
   var bases=rates.filter(function(x){ return !_crIsAdd(x); }), adds=rates.filter(_crIsAdd);
   var on=adds.filter(function(x){ return String(x.name||'').trim()&&memo.indexOf(_crLab(x))>=0; });
-  var addSum=on.reduce(function(s,x){ return s+(+x.price||0); },0), b=null;
+  /* 10-28b 횟수 — 메모 「+ 스티커작업 ×3」 의 ×3 (없으면 1) */
+  var cnt={}; on.forEach(function(x){ var k=memo.indexOf(_crLab(x)), mm=memo.slice(k+_crLab(x).length).match(/^\s*[×xX*]\s*(\d+)/); cnt[x.id]=mm?Math.max(1,+mm[1]):1; });
+  var addSum=on.reduce(function(s,x){ return s+(+x.price||0)*(cnt[x.id]||1); },0), b=null;
   /* 기본 단가 = 메모 맨 앞이 그 이름(가장 긴 이름) · 아니면 (칸 값 − 추가 합)과 같은 금액이 하나뿐일 때 — 예전 규칙(메모=이름 / 같은 금액 하나)과 같은 셈 */
   bases.forEach(function(x){ var n=String(x.name||'').trim(); if(n&&memo.indexOf(n)===0&&(!b||n.length>String(b.name||'').trim().length))b=x; });
   if(!b){ var same=bases.filter(function(x){ return price-addSum>0&&+x.price===price-addSum; }); if(same.length===1)b=same[0]; }
-  return {bases:bases,adds:adds,base:b,on:on,addSum:addSum,want:(b?(+b.price||0):0)+addSum};
+  return {bases:bases,adds:adds,base:b,on:on,cnt:cnt,addSum:addSum,want:(b?(+b.price||0):0)+addSum};
 }
-function _crMemo(b,on){ return [b?String(b.name||'').trim():''].concat((on||[]).map(_crLab)).filter(Boolean).join(' '); }
+function _crMemo(b,on,cnt){ return [b?String(b.name||'').trim():''].concat((on||[]).map(function(x){ var c=(cnt&&cnt[x.id])||1; return _crLab(x)+(c>1?' ×'+c:''); })).filter(Boolean).join(' '); }
+/* 10-28b 직접 적은 메모 안의 「+ 이름 (×N)」 한 토막 바꾸기 — c=0 이면 지움 */
+function _crMemoSet(m,lab,c){ m=String(m||''); var k=m.indexOf(lab); var seg=lab+(c>1?' ×'+c:'');
+  if(k<0)return c>0?(m.replace(/\s+$/,'')+(m.trim()?' ':'')+seg):m;
+  var mm=m.slice(k+lab.length).match(/^\s*[×xX*]\s*\d+/), end=k+lab.length+(mm?mm[0].length:0);
+  return (m.slice(0,k)+(c>0?seg:'')+m.slice(end)).replace(/\s{2,}/g,' ').trim(); }
 function _crShort(n){ return String(n||'').trim().replace(/^[+＋]\s*/,'').replace(/\s*\([^)]*\)\s*$/,''); }
 function crRenderAll(){ COST_DEFS.forEach(function(cd){ crRender(cd[0]); }); }   /* 10-21c 봉제 공임 줄도 (요청 「봉제 공장도 추가해줘」) */
 /* ===== 10-20 거래처 1회비 (사용자 「1회비 진행해줘」, 미리보기 FAdTHpTpr92XRdXLRRCGKA) =====
@@ -7164,9 +7171,13 @@ function crRender(ck){
   var dupe=rates.some(function(x){ return +x.price===price&&(!memo||String(x.name||'').trim()===memo); }), can=price>0&&!dupe&&!(st.on.length&&_ok);   /* 10-23b 기본+추가 합계는 새 단가가 아니라 저장 안 함 */
   h+='<button type="button" class="btn s cr-chip cr-add" onclick="crAddOpen(\''+ck+'\')"'+(can?'':' disabled title="원/pcs에 단가표에 없는 금액을 적으면 저장할 수 있어요"')+'>＋ 지금 값 단가표에 저장</button></div>';
   /* 10-23b 추가 작업 줄 — 늘 보이는 더하기·빼기 버튼 */
-  if(st.adds.length)h+='<div class="cr-chips cr-adds"><span class="cr-hd">추가 작업 (더하기)</span>'+st.adds.map(function(x){ var on=st.on.indexOf(x)>=0; return '<button type="button" class="btn s cr-chip cr-ad'+(on?' on':'')+'" onclick="crAddon(\''+ck+'\',\''+esc(String(x.id||''))+'\')" aria-pressed="'+(on?'true':'false')+'">'+(on?'✓ ':'+ ')+esc(_crShort(x.name)||'(이름 없음)')+' <b>'+num(+x.price||0)+'</b></button>'; }).join('')+'</div>';
-  if(st.on.length)h+='<div class="cr-eq">'+(mr?'<span>'+esc(_crShort(mr.name))+' <b>'+num(+mr.price||0)+'</b></span>':'')+st.on.map(function(x,i){ return (mr||i?'<span>+</span>':'')+'<span class="ad">'+esc(_crShort(x.name))+' <b>'+num(+x.price||0)+'</b></span>'; }).join('')+'<span>=</span><b>'+num(st.want)+'원</b></div>';
-  if(mr&&!_ok){ var d=price-st.want; h+='<div class="cr-note">단가표 「'+esc(_crMemo(mr,st.on))+' '+num(st.want)+'원」보다 '+(d>0?'+':'−')+num(Math.abs(d))+'원 · 이 아이템만 이 값으로 계산돼요</div>'; }
+  if(st.adds.length)h+='<div class="cr-chips cr-adds"><span class="cr-hd">추가 작업 (더하기)</span>'+st.adds.map(function(x){ var on=st.on.indexOf(x)>=0, _id=esc(String(x.id||'')), c=(st.cnt&&st.cnt[x.id])||1;
+    var chip='<button type="button" class="btn s cr-chip cr-ad'+(on?' on':'')+'" onclick="crAddon(\''+ck+'\',\''+_id+'\')" aria-pressed="'+(on?'true':'false')+'">'+(on?'✓ ':'+ ')+esc(_crShort(x.name)||'(이름 없음)')+' <b>'+num(+x.price||0)+'</b></button>';
+    if(!on)return chip;
+    /* 10-28b 횟수 [−] ×N [+] (사용자 「스티커작업 곱하기 3, 횟수」) */
+    return '<span class="cr-grp">'+chip+'<span class="cr-cnt" role="group" aria-label="'+esc(_crShort(x.name))+' 횟수"><button type="button" onclick="crAddonCnt(\''+ck+'\',\''+_id+'\',-1)" aria-label="한 번 빼기"'+(c<=1?' disabled':'')+'>−</button><b>×'+c+'</b><button type="button" onclick="crAddonCnt(\''+ck+'\',\''+_id+'\',1)" aria-label="한 번 더">+</button></span></span>'; }).join('')+'</div>';
+  if(st.on.length)h+='<div class="cr-eq">'+(mr?'<span>'+esc(_crShort(mr.name))+' <b>'+num(+mr.price||0)+'</b></span>':'')+st.on.map(function(x,i){ var c=(st.cnt&&st.cnt[x.id])||1; return (mr||i?'<span>+</span>':'')+'<span class="ad">'+esc(_crShort(x.name))+' <b>'+num(+x.price||0)+(c>1?'×'+c:'')+'</b></span>'; }).join('')+'<span>=</span><b>'+num(st.want)+'원</b></div>';
+  if(mr&&!_ok){ var d=price-st.want; h+='<div class="cr-note">단가표 「'+esc(_crMemo(mr,st.on,st.cnt))+' '+num(st.want)+'원」보다 '+(d>0?'+':'−')+num(Math.abs(d))+'원 · 이 아이템만 이 값으로 계산돼요</div>'; }
   var u=window._crUndo; if(u&&u.ck===ck&&Date.now()-u.t<6000)h+='<div class="cr-undo">'+esc(u.msg)+' <button type="button" class="btn s" onclick="crUndo()">되돌리기</button></div>';
   if(window._crAddCk===ck)h+='<div class="cr-addbox">'+esc(fc.name||'')+' 단가표에 '+num(price)+'원 저장 · 이름 <input id="cr-addnm" data-noas="1" placeholder="예: 피그먼트" value="'+esc(memo)+'" onkeydown="if(event.key===\'Enter\'&&!event.isComposing){event.preventDefault();crAddSave(\''+ck+'\');}"><button type="button" class="btn p s" onclick="crAddSave(\''+ck+'\')">저장</button><button type="button" class="btn s" onclick="window._crAddCk=null;crRender(\''+ck+'\')">닫기</button></div>';
   if(_many&&_open)h+='<div class="cr-pick"><input id="cr-q-'+ck+'" data-noas="1" placeholder="찾기 (예: 맨투맨)" value="'+esc((window._crQ||{})[ck]||'')+'" oninput="crPickQ(\''+ck+'\',this.value)"><div class="cr-grp" id="cr-grp-'+ck+'"></div><div class="cr-list" id="cr-list-'+ck+'"></div></div>';
@@ -7195,8 +7206,8 @@ function crPick(ck,rid){
   var oldP=+pe.value||0, oldM=me?me.value:'', nm=String(x.name||'').trim();
   if(_crIsAdd(x)){ crAddon(ck,rid); return; }   /* 10-23b 「+」 줄은 더하기·빼기 */
   var st=_crState(rates,oldP,oldM), newP=(+x.price||0)+st.addSum;   /* 10-23b 켜 둔 추가 작업은 그대로 더함 */
-  var memoIsRate=!oldM.trim()||oldM.trim()===_crMemo(st.base,st.on)||rates.some(function(r){ return String(r.name||'').trim()===oldM.trim(); });
-  pe.value=newP; if(me&&memoIsRate&&nm)me.value=_crMemo(x,st.on);
+  var memoIsRate=!oldM.trim()||oldM.trim()===_crMemo(st.base,st.on,st.cnt)||rates.some(function(r){ return String(r.name||'').trim()===oldM.trim(); });
+  pe.value=newP; if(me&&memoIsRate&&nm)me.value=_crMemo(x,st.on,st.cnt);
   window._crUndo={ck:ck,p:oldP,m:oldM,t:Date.now(),msg:cd[1]+' '+num(newP)+'원 들어왔어요'+(st.addSum?' (추가 작업 '+num(st.addSum)+'원 포함)':'')+(oldP>0&&oldP!==newP?' (전 '+num(oldP)+'원)':'')};
   window._crAddCk=null;
   try{ pe.dispatchEvent(new Event('input',{bubbles:true})); }catch(e){ try{scheduleDraft();}catch(e2){} crRender(ck); }   /* 자동 저장·초안·버튼 다시 그리기 = 손으로 적을 때와 같은 길 */
@@ -7210,13 +7221,31 @@ function crAddon(ck,rid){
   var pe=document.getElementById('f-'+ck), me=document.getElementById('f-cm-'+ck); if(!pe)return;
   var oldP=+pe.value||0, oldM=me?me.value:'', st=_crState(rates,oldP,oldM), was=st.on.indexOf(x)>=0, nm=_crLab(x);
   var on=was?st.on.filter(function(y){ return y!==x; }):st.on.concat([x]); on.sort(function(a,b){ return st.adds.indexOf(a)-st.adds.indexOf(b); });
-  var newP=Math.max(0,oldP+(was?-1:1)*(+x.price||0)), newM;
-  if(!oldM.trim()||oldM.trim()===_crMemo(st.base,st.on))newM=_crMemo(st.base,on);
-  else newM=was?oldM.replace(nm,'').replace(/\s{2,}/g,' ').trim():(oldM.replace(/\s+$/,'')+' '+nm);
+  var _c0=(st.cnt&&st.cnt[x.id])||1, newP=Math.max(0,oldP+(was?-_c0:1)*(+x.price||0)), newM;   /* 10-28b 끌 때는 켠 횟수만큼 */
+  var _cn=Object.assign({},st.cnt||{}); if(was)delete _cn[x.id]; else _cn[x.id]=1;
+  if(!oldM.trim()||oldM.trim()===_crMemo(st.base,st.on,st.cnt))newM=_crMemo(st.base,on,_cn);
+  else newM=_crMemoSet(oldM,nm,was?0:1);
   pe.value=newP; if(me)me.value=newM;
   window._crUndo={ck:ck,p:oldP,m:oldM,t:Date.now(),msg:_crShort(nm)+' '+(was?'빼서':'더해서')+' '+cd[1]+' '+num(newP)+'원'};
   window._crAddCk=null;
   try{ if(me)me.dispatchEvent(new Event('input',{bubbles:true})); pe.dispatchEvent(new Event('input',{bubbles:true})); }catch(e){ try{scheduleDraft();}catch(e2){} crRender(ck); }   /* 자동 저장·다시 그리기 = 손으로 적을 때와 같은 길 */
+  try{ pe.classList.remove('cr-flash'); void pe.offsetWidth; pe.classList.add('cr-flash'); }catch(e){}
+  clearTimeout(window._crUndoT); window._crUndoT=setTimeout(function(){ crRender(ck); },6100);
+}
+/* 10-28b 추가 작업 횟수 [+]/[−] — 한 번에 그 단가만큼 더하거나 뺌, 메모 「+ 이름 ×N」 */
+function crAddonCnt(ck,rid,d){
+  var cd=_crDef(ck); if(!cd)return; var fcId=(document.getElementById('f-'+cd[2])||{}).value||''; var rates=fcRatesOf(fcId);
+  var x=rates.find(function(r){ return String(r.id||'')===String(rid); }); if(!x)return;
+  var pe=document.getElementById('f-'+ck), me=document.getElementById('f-cm-'+ck); if(!pe)return;
+  var oldP=+pe.value||0, oldM=me?me.value:'', st=_crState(rates,oldP,oldM); if(st.on.indexOf(x)<0)return;
+  var c0=(st.cnt&&st.cnt[x.id])||1, c1=c0+(d>0?1:-1); if(c1<1)return;
+  var _cn=Object.assign({},st.cnt||{}); _cn[x.id]=c1;
+  var newP=Math.max(0,oldP+(c1-c0)*(+x.price||0));
+  var newM=(oldM.trim()===_crMemo(st.base,st.on,st.cnt))?_crMemo(st.base,st.on,_cn):_crMemoSet(oldM,_crLab(x),c1);
+  pe.value=newP; if(me)me.value=newM;
+  window._crUndo={ck:ck,p:oldP,m:oldM,t:Date.now(),msg:_crShort(x.name)+' ×'+c1+' — '+cd[1]+' '+num(newP)+'원'};
+  window._crAddCk=null;
+  try{ if(me)me.dispatchEvent(new Event('input',{bubbles:true})); pe.dispatchEvent(new Event('input',{bubbles:true})); }catch(e){ try{scheduleDraft();}catch(e2){} crRender(ck); }
   try{ pe.classList.remove('cr-flash'); void pe.offsetWidth; pe.classList.add('cr-flash'); }catch(e){}
   clearTimeout(window._crUndoT); window._crUndoT=setTimeout(function(){ crRender(ck); },6100);
 }
