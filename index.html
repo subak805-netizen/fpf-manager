@@ -5114,7 +5114,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-27b';
+var APP_BUILD=/*BUILD*/'2026-10-28a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -33067,6 +33067,8 @@ function renderCS(){
   // 부자재 가공비
   const tcArr=_tcAll(it).filter(tc=>(tc.costPerPcs||tc.costPerLot)>0).filter(tc=>_csOnColor(tc,_csC));   /* 2026-09-15n 원단 가산 정액 포함 · 10-08j 컬러별 */
   const LOT_MIN=minQty;
+  /* 10-28 원가계산서에서 원단 요척을 덮어썼으면(예: 0.85) 그 원단에 붙은 야드당 가공비도 같은 요척으로 — TF45 맞합포가 작지 0.8로 따로 계산되던 것 (사용자 「0.85y로 맞추는게 맞지」) */
+  const _csTcQpp=(tc)=>{ try{ if(tc&&tc.fabId&&!(+tc.qtyPerPiece>0)){ const _f=(it.fabrics||[]).find(x=>x&&x.id===tc.fabId); if(_f){ const _ov=csGetOverride(id,'fab',csFabKey(_f)); if(_ov!==undefined&&+_ov>0)return (+_ov)/qty; } } }catch(e){} return _tcQtyPerPiece(tc,it.trims,it.fabrics); };
   let tct=0;
   for(const tc of tcArr){
     if(isEx('tc-'+tc.id))continue;
@@ -33076,11 +33078,11 @@ function renderCS(){
     if(tc.costType==='once')tct+=(tc.costPerLot||0)/LOT_MIN*qty;
     else if(tc.costType==='perLot')tct+=(tc.costPerLot||0)*activeColors.length/LOT_MIN*qty;
     else if(_tcTierIsFlat(tc,it.trims,qty,it.fabrics))tct+=(tc.tierUnder||0)/LOT_MIN*qty; // 조건부·기준 이하 = 정액을 미니멈으로 나눠 장당
-    else tct+=(tc.costPerPcs||0)*qty*_tcQtyPerPiece(tc,it.trims,it.fabrics)*(activeColors.length/(allColors.length||1));
+    else tct+=(tc.costPerPcs||0)*qty*_csTcQpp(tc)*(activeColors.length/(allColors.length||1));
   }
   /* 10-20o 가공비 줄은 붙은 원단·부자재 줄 바로 밑에 「└」 (사용자: 따로 떨어져 있으면 헷갈림). 어디에도 안 붙은 것만 「기타 가공비」.
      + 원단 가공의 「컬러마다 원단 더 시킴」 몫(csFabExtraOnce)을 원가에 (체크 키 'tcx-'+id). 합계 식은 그대로 tct 하나 */
-  const _tcInfo=(tc)=>{const al=_csC?[_csC]:(it.colors?.length?it.colors:['']);const hl=tc.colorLinks&&tc.colorLinks.length>0;const ac=hl?al.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):al;const isLot=tc.costType==='perLot';const isOnce=tc.costType==='once';const qpp=_tcQtyPerPiece(tc,it.trims,it.fabrics);const flat=_tcTierIsFlat(tc,it.trims,qty,it.fabrics);
+  const _tcInfo=(tc)=>{const al=_csC?[_csC]:(it.colors?.length?it.colors:['']);const hl=tc.colorLinks&&tc.colorLinks.length>0;const ac=hl?al.filter(c=>tc.colorLinks.find(l=>l.itemColor===c)):al;const isLot=tc.costType==='perLot';const isOnce=tc.costType==='once';const qpp=_csTcQpp(tc);const flat=_tcTierIsFlat(tc,it.trims,qty,it.fabrics);
     const amt=isOnce?(tc.costPerLot||0)/LOT_MIN*qty:isLot?(tc.costPerLot||0)*ac.length/LOT_MIN*qty:flat?(tc.tierUnder||0)/LOT_MIN*qty:(tc.costPerPcs||0)*qty*qpp*(ac.length/(al.length||1));
     const formula=isOnce?`${num(tc.costPerLot)}원÷${LOT_MIN} (한번에)`:isLot?`${num(tc.costPerLot)}원×${ac.length}컬러÷${LOT_MIN}`:flat?`${num(tc.tierUnder)}원÷${LOT_MIN}장 (${num(qty*qpp)}개 ≤ ${num(tc.tierQty||300)}개)`:((tc.fabId||tc.perUnit==='y')?`${num(tc.costPerPcs)}원/y×요척 ${Math.round(qpp*100)/100}y${qty>1?'×'+qty:''}`:`${num(tc.costPerPcs)}원/개×${qpp}개${qty>1?'×'+qty:''}`);   /* 10-20 부자재 가공 「야드당」도 원/y 로 (예전엔 2,000원/개×1.9개로 보였음) */
     const rate=(isLot||isOnce)?num(tc.costPerLot||0)+'원':(flat?num(tc.tierUnder||0)+'원':num(tc.costPerPcs||0)+(tc.fabId?'/y':'원'));
