@@ -440,6 +440,23 @@ var SCENES=[
    var r=await ev('A',code);
    var want='메이드/M1/unitPrice,메이드/M3,메이드/M4,메이드/phone ; 2|b|150|58|250|-|400|500';
    return {pass:r===want,detail:'결과 「'+r+'」 · 기대 「'+want+'」'}; }},
+ /* S23 (10-28b 부자재 출고): 새 맵 shipLog 가 줄마다 합쳐지는지 — 끊긴 폰과 맥이 서로 다른 줄을 체크, 폰에서 지운 줄은 안 살아남. 상자 __ledger */
+ {id:'S23',name:'부자재 출고: 끊긴 폰과 맥이 서로 다른 줄을 체크 → 둘 다 남고, 지운 줄은 안 살아난다',run:async function(){
+   await twoDevices();
+   await ev('A','S.shipLog=S.shipLog||{};S.shipLog["k0"]={o:[[5,"2026-10-28","k"]]};saveData();1');
+   var code='Object.keys(S.shipLog||{}).sort().map(function(k){var r=S.shipLog[k];return k+":"+((r.o||[]).length)+"/"+((r.i||[]).length);}).join(",")';
+   var g=await until('B',code,function(v){return v==='k0:1/0';},12000);
+   if(!g.ok)throw new Error('B 가 출고 기록을 못 받음: '+g.v);
+   await offline('B',true);
+   await ev('A','S.shipLog["k1"]={o:[[3,"2026-10-29","m"]]};saveData();1');
+   await ev('B','S.shipLog["k2"]={i:[[2,"2026-10-29","m"]]};delete S.shipLog["k0"];saveData();1');
+   await sleep(2500);
+   await offline('B',false);
+   var ok=function(v){ return v==='k1:1/0,k2:0/1'; };
+   var a=await until('A',code,ok,12000), b=await until('B',code,ok,12000);
+   close('B'); await open('B'); var b2=await until('B',code,ok,8000);
+   var box=Object.keys(CLOUD.docs).some(function(k){ return /__ledger$/.test(k)&&JSON.stringify(CLOUD.docs[k]||null).indexOf('shipLog')>=0; });
+   return {pass:a.ok&&b.ok&&b2.ok&&box,detail:'A='+a.v+' · B='+b.v+' · B 다시 켬='+b2.v+' (「k1:1/0,k2:0/1」) · __ledger 상자에 있음='+box}; }},
 ];
 
 async function main(){
