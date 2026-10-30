@@ -5116,7 +5116,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-30a';
+var APP_BUILD=/*BUILD*/'2026-10-30b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -19094,22 +19094,39 @@ function copySchedText(){var t=genScheduleText(schedSelectedIds());if(!t){showTo
 function kakaoSchedText(){var t=genScheduleText(schedSelectedIds());if(!t){showToast('선택된 오더가 없어요');return;}if(navigator.share){navigator.share({text:t}).catch(function(){});}else{copySchedText();}}
 function schedMarkSent(){var ids=schedSelectedIds();if(!ids.length){showToast('선택된 오더가 없어요');return;}ids.forEach(function(oid){if(S.orders[oid])S.orders[oid].schedSent=true;});saveData();showToast('✓ '+ids.length+'건 일정 보냄 처리됨');window._schedSel=undefined;renderScheduleModalBody();if(typeof renderTasksPane==='function')renderTasksPane();}
 
+/* 10-30a 발주 자재 → 아이템·부자재 찾기 (가공비 줄을 붙이려면 그 자재가 «어느 부자재»인지 알아야 한다)
+   · 아이템: itemId, 없으면(「공통 사용」 줄은 itemId 가 없다) 이 오더의 아이템 중 이름이 같은 것
+   · 부자재: 자재의 trimId → 없으면 이름 + 용도 + 규격·종류. 예전엔 이름만 봐서 같은 이름 부자재가 둘이면
+     (코듀로이 팬츠 「융TC」 주머니속 / 뎅고 랍빠감) 첫 번째 것만 보고 두 번째 것의 가공비(융TC바이어스재단)를 놓쳤다. */
+function _poMatItem(m,order){
+  if(!m)return null;
+  if(m.itemId&&S.items[m.itemId])return S.items[m.itemId];
+  if(!order||!m.itemName)return null;
+  var oi=(order.orderItems||[]).find(function(x){ var it=S.items[x&&x.itemId]; return !!it&&it.name===m.itemName; });
+  return oi?S.items[oi.itemId]:null;
+}
+function _poMatTrim(m,it){
+  if(!m||!it)return null;
+  var trs=it.trims||[];
+  if(m.trimId){ var t0=trs.find(function(x){return x&&x.id===m.trimId;}); if(t0)return t0; }
+  var c=trs.filter(function(x){return x&&(x.name||'')===(m.name||'');});
+  if(c.length>1){ var cp=c.filter(function(x){return (x.part||'')===(m.part||'');}); if(cp.length)c=cp; }
+  if(c.length>1){ var cs=c.find(function(x){return (x.size||'')===(m.size||'')&&(x.orderType||'')===(m.orderType||'');}); if(cs)return cs; }
+  return c[0]||null;
+}
 // 발주서: 부자재 그룹에 연결된 가공·염색(trimCosts) 내용 이름 모으기 (바이어스처럼 부자재 줄 아래 표시용)
-// 발주 자재엔 trimId가 없어 아이템의 trim을 이름(+규격·타입)으로 역매칭 → 그 trim의 trimCosts 이름
-function _poTrimProcNotes(g,sup){
+function _poTrimProcNotes(g,sup,order){
   var out=[],seen={};
   ((g&&g.colors)||[]).forEach(function(t){
-    if(!t||!t.itemId)return;
-    var it=S.items[t.itemId];
+    if(!t)return;
+    var it=_poMatItem(t,order);
     if(!it||!Array.isArray(it.trimCosts)||!it.trimCosts.length)return;
-    var trs=(it.trims||[]).filter(function(x){return x&&(x.name||'')===(t.name||'');});
-    if(!trs.length)return;
-    var tr=trs.length>1?(trs.find(function(x){return (x.size||'')===(t.size||'')&&(x.orderType||'')===(t.orderType||'');})||trs[0]):trs[0];
+    var tr=_poMatTrim(t,it);
     var tid=tr&&tr.id;if(!tid)return;
     it.trimCosts.forEach(function(tc){
       if(!tc||tc.trimId!==tid)return;
       /* 2026-09-15f 담당이 이 발주서 거래처가 아니면 그 집 「가공」 카드로 가므로 여기선 뺀다. 담당이 비면 부자재 산 집(이 발주서). */
-      if(sup!=null){ var _facN=String(tc.factory||'').trim(); if(_facN&&_facN!==String(sup).trim())return; }
+      if(sup!=null){ var _facN=String(tc.factory||'').trim(); if(_facN&&_facN!==String(sup||'').replace(/\s*\(추가발주\)\s*$/,'').trim())return; }   /* 10-30a 「메이드 (추가발주)」 카드도 메이드 */
       var _modeN=tc.costType||'perPcs', _feeN=+(_modeN==='tier'?tc.tierOver:(_modeN==='perPcs'?tc.costPerPcs:tc.costPerLot))||0;
       if((_modeN==='perPcs'||_modeN==='tier')&&_feeN>0)return;   /* 개당·조건부 금액은 _poProcBlocks 가 컬러별 개수와 함께 찍는다 */
       var _feeTxtN=_feeN>0?(' ('+num(_feeN)+'원'+(_modeN==='perLot'?' · 컬러당':' · 한번에')+')'):'';
@@ -19140,8 +19157,8 @@ function _poFabProcNotes(g,sup){
     _tcAll(it).forEach(function(tc){   /* 2026-09-15n 원단 가산 정액(컬러별·한번에)도 「가산:」 줄로 */
       if(!tc||tc.fabId!==m.fabId)return;
       /* 10-16g 가공하는 집이 비면 원단처로 (신고 「원단처에 가공비 카드 추가하면 원단처 발주서에 떠야 하는데 안 뜨네」) — 부자재와 같게 */
-      var _facN=String(tc.factory||'').trim()||String(sup||'').trim();
-      if(_facN!==String(sup||'').trim())return;
+      var _facN=String(tc.factory||'').trim()||String(sup||'').replace(/\s*\(추가발주\)\s*$/,'').trim();
+      if(_facN!==String(sup||'').replace(/\s*\(추가발주\)\s*$/,'').trim())return;   /* 10-30a 추가발주 카드도 */
       var mode=tc.costType||'perPcs';
       if((mode==='perPcs'||mode==='tier')&&(+(mode==='tier'?tc.tierOver:tc.costPerPcs)||0))return;
       var _nm=(tc.name||'').trim(),_kd=(tc.procKind||'').trim();
@@ -19164,20 +19181,30 @@ function _poFabProcNotes(g,sup){
    ⚠️ 개수 = 그 컬러 장수 × 개당요척(_tcQtyPerPiece). */
 /* 10-26a 가공 블록 붙이기 — 한 줄짜리(개수 부자재 개당 가공)는 「가공:」 줄들 바로 밑에, 컬러별 개수 블록은 빈 줄 띄우고 */
 function _poPushProcBlocks(L,bs){ (bs||[]).forEach(function(b){ if(b&&b.inline)b.forEach(function(x){L.push(x);}); }); (bs||[]).forEach(function(b){ if(!b||b.inline)return; L.push(''); b.forEach(function(x){L.push(x);}); }); }
-function _poProcBlocks(g,sup){
+/* 10-30a 부자재 블록 끝 「가공: …」 줄 — 한 함수로 모든 부자재 종류(일반·단추·지퍼·스냅·바이어스)에.
+   예전엔 일반 부자재 블록에만 있어서 **단추 종류의 가공비(로고·코팅·염색)가 발주서에 한 번도 안 나갔다**
+   (신고 10-30 「에코백 정보에는 로고 적어놨는데 발주서에는 로고가 안 나왔어」 — 엘) N39 15미리 「로고」 가공비. 같은 이유로 워싱블루종·코튼팬츠·린넨셔츠 단추 가공 48줄 빠져 있었음) */
+function _poEmitTrimProc(L,g,sn,order){
+  var bs=[]; try{ bs=_poProcBlocks(g,sn,order)||[]; }catch(e){}
+  var hd={}; bs.forEach(function(b){ hd[String(b[0]).replace(/^가공:\s*/,'').replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
+  try{ _poTrimProcNotes(g,sn,order).forEach(function(nm){ if(hd[String(nm).trim()])return; L.push('가공: '+nm); }); }catch(e){}
+  _poPushProcBlocks(L,bs);
+}
+/* 10-30a 부자재 「비고」(카드 안내 「발주 시 부자재처에 전달할 메모」) — 예전엔 일반 부자재 그룹에서 슬라이더 줄만 찍고 나머지는 버렸다
+   (버튼 봄버 위버플러스 「오무데 확인 잘해주세요!」가 발주서에 없었음). 같은 블록 안 같은 글은 한 번만. */
+function _poMemos(arr){ var out=[]; (arr||[]).forEach(function(x){ var s=String((x&&x.memo)||'').trim(); if(s&&out.indexOf(s)<0)out.push(s); }); return out; }
+function _poProcBlocks(g,sup,order){
   var out=[],seen={};
   ((g&&g.colors)||[]).forEach(function(m){
-    if(!m||!m.itemId)return;
-    var it=S.items[m.itemId];
+    if(!m)return;
+    var it=_poMatItem(m,order);   /* 10-30a 「공통 사용」 줄(itemId 없음)도 */
     if(!it||!Array.isArray(it.trimCosts)||!it.trimCosts.length)return;
     /* 원단 자재(fabId)면 원단 가공비(tc.fabId)로 — 개수 대신 야드(소수 2자리) (2026-09-04l). 부자재는 이름 역매칭 그대로 */
     var _fid=(m.type==='fabric'&&m.fabId)?m.fabId:'';
     var _u=_fid?'y':'개', _fmt=function(v){return _fid?String(Math.round(v*100)/100):num(v);};
     var tid=null;
     if(!_fid){
-      var trs=(it.trims||[]).filter(function(x){return x&&(x.name||'')===(m.name||'');});
-      if(!trs.length)return;
-      var tr=trs.length>1?(trs.find(function(x){return (x.size||'')===(m.size||'')&&(x.orderType||'')===(m.orderType||'');})||trs[0]):trs[0];
+      var tr=_poMatTrim(m,it);   /* 10-30a trimId 우선 */
       tid=tr&&tr.id; if(!tid)return;
     }
     it.trimCosts.forEach(function(tc){
@@ -19185,8 +19212,8 @@ function _poProcBlocks(g,sup){
       if(_fid?(tc.fabId!==_fid):(tc.trimId!==tid))return;
       var mode=tc.costType||'perPcs';
       if(mode!=='perPcs'&&mode!=='tier')return;
-      var _facB=String(tc.factory||'').trim(); if(!_facB)_facB=String(sup||'').trim();   /* 10-16g 원단 가공도 비면 원단처 */   /* 2026-09-15f 부자재 가공 담당 비면 부자재 산 집 */
-      if(_facB!==String(sup||'').trim())return;
+      var _facB=String(tc.factory||'').trim(); if(!_facB)_facB=String(sup||'').replace(/\s*\(추가발주\)\s*$/,'').trim();   /* 10-16g 원단 가공도 비면 원단처 */   /* 2026-09-15f 부자재 가공 담당 비면 부자재 산 집 */
+      if(_facB!==String(sup||'').replace(/\s*\(추가발주\)\s*$/,'').trim())return;   /* 10-30a 「○○ (추가발주)」 카드도 그 집 */
       var fee=+(mode==='tier'?tc.tierOver:tc.costPerPcs)||0;
       if(!fee)return;
       /* 이름과 종류가 사실상 같으면(「스트링 제작」/「스트링제작」) 한 번만 */
@@ -19404,7 +19431,7 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
       (function(){ var _nt=[],_sn={}; g.colors.forEach(function(c){ (c.appliedAdditions||[]).forEach(function(a){ var _y=+a.extraYd||0; if(!(_y>0))return; var _t=(a.name||'여유')+' '+(Math.round(_y*100)/100)+'y'; if(!_sn[_t]){_sn[_t]=1;_nt.push(_t);} }); }); if(_nt.length)L.push('※ 컬러마다 '+_nt.join(' · ')+' 포함'); })();
       if(g.memo)L.push(`${g.memo}`);
       /* 원단 가공비(fabId) — 이 원단처가 담당인 것만 (2026-09-04l): 컬러별·한번에 = 「가공: …」 줄, 개당·조건부 = 컬러별 야드 블록 */
-      try{ _poFabProcNotes(g,sn).forEach(function(x){L.push(x);}); var _fpb=_poProcBlocks(g,sn); _poPushProcBlocks(L,_fpb); }catch(e){}
+      try{ _poFabProcNotes(g,sn).forEach(function(x){L.push(x);}); var _fpb=_poProcBlocks(g,sn,order); _poPushProcBlocks(L,_fpb); }catch(e){}
       // 원단(그룹)이 바뀔 때만 한 줄 띄움
       if(grpOrder.indexOf(k)<grpOrder.length-1)L.push('');
       if(g.colors&&g.colors.length&&g.colors.every(function(c){return isSkippedMat(order,sn,c);}))_markFrom(_sk0);   /* 09-18h 발주안함(전 컬러) 블록 표시 */
@@ -19478,7 +19505,9 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
           L.push(cl+' - '+parseFloat(e.act.toFixed(2))+'y'+ovrTxt);
         });
         if(_bco.length>1)L.push('합계 '+parseFloat(biasTot.toFixed(2))+'y');
-        if(bg.memo)L.push(''+bg.memo);
+        _poMemos(bg.colors).forEach(function(s){L.push(s);});   /* 10-30a 컬러마다 다른 비고도 */
+        /* 10-30a 부자재 카드 「바이어스재단」에 붙은 가공비 (원단에서 온 재단 발주는 위 @단가 줄에 이미 금액이 있어 뺀다) */
+        if(!(bg.colors||[]).some(function(x){return x&&x.biasFromFab;}))_poEmitTrimProc(L,bg,sn,order);
         L.push('');
       }
     }
@@ -19771,6 +19800,8 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
           }
         });
         if(z.colors.length>1)L.push('합계 '+totQty+'개');
+        _poMemos(z.colors).forEach(function(s){L.push(s);});   /* 10-30a 비고 */
+        _poEmitTrimProc(L,z,sn,order);   /* 10-30a 지퍼에 붙은 가공비도 */
         L.push('');
       }
     }
@@ -19875,6 +19906,8 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
         if(_dye.length){ if(_bln>0)L.push(''); var _dn=((_dye.find(function(x){return x.dyeNote&&String(x.dyeNote).trim();})||{}).dyeNote)||''; L.push('염색'+(_dn?' — '+_dn:'')); var _rd=emitBMerged(_dye);bTotQty+=_rd.tot;_bln+=_rd.n; }
         if(_sw.length){ if(_bln>0)L.push(''); L.push('스와치 전달'); var _rs=emitBMerged(_sw);   /* 09-17r: 앞에 줄이 없으면(이름·단가 바로 밑) 빈 줄 안 넣음 */bTotQty+=_rs.tot;_bln+=_rs.n; }
         if(_bln>1)L.push('합계 '+bTotQty+'개');
+        _poMemos(b.colors).forEach(function(s){L.push(s);});   /* 10-30a 비고 */
+        _poEmitTrimProc(L,b,sn,order);   /* 10-30a 단추 가공비(로고·코팅·염색) — 예전엔 단추 블록에만 없었다 */
         L.push('');
       }
     }
@@ -19937,14 +19970,19 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
         }
         // 로고
         if(sg.hasSnapLogo&&sg.snapLogoText){L.push('로고: '+sg.snapLogoText);}
+        _poMemos(sg.items).forEach(function(s){L.push(s);});   /* 10-30a 비고 */
+        _poEmitTrimProc(L,{colors:sg.items},sn,order);   /* 10-30a 스냅 가공비 */
         L.push('');
       }
     }
 
     // 부자재명+크기 기준으로 그룹핑 (지퍼·단추·스냅 제외)
     const tGrpMap={};const tGrpOrder=[];
+    var _bfUsed={};   /* 10-30a 이름이 같은 블록이 용도별로 나뉘어도 「바이어스 재단」 접은 줄은 한 번만 */
     for(const t of nonZipNonBtnNonSnap){
-      const k=(t.name||'')+'|'+(t.size||'')+'|'+(t.color||'')+'|'+(t.orderType||'');
+      /* 10-30a 용도(part)도 키에 — 이름이 같은 부자재 둘(코듀로이 팬츠 「융TC」 주머니속 / 뎅고 랍빠감)이 한 블록으로 합쳐져
+         뒤엣것의 용도가 사라지고 같은 컬러 줄이 두 번 나와(#1069그린 7y … #1069그린 1y) 무엇인지 알 수 없었다 */
+      const k=(t.name||'')+'|'+(t.size||'')+'|'+(t.color||'')+'|'+(t.orderType||'')+'|'+(t.part||'');
       if(!tGrpMap[k]){tGrpMap[k]={name:t.name,part:t.part||'',size:t.size||'',color:t.color||'',orderType:t.orderType,yardsPerRoll:(+t.yardsPerRoll||0),   /* 09-30b 비었으면 0 — 예전 ||100 은 발주서 머리에 가짜 「1롤 100y」를 찍고 계산은 1y/롤로 해서 22.4y→23롤이 됐다 */
 rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):undefined),colors:[]};tGrpOrder.push(k);}   /* 10-09e 슬라이더 집 줄은 「○○ 지퍼용」 한 줄 */
       tGrpMap[k].colors.push(t);
@@ -19984,7 +20022,7 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
         L.push(_hdrS);
         try{ var _tOm1=(typeof _omudeOf==='function')?_omudeOf(g,false,sn):''; if(_tOm1)L.push('오무데 '+_tOm1); }catch(eOm){}   /* 09-29l */
         var _tAt1=showPrice?_poAt(t):''; if(_tAt1)L.push(_tAt1);
-        if(_biasFold[g.name])_biasFold[g.name].forEach(function(sp){L.push('바이어스 재단'+(sp?' '+sp:''));});
+        if(_biasFold[g.name]&&!_bfUsed[g.name]){_bfUsed[g.name]=1;_biasFold[g.name].forEach(function(sp){L.push('바이어스 재단'+(sp?' '+sp:''));});}
         var _qtyS=isRoll?`${actQ}${_ruLbl(t)} (필요수량 ${t.calc?.ty||0}${_ruU(t)})`:(t.calc?.isJeol?`${actQ}절 (필요수량 ${t.calc.originalNeed}y)`:`${actQ}${(t.calc?.unit||'개').replace(/yard|야드/,'y')}${trimLoopNeedTxt(t)}`);
         var _clS=g.color?('#'+g.color):'';
         if(isCommon)_clS+=(_clS?' ':'')+'(공통 사용)';
@@ -19994,10 +20032,8 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
         if(t.effectivePcsApplied){
           L.push('※ 원단 재고에 맞춰 '+t.effectivePcsApplied+'장 기준 발주');
         }
-        var _pbs1=[]; try{ _pbs1=_poProcBlocks(g,sn); }catch(eP1){}   /* 10-12g 컬러 안 나뉜 부자재도 개당·야드당 가공 블록 (예전엔 빠졌음) — 여러 컬러 쪽과 같은 방식 */
-        var _pbH1={}; _pbs1.forEach(function(b){ _pbH1[String(b[0]).replace(/^가공:\s*/,'').replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
-        _poTrimProcNotes(g,sn).forEach(function(nm){ if(_pbH1[String(nm).trim()])return; L.push('가공: '+nm); });
-        _poPushProcBlocks(L,_pbs1);   /* 10-26a 한 줄 가공은 바로 밑에, 블록은 빈 줄 띄우고 */
+        _poMemos(g.colors).forEach(function(s){L.push(s);});   /* 10-30a 비고 — 한 컬러짜리 블록은 예전에 아예 안 찍었다 */
+        _poEmitTrimProc(L,g,sn,order);   /* 10-12g 컬러 안 나뉜 부자재도 가공 · 10-26a 한 줄 가공은 바로 밑에 · 10-30a 한 함수로 */
         L.push('');
         if(g.colors&&g.colors.length&&g.colors.every(function(c){return isSkippedMat(order,sn,c);}))_markFrom(_sk1);   /* 09-18h */
         continue;
@@ -20006,7 +20042,7 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
       L.push(hdr);
       try{ var _tOmG=(typeof _omudeOf==='function')?_omudeOf(g,false,sn):''; if(_tOmG)L.push('오무데 '+_tOmG); }catch(eOm){}   /* 09-29l */
       var _tAtG=showPrice?_poAtGroup(g.colors):''; if(_tAtG)L.push(_tAtG);
-      if(_biasFold[g.name])_biasFold[g.name].forEach(function(sp){L.push('바이어스 재단'+(sp?' '+sp:''));});
+      if(_biasFold[g.name]&&!_bfUsed[g.name]){_bfUsed[g.name]=1;_biasFold[g.name].forEach(function(sp){L.push('바이어스 재단'+(sp?' '+sp:''));});}
       // 컬러별 수량
       let totRolls=0,totQty=0;
       const emitT=function(t){
@@ -20061,14 +20097,11 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
         const totTip=extrasUnits*mult*g.tipCost;
         L.push(`팁(${g.tipBothEnds?'양쪽':'한쪽'}): ${extrasUnits}pcs × ${mult}개 × ${num(g.tipCost)}원 = ${num(totTip)}원`);
       }
-      // 비고
-      if(g.memo)L.push(`${g.memo}`);
+      // 비고 — 10-30a 슬라이더 줄만이 아니라 모든 부자재 (컬러마다 다른 글이면 각각 한 번)
+      _poMemos(g.colors).forEach(function(s){L.push(s);});
       /* 개당 가공(스트링 제작 등)은 «컬러별 개수»가 있는 자기 블록으로 (2026-08-26).
          나머지(한번에·컬러별)는 예전처럼 「가공: 이름」 한 줄. */
-      var _pbs=(typeof _poProcBlocks==='function')?_poProcBlocks(g,sn):[];
-      var _pbHdrs={}; _pbs.forEach(function(b){ _pbHdrs[String(b[0]).replace(/^가공:\s*/,'').replace(/\s*\([^)]*\)\s*$/,'').trim()]=1; });
-      _poTrimProcNotes(g,sn).forEach(function(nm){ if(_pbHdrs[String(nm).trim()])return; L.push('가공: '+nm); });
-      _poPushProcBlocks(L,_pbs);   /* 10-26a */
+      _poEmitTrimProc(L,g,sn,order);   /* 10-26a·10-30a */
       L.push(''); // 부자재 그룹 사이 항상 줄바꿈
       if(g.colors&&g.colors.length&&g.colors.every(function(c){return isSkippedMat(order,sn,c);}))_markFrom(_sk1);   /* 09-18h */
     }
