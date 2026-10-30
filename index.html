@@ -5116,7 +5116,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-10-29a';
+var APP_BUILD=/*BUILD*/'2026-10-30a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -21319,7 +21319,7 @@ function _skAllCards(){
       var fcId=''; try{ fcId=poDeliveryFcId(o,sup)||''; }catch(e){}
       var fcNm=(fcId&&S.factories&&S.factories[fcId]&&S.factories[fcId].name)||'';
       out.push({oid:oid,cid:cid,o:o,sn:sn,sup:_skBaseSup(sn),kind:[_skKind(sn),extraKind].filter(Boolean).join(' · '),
-        sent:sent,age:_skDays(sent),fc:fcNm,code:code,lines:ls,done:done,isMain:isMain,
+        sent:sent,age:_skDays(sent),fc:fcNm,code:code,lines:ls,done:done,isMain:isMain,eta:toISO(sup.expectedShipDate||'')||'',
         legacy:!!(isMain&&((o._prepArrived&&o._prepArrived[sn])||sup.arrived||sup.arrivalDate))});
     };
     Object.keys(o.suppliers).forEach(function(sn){ add(oid,sn,o.suppliers[sn],'',true); });
@@ -21344,7 +21344,7 @@ function _skFind(k){ var cs=_skAllCards(); for(var a=0;a<cs.length;a++)for(var b
 function _skClone(v){ return v?JSON.parse(JSON.stringify(v)):null; }
 function _skPut(k,r){
   if(!S.shipLog||typeof S.shipLog!=='object')S.shipLog={};
-  var empty=!(r.o&&r.o.length)&&!(r.i&&r.i.length)&&!r.ck&&!r.memo&&!(r.ev&&r.ev.length);
+  var empty=!(r.o&&r.o.length)&&!(r.i&&r.i.length)&&!r.ck&&!r.memo&&!(r.ev&&r.ev.length)&&!r.hid&&!r.eta;
   if(r.o&&!r.o.length)delete r.o; if(r.i&&!r.i.length)delete r.i;
   if(empty)delete S.shipLog[k]; else S.shipLog[k]=r;
 }
@@ -21419,6 +21419,24 @@ function skDel(enc,kind,ix){
   var f=_skFind(k); _skDone(snap,'기록 하나 지웠어요',f&&f.card);
 }
 function skOkCheck(enc){ var k=decodeURIComponent(enc), r=_skClone(_skRec(k)); if(!r)return; var snap=_skSnap([k]); delete r.ck; _skPut(k,r); var f=_skFind(k); _skDone(snap,'확인 필요를 껐어요',f&&f.card); }
+/* 10-30a [빼기] = 목록에서만 뺌(기록·상태 그대로, r.hid=뺀 날). 다시 누르면 되살리기 — 사용자 「없애는 버튼을 따로」 */
+/* 10-30a 입고 예정일 — 카드 날짜 = 발주서 카드 「출고 예정일」·대시보드 원·부자재 날짜와 같은 칸(sup.expectedShipDate, 적으면 거기도 바뀜).
+   줄만 다르면(밤색 단추만 늦음 등) r.eta. 보이는 날짜 = 줄 날짜 > 카드 날짜 (사용자 「입고날짜 적고, 발주서에 적었으면 불러오기」) */
+function _skSupOf(cid,sn){ var p=String(cid||'').split('#'), o=S.orders[p[0]]; if(!o)return null; if(p.length<2)return (o.suppliers||{})[sn]||null;
+  var ex=(o.extraOrders||[]).find(function(e){ return e&&String(e.id)===p[1]; }); return (ex&&ex.suppliers)?(ex.suppliers[sn]||null):null; }
+function skSetEta(enc,v){
+  var p=decodeURIComponent(enc).split(SK_SEP), sup=_skSupOf(p[0],p[1]); if(!sup)return;
+  v=toISO(v||'')||''; sup.expectedShipDate=v;
+  if(String(p[0]).indexOf('#')<0){ var o=S.orders[p[0]]; if(o){ if(!o._prep)o._prep={}; o._prep.trimDate=v; } }   // 대시보드 pdSaveSupField 와 같은 폴백
+  saveData(); _skToast(v?('입고 예정 '+_skMD(v)+'로 적었어요 · 발주서·대시보드에도 같이'):'입고 예정일을 지웠어요'); _skDrawList();
+}
+function skSetLineEta(enc,v){ var k=decodeURIComponent(enc), r=_skClone(_skRec(k))||{}, snap=_skSnap([k]); v=toISO(v||'')||''; if(v)r.eta=v; else delete r.eta; _skPut(k,r); _skDone(snap,v?('이 줄 입고 예정 '+_skMD(v)):'이 줄 날짜를 지웠어요 (카드 날짜를 따라가요)',null); }
+function _skEtaTag(eta,s){
+  if(!eta||_skIsDone(s))return '';
+  var dd=_skDays(eta); if(dd==null)return '';
+  return '<span class="sk-eta-t'+(dd>0?' late':'')+'">입고 예정 '+_skMD(eta)+(dd>0?' · '+dd+'일 지남':(dd===0?' · 오늘':' · D-'+(-dd)))+'</span>';
+}
+function skHide(enc){ var k=decodeURIComponent(enc), r=_skClone(_skRec(k))||{}, snap=_skSnap([k]), was=!!r.hid; if(was)delete r.hid; else r.hid=_skToday(); _skPut(k,r); _skDone(snap,was?'목록에 되살렸어요':'목록에서 뺐어요',null); }
 function skDelOrphan(enc){ var k=decodeURIComponent(enc); if(!S.shipLog||!S.shipLog[k])return; var snap=_skSnap([k]); delete S.shipLog[k]; _skDone(snap,'끊긴 기록을 지웠어요',null); }
 
 /* 클로드가 카톡을 읽고 넣는 통로 (크롬에서 앱을 연 채 실행). 사람이 쓰는 버튼과 같은 자리에 출처만 'k'.
@@ -21431,7 +21449,7 @@ window.shipLogLines=function(f){
     if(f.sup&&c.sup!==f.sup)return; if(!f.all&&c.done)return;
     if(f.q&&String(c.o.name||'').indexOf(f.q)<0&&String(c.code||'').indexOf(f.q)<0)return;
     c.lines.forEach(function(L){ var r=_skRec(L.key)||{};
-      out.push({key:L.key,order:c.o.name||'',oid:c.oid,sup:c.sup,sn:c.sn,kind:c.kind,sent:c.sent,part:L.part,name:L.name,spec:L.spec,color:L.color,ics:L.ics.join(','),q:L.q,unit:L.unit,state:_skState(L,c),out:r.o||[],in:r.i||[]}); });
+      out.push({key:L.key,order:c.o.name||'',oid:c.oid,sup:c.sup,sn:c.sn,kind:c.kind,sent:c.sent,part:L.part,name:L.name,spec:L.spec,color:L.color,ics:L.ics.join(','),q:L.q,unit:L.unit,state:_skState(L,c),out:r.o||[],in:r.i||[],hid:!!r.hid,eta:r.eta||c.eta||''}); });
   });
   return out;
 };
@@ -21451,6 +21469,7 @@ window.shipLogApply=function(list,meta){
     }
     if(x.memo!=null){ if(String(x.memo).trim())r.memo=String(x.memo).trim().slice(0,240); else delete r.memo; }
     if(x.check===true)r.ck=1; else if(x.check===false)delete r.ck;
+    if(x.eta!=null){ var ea=toISO(x.eta||''); if(ea)r.eta=ea; else delete r.eta; }
     if(x.ev&&x.ev.length){ var ev=r.ev=r.ev||[];
       x.ev.forEach(function(m){ if(!m||!m.t)return; var t=String(m.t).slice(0,160);
         if(ev.some(function(e){ return e.w===m.w&&e.t===t; }))return;
@@ -21493,11 +21512,15 @@ function _skCss(){
   +'#shipck-body .sk-oh .age{font-size:11.5px;font-weight:800;color:var(--t2,#666);white-space:nowrap}#shipck-body .sk-oh .age.old{color:#A32D2D}'
   +'#shipck-body .sk-oh .lg{font-size:10.5px;font-weight:700;color:#1D9E75;background:#E1F5EE;border:1px solid #9fd8c3;padding:0 6px}'
   +'#shipck-body .sk-oh .acts{margin-left:auto;display:flex;gap:6px}'
+  +'#shipck-body .sk-eta{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;color:var(--t2,#666);white-space:nowrap}'
+  +'#shipck-body .sk-eta input{border:2px solid '+I+';border-radius:0;height:30px;padding:0 6px;font-size:12px;background:#fff;font-family:inherit;-webkit-appearance:none;appearance:none;color:inherit}'
+  +'#shipck-body .sk-eta-t{font-size:10.5px;font-weight:800;color:#1e5a8a;background:#EAF3F8;border:1px solid #a9cbe2;padding:0 5px;white-space:nowrap}'
+  +'#shipck-body .sk-eta-t.late{color:#A32D2D;background:#FFEBEE;border-color:#ebb2b2}'
   +'#shipck-body .sk-ob{font-size:11.5px;font-weight:800;border:2px solid '+I+';background:#fff;padding:5px 10px;cursor:pointer;box-shadow:2px 2px 0 '+I+';white-space:nowrap;font-family:inherit;color:inherit}'
   +'#shipck-body .sk-ob:active,#shipck-body .sk-ck:active,#shipck-body .sk-st:active{box-shadow:none;transform:translate(2px,2px)}'
   +'#shipck-body .sk-gh{padding:8px 13px 2px;font-size:12px;font-weight:800;border-top:1px solid #f1efe9}'
   +'#shipck-body .sk-gh .pt{color:var(--t2,#666);font-weight:600;margin-right:3px}'
-  +'#shipck-body .sk-colh,#shipck-body .sk-ln{display:grid;grid-template-columns:minmax(0,1fr) 62px 112px 112px 96px 146px;gap:8px;align-items:center;padding:7px 13px}'
+  +'#shipck-body .sk-colh,#shipck-body .sk-ln{display:grid;grid-template-columns:minmax(0,1fr) 62px 112px 112px 96px 206px;gap:8px;align-items:center;padding:7px 13px}'
   +'#shipck-body .sk-colh{font-size:10.5px;font-weight:800;color:#9aa1ab;border-bottom:1px solid #f1efe9;background:#fbfaf7}'
   +'#shipck-body .sk-colh .r{text-align:right}'
   +'#shipck-body .sk-ln{border-top:1px solid #f6f4ef}#shipck-body .sk-ln.open{background:#fbfaf7}'
@@ -21523,6 +21546,9 @@ function _skCss(){
   +'#shipck-body .sk-ck{min-width:64px;height:32px;font-size:12px;font-weight:800;border:2px solid '+I+';background:#fff;cursor:pointer;box-shadow:2px 2px 0 '+I+';white-space:nowrap;padding:0 8px;display:inline-flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;color:inherit}'
   +'#shipck-body .sk-ck .bx{width:12px;height:12px;border:2px solid '+I+';border-radius:3px;background:#fff;display:inline-flex;align-items:center;justify-content:center}'
   +'#shipck-body .sk-ck.on{background:#A5E6BA}#shipck-body .sk-ck.on .bx::after{content:"";width:6px;height:6px;border-radius:1px;background:'+I+'}'
+  +'#shipck-body .sk-hd{min-width:52px;height:32px;font-size:12px;font-weight:800;border:2px dashed #9a948a;background:#fff;color:#6b6555;cursor:pointer;padding:0 8px;white-space:nowrap;font-family:inherit}'
+  +'#shipck-body .sk-hd.back{border-style:solid;border-color:'+I+';color:'+I+';background:#E8F6EE;box-shadow:2px 2px 0 '+I+'}'
+  +'#shipck-body .sk-ln.hid>div:not(.sk-btns){opacity:.45}'
   +'#shipck-body .sk-ck.half{background:#FFF6B8}#shipck-body .sk-ck.half .bx{background:linear-gradient(to top,'+I+' 45%,#fff 45%)}'
   +'#shipck-body .sk-ftr{display:block;width:100%;text-align:left;border:0;border-top:1px solid #f1efe9;background:#fbfaf7;padding:8px 13px;font-size:11.5px;font-weight:800;color:var(--t2,#666);cursor:pointer;font-family:inherit}'
   +'#shipck-body .sk-pnl{margin:0 13px 10px 25px;border:2px solid '+I+';background:#fff;padding:10px 12px;font-size:12px}'
@@ -21537,6 +21563,7 @@ function _skCss(){
   +'#shipck-body .sk-memo{margin-top:7px;padding:6px 9px;border:1.5px dashed #7c3aed;background:#f6f3ff;color:#4c1d95;font-weight:600}'
   +'#shipck-body .sk-add{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:2px solid '+I+';padding-top:9px}'
   +'#shipck-body .sk-add .lb{font-size:11.5px;font-weight:900}'
+  +'#shipck-body .sk-add .x{border:1.5px solid '+I+';background:#fff;font-size:11px;font-weight:800;padding:0 8px;height:28px;cursor:pointer;font-family:inherit;color:inherit}'
   +'#shipck-body .sk-add input{border:2px solid '+I+';border-radius:0;height:32px;padding:0 8px;font-size:13px;background:#fff;-webkit-appearance:none;appearance:none;font-family:inherit}'
   +'#shipck-body .sk-add input[type=number]{width:76px}#shipck-body .sk-add input[type=date]{width:140px}'
   +'#shipck-body .sk-seg2{display:inline-flex;border:2px solid '+I+'}'
@@ -21556,8 +21583,8 @@ function _skCss(){
   +'#shipck-body .sk-ln{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px;padding:10px 12px;align-items:start}'
   +'#shipck-body .sk-nm{grid-column:1 / 3;padding-left:0}#shipck-body .sk-stc{grid-column:3;grid-row:1}'
   +'#shipck-body .sk-q{text-align:left}#shipck-body .sk-q .lb{display:block;font-size:10.5px;font-weight:800;color:#9aa1ab}'
-  +'#shipck-body .sk-btns{grid-column:1 / -1}#shipck-body .sk-ck{flex:1;height:40px;font-size:13px}'
-  +'#shipck-body .sk-oh .acts{margin-left:0;width:100%}#shipck-body .sk-oh .acts .sk-ob{flex:1;height:36px}'
+  +'#shipck-body .sk-btns{grid-column:1 / -1}#shipck-body .sk-ck{flex:1;height:40px;font-size:13px}#shipck-body .sk-hd{flex:0 0 68px;height:40px;font-size:13px}'
+  +'#shipck-body .sk-oh .sk-eta{width:100%}#shipck-body .sk-oh .sk-eta input{flex:1;height:36px}#shipck-body .sk-oh .acts{margin-left:0;width:100%}#shipck-body .sk-oh .acts .sk-ob{flex:1;height:36px}'
   +'#shipck-body .sk-pnl{margin:0 10px 10px}#shipck-body .sk-gh{padding:9px 12px 2px}#shipck-body .sk-kk .tags{margin-left:0}'
   +'}'
   +'</style>';
@@ -21571,7 +21598,7 @@ function renderShipTab(){
     +'<div class="sk-strip" id="sk-strip"></div><div id="sk-kk"></div>'
     +'<div class="sk-ctrl"><input class="sk-search" id="sk-q" type="search" placeholder="오더·부자재·컬러 찾기" oninput="window._sk.q=this.value;_skDrawList()"><span id="sk-chips" style="display:contents"></span></div>'
     +'<div id="sk-list"></div>'
-    +'<div class="sk-legend"><span><i class="sk-sc done">다 감</i> 공장이 다 받음</span><span><i class="sk-sc wait">입고 확인 전</i> 거래처는 다 보냄</span><span><i class="sk-sc part">일부만</i> 덜 보냄</span><span><i class="sk-sc none">안 감</i> 아직 안 보냄</span><span><i class="sk-sc check">확인 필요</i> 카톡만으로 확실하지 않음</span></div>'
+    +'<div class="sk-legend"><span><i class="sk-sc done">다 감</i> 공장이 다 받음</span><span><i class="sk-sc wait">입고 확인 전</i> 거래처는 다 보냄</span><span><i class="sk-sc part">일부만</i> 덜 보냄</span><span><i class="sk-sc none">안 감</i> 아직 안 보냄</span><span><i class="sk-sc check">확인 필요</i> 카톡만으로 확실하지 않음</span><span><i class="sk-hd" style="font-style:normal;height:auto;padding:1px 7px">빼기</i> 목록에서만 뺌 (카드 아래 「뺀 줄 보기」에서 되살리기)</span></div>'
     +'</div>';
   var qi=document.getElementById('sk-q'); if(qi)qi.value=st.q||'';
   _skDrawList();
@@ -21586,7 +21613,7 @@ function _skDrawList(){
   var inScope=function(c){ return st.past||!c.done; };
   var match=function(c,L){ if(!Q)return true; var s=[c.o.name,c.code,c.sup,c.kind,L.part,L.name,L.spec,L.color,L.ics.join(' ')].join(' ').toLowerCase(); return s.indexOf(Q)>=0; };
   // 거래처 칩 (안 끝난 줄 많은 순)
-  var supN={}; all.forEach(function(c){ if(!inScope(c))return; supN[c.sup]=supN[c.sup]||0; c.lines.forEach(function(L){ if(!_skIsDone(_skState(L,c)))supN[c.sup]++; }); });
+  var supN={}; all.forEach(function(c){ if(!inScope(c))return; supN[c.sup]=supN[c.sup]||0; c.lines.forEach(function(L){ if(!_skIsDone(_skState(L,c))&&!(_skRec(L.key)||{}).hid)supN[c.sup]++; }); });
   if(st.sup&&!(st.sup in supN))st.sup='';
   var sups=Object.keys(supN).sort(function(a,b){ return (supN[b]-supN[a])||a.localeCompare(b,'ko'); });
   var ch='<button type="button" class="sk-chip'+(!st.sup?' on':'')+'" onclick="skSetSup(\'\')">전체</button>';
@@ -21604,7 +21631,7 @@ function _skDrawList(){
   // 숫자 칸
   var cnt={none:0,part:0,wait:0,check:0}, cards=[];
   all.forEach(function(c){ if(!inScope(c))return; if(st.sup&&c.sup!==st.sup)return;
-    c.lines.forEach(function(L){ if(!match(c,L))return; var s=_skState(L,c); if(s in cnt)cnt[s]++; }); cards.push(c); });
+    c.lines.forEach(function(L){ if(!match(c,L)||(_skRec(L.key)||{}).hid)return; var s=_skState(L,c); if(s in cnt)cnt[s]++; }); cards.push(c); });
   var sh='';
   [['none','안 감'],['part','일부만'],['wait','입고 확인 전'],['check','확인 필요']].forEach(function(p){
     sh+='<button type="button" class="sk-st '+p[0]+(st.tile===p[0]?' on':'')+'" onclick="skSetTile(\''+p[0]+'\')"><span class="n">'+cnt[p[0]]+'</span><span class="l">'+p[1]+'</span></button>'; });
@@ -21626,12 +21653,13 @@ function _skDrawList(){
     else if(s==='wait'&&i>0)sm='<small>'+_skN(L.q-i)+esc(L.unit)+' 입고 전</small>';
     else if(s==='legacy')sm='<small>대시보드 체크</small>';
     var useTxt=L.ics.length?(L.ics.join(', ')+' 사용'):'';
-    var h='<div class="sk-ln'+(op?' open':'')+'">'
-      +'<div class="sk-nm" role="button" tabindex="0" onclick="skOpen(\''+E(L.key)+'\')" onkeydown="if(event.key===\'Enter\')skOpen(\''+E(L.key)+'\')"><span class="sw">'+(L.color?'#'+esc(L.color):'(컬러 없음)')+'</span>'+(useTxt?'<span class="use">'+esc(useTxt)+'</span>':'')+'<span class="more">'+(op?'접기':'기록'+((r.ev&&r.ev.length)?'·근거':''))+'</span></div>'
+    var hidL=!!r.hid; if(hidL)sm+='<small>목록에서 뺌</small>';
+    var h='<div class="sk-ln'+(op?' open':'')+(hidL?' hid':'')+'">'
+      +'<div class="sk-nm" role="button" tabindex="0" onclick="skOpen(\''+E(L.key)+'\')" onkeydown="if(event.key===\'Enter\')skOpen(\''+E(L.key)+'\')"><span class="sw">'+(L.color?'#'+esc(L.color):'(컬러 없음)')+'</span>'+(useTxt?'<span class="use">'+esc(useTxt)+'</span>':'')+_skEtaTag(r.eta||c.eta,s)+'<span class="more">'+(op?'접기':'기록'+((r.ev&&r.ev.length)?'·근거':''))+'</span></div>'
       +'<div class="sk-q"><span class="lb">발주</span><span class="v">'+_skN(L.q)+'</span><span class="u">'+esc(L.unit)+'</span></div>'
       +qtyCell('출고',r.o,L)+qtyCell('공장 입고',r.i,L)
       +'<div class="sk-stc"><i class="sk-sc '+s+'">'+SK_NM[s]+'</i>'+sm+'</div>'
-      +'<div class="sk-btns">'+ckBtn('o',L,r)+ckBtn('i',L,r)+'</div></div>';
+      +'<div class="sk-btns">'+ckBtn('o',L,r)+ckBtn('i',L,r)+'<button type="button" class="sk-hd'+(hidL?' back':'')+'" onclick="skHide(\''+E(L.key)+'\')">'+(hidL?'되살리기':'빼기')+'</button></div></div>';
     if(op){
       var ix=ixN++, recs=[]; (r.o||[]).forEach(function(x,j){ recs.push(['o',x,j]); }); (r.i||[]).forEach(function(x,j){ recs.push(['i',x,j]); });
       var ak=st.addKind[L.key]||'o';
@@ -21641,6 +21669,7 @@ function _skDrawList(){
         +(r.memo?'<div class="sk-memo">'+esc(r.memo)+'</div>':'')
         +(r.ck?'<button type="button" class="sk-ok" onclick="skOkCheck(\''+E(L.key)+'\')">확인했어요 (확인 필요 끄기)</button>':'')
         +((r.ev&&r.ev.length)?'<div class="sk-msgs"><h4>클로드가 읽은 카톡</h4>'+r.ev.map(function(m){ return '<div class="sk-msg"><span class="w">'+esc(m.w||'')+'</span><span class="who">'+(m.k?'<b>'+esc(m.k)+'</b> · ':'')+esc(m.r||'')+(m.p?' · '+esc(m.p):'')+'</span><span class="t">'+esc(m.t||'')+'</span></div>'; }).join('')+'</div>':'')
+        +'<div class="sk-add"><span class="lb">이 줄만 입고 예정</span><input type="date" value="'+esc(r.eta||'')+'" aria-label="이 줄 입고 예정일" onchange="skSetLineEta(\''+E(L.key)+'\',this.value)">'+(r.eta?'<button type="button" class="x" style="margin-left:0" onclick="skSetLineEta(\''+E(L.key)+'\',\'\')">지우기</button>':'')+'<span class="u">'+(c.eta?'비우면 카드 날짜 '+_skMD(c.eta):'비우면 카드 날짜를 따라가요')+'</span></div>'
         +'<div class="sk-add"><span class="lb">직접 넣기</span><span class="sk-seg2"><button type="button" class="'+(ak==='o'?'on':'')+'" onclick="skSetAK(\''+E(L.key)+'\',\'o\')">출고</button><button type="button" class="'+(ak==='i'?'on':'')+'" onclick="skSetAK(\''+E(L.key)+'\',\'i\')">입고</button></span>'
         +'<input type="number" inputmode="decimal" min="0" step="any" id="sk-n-'+ix+'" placeholder="수량" aria-label="수량"><span class="u">'+esc(L.unit)+'</span><input type="date" id="sk-d-'+ix+'" value="'+_skToday()+'" aria-label="날짜"><button type="button" class="sk-go" onclick="skAdd(\''+E(L.key)+'\','+ix+')">넣기</button></div></div>';
     }
@@ -21648,11 +21677,11 @@ function _skDrawList(){
   };
   var html='', doneCards=[];
   cards.forEach(function(c){
-    var ck=c.cid+SK_SEP+c.sn, showD=!!st.showDone[ck], body='', hidden=0, left=0, any=0, curG='';
+    var ck=c.cid+SK_SEP+c.sn, showD=!!st.showDone[ck], body='', hidden=0, nHid=0, left=0, any=0, curG='';
     c.lines.forEach(function(L){
-      if(!match(c,L))return; any++; var s=_skState(L,c); if(!_skIsDone(s))left++;
-      var vis=st.tile?(s===st.tile):(st.view==='all'||!_skIsDone(s)||showD);
-      if(!vis){ if(_skIsDone(s))hidden++; return; }
+      if(!match(c,L))return; any++; var s=_skState(L,c), hd=!!(_skRec(L.key)||{}).hid; if(!_skIsDone(s)&&!hd)left++;
+      var vis=st.tile?(s===st.tile&&!hd):(st.view==='all'||(!_skIsDone(s)&&!hd)||showD);
+      if(!vis){ if(hd)nHid++; else if(_skIsDone(s))hidden++; return; }
       var g=L.part+SK_SEP+L.name+SK_SEP+L.spec;
       if(g!==curG){ curG=g; body+='<div class="sk-gh">'+(L.part?'<span class="pt">('+esc(L.part)+')</span>':'')+esc(L.name)+(L.spec?' '+esc(L.spec):'')+'</div>'; }
       body+=rowH(c,L);
@@ -21662,13 +21691,14 @@ function _skDrawList(){
     if(!body)return;
     html+='<section class="sk-oc"><div class="sk-oh"><span class="nm">'+esc(c.o.name||'오더')+'</span>'+(c.code?'<span class="cd">'+esc(c.code)+'</span>':'')+(c.kind?'<span class="kd">'+esc(c.kind)+'</span>':'')
       +'<span class="br">'+esc(c.sup)+(c.fc?' → '+esc(c.fc):'')+(c.sent?' · '+_skMD(c.sent)+' 발주':'')+'</span>'
-      +'<span class="age'+(left&&c.age!=null&&c.age>=14?' old':'')+'">'+(left?(c.age===0?'오늘 발주':(c.age!=null?c.age+'일째':'')):'다 감')+'</span>'
+      +'<span class="age'+(left&&c.age!=null&&c.age>=14?' old':'')+'">'+(left?(c.age===0?'오늘 발주':(c.age!=null?c.age+'일째':'')):'남은 줄 없음')+'</span>'
       +(c.legacy?'<span class="lg">대시보드 입고 체크됨</span>':'')
+      +'<label class="sk-eta">입고 예정<input type="date" value="'+esc(c.eta||'')+'" aria-label="입고 예정일" onchange="skSetEta(\''+E(ck)+'\',this.value)"></label>'
       +'<span class="acts"><button type="button" class="sk-ob" onclick="skAll(\''+E(ck)+'\',\'o\')">전부 출고</button><button type="button" class="sk-ob" onclick="skAll(\''+E(ck)+'\',\'i\')">전부 입고</button></span></div>'
       +'<div class="sk-colh"><div>부자재 · 컬러</div><div class="r">발주</div><div class="r">출고</div><div class="r">공장 입고</div><div class="r">상태</div><div class="r">직접 체크</div></div>'
-      +body+((st.view==='open'&&!st.tile&&(hidden||showD))?'<button type="button" class="sk-ftr" onclick="skToggleDone(\''+E(ck)+'\')">'+(showD?'다 간 줄 접기':'다 간 줄 '+hidden+'개 보기')+'</button>':'')+'</section>';
+      +body+((st.view==='open'&&!st.tile&&(hidden||nHid||showD))?'<button type="button" class="sk-ftr" onclick="skToggleDone(\''+E(ck)+'\')">'+(showD?'다 간 줄·뺀 줄 접기':[hidden?'다 간 줄 '+hidden+'개':'',nHid?'뺀 줄 '+nHid+'개':''].filter(Boolean).join(' · ')+' 보기')+'</button>':'')+'</section>';
   });
-  if(doneCards.length)html+='<div class="sk-doneo">다 끝난 발주 '+doneCards.length+'개: '+doneCards.slice(0,12).map(function(c){ return '<b>'+esc(c.o.name||'')+'</b> '+esc(c.sup); }).join(', ')+(doneCards.length>12?' 외':'')+' — 「전부」를 누르면 보여요</div>';
+  if(doneCards.length)html+='<div class="sk-doneo">남은 줄 없는 발주 '+doneCards.length+'개: '+doneCards.slice(0,12).map(function(c){ return '<b>'+esc(c.o.name||'')+'</b> '+esc(c.sup); }).join(', ')+(doneCards.length>12?' 외':'')+' — 「전부」를 누르면 보여요</div>';
   // 발주서가 바뀌어 줄과 연결이 끊긴 기록 (조용히 안 버림)
   var live={}; _skAllCards().forEach(function(c){ c.lines.forEach(function(L){ live[L.key]=1; }); });
   var orph=Object.keys(S.shipLog||{}).filter(function(k){ if(k==='__meta'||live[k])return false; var p=k.split(SK_SEP); return !st.sup||_skBaseSup(p[2])===st.sup; });
