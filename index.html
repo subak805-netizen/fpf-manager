@@ -5126,7 +5126,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-02h';
+var APP_BUILD=/*BUILD*/'2026-11-02i';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -11981,7 +11981,10 @@ function refAddCard(colId){
   if(!Array.isArray(S.matExtra))S.matExtra=[];
   var cid=(colId!=null?colId:(window._refOpenCol&&window._refOpenCol!=='__orphan'?window._refOpenCol:''));
   var _col=cid?_refColFind(cid):null;   // 폴더 안에서 만들면 폴더의 거래처 브랜드·카테고리 물려받기
-  S.refCards.push({id:id,collectionId:cid,brandId:(_col&&_col.brandId)||'',category:(_col&&_col.category)||'',title:'',brand:'',front:'',back:'',desc:'',createdAt:(typeof todayISO==='function'?todayISO():'')});
+  var _nc={id:id,collectionId:cid,brandId:(_col&&_col.brandId)||'',category:(_col&&_col.category)||'',title:'',brand:'',front:'',back:'',desc:'',createdAt:(typeof todayISO==='function'?todayISO():'')};
+  var _ps=cid?_refPlanSelGet(cid):'all'; if(_ps!=='all'&&_ps!=='__none')_nc.planId=_ps;   // 보고 있는 기획으로 바로 (안 그러면 만들자마자 목록에서 안 보임)
+  S.refCards.push(_nc);
+  window._refStarOnly=false; if(window._refGrid){ window._refGrid=false; try{lsSet('fpm_refGrid',0);}catch(e){} }
   saveData(); renderReference();
   setTimeout(function(){ var el=document.querySelector('[data-ref-card="'+id+'"] .rf-title'); if(el)el.focus(); },30);
 }
@@ -12028,7 +12031,7 @@ function refAddImage(id,side,files){
 }
 /* 사진 파일 이름 (밖으로 끌어낼 때·복사할 때 쓰는 이름) */
 function _refFileName(c,label){
-  var t=((c&&c.title)||'레퍼런스').replace(/[\\/:*?"<>|]/g,'').trim()||'레퍼런스';
+  var t=_refBaseName(c,false);   // 제목 없으면 「폴더이름_번호」 (11-02i)
   var ext=/^data:image\/png/.test((c&&(c.front||c.back))||'')?'.png':'.jpg';
   return t+'_'+(label||'')+ext;
 }
@@ -12202,6 +12205,7 @@ function _refFolderCard(col){
     +'<div class="rf-fbody"><div class="rf-fname">'+esc(col.name||'무제 폴더')+'</div>'
       +'<div class="rf-fmeta">'+((_refColSeason(col))?'<span class="rf-fsea">'+esc(_refColSeason(col))+'</span>':'')
         +(col.category?'<span class="rf-fcat">'+esc(col.category)+'</span>':'')
+        +(_refPlans(col).length?'<span class="rf-fplan">기획 '+_refPlans(col).length+'</span>':'')
         +'<span class="rf-fcount">'+cards.length+'개</span>'+(col.date?'<span class="rf-fdate">'+esc(col.date)+'</span>':'')+'</div>'
     +'</div></div>';
 }
@@ -12216,8 +12220,8 @@ function _refCardHtml(c){
   var picked=!!(window._refPick&&window._refPick[c.id]);
   var pick='<label class="rf-pick"><input type="checkbox" onchange="refTogglePick(\''+c.id+'\',this.checked)"'+(picked?' checked':'')+'>인쇄선택</label>';
   return '<div class="rf-card" data-ref-card="'+esc(c.id)+'">'
-    +'<div class="rf-actions"><div class="rf-selgrp">'+brandSel+catSel+moveSel+'</div>'
-      +'<div class="rf-btngrp">'+pick
+    +'<div class="rf-actions"><div class="rf-selgrp">'+_refCardPlanSel(c)+brandSel+catSel+moveSel+'</div>'
+      +'<div class="rf-btngrp">'+'<button type="button" class="rf-star'+(c.star?' on':'')+'" onclick="refToggleStar(\''+c.id+'\')" title="별표 — 별표만 모아 보기·인쇄">'+_refStarSvg()+(c.star?'별표됨':'별표')+'</button>'+pick
       +'<button class="rf-save" onclick="refSaveImg(\''+c.id+'\')">이미지 저장</button>'
       +'<button onclick="refPrintCard(\''+c.id+'\')">A4 인쇄</button>'
       +'<button class="rf-del" onclick="refDelCard(\''+c.id+'\')">삭제</button></div>'
@@ -12325,7 +12329,7 @@ function _refRenderSeasons(el){
   }).join('');
   var head=_refHeadHTML(cols.length);
   var empty=(!keys.length)?'<div class="rf-empty">이 브랜드엔 아직 폴더가 없어요.</div>':'';
-  el.innerHTML=head+_refCrumb()+empty+'<div class="rf-folders">'+cards+'</div>';
+  el.innerHTML=head+_refCrumb()+((n.b&&n.b!=='__none')?_refMustHTML(n.b):'')+empty+'<div class="rf-folders">'+cards+'</div>';
 }
 
 function renderReference(){
@@ -12429,8 +12433,10 @@ function _refRenderInside(el,colId){
     +'<button class="rf-auto rf-printall" id="rf-printall" onclick="refPrintSelectedAll()"'+((_pc.all>_pc.here)?'':' style="display:none"')+'>다른 폴더까지 ('+_pc.all+')</button>'
     +'<button class="rf-auto rf-pickclr" id="rf-pickclr" onclick="refClearPick()"'+(_pc.all?'':' style="display:none"')+'>선택 해제</button>';
   var _2c=(window._ref2col===undefined?(window._ref2col=(lsGet('fpm_ref2col')?true:false)):window._ref2col);
-  var colBtn='<span class="rf-collbl"><button type="button" onclick="refSetCols(1)"'+(_2c?'':' class="on"')+'>1열</button>'
-    +'<button type="button" onclick="refSetCols(2)"'+(_2c?' class="on"':'')+'>2열</button></span>';
+  var _gr=!orphan&&_refGridOn();
+  var colBtn='<span class="rf-collbl"><button type="button" onclick="refSetCols(1)"'+(!_gr&&!_2c?' class="on"':'')+'>1열</button>'
+    +'<button type="button" onclick="refSetCols(2)"'+(!_gr&&_2c?' class="on"':'')+'>2열</button>'
+    +(orphan?'':'<button type="button" onclick="refSetGrid()"'+(_gr?' class="on"':'')+' title="작은 사진으로 한눈에">모아보기</button>')+'</span>';
   if(orphan){
     var hdr='<div class="rfc-hd"><button class="rfc-back" onclick="refCloseCol()">← 폴더 목록</button>'
       +'<div class="rfc-titlewrap"><div class="rfc-name">미분류 <span class="rfc-cnt">'+cards.length+'개</span></div>'
@@ -12451,6 +12457,7 @@ function _refRenderInside(el,colId){
   var _cs=_refColSeason(col);
   var seaOpts='<option value="">시즌 없음</option>'+getRefSeasons().map(function(v){return '<option value="'+esc(v)+'"'+(_cs===v?' selected':'')+'>'+esc(v)+'</option>';}).join('');
   var catOpts='<option value="">카테고리</option>'+getRefCategories().map(function(k){return '<option value="'+esc(k)+'"'+((col.category||'')===k?' selected':'')+'>'+esc(k)+'</option>';}).join('');
+  var _sv=_refInsideView(col,cards);   // 기획 거르기·별표만·모아보기 (11-02i)
   var hdr2='<div class="rfc-hd"><button class="rfc-back" onclick="refCloseCol()">← 폴더 목록</button>'
     +'<div class="rfc-titlewrap">'
       +'<input class="rfc-name-input" value="'+esc(col.name)+'" placeholder="폴더 이름 (예: 바람막이 레퍼런스)" oninput="refSetColField(\''+col.id+'\',\'name\',this.value)">'
@@ -12461,11 +12468,9 @@ function _refRenderInside(el,colId){
         +'<input type="date" class="rfc-date" value="'+esc(col.date||'')+'" onchange="refSetColField(\''+col.id+'\',\'date\',this.value)">'
       +'</div>'
     +'</div>'
-    +'<div class="rfc-hdbtns">'+colBtn+printBtn+'<button class="rfc-del" onclick="refDelCollection(\''+col.id+'\')">폴더 삭제</button></div>'
+    +'<div class="rfc-hdbtns">'+colBtn+_sv.starBtns+printBtn+'<button class="rfc-del" onclick="refDelCollection(\''+col.id+'\')">폴더 삭제</button></div>'
   +'</div>';
-  var empty=cards.length?'':'<div class="rf-empty">이 폴더에 아직 레퍼런스가 없어요. 아래 버튼으로 추가하세요</div>';
-  var grid=cards.length?'<div class="rf-cardgrid">'+cards.map(_refCardHtml).join('')+'</div>':'';
-  el.innerHTML=hdr2+empty+grid+'<div class="rf-cardadd" onclick="refAddCard(\''+colId+'\')">＋ 새 레퍼런스 추가</div>';
+  el.innerHTML=hdr2+_refPlanBoxHTML(col,cards,_sv.sel)+_refBulkHTML(_sv.sel)+_sv.body+'<div class="rf-cardadd" onclick="refAddCard(\''+colId+'\')">＋ 새 레퍼런스 추가</div>';
 }
 /* 드롭·클릭 배선 — #reference-body는 innerHTML만 갈리고 요소는 살아있어 위임으로 1회만. 빗맞힌 드롭이 새 탭 열지 않게 pane 가드 */
 function _refWireDrop(){
@@ -12488,9 +12493,10 @@ function _refWireDrop(){
       try{ e.dataTransfer.setData('DownloadURL',mime+':'+nm+':'+url); }catch(err){}
       try{ e.dataTransfer.setData('text/uri-list',url); e.dataTransfer.setData('text/plain',url); }catch(err){}
     });
-    el.addEventListener('dragover',function(e){ var s=slotOf(e); if(!s)return; e.preventDefault(); e.stopPropagation(); s.classList.add('over'); });
-    el.addEventListener('dragleave',function(e){ var s=slotOf(e); if(!s)return; if(!s.contains(e.relatedTarget))s.classList.remove('over'); });
-    el.addEventListener('drop',function(e){ var s=slotOf(e); if(!s)return; e.preventDefault(); e.stopPropagation(); s.classList.remove('over');
+    var bulkOf=function(e){ return (e.target&&e.target.closest)?e.target.closest('.rf-bulk'):null; };   // 여러 장 한 번에 칸 (11-02i)
+    el.addEventListener('dragover',function(e){ var bk=bulkOf(e); if(bk){ e.preventDefault(); e.stopPropagation(); bk.classList.add('over'); return; } var s=slotOf(e); if(!s)return; e.preventDefault(); e.stopPropagation(); s.classList.add('over'); });
+    el.addEventListener('dragleave',function(e){ var bk=bulkOf(e); if(bk){ if(!bk.contains(e.relatedTarget))bk.classList.remove('over'); return; } var s=slotOf(e); if(!s)return; if(!s.contains(e.relatedTarget))s.classList.remove('over'); });
+    el.addEventListener('drop',function(e){ var bk=bulkOf(e); if(bk){ e.preventDefault(); e.stopPropagation(); bk.classList.remove('over'); var dt0=e.dataTransfer; if(dt0&&dt0.files&&dt0.files.length)refBulkAdd(dt0.files); return; } var s=slotOf(e); if(!s)return; e.preventDefault(); e.stopPropagation(); s.classList.remove('over');
       var dt=e.dataTransfer; if(dt&&dt.files&&dt.files.length)refAddImage(cardId(s),s.getAttribute('data-side'),dt.files); });
   }
   var pane=document.getElementById('pane-reference');
@@ -12510,7 +12516,7 @@ function _refWrapLines(ctx,text,maxW){
 }
 function refSaveImg(id){
   var c=_refFind(id); if(!c){ if(typeof showToast==='function')showToast('카드를 찾을 수 없어요'); return; }
-  var nm=(((c.title)||'레퍼런스')+((c.brand)?'_'+c.brand:'')).replace(/[\\/:*?"<>|]/g,'_');
+  var nm=_refBaseName(c,true);   // 제목 없으면 「폴더이름_번호」 (11-02i — 예전엔 전부 「레퍼런스」라 레퍼런스(3).png 처럼 쌓였음)
   var W=2480,H=1754,PAD=92,KR="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif";
   var cv=document.createElement('canvas'); cv.width=W; cv.height=H; var x=cv.getContext('2d');
   x.fillStyle='#ffffff'; x.fillRect(0,0,W,H); x.textBaseline='alphabetic';
@@ -12614,7 +12620,7 @@ function refTogglePick(id,on){ if(!window._refPick)window._refPick={}; if(on)win
   var b2=document.getElementById('rf-printall'); if(b2){ b2.textContent='다른 폴더까지 ('+pc.all+')'; b2.style.display=(pc.all>pc.here)?'':'none'; }
   var b3=document.getElementById('rf-pickclr'); if(b3){ b3.style.display=pc.all?'':'none'; } }
 /* 레퍼런스 카드 1열/2열 — 기본 1열(사진 크게), 고른 값은 기억한다 */
-function refSetCols(n){ window._ref2col=(n===2); try{lsSet('fpm_ref2col',n===2?1:0);}catch(e){} renderReference(); }
+function refSetCols(n){ window._ref2col=(n===2); window._refGrid=false; try{lsSet('fpm_ref2col',n===2?1:0); lsSet('fpm_refGrid',0);}catch(e){} renderReference(); }
 function refApplyCols(){ var b=document.getElementById('reference-body'); if(b)b.classList.toggle('rf-2col',!!window._ref2col); }
 /* 체크 개수 — here=이 폴더 안, all=앱 전체 */
 function _refPickCounts(colId){
@@ -12648,6 +12654,441 @@ function refPrintSelected(){
   });
   if(!cards.length){ if(typeof showToast==='function')showToast('이 폴더에서 인쇄할 카드를 체크해주세요'); return; }
   _refPrintCards(cards);
+}
+/* ===== 레퍼런스 폴더 「기획」 + 여러 장 넣기 + 모아보기·별표 + 꼭 참고 (2026-11-02i) =====
+   · 기획: 폴더 하나에 여러 개 = col.plans=[itemId,...]. 기획 하나 = 아이템 하나 → 내용은 그 아이템 ideaData 를 그대로 같이 씀
+     (아이템 탭 아이디어 보드와 같은 자리, 복사 아님). 기획 이름 = 아이템 이름.
+   · 카드마다 card.planId(=itemId). 폴더에서 기획을 빼도 아이템·card.planId 는 그대로 둔다(다시 넣으면 돌아옴).
+   · card.star = 별표. 둘 다 refCards 줄에 붙는 칸이라 기존 _mt·묘비 동기화 그대로(새 저장 통로 없음).
+   · 보는 기획(전체/기획/안 정함)·모아보기·여러 장 방식은 기기마다 기억(fpm_refPlanSel·fpm_refGrid·fpm_refAddMode) — 데이터 아님.
+   · 꼭 참고 = S.refData.brands[bid].notes — 샘플참고 탭 「진행 시 꼭 참고」와 같은 목록. */
+function _refPlans(col){ return ((col&&Array.isArray(col.plans))?col.plans:[]).filter(function(id){ return id&&S.items&&S.items[id]; }); }
+function _refPlanSelGet(colId){
+  if(!window._refPlanSel){ try{window._refPlanSel=lsGet('fpm_refPlanSel')||{};}catch(e){window._refPlanSel={};} }
+  var v=window._refPlanSel[colId]||'all';
+  if(v!=='all'&&_refPlans(_refColFind(colId)).indexOf(v)<0&&v!=='__none')v='all';
+  if(v==='__none'&&!_refPlans(_refColFind(colId)).length)v='all';
+  return v;
+}
+function _refPlanSelSet(colId,v){ if(!window._refPlanSel)window._refPlanSel={}; window._refPlanSel[colId]=v; try{lsSet('fpm_refPlanSel',window._refPlanSel);}catch(e){} }
+function _refInPlan(c,sel,plans){ if(sel==='all')return true; var has=!!(c&&c.planId&&plans.indexOf(c.planId)>=0); return sel==='__none'?!has:!!(c&&c.planId===sel); }
+function _refYm(st,m){ return (typeof ymAdd==='function')?ymAdd(st,m):''; }
+function _refPlanBudget(d){ return (+d.bSample||0)+(+d.bFabric||0)+(+d.bTrim||0)+(+d.bLabor||0); }
+function _refPlanLaunch(d){ return d.schStart?_refYm(d.schStart,(+d.schSampleM||0)+(+d.schProdM||0)+(+d.schLaunchM||0)):''; }
+function _refPlanName(id){ var it=S.items&&S.items[id]; return (it&&it.name)||'이름 없는 기획'; }
+function _refStarSvg(){ return '<svg class="rf-px" viewBox="0 0 8 8" aria-hidden="true"><path d="M3 0h2v2H3zM0 2h8v1H0zM1 3h6v1H1zM2 4h4v1H2zM1 5h2v1H1zM5 5h2v1H5zM0 6h2v1H0zM6 6h2v1H6z"/></svg>'; }
+function _refPlanSchedHTML(d){
+  var st=d.schStart||''; if(!st)return '<span class="rfp-mute">시작 연·월을 넣으면 런칭월이 계산돼요</span>';
+  var sm=+d.schSampleM||0, pm=+d.schProdM||0, lm=+d.schLaunchM||0;
+  return '<div>샘플 '+sm+'달 · '+_refYm(st,0)+' → '+_refYm(st,sm)+'</div>'
+    +'<div>생산 '+pm+'달 · '+_refYm(st,sm)+' → '+_refYm(st,sm+pm)+'</div>'
+    +'<div>런칭준비 '+lm+'달 · '+_refYm(st,sm+pm)+' → '+_refYm(st,sm+pm+lm)+'</div>'
+    +'<div class="rfp-goal">런칭 목표 <b>'+_refYm(st,sm+pm+lm)+'</b></div>';
+}
+function _refPlanBoxHTML(col,cards,sel){
+  var plans=_refPlans(col), adding=(window._refPlanAdding===col.id);
+  if(!plans.length&&!adding){
+    return '<div class="rfp rfp-none"><div class="rfp-h rfp-h0"><span class="rfp-t">기획</span>'
+      +'<span class="rfp-sum">아직 없어요 · 사진만 모으는 폴더면 안 만들어도 돼요</span>'
+      +'<button type="button" class="rfp-tog" onclick="refPlanAddUI(true)">＋ 기획 추가</button></div></div>';
+  }
+  if(window._refPlanOpen===undefined){ try{ var o=lsGet('fpm_refPlanOpen'); window._refPlanOpen=!(o===0||o==='0'); }catch(e){ window._refPlanOpen=true; } }
+  var open=window._refPlanOpen||adding;
+  var cnt=function(s){ return cards.filter(function(c){ return _refInPlan(c,s,plans); }).length; };
+  var sum='기획 '+plans.length+'개'+((sel!=='all'&&sel!=='__none')?' · 지금 「'+_refPlanName(sel)+'」':(sel==='__none'?' · 지금 기획 안 정한 사진':''));
+  var head='<div class="rfp-h" onclick="refPlanToggle(event)"><span class="rfp-t">기획</span><span class="rfp-sum">'+esc(sum)+'</span>'
+    +'<button type="button" class="rfp-tog">'+(open?'접기':'펼치기')+'</button></div>';
+  if(!open)return '<div class="rfp">'+head+'</div>';
+  var tabs='<div class="rfp-tabs">'
+    +(plans.length?'<button type="button" class="rfp-chip'+(sel==='all'?' on':'')+'" onclick="refPlanSel(\'all\')">전체 <span class="n">'+cards.length+'</span></button>':'')
+    +plans.map(function(id){ return '<button type="button" class="rfp-chip'+(sel===id?' on':'')+'" data-plan-tab="'+esc(id)+'" onclick="refPlanSel(\''+esc(id)+'\')"><span class="rfp-cn">'+esc(_refPlanName(id))+'</span> <span class="n">'+cnt(id)+'</span></button>'; }).join('')
+    +(plans.length?'<button type="button" class="rfp-chip muted'+(sel==='__none'?' on':'')+'" onclick="refPlanSel(\'__none\')">기획 안 정함 <span class="n">'+cnt('__none')+'</span></button>':'')
+    +'<button type="button" class="rfp-chip add" onclick="refPlanAddUI(true)">＋ 기획 추가</button></div>';
+  var add=adding?_refPlanAddHTML(col,plans):'';
+  var view='';
+  if(!plans.length){ view=''; }
+  else if(sel==='all'){
+    view='<div class="rfp-b"><div class="rfp-ovw">'+plans.map(function(id){ var d=(S.items[id].ideaData)||{}, l=_refPlanLaunch(d);
+        return '<button type="button" class="rfp-row" onclick="refPlanSel(\''+esc(id)+'\')"><b>'+esc(_refPlanName(id))+'</b><span>사진 '+cnt(id)+'장</span>'
+          +'<span>'+(d.targetPrice?'목표가 '+num(+d.targetPrice||0)+'원':'목표가 미정')+'</span><span>'+(l?'런칭 '+l:'일정 미정')+'</span></button>'; }).join('')
+      +'<button type="button" class="rfp-row muted" onclick="refPlanSel(\'__none\')"><b>기획 안 정함</b><span>사진 '+cnt('__none')+'장</span><span></span><span></span></button>'
+      +'</div><div class="rfp-hint" style="margin-top:8px">줄을 누르면 그 기획 칸이 열리고, 아래 카드도 그 기획 사진만 보여요.</div></div>';
+  }else if(sel==='__none'){
+    view='<div class="rfp-b"><div class="rfp-hint">아직 기획을 안 고른 사진이에요. 카드마다 맨 위 「기획」 칸에서 골라 주세요. 고르면 그 기획으로 들어가요.</div></div>';
+  }else view=_refPlanFormHTML(sel);
+  return '<div class="rfp">'+head+tabs+add+view+'</div>';
+}
+function _refPlanFormHTML(id){
+  var it=S.items[id], d=it.ideaData||{};
+  var ph=(typeof deriveItemBadge==='function')?deriveItemBadge(it).phase:'';
+  var stage={idea:'아이디어',sample:'샘플',main:'메인',reorder:'리오더'}[ph]||'';
+  var val=function(k){ return (d[k]!=null&&d[k]!=='')?esc(d[k]):''; };
+  var ta=function(k,label,pl,rows){ return '<div class="rfp-fld"><label>'+label+'</label><textarea rows="'+rows+'" placeholder="'+esc(pl)+'" oninput="refPlanSet(\''+id+'\',\''+k+'\',this.value)">'+esc(d[k]==null?'':d[k])+'</textarea></div>'; };
+  var nb=function(k,label){ return '<div><span class="rfp-gl">'+label+'</span><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+val(k)+'" oninput="refPlanSet(\''+id+'\',\''+k+'\',+this.value||0)"></div>'; };
+  return '<div class="rfp-b" data-plan-form="'+esc(id)+'">'
+    +'<div class="rfp-name"><label>기획 이름</label><input value="'+esc(it.name||'')+'" placeholder="기획 이름" oninput="refPlanRename(\''+id+'\',this.value)">'
+      +'<button type="button" class="rfp-x" onclick="refPlanRemove(\''+id+'\')">이 폴더에서 빼기</button></div>'
+    +'<div class="rfp-hint">아이템 「'+esc(it.name||'')+'」'+(stage?'('+stage+' 단계)':'')+'에 저장돼요. 아이템 탭 아이디어 보드와 같은 칸이라 어디서 고쳐도 똑같이 보여요. 폴더에서 빼도 아이템은 그대로 있어요.</div>'
+    +'<div class="rfp-grid">'
+      +ta('inspiration','영감 메모','선물 구성 · 무드 · 참고한 브랜드...',3)
+      +ta('material','소재 아이디어','골지스판 · 면후라이스 · 원단가 목표...',3)
+      +ta('fit','핏 아이디어','넉넉한 품 · 가랑이 똑딱이 · 소매 접어 입기...',2)
+      +'<div class="rfp-fld"><label>목표 판매가 (원)</label><input type="number" min="0" inputmode="numeric" placeholder="25000" value="'+val('targetPrice')+'" oninput="refPlanSet(\''+id+'\',\'targetPrice\',this.value)"></div>'
+    +'</div>'
+    +'<div class="rfp-calc">'
+      +'<div class="rfp-cbox"><div class="rfp-ct">예산 미리 계산</div><div class="rfp-g4">'+nb('bSample','샘플비')+nb('bFabric','원단')+nb('bTrim','부자재')+nb('bLabor','공임')+'</div>'
+        +'<div class="rfp-tot"><span>예상 투입금</span><b data-plan-tot>'+num(_refPlanBudget(d))+'원</b></div></div>'
+      +'<div class="rfp-cbox"><div class="rfp-ct">일정 미리 계산 <span>개월 단위 대략</span></div><div class="rfp-g4">'
+        +'<div><span class="rfp-gl">시작(연·월)</span><input type="month" value="'+esc(d.schStart||'')+'" onchange="refPlanSet(\''+id+'\',\'schStart\',this.value)"></div>'
+        +nb('schSampleM','샘플(달)')+nb('schProdM','생산(달)')+nb('schLaunchM','런칭준비')+'</div>'
+        +'<div class="rfp-sched" data-plan-sched>'+_refPlanSchedHTML(d)+'</div></div>'
+    +'</div>'
+    +(ph==='idea'?'<div class="rfp-prom"><button type="button" class="rfp-pbtn" onclick="refPlanPromote(\''+id+'\')">샘플로 넘기기 · 이 내용 그대로 이어짐</button></div>':'')
+  +'</div>';
+}
+function _refPlanAddHTML(col,plans){
+  var bid=col.brandId||'';
+  var cand=Object.values(S.items||{}).filter(function(it){ return it&&it.id&&plans.indexOf(it.id)<0&&(!bid||it.brandId===bid); })
+    .sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||''),'ko'); });
+  return '<div class="rfp-add"><form onsubmit="event.preventDefault();refPlanCreate()">'
+      +'<input id="rfp-new-name" placeholder="새 기획 이름 (예: 니트 셋업 선물세트)">'
+      +'<button type="submit" class="rfp-pbtn">새로 만들기</button>'
+      +'<button type="button" class="rfp-cancel" onclick="refPlanAddUI(false)">취소</button></form>'
+    +(cand.length?'<div class="rfp-link"><span>또는 있는 아이템 연결</span><select onchange="if(this.value)refPlanLink(this.value)"><option value="">아이템 고르기</option>'
+      +cand.map(function(it){ return '<option value="'+esc(it.id)+'">'+esc((it.name||'이름 없음')+(it.season?' · '+it.season:''))+'</option>'; }).join('')+'</select></div>':'')
+    +'<div class="rfp-hint">새로 만들면 '+(bid?esc(_refBrandName(bid))+' 브랜드에 ':'')+'아이디어 아이템으로 생겨요. 아이템 탭 아이디어 보드에도 같이 보여요.</div></div>';
+}
+function refPlanToggle(e){
+  if(e&&e.target&&e.target.closest&&e.target.closest('input,select,textarea,.rfp-tabs'))return;
+  window._refPlanOpen=!window._refPlanOpen; try{lsSet('fpm_refPlanOpen',window._refPlanOpen?1:0);}catch(x){}
+  renderReference();
+}
+function refPlanSel(v){ var oc=window._refOpenCol; if(!oc||oc==='__orphan')return; _refPlanSelSet(oc,v); window._refPlanOpen=true; renderReference(); }
+function refPlanAddUI(on){
+  window._refPlanAdding=on?window._refOpenCol:null; renderReference();
+  if(on)setTimeout(function(){ var i=document.getElementById('rfp-new-name'); if(i)i.focus(); },30);
+}
+function refPlanCreate(){
+  var col=_refColFind(window._refOpenCol); if(!col)return;
+  var inp=document.getElementById('rfp-new-name'); var nm=((inp&&inp.value)||'').trim();
+  if(!nm){ if(typeof showToast==='function')showToast('기획 이름을 적어 주세요'); if(inp)inp.focus(); return; }
+  var id=(typeof uid==='function')?uid():('id'+Date.now());
+  S.items[id]={id:id,name:nm,colors:[],sizes:[],fabrics:[],trims:[],trimCosts:[],finishCosts:[],
+    brandId:col.brandId||'',statusManual:{auto:false,phase:'idea',round:0,stage:'none'},
+    ideaData:{},createdAt:(typeof todayISO==='function'?todayISO():'')};   // createIdea 와 같은 모양
+  if(!Array.isArray(col.plans))col.plans=[];
+  col.plans.push(id); window._refPlanAdding=null; _refPlanSelSet(col.id,id);
+  saveData(); renderReference();
+  if(typeof showToast==='function')showToast('「'+nm+'」 기획을 만들었어요 · 아이템 탭 아이디어 보드에도 생겼어요',3500);
+}
+function refPlanLink(itemId){
+  var col=_refColFind(window._refOpenCol); if(!col||!S.items[itemId])return;
+  if(!Array.isArray(col.plans))col.plans=[];
+  if(col.plans.indexOf(itemId)<0)col.plans.push(itemId);
+  window._refPlanAdding=null; _refPlanSelSet(col.id,itemId);
+  saveData(); renderReference();
+  if(typeof showToast==='function')showToast('「'+_refPlanName(itemId)+'」 아이템을 기획으로 연결했어요');
+}
+function refPlanRemove(itemId){
+  var col=_refColFind(window._refOpenCol); if(!col||!Array.isArray(col.plans))return;
+  col.plans=col.plans.filter(function(x){ return x!==itemId; });
+  _refPlanSelSet(col.id,'all'); saveData(); renderReference();
+  if(typeof showToast==='function')showToast('「'+_refPlanName(itemId)+'」을 이 폴더에서 뺐어요. 아이템은 그대로 있고, 그 사진들은 「기획 안 정함」으로 가요',4000);
+}
+function refPlanRename(id,v){
+  if(typeof ideaSetItem==='function')ideaSetItem(id,'name',v); else { var it=S.items[id]; if(it){ it.name=v; _refSaveSoon(); } }
+  var t=document.querySelectorAll('[data-plan-tab="'+id+'"] .rfp-cn'); for(var i=0;i<t.length;i++)t[i].textContent=v||'이름 없는 기획';
+}
+// 칸을 고치는 동안엔 통째로 다시 그리지 않는다(커서 튕김) — 합계·런칭월만 바꿈. 저장은 아이디어 보드와 같은 ideaSet(디바운스)
+function refPlanSet(id,k,v){
+  if(typeof ideaSet==='function')ideaSet(id,k,v); else { var it=S.items[id]; if(!it)return; it.ideaData=it.ideaData||{}; it.ideaData[k]=v; _refSaveSoon(); }
+  var f=document.querySelector('[data-plan-form="'+id+'"]'); if(!f)return;
+  var d=(S.items[id]&&S.items[id].ideaData)||{};
+  var t=f.querySelector('[data-plan-tot]'); if(t)t.textContent=num(_refPlanBudget(d))+'원';
+  var s=f.querySelector('[data-plan-sched]'); if(s)s.innerHTML=_refPlanSchedHTML(d);
+}
+function refPlanPromote(id){ if(typeof ideaPromote==='function')ideaPromote(id); renderReference(); }
+
+/* ── 카드마다 기획 고르기 · 별표 ── */
+function _refCardPlanSel(c){
+  var col=(c&&c.collectionId)?_refColFind(c.collectionId):null, pl=_refPlans(col); if(!pl.length)return '';
+  var on=!!(c.planId&&pl.indexOf(c.planId)>=0);
+  return '<select class="rf-selc rf-plsel'+(on?' set':'')+'" title="어느 기획 사진인지" onchange="refSetCardPlan(\''+c.id+'\',this.value)"><option value="">기획: 안 정함</option>'
+    +pl.map(function(id){ return '<option value="'+esc(id)+'"'+(c.planId===id?' selected':'')+'>기획: '+esc(_refPlanName(id))+'</option>'; }).join('')+'</select>';
+}
+function refSetCardPlan(id,v){
+  var c=_refFind(id); if(!c)return; c.planId=v||''; saveData();
+  var y=window.scrollY||0; renderReference(); try{window.scrollTo(0,y);}catch(e){}
+  var oc=window._refOpenCol, sel=(oc&&oc!=='__orphan')?_refPlanSelGet(oc):'all';
+  if(typeof showToast==='function')showToast(v?('「'+_refPlanName(v)+'」 기획에 넣었어요'+((sel!=='all'&&sel!==v)?' · 지금 보는 목록에선 빠져요':'')):'기획을 뺐어요 · 「기획 안 정함」으로 가요');
+}
+function refToggleStar(id){ var c=_refFind(id); if(!c)return; c.star=!c.star; saveData(); var y=window.scrollY||0; renderReference(); try{window.scrollTo(0,y);}catch(e){} }
+function refToggleStarOnly(){ window._refStarOnly=!window._refStarOnly; renderReference(); }
+function refPrintStars(){
+  var oc=window._refOpenCol, col=_refColFind(oc); if(!col)return;
+  var plans=_refPlans(col), sel=_refPlanSelGet(oc);
+  _refPrintCards(_refColCards(oc).filter(function(c){ return c&&c.star&&_refInPlan(c,sel,plans); }));
+}
+
+/* ── 모아보기 (작은 사진) ── */
+function _refGridOn(){ if(window._refGrid===undefined){ try{window._refGrid=!!lsGet('fpm_refGrid');}catch(e){window._refGrid=false;} } return !!window._refGrid; }
+function refSetGrid(){ window._refGrid=true; try{lsSet('fpm_refGrid',1);}catch(e){} renderReference(); }
+function _refThumbHtml(c,pos,plans){
+  var u=c.front||c.back, pn=(c.planId&&plans.indexOf(c.planId)>=0)?_refPlanName(c.planId):'';
+  return '<div class="rf-th" role="button" tabindex="0" onclick="refOpenThumb(\''+c.id+'\')" onkeydown="if(event.key===\'Enter\')refOpenThumb(\''+c.id+'\')">'
+    +'<div class="rf-th-ph">'+(u?'<img src="'+esc(u)+'" alt="" loading="lazy">':'<span>사진 없음</span>')+'</div>'
+    +'<span class="rf-th-n">'+((pos<10?'0':'')+pos)+'</span>'
+    +'<button type="button" class="rf-th-star'+(c.star?' on':'')+'" title="별표" onclick="event.stopPropagation();refToggleStar(\''+c.id+'\')">'+_refStarSvg()+'</button>'
+    +'<div class="rf-th-cap"><div class="rf-th-t'+(c.title?'':' none')+'">'+esc(c.title||'제목 없음')+'</div>'
+    +'<div class="rf-th-m">'+(pn?'<span class="rf-th-pl">'+esc(pn)+'</span>':(c.desc?'메모 있음':'&nbsp;'))+'</div></div></div>';
+}
+function refOpenThumb(id){
+  window._refGrid=false; try{lsSet('fpm_refGrid',0);}catch(e){} renderReference();
+  setTimeout(function(){ var el=document.querySelector('[data-ref-card="'+id+'"]'); if(!el)return;
+    try{ el.scrollIntoView({block:'start'}); }catch(e){ el.scrollIntoView(); }
+    el.classList.add('rf-flash'); setTimeout(function(){ el.classList.remove('rf-flash'); },1500); },30);
+}
+/* 폴더 안 보기 — 기획 거르기 → 별표 거르기 → 카드 / 작은 사진 */
+function _refInsideView(col,cards){
+  var plans=_refPlans(col), sel=_refPlanSelGet(col.id), starOnly=!!window._refStarOnly, grid=_refGridOn();
+  var posOf={}; cards.forEach(function(c,i){ posOf[c.id]=i+1; });
+  var shown=cards.filter(function(c){ return _refInPlan(c,sel,plans); });
+  var fbar='';
+  if(sel!=='all'){
+    fbar='<div class="rf-fbar"><span class="rf-fbar-pl">'+esc(sel==='__none'?'기획 안 정함':_refPlanName(sel))+'</span><span>사진 '+shown.length+'장만 보는 중</span>'
+      +'<button type="button" onclick="refPlanSel(\'all\')">전체 보기</button></div>';
+  }
+  var starN=shown.filter(function(c){ return c&&c.star; }).length;
+  if(starOnly)shown=shown.filter(function(c){ return c&&c.star; });
+  var starBtns='<button type="button" class="rf-staronly'+(starOnly?' on':'')+'" onclick="refToggleStarOnly()" title="별표한 카드만 보기">'+_refStarSvg()+'별표만 ('+starN+')</button>'
+    +((starOnly&&starN)?'<button type="button" class="rf-auto rf-printall" onclick="refPrintStars()">별표 '+starN+'개 인쇄</button>':'');
+  var body;
+  if(!shown.length){
+    body=fbar+'<div class="rf-empty">'+(starOnly?'여기엔 별표한 카드가 없어요. 카드나 작은 사진의 별표를 눌러 보세요'
+      :(sel==='all'?'이 폴더에 아직 레퍼런스가 없어요. 위에 사진을 여러 장 끌어다 놓거나 아래 버튼으로 추가하세요'
+      :(sel==='__none'?'기획을 안 고른 사진이 없어요':'이 기획에 넣은 사진이 아직 없어요. 「전체」에서 카드마다 「기획」 칸을 골라 주세요')))+'</div>';
+  }else if(grid){
+    body=fbar+'<div class="rf-thumbs">'+shown.map(function(c){ return _refThumbHtml(c,posOf[c.id],plans); }).join('')+'</div>';
+  }else{
+    body=fbar+'<div class="rf-cardgrid">'+shown.map(_refCardHtml).join('')+'</div>';
+  }
+  return {sel:sel,starBtns:starBtns,body:body};
+}
+
+/* ── 사진 여러 장 한 번에 → 장수만큼 카드 (한 장씩 / 두 장씩 앞·뒤) ── */
+function _refAddMode(){ if(window._refAddModeV===undefined){ var v=1; try{ v=(+lsGet('fpm_refAddMode')===2)?2:1; }catch(e){} window._refAddModeV=v; } return window._refAddModeV; }
+function refSetAddMode(m){ window._refAddModeV=(m===2?2:1); try{lsSet('fpm_refAddMode',window._refAddModeV);}catch(e){} renderReference(); }
+function _refBulkHTML(sel){
+  var m=_refAddMode(), toPlan=(sel&&sel!=='all'&&sel!=='__none');
+  return '<div class="rf-bulk" onclick="refBulkPick(event)">'
+    +'<div class="rf-bulk-main"><div class="rf-bulk-t">사진 여러 장 한 번에 넣기</div>'
+    +'<div class="rf-bulk-s">끌어다 놓거나 눌러서 고르면 장수만큼 카드가 생겨요'+(toPlan?' · 「'+esc(_refPlanName(sel))+'」 기획으로 들어가요':'')+'</div></div>'
+    +'<div class="rf-bulk-seg" onclick="event.stopPropagation()"><button type="button"'+(m===1?' class="on"':'')+' onclick="refSetAddMode(1)">한 장 = 카드 하나</button>'
+    +'<button type="button"'+(m===2?' class="on"':'')+' onclick="refSetAddMode(2)">두 장씩 = 앞·뒤</button></div>'
+  +'</div>';
+}
+function refBulkPick(e){
+  if(e&&e.target&&e.target.closest&&e.target.closest('.rf-bulk-seg'))return;
+  var inp=document.getElementById('ref-bulk-input');
+  if(!inp){ inp=document.createElement('input'); inp.type='file'; inp.id='ref-bulk-input'; inp.accept='image/*'; inp.multiple=true; inp.style.display='none';
+    inp.onchange=function(){ if(inp.files&&inp.files.length)refBulkAdd(inp.files); };
+    document.body.appendChild(inp); }
+  inp.value=''; inp.click();
+}
+// 카드를 먼저 다 만들어 보여 주고, 사진은 한 장씩 차례로 올려 채운다(올리는 방법은 refAddImage 와 같음).
+function refBulkAdd(files){
+  var arr=Array.prototype.slice.call(files||[]).filter(function(f){ return f&&/^image\//.test(f.type); });
+  if(!arr.length){ if(typeof showToast==='function')showToast('사진 파일만 넣을 수 있어요'); return; }
+  var oc=window._refOpenCol, cid=(oc&&oc!=='__orphan')?oc:'', col=cid?_refColFind(cid):null;
+  var sel=cid?_refPlanSelGet(cid):'all', pl=(sel!=='all'&&sel!=='__none')?sel:'';
+  var mode=_refAddMode(), today=(typeof todayISO==='function'?todayISO():'');
+  if(!Array.isArray(S.refCards))S.refCards=[];
+  var jobs=[], made=[];
+  for(var k=0;k<arr.length;k+=mode){
+    var id=(typeof uid==='function')?uid():('rf'+Date.now()+'_'+k);
+    var card={id:id,collectionId:cid,brandId:(col&&col.brandId)||'',category:(col&&col.category)||'',title:'',brand:'',front:'',back:'',desc:'',createdAt:today};
+    if(pl)card.planId=pl;
+    S.refCards.push(card); made.push(id);
+    jobs.push({id:id,side:'front',f:arr[k]});
+    if(mode===2&&arr[k+1])jobs.push({id:id,side:'back',f:arr[k+1]});
+  }
+  window._refStarOnly=false;
+  saveData(); renderReference();
+  var ov=(typeof tpShowUp==='function')?tpShowUp('사진 올리는 중 0/'+jobs.length):null;
+  var hasFb=!!window.fbStorage, done=0, fail=0, chain=Promise.resolve();
+  jobs.forEach(function(j){
+    chain=chain.then(function(){
+      return tpCompress(j.f,1600,0.86,false,hasFb).then(function(r){
+        return hasFb?tpUpload(r.blob,j.id,'ref_'+j.side,false):r.dataUrl;
+      }).then(function(url){ var c=_refFind(j.id); if(c&&url){ c[j.side]=url; _refSaveSoon(); } })
+      .catch(function(e){ fail++; console.error('ref bulk',e); })
+      .then(function(){ done++; if(ov)ov.textContent='사진 올리는 중 '+done+'/'+jobs.length; });
+    });
+  });
+  chain.then(function(){
+    if(typeof tpHideUp==='function')tpHideUp(ov);
+    saveData(); renderReference();
+    setTimeout(function(){ var el=document.querySelector('[data-ref-card="'+made[0]+'"]'); if(el){ try{el.scrollIntoView({block:'start'});}catch(e){} } },30);
+    if(typeof showToast==='function')showToast('사진 '+arr.length+'장 → 카드 '+made.length+'개'+(pl?' · 「'+_refPlanName(pl)+'」 기획으로':'')+(fail?' · '+fail+'장은 못 올렸어요(빈 칸에 다시 넣어 주세요)':''),4000);
+  });
+}
+
+/* ── 꼭 참고 (브랜드 화면 맨 위) — 샘플참고 「진행 시 꼭 참고」와 같은 목록 ── */
+function _refMustHTML(bid){
+  var rd=S.refData&&S.refData.brands&&S.refData.brands[bid], notes=(rd&&Array.isArray(rd.notes))?rd.notes:[];   // 그리기만 할 땐 빈 칸을 만들지 않음
+  var left=notes.filter(function(x){ return x&&!x.done; }).length;
+  return '<div class="rf-must"><div class="rf-must-h"><span class="rf-must-t">꼭 참고 · '+esc(_refBrandName(bid))+'</span><span class="rf-must-n">'+(notes.length?('남은 것 '+left+'개'):'')+'</span></div>'
+    +'<div class="rf-must-b">'
+    +(notes.length?notes.map(function(x,i){ return '<div class="rf-must-row'+(x&&x.done?' done':'')+'"><input type="checkbox"'+(x&&x.done?' checked':'')+' onchange="refMustToggle(\''+esc(bid)+'\','+i+')"><span>'+esc((x&&x.text)||'')+'</span>'
+      +'<button type="button" class="rf-must-x" title="지우기" onclick="refMustDel(\''+esc(bid)+'\','+i+')">&times;</button></div>'; }).join('')
+      :'<div class="rf-must-empty">이 브랜드 진행할 때 꼭 볼 것을 적어 두세요. 샘플참고 탭 「진행 시 꼭 참고」와 같은 목록이에요.</div>')
+    +'<form class="rf-must-add" onsubmit="event.preventDefault();refMustAdd(\''+esc(bid)+'\')"><input id="rf-must-in" placeholder="꼭 볼 것 추가 (예: 라벨 위치)"><button type="submit">추가</button></form>'
+    +'</div></div>';
+}
+function refMustAdd(bid){
+  var inp=document.getElementById('rf-must-in'); var t=((inp&&inp.value)||'').trim();
+  if(!t){ if(typeof showToast==='function')showToast('내용을 입력하세요'); return; }
+  _refGet('brand',bid).notes.push({text:t,done:false}); saveData(); renderReference();
+  setTimeout(function(){ var i=document.getElementById('rf-must-in'); if(i)i.focus(); },30);
+}
+function refMustToggle(bid,i){ var d=_refGet('brand',bid); if(d.notes[i]){ d.notes[i].done=!d.notes[i].done; saveData(); renderReference(); } }
+function refMustDel(bid,i){ var d=_refGet('brand',bid); if(d.notes[i]){ d.notes.splice(i,1); saveData(); renderReference(); } }
+
+/* ── 사진·이미지 저장 이름 — 제목 없으면 「폴더이름_번호」 (예전엔 전부 「레퍼런스」라 레퍼런스(3).png 처럼 쌓였음) ── */
+function _refBaseName(c,withBrand){
+  var t=String((c&&c.title)||'').trim(), s;
+  if(t) s=t+((withBrand&&c.brand)?'_'+c.brand:'');
+  else{
+    var col=(c&&c.collectionId)?_refColFind(c.collectionId):null;
+    if(col){ var p=_refColCards(col.id).indexOf(c)+1; s=(String(col.name||'').trim()||'레퍼런스')+(p>0?'_'+(p<10?'0':'')+p:''); }
+    else s='레퍼런스';
+  }
+  return s.replace(/[\\/:*?"<>|]/g,'_').trim()||'레퍼런스';
+}
+
+/* ── 위 기능들 모양 (#reference-body 안에서만) ── */
+function _refStyle2(){
+  var K='#0B0A05', P='#reference-body ';
+  var sc=function(r){ var i=r.indexOf('{'); return r.slice(0,i).split(',').map(function(x){ return P+x.trim(); }).join(',')+r.slice(i); };   // 쉼표로 묶인 선택자도 하나하나 가둠
+  return [
+    '.rfp{background:#fff;border:2.5px solid '+K+';box-shadow:4px 4px 0 '+K+';margin:0 2px 20px}',
+    '.rfp-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#E8F6EE;padding:9px 13px;cursor:pointer}',
+    '.rfp-h0{cursor:default}',
+    '.rfp-t{font-size:15px;font-weight:800;color:'+K+'}',
+    '.rfp-sum{flex:1 1 180px;min-width:0;font-size:12.5px;font-weight:700;color:#3a3528}',
+    '.rfp-tog{border:2px solid '+K+';background:#fff;color:'+K+';font:inherit;font-size:11.5px;font-weight:800;padding:5px 10px;cursor:pointer;white-space:nowrap;border-radius:0}',
+    '.rfp-tabs{display:flex;flex-wrap:wrap;gap:7px;padding:12px 14px 0;border-top:2.5px solid '+K+'}',
+    '.rfp-chip{border:2px solid '+K+';background:#fff;color:'+K+';font:inherit;font-weight:800;font-size:12.5px;padding:6px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;box-shadow:2px 2px 0 rgba(11,10,5,.15);max-width:100%;border-radius:0}',
+    '.rfp-chip:active{transform:translate(2px,2px);box-shadow:none}',
+    '.rfp-cn{overflow:hidden;text-overflow:ellipsis;max-width:200px}',
+    '.rfp-chip .n{font-size:11px;font-weight:700;color:#6b6555;font-variant-numeric:tabular-nums}',
+    '.rfp-chip.on{background:'+K+';color:#fff;box-shadow:none}',
+    '.rfp-chip.on .n{color:#A5E6BA}',
+    '.rfp-chip.muted{border-style:dashed;border-color:#6b6555;color:#3a3528;box-shadow:none}',
+    '.rfp-chip.muted.on{background:#3a3528;border-color:#3a3528;border-style:solid;color:#fff}',
+    '.rfp-chip.add{border-style:dashed;background:transparent;box-shadow:none}',
+    '.rfp-b{padding:13px 14px 15px}',
+    '.rfp-hint{font-size:12px;color:#6b6555;line-height:1.6}',
+    '.rfp-mute{color:#9a988f}',
+    '.rfp-name{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px}',
+    '.rfp-name label,.rfp-fld label{font-size:12px;font-weight:800;color:'+K+';white-space:nowrap}',
+    '.rfp-name input{flex:1 1 200px;min-width:0;height:34px;border:2px solid '+K+';background:#fff;padding:0 11px;font:inherit;font-size:14px;font-weight:800;color:'+K+';border-radius:0;-webkit-appearance:none;appearance:none}',
+    '.rfp-x{border:2px solid #c0392b;background:#fff;color:#c0392b;font:inherit;font-weight:800;font-size:12px;padding:6px 11px;cursor:pointer;white-space:nowrap;border-radius:0}',
+    '.rfp-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px 15px;margin-top:12px;padding-top:12px;border-top:2px solid #ece7da}',
+    '.rfp-fld{min-width:0}',
+    '.rfp-fld label{display:block;margin-bottom:5px}',
+    '.rfp-fld textarea,.rfp-fld input{width:100%;border:2px solid '+K+';background:#fff;font:inherit;font-size:13px;font-weight:500;padding:8px 11px;color:'+K+';border-radius:0;-webkit-appearance:none;appearance:none}',
+    '.rfp-fld textarea{resize:vertical;line-height:1.55;min-height:62px}',
+    '.rfp-fld input{height:36px}',
+    '.rfp-calc{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:14px}',
+    '.rfp-cbox{border:2px solid '+K+';background:#F5F1E8;padding:11px 12px 12px;min-width:0}',
+    '.rfp-ct{font-size:12.5px;font-weight:800;margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:'+K+'}',
+    '.rfp-ct span{font-size:11px;color:#6b6555;font-weight:700}',
+    '.rfp-g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}',
+    '.rfp-gl{display:block;font-size:10.5px;font-weight:800;color:#3a3528;margin-bottom:3px;white-space:nowrap}',
+    '.rfp-g4 input{width:100%;height:34px;border:2px solid '+K+';background:#fff;font:inherit;font-size:13px;font-weight:600;padding:0 7px;color:'+K+';border-radius:0;-webkit-appearance:none;appearance:none;font-variant-numeric:tabular-nums}',
+    '.rfp-g4 input[type=month]{padding:0 4px;font-size:12px}',
+    '.rfp-tot{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:8px;border-top:2px solid '+K+';font-weight:800;font-size:13.5px;color:'+K+'}',
+    '.rfp-tot b{white-space:nowrap;font-variant-numeric:tabular-nums}',
+    '.rfp-sched{margin-top:10px;padding-top:8px;border-top:2px solid '+K+';font-size:12px;color:#3a3528;line-height:1.8;font-variant-numeric:tabular-nums}',
+    '.rfp-goal{font-weight:800;color:'+K+';font-size:13px}',
+    '.rfp-goal b{background:#A5E6BA;border:1.5px solid '+K+';padding:0 6px}',
+    '.rfp-prom{margin-top:14px}',
+    '.rfp-pbtn{border:2px solid '+K+';background:#A5E6BA;color:'+K+';font:inherit;font-weight:800;font-size:12.5px;padding:8px 13px;cursor:pointer;box-shadow:2px 2px 0 rgba(11,10,5,.15);white-space:nowrap;border-radius:0}',
+    '.rfp-pbtn:active{transform:translate(2px,2px);box-shadow:none}',
+    '.rfp-cancel{border:2px solid '+K+';background:#fff;color:'+K+';font:inherit;font-weight:800;font-size:12.5px;padding:8px 13px;cursor:pointer;white-space:nowrap;border-radius:0}',
+    '.rfp-add{padding:12px 14px 0}',
+    '.rfp-add form{display:flex;gap:7px;flex-wrap:wrap}',
+    '.rfp-add input{flex:1 1 200px;min-width:0;height:36px;border:2px solid '+K+';background:#fff;padding:0 11px;font:inherit;font-size:13px;color:'+K+';border-radius:0;-webkit-appearance:none;appearance:none}',
+    '.rfp-link{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:8px;font-size:12px;font-weight:800;color:'+K+'}',
+    '.rfp-link select{flex:1 1 220px;min-width:0;height:34px;border:2px solid '+K+';background:#fff;font:inherit;font-size:12.5px;font-weight:700;padding:0 8px;color:'+K+';border-radius:0}',
+    '.rfp-add .rfp-hint{margin-top:6px}',
+    '.rfp-add+.rfp-b,.rfp-tabs+.rfp-b{padding-top:12px}',
+    '.rfp-ovw{display:flex;flex-direction:column;gap:8px}',
+    '.rfp-row{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(3,minmax(0,1fr));gap:4px 12px;align-items:center;text-align:left;border:2px solid '+K+';background:#fff;padding:10px 12px;cursor:pointer;font:inherit;font-size:12.5px;color:#3a3528;font-variant-numeric:tabular-nums;box-shadow:2px 2px 0 rgba(11,10,5,.12);border-radius:0;width:100%}',
+    '.rfp-row b{font-size:14px;color:'+K+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.rfp-row span{white-space:nowrap}',
+    '.rfp-row.muted{border-style:dashed;box-shadow:none;background:transparent}',
+    '.rfp-row:active{transform:translate(2px,2px);box-shadow:none}',
+    '.rf-bulk{border:2.5px dashed '+K+';background:rgba(255,255,255,.55);padding:13px 14px;margin:0 2px 18px;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;cursor:pointer}',
+    '.rf-bulk.over{background:#E8F6EE;border-style:solid}',
+    '.rf-bulk-main{flex:1 1 240px;min-width:0}',
+    '.rf-bulk-t{font-size:14px;font-weight:800;color:'+K+'}',
+    '.rf-bulk-s{font-size:12px;color:#6b6555;margin-top:2px}',
+    '.rf-bulk-seg{display:inline-flex;border:2px solid '+K+';background:#fff;flex:0 0 auto}',
+    '.rf-bulk-seg button{border:none;background:#fff;color:'+K+';font:inherit;font-weight:800;font-size:11.5px;padding:7px 11px;cursor:pointer;white-space:nowrap;border-radius:0}',
+    '.rf-bulk-seg button+button{border-left:2px solid '+K+'}',
+    '.rf-bulk-seg button.on{background:'+K+';color:#fff}',
+    '.rf-fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 2px 14px;font-size:13px;font-weight:800;color:'+K+'}',
+    '.rf-fbar-pl{background:#A5E6BA;border:1.5px solid '+K+';padding:2px 9px}',
+    '.rf-fbar button{border:2px solid '+K+';background:#fff;color:'+K+';font:inherit;font-weight:800;font-size:12px;padding:5px 10px;cursor:pointer;border-radius:0}',
+    '.rf-selc.rf-plsel{border:2px solid '+K+';background:#E8F6EE}',
+    '.rf-selc.rf-plsel.set{background:#A5E6BA}',
+    '.rf-px{width:12px;height:12px;display:inline-block;shape-rendering:crispEdges;flex:0 0 auto;vertical-align:-1px}',
+    '.rf-px path{fill:'+K+'}',
+    '.rf-actions .rf-star{display:inline-flex;align-items:center;gap:5px}',
+    '.rf-actions .rf-star.on{background:#A5E6BA}',
+    '.rf-staronly{border:2px solid '+K+';background:#fff;color:'+K+';font:inherit;font-weight:800;font-size:12px;padding:8px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;box-shadow:2px 2px 0 rgba(11,10,5,.15);border-radius:0}',
+    '.rf-staronly.on{background:#A5E6BA}',
+    '.rf-card.rf-flash .rf-sheet{box-shadow:0 0 0 4px #A5E6BA,4px 4px 0 rgba(11,10,5,.16)}',
+    '.rf-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:12px;margin:0 2px 8px}',
+    '.rf-th{border:2px solid '+K+';background:#fff;box-shadow:2px 2px 0 rgba(11,10,5,.15);cursor:pointer;min-width:0;position:relative;display:flex;flex-direction:column}',
+    '.rf-th:active{transform:translate(2px,2px);box-shadow:none}',
+    '.rf-th-ph{aspect-ratio:3/4;border-bottom:2px solid '+K+';overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center;color:#b3ab98;font-size:11px;font-weight:700}',
+    '.rf-th-ph img{width:100%;height:100%;object-fit:contain;display:block}',
+    '.rf-th-n{position:absolute;top:5px;left:5px;background:#fff;border:1.5px solid '+K+';font-size:10.5px;font-weight:800;padding:0 5px;line-height:1.6;color:'+K+';font-variant-numeric:tabular-nums}',
+    '.rf-th-star{position:absolute;top:3px;right:3px;width:34px;height:34px;border:2px solid '+K+';background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;border-radius:0}',
+    '.rf-th-star .rf-px path{fill:#b3ab98}',
+    '.rf-th-star.on{background:#A5E6BA}',
+    '.rf-th-star.on .rf-px path{fill:'+K+'}',
+    '.rf-th-cap{padding:6px 8px 7px;min-width:0}',
+    '.rf-th-t{font-size:12px;font-weight:800;color:'+K+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.rf-th-t.none{color:#b3ab98;font-weight:700}',
+    '.rf-th-m{font-size:10.5px;color:#6b6555;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.rf-th-pl{background:#A5E6BA;border:1px solid '+K+';padding:0 5px;font-size:10px;font-weight:800;color:'+K+'}',
+    '.rf-fplan{background:#E8F6EE;border:1.5px solid '+K+';font-weight:700;padding:1px 7px;color:'+K+'}',
+    '.rf-must{background:#fff;border:2.5px solid '+K+';box-shadow:4px 4px 0 '+K+';margin:0 2px 20px;max-width:760px}',
+    '.rf-must-h{display:flex;align-items:center;gap:10px;background:#E8F6EE;border-bottom:2.5px solid '+K+';padding:9px 13px}',
+    '.rf-must-t{font-size:15px;font-weight:800;color:'+K+'}',
+    '.rf-must-n{font-size:12px;font-weight:700;color:#6b6555}',
+    '.rf-must-b{padding:6px 13px 13px}',
+    '.rf-must-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1.5px solid #ece7da}',
+    '.rf-must-row span{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:'+K+'}',
+    '.rf-must-row.done span{text-decoration:line-through;color:#9a988f}',
+    '.rf-must-x{border:none;background:none;font-size:18px;line-height:1;cursor:pointer;color:#9a988f;width:36px;height:36px;flex:0 0 auto}',
+    '.rf-must-empty{font-size:12.5px;color:#6b6555;padding:8px 0 2px}',
+    '.rf-must-add{display:flex;gap:7px;margin-top:10px}',
+    '.rf-must-add input{flex:1;min-width:0;height:36px;border:2px solid '+K+';background:#fff;padding:0 11px;font:inherit;font-size:13px;color:'+K+';border-radius:0;-webkit-appearance:none;appearance:none}',
+    '.rf-must-add button{border:2px solid '+K+';background:#A5E6BA;color:'+K+';font:inherit;font-weight:800;font-size:12.5px;padding:0 14px;cursor:pointer;border-radius:0;white-space:nowrap}'
+  ].map(sc).join('')
+  +'@media(max-width:760px){'+[
+    '.rfp-grid,.rfp-calc{grid-template-columns:1fr}',
+    '.rfp-g4{grid-template-columns:repeat(2,minmax(0,1fr))}',
+    '.rfp-row{grid-template-columns:repeat(3,minmax(0,1fr))}',
+    '.rfp-row b{grid-column:1/-1}',
+    '.rf-thumbs{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}',
+    '.rf-th-star{width:30px;height:30px}'
+  ].map(sc).join('')+'}';
 }
 function _refStyle(){
   if(document.getElementById('reference-style'))return;
@@ -12786,7 +13227,8 @@ function _refStyle(){
     +'#reference-body .rfc-del{border:2px solid #c0392b;background:#fff;color:#c0392b;font-weight:800;font-size:12px;padding:8px 12px;cursor:pointer;border-radius:0;font-family:inherit;white-space:nowrap;flex-shrink:0}'
     +'#reference-body .rf-move{max-width:none}'
     +'#reference-body .rf-cardadd{max-width:1040px;margin:6px auto 0;border:2.5px dashed var(--ink,#0B0A05);border-radius:0;padding:16px;text-align:center;font-weight:800;font-size:14px;cursor:pointer;background:rgba(255,255,255,.5);color:var(--ink,#0B0A05)}'
-    +'#reference-body .rf-cardadd:hover{background:#faf8f2}';
+    +'#reference-body .rf-cardadd:hover{background:#faf8f2}'
+    +_refStyle2();   // 기획·여러 장·모아보기·별표·꼭 참고 (11-02i)
   document.head.appendChild(st);
 }
 
