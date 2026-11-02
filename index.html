@@ -5126,7 +5126,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-02b';
+var APP_BUILD=/*BUILD*/'2026-11-02c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -8711,6 +8711,10 @@ function _thrPos(no){ if(!_thrBookPos){ _thrBookPos={}; THR_BOOK.forEach(functio
 function _thrNo(v){ var m=String(v==null?'':v).match(/\d{3,6}/); return m?m[0]:''; }
 function _thrList(){ if(!Array.isArray(S.embThreads))S.embThreads=[]; return S.embThreads; }
 function _thrFind(v){ var n=_thrNo(v); if(!n)return null; var a=_thrList(), hit=null; for(var i=0;i<a.length;i++){ var e=a[i]; if(e&&e.kind!=='sg'&&_thrNo(e.no)===n){ if(e.img)return e; hit=hit||e; } } return hit; }
+/* 11-02c 북 사진 내장 — 사용자가 보낸 실 북 사진 20장에서 잘라 넣은 img/thread/<번호>.jpg (북 414색 · 동기화 안 탐).
+   직접 넣은 사진(e.img)이 먼저, 없으면 북 사진. 북에 없는 번호는 예전처럼 직접 넣어야 함 */
+function _thrBookImg(no){ var n=_thrNo(no); return (n&&_thrPos(n))?('img/thread/'+n+'.jpg'):''; }
+function _thrImgOf(no,e){ return (e&&e.img)||_thrBookImg(no); }
 function _thrNewId(){ return 'thr'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function _thrUpsert(no){ var e=_thrFind(no); if(e)return e; e={id:_thrNewId(),no:String(no||''),name:'',img:'',createdAt:Date.now(),updatedAt:Date.now()}; _thrList().push(e); return e; }
 /* 번호별로 쓴 아이템 (자수 시트 컬러웨이 실컬러 칸) */
@@ -8719,11 +8723,11 @@ function _thrUsage(){ var m={}; Object.keys(S.items||{}).forEach(function(id){ v
     Object.keys(c).forEach(function(cc){ var n=_thrNo(c[cc]); if(!n)return; m[n]=m[n]||[]; var nm=it.name||id; if(m[n].indexOf(nm)<0)m[n].push(nm); }); }); });
   return m; }
 function _thrCard(no,e,use){
-  var pos=no?_thrPos(no):null, img=e&&e.img, u=(no&&use[no])||[], nm=no?_thrName(no,e):((e&&e.name)||''), key=(no+' '+nm).toLowerCase();
+  var pos=no?_thrPos(no):null, own=!!(e&&e.img), img=_thrImgOf(no,e), u=(no&&use[no])||[], nm=no?_thrName(no,e):((e&&e.name)||''), key=(no+' '+nm).toLowerCase();
   var ref=e?('\''+e.id+'\''):'null';
   return '<div class="thr-c'+(img?'':' thr-none')+'" data-k="'+esc(key)+'">'
     +'<div class="thr-ph" onclick="thrPick('+(no?'\''+esc(no)+'\'':'null')+','+ref+')" ondragover="thrDragOver(event,this)" ondragleave="this.classList.remove(\'drag\')" ondrop="thrDrop(event,this,'+(no?'\''+esc(no)+'\'':'null')+','+ref+')" title="'+(img?'사진 바꾸기 (끌어다 놓아도 돼요)':'사진 넣기 (끌어다 놓아도 돼요)')+'">'
-      +(img?'<img loading="lazy" src="'+esc(img)+'" alt=""><button type="button" class="thr-x" onclick="event.stopPropagation();thrDelPhoto('+ref+')" aria-label="사진 빼기">×</button>':'<span>＋ 사진</span>')
+      +(img?'<img loading="lazy" src="'+esc(img)+'" alt="">'+(own?'<button type="button" class="thr-x" onclick="event.stopPropagation();thrDelPhoto('+ref+')" title="'+(pos?'북 사진으로 되돌리기':'사진 빼기')+'" aria-label="'+(pos?'북 사진으로 되돌리기':'사진 빼기')+'">×</button>':''):'<span>＋ 사진</span>')
       +((window._thrUping&&window._thrUping[(e&&e.id)||no])?'<i class="thr-up">올리는 중…</i>':'')+'</div>'
     +'<div class="thr-m">'+(no?'<b>'+esc(no)+'</b>':'<input class="thr-no" inputmode="numeric" placeholder="번호" onchange="thrSetNo('+ref+',this.value)">')
       +'<input class="thr-nm" value="'+esc(nm)+'" placeholder="이름" onchange="thrSetName('+(no?'\''+esc(no)+'\'':'null')+','+ref+',this.value)"></div>'
@@ -8735,7 +8739,7 @@ function renderThreadTab(){
   var a=_thrList(), use=_thrUsage(), view=window._thrView||'book', byNo={}, extra=[], blank=[], H='';
   a.forEach(function(e){ if(!e||e.kind==='sg')return; var n=_thrNo(e.no); if(!n){ blank.push(e); return; } if(!byNo[n]||(!byNo[n].img&&e.img))byNo[n]=e; if(!_thrPos(n)&&extra.indexOf(n)<0)extra.push(n); });
   var nPh=Object.keys(byNo).filter(function(n){ return byNo[n].img; }).length;
-  H+='<div class="thr" ondragover="thrDragOver(event,null)" ondragleave="if(event.target===this)this.classList.remove(\'drag\')" ondrop="thrDrop(event,null,null,null)"><div class="thr-top"><h2>자수실</h2><span>북 '+THR_BOOK.reduce(function(s,c){return s+c.length;},0)+'색 · 사진 '+nPh+'개 · 번호만 적으면 작지 자수 탭에 사진이 불러와져요 · 사진은 카드에 끌어다 놓아도 돼요</span></div>'
+  H+='<div class="thr" ondragover="thrDragOver(event,null)" ondragleave="if(event.target===this)this.classList.remove(\'drag\')" ondrop="thrDrop(event,null,null,null)"><div class="thr-top"><h2>자수실</h2><span>북 '+THR_BOOK.reduce(function(s,c){return s+c.length;},0)+'색 · 북 사진 들어 있음'+(nPh?' · 직접 넣은 사진 '+nPh+'개':'')+' · 번호만 적으면 작지 자수 탭에 사진이 불러와져요 · 사진은 카드에 끌어다 놓아도 돼요</span></div>'
     +'<div class="thr-bar"><input class="thr-q" id="thr-q" value="'+esc(window._thrQ||'')+'" placeholder="번호나 이름으로 찾기" autocomplete="off" oninput="thrFilter(this.value)">'
     +'<span class="thr-seg"><button type="button" class="'+(view==='book'?'on':'')+'" onclick="thrSetView(\'book\')">북 순서</button><button type="button" class="'+(view==='num'?'on':'')+'" onclick="thrSetView(\'num\')">번호 순서</button></span>'
     +'<button type="button" class="thr-btn" onclick="thrPick(null,null)">＋ 북에 없는 실</button></div>';
@@ -8762,7 +8766,8 @@ function thrSetNo(id,v){ var e=_thrById(id), n=_thrNo(v); if(!e)return; if(!n){ 
   if(other&&other!==e){ if(!e.name)e.name=other.name||''; _arrDelWhere('embThreads',function(x){ return x===other; }); }
   e.no=n; e.updatedAt=Date.now(); try{saveData();}catch(x){} renderThreadTab(); }
 function thrDelPhoto(id){ var e=_thrById(id); if(!e)return;
-  if(!confirm((e.no||'이')+' 실 사진을 뺄까요?\n이 번호를 쓴 작지에서도 목록 사진이 안 보여요 (작지에 직접 넣은 사진은 그대로).'))return;
+  var _bk=_thrBookImg(e.no);
+  if(!confirm(_bk?(e.no+' 사진을 북 사진으로 되돌릴까요?\n이 번호를 쓴 작지에도 같이 반영돼요 (작지에 직접 넣은 사진은 그대로).'):((e.no||'이')+' 실 사진을 뺄까요?\n이 번호를 쓴 작지에서도 목록 사진이 안 보여요 (작지에 직접 넣은 사진은 그대로).')))return;
   if(e.name&&_thrNo(e.no)){ e.img=''; e.updatedAt=Date.now(); } else _arrDelWhere('embThreads',function(x){ return x&&x.id===id; });
   try{saveData();}catch(x){} renderThreadTab(); }
 /* 사진 올리기 — 작지 사진과 같은 길: 로그인돼 있으면 Storage(20초 제한), 안 되면 이 기기에 저장 → 나중에 자동으로 다시 올림 */
@@ -8816,7 +8821,7 @@ function thrDrop(ev,el,no,id){
 function tpEmbThrSet(el){ var v=el.value, n=_thrNo(v), e=n?_thrFind(n):null, nm=n?_thrName(n,e):'';
   if(nm&&/^\s*#?\d{3,6}\s*$/.test(v)){ v=n+' '+nm; el.value=v; }
   tpSet(el.dataset.tp,v);
-  if(n){ if(e&&e.img)showToast(n+(nm?' '+nm:'')+' — 자수실 사진을 불러왔어요'); else showToast(n+'번은 자수실에 사진이 없어요 — 왼쪽 「자수실」에 넣어 두면 불러와요',3200); }
+  if(n){ if(_thrImgOf(n,e))showToast(n+(nm?' '+nm:'')+' — 자수실 사진을 불러왔어요'); else showToast(n+'번은 자수실에 사진이 없어요 — 왼쪽 「자수실」에 넣어 두면 불러와요',3200); }
   try{_tpRenderSafe();}catch(x){} }
 /* 작지 자수 스와치에 직접 사진을 넣으면, 그 컬러 실 번호가 자수실에 사진이 없을 때 목록에도 저장 */
 function _thrLearnFromSlot(slot,url){
@@ -8824,6 +8829,7 @@ function _thrLearnFromSlot(slot,url){
   var it=(typeof tpItem==='function')?tpItem():null; if(!it)return; var c=null;
   (it.colors||[]).forEach(function(x){ if((''+x).replace(/[^0-9a-zA-Z가-힣]/g,'_')===m[2])c=x; }); if(c==null)return;
   var v=String(tpGet(m[1]+'.color.'+c,'')||''), n=_thrNo(v); if(!n)return;
+  if(_thrBookImg(n))return;   /* 11-02c 북 번호는 북 사진이 있으니 작지 견본 사진으로 안 덮음 */
   var e=_thrFind(n); if(e&&e.img)return;
   e=_thrUpsert(n); e.img=url; if(!e.name)e.name=v.replace(n,'').replace(/[#\s]+/g,' ').trim(); e.updatedAt=Date.now();
   try{saveData();}catch(x){} showToast(n+' 실 사진을 자수실에도 저장했어요'); }
@@ -38894,11 +38900,16 @@ function scPrint(){
   var wrap=document.getElementById('sc-a4wrap');
   if(!wrap){ showToast('인쇄할 확인서가 없어요'); return; }
   _scPrintChain(true);
+  /* 11-02 작지를 가로로 본 뒤엔 tp-page-rule 이 「A4 landscape」로 남아 확인서가 가로 종이에 줄어 2장으로 나왔다 (신고 「세로인데 이렇게 나와」).
+     인쇄하는 동안만 처음 값(세로·3mm)으로 덮고 끝나면 되돌린다 — 주소 라벨 시트와 같은 방식 */
+  var _tpr=document.getElementById('tp-page-rule'), _tprSave=_tpr?_tpr.textContent:null;
+  if(_tpr)_tpr.textContent='@page{size:A4 portrait;margin:3mm;}';
   document.body.classList.add('sc-printing');
   scFit();                                  /* sc-printing 이면 화면축소를 끄고 원본 A4 로 */
   var done=false;
   var clean=function(){
     if(done)return; done=true;
+    if(_tpr&&_tprSave!=null)_tpr.textContent=_tprSave;
     document.body.classList.remove('sc-printing');
     _scPrintChain(false);
     window.removeEventListener('afterprint',clean);
@@ -44941,7 +44952,7 @@ function tpDesignSwatchHTML(qb,key,cfg){
     var slot=key+'Sw_'+(''+c).replace(/[^0-9a-zA-Z가-힣]/g,'_');
     var u=tpGet('images.'+slot,''), _lib='';
     /* 10-15b 자수: 직접 넣은 사진이 없으면 자수실 목록에서 그 번호 사진을 보여만 준다(작지엔 저장 안 함) */
-    if(!u&&/^emb\d*$/.test(key)&&typeof _thrFind==='function'){ var _te=_thrFind(_map[c]); if(_te&&_te.img){ u=_te.img; _lib=1; } }
+    if(!u&&/^emb\d*$/.test(key)&&typeof _thrFind==='function'){ var _tu=_thrImgOf(_map[c],_thrFind(_map[c])); if(_tu){ u=_tu; _lib=1; } }
     return '<td class="tp-swtd"><div class="tp-swsplit"><div class="tp-swbox body dsg" onclick="tpPickImage(\''+slot+'\')"'+(_lib?' title="자수실 목록 사진 · 누르면 이 작지에만 다른 사진 넣기"':'')+'>'   /* dsg=디자인시트(자수·나염·워싱) 견본 → 비율 유지(안 퍼짐). 원단 스와치는 기존대로 꽉 채움 */
       +(u?('<img src="'+tpEsc(u)+'">'+(_lib?'<span class="tp-thrlib tp-editonly">자수실</span>':'<button class="izdel" onclick="event.stopPropagation();tpDelImage(\''+slot+'\')">×</button>')+tpUpBadge(slot)):'<span class="tp-swadd">＋</span>')
       +'</div></div></td>';
