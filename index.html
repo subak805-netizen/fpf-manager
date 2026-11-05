@@ -5126,7 +5126,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-05a';
+var APP_BUILD=/*BUILD*/'2026-11-06a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5401,6 +5401,86 @@ function _fpfToBlob(d,mime){
   return new Blob([s],{type:mime||'text/plain'});
 }
 function _fpfIsIOS(){ try{ var ua=navigator.userAgent||''; return /iPhone|iPad|iPod/.test(ua)||(navigator.platform==='MacIntel'&&(navigator.maxTouchPoints||0)>1); }catch(e){ return false; } }
+/* ===== 아이폰·아이패드: 기본 추천 목록(datalist) 대신 앱이 그린 목록 (2026-11-06) =====
+   신고: 아이패드에서 원단처 등에 「ㅂ」 한 글자 치면 오류 안내가 뜨고 입력이 안 됨.
+   아이패드 사파리는 datalist 목록을 띄우면서 한글 조합 중인 글자를 끊고 change 를 보내
+   («"ㅂ" 단가장에 없는 새 거래처» 안내 + 자동 채움이 한 글자 상태로 돈다).
+   → iOS 에서만 input 의 list 속성을 data-isl 로 옮기고, 같은 datalist 내용을 칸 밑 목록으로 보여준다.
+   ⚠️ 칸 글자는 치는 동안 절대 안 건드림. 고를 때만: 값 넣기 → input 이벤트 → blur(→ 원래 onchange 한 번). */
+(function(){
+  if(!_fpfIsIOS())return;
+  var box=null, cur=null, hideT=null;
+  function strip(el){ if(el&&el.tagName==='INPUT'&&el.hasAttribute('list')){ el.setAttribute('data-isl',el.getAttribute('list')); el.removeAttribute('list'); } }
+  function stripAll(root){ try{ if(root.nodeType!==1)return; strip(root); if(root.querySelectorAll)Array.prototype.forEach.call(root.querySelectorAll('input[list]'),strip); }catch(e){} }
+  function ensureBox(){
+    if(box)return box;
+    var st=document.createElement('style');
+    st.textContent='#isl-box{position:fixed;z-index:2147483000;background:#fff;border:2px solid #0B0A05;border-radius:4px;box-shadow:3px 3px 0 rgba(0,0,0,.18);max-height:260px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none}'
+      +'#isl-box .isl-r{display:block;width:100%;text-align:left;padding:11px 12px;min-height:44px;border:0;border-bottom:1px solid #e6e2d6;background:#fff;font-size:15px;color:#0B0A05;font-family:inherit}'
+      +'#isl-box .isl-r:last-child{border-bottom:0}#isl-box .isl-r:active{background:#EAF5FB}#isl-box .isl-r small{color:#888;margin-left:6px;font-size:12px}';
+    document.head.appendChild(st);
+    box=document.createElement('div'); box.id='isl-box';
+    /* 누르는 순간 칸에서 포커스가 빠지지 않게 */
+    box.addEventListener('pointerdown',function(e){ e.preventDefault(); });
+    box.addEventListener('mousedown',function(e){ e.preventDefault(); });
+    box.addEventListener('click',function(e){ var b=e.target.closest&&e.target.closest('.isl-r'); if(b&&cur)pick(cur,b.getAttribute('data-v')); });
+    document.body.appendChild(box);
+    return box;
+  }
+  function opts(el){
+    var dl=document.getElementById(el.getAttribute('data-isl')||''); if(!dl)return [];
+    var out=[],seen={};
+    Array.prototype.forEach.call(dl.querySelectorAll('option'),function(o){ var v=o.value!=null&&o.value!==''?o.value:(o.textContent||''); if(!v||seen[v])return; seen[v]=1; out.push({v:v,l:(o.label&&o.label!==v)?o.label:''}); });
+    return out;
+  }
+  function place(el){
+    if(!box||!el)return;
+    var r=el.getBoundingClientRect(); var vv=window.visualViewport; var vh=vv?vv.height:window.innerHeight;
+    var below=vh-r.bottom, above=r.top;
+    box.style.left=Math.max(4,r.left)+'px'; box.style.width=Math.max(180,r.width)+'px';
+    if(below<180&&above>below){ box.style.top=''; box.style.bottom=(window.innerHeight-r.top+2)+'px'; box.style.maxHeight=Math.min(260,above-10)+'px'; }
+    else{ box.style.bottom=''; box.style.top=(r.bottom+2)+'px'; box.style.maxHeight=Math.max(120,Math.min(260,below-10))+'px'; }
+  }
+  function show(el){
+    if(!el||document.activeElement!==el){ hide(); return; }
+    cur=el; ensureBox(); clearTimeout(hideT);
+    var q=String(el.value||'').trim().toLowerCase(), qs=q.replace(/\s+/g,'');
+    var list=opts(el).filter(function(o){ if(!q)return true; var s=(o.v+' '+o.l).toLowerCase(); return s.indexOf(q)>=0||s.replace(/\s+/g,'').indexOf(qs)>=0; });
+    /* 이미 정확히 같은 값 하나만 남으면 굳이 안 보임 */
+    if(!list.length||(list.length===1&&list[0].v===el.value)){ box.style.display='none'; return; }
+    box.innerHTML=list.slice(0,60).map(function(o){ return '<button type="button" class="isl-r" data-v="'+esc(o.v)+'">'+esc(o.v)+(o.l?'<small>'+esc(o.l)+'</small>':'')+'</button>'; }).join('');
+    box.style.display='block'; box.scrollTop=0; box._hi=-1; place(el);
+  }
+  function hide(){ if(box){ box.style.display='none'; box._hi=-1; } cur=null; }
+  function hl(n){ var rs=box.querySelectorAll('.isl-r'); if(!rs.length)return; n=Math.max(0,Math.min(rs.length-1,n)); box._hi=n; Array.prototype.forEach.call(rs,function(b,i){ b.style.background=(i===n)?'#EAF5FB':''; }); try{ rs[n].scrollIntoView({block:'nearest'}); }catch(e){} }
+  function pick(el,v){
+    hide();
+    el.value=v;
+    try{ el.dispatchEvent(new Event('input',{bubbles:true})); }catch(e){}
+    var fired=false; var onc=function(){ fired=true; }; el.addEventListener('change',onc,{once:true});
+    try{ el.blur(); }catch(e){}
+    setTimeout(function(){ el.removeEventListener('change',onc); if(!fired){ try{ el.dispatchEvent(new Event('change',{bubbles:true})); }catch(e){} } },0);
+  }
+  function isIsl(t){ return t&&t.tagName==='INPUT'&&(t.hasAttribute('data-isl')||t.hasAttribute('list')); }
+  document.addEventListener('touchstart',function(e){ strip(e.target); },{capture:true,passive:true});
+  document.addEventListener('focusin',function(e){ var t=e.target; if(!isIsl(t))return; strip(t); setTimeout(function(){ show(t); },0); },true);
+  document.addEventListener('input',function(e){ var t=e.target; if(!isIsl(t))return; setTimeout(function(){ show(t); },0); });
+  /* 외장 키보드: ↑↓ 고르기 · Enter 넣기(골랐을 때만) · Esc 닫기 — 한글 조합 중 키는 건드리지 않음 */
+  document.addEventListener('keydown',function(e){
+    if(!cur||e.target!==cur||!box||box.style.display==='none'||e.isComposing||e.keyCode===229)return;
+    if(e.key==='ArrowDown'){ e.preventDefault(); hl((box._hi==null||box._hi<0)?0:box._hi+1); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); hl((box._hi||0)-1); }
+    else if(e.key==='Enter'&&box._hi>=0){ var rs=box.querySelectorAll('.isl-r'); if(rs[box._hi]){ e.preventDefault(); pick(cur,rs[box._hi].getAttribute('data-v')); } }
+    else if(e.key==='Escape'){ hide(); }
+  },true);
+  document.addEventListener('focusout',function(e){ if(e.target!==cur)return; clearTimeout(hideT); hideT=setTimeout(hide,200); },true);
+  window.addEventListener('scroll',function(){ if(cur&&box&&box.style.display!=='none')place(cur); },true);
+  try{ if(window.visualViewport)window.visualViewport.addEventListener('resize',function(){ if(cur)place(cur); }); }catch(e){}
+  try{ new MutationObserver(function(ms){ ms.forEach(function(m){ if(m.type==='attributes')strip(m.target); else Array.prototype.forEach.call(m.addedNodes||[],stripAll); }); })
+        .observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['list']}); }catch(e){}
+  var init=function(){ stripAll(document.body||document.documentElement); };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init); else init();
+})();
 function _fpfDownload(blob,filename){
   /* 아이폰·아이패드(특히 홈화면 앱)는 a.download 가 «조용히 아무것도 안 한다»(신고 2026-09-07 「이미지 다운로드가 왜 안 돼」).
      → 이미지는 크게 띄워 «길게 눌러 사진에 저장», 그 외 파일(JSON·CSV)은 공유 시트로 «파일에 저장». 실패하면 새 탭으로 연다. */
@@ -7512,7 +7592,7 @@ function buildFabDB(){
   return db;
 }
 // 단가장에 없는 새 거래처 입력 시 1회 경고(오타로 거래처가 쪼개지는 것 방지)
-function _pbWarnNewSupplier(sup){ if(!sup)return; if(S.priceBook&&S.priceBook[sup])return; if(window._pbWarnedSup===sup)return; window._pbWarnedSup=sup; if(typeof showToast==='function')showToast('"'+sup+'" — 단가장에 없는 새 거래처예요. 오타면 목록에서 골라주세요',4500); }
+function _pbWarnNewSupplier(sup){ if(!sup)return; if(/[\u3131-\u318E]$/.test(sup))return; /* 11-06 한글 조합 중(끝이 낱자 ㅂ·ㅏ)이면 안내 안 띄움 */ if(S.priceBook&&S.priceBook[sup])return; if(window._pbWarnedSup===sup)return; window._pbWarnedSup=sup; if(typeof showToast==='function')showToast('"'+sup+'" — 단가장에 없는 새 거래처예요. 오타면 목록에서 골라주세요',4500); }
 // 무게 자동채움 — 빈 칸에만. 직접 적어둔 값은 절대 안 덮음
 function _wgFill(r,src,flash){ if(!r||!src)return;
   [['weightGsm',src.weightGsm],['weightOz',src.weightOz]].forEach(function(p){
