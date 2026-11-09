@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261109a">
+<link rel="stylesheet" href="css/main.css?v=20261109b">
 <link rel="stylesheet" href="css/dosik2.css?v=20261023g">
 </head>
 <body>
@@ -5126,7 +5126,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-09a';
+var APP_BUILD=/*BUILD*/'2026-11-09b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -27633,35 +27633,88 @@ function _pdbUnits(rows){
 }
 /* 노란 띠: 진행 중 같은 품번이 2건 이상인데 아직 한 묶음이 아닌 것 */
 function _pdbSuggestHtml(rows){
-  var no=_pdbNoList(),by={},order=[];
+  var no=_pdbNoList(),by={},order=[],P=window._pdbPick,pickHtml='';
   rows.forEach(function(r){if(!by[r.it.id]){by[r.it.id]=[];order.push(r.it.id);}by[r.it.id].push(r);});
   var chips=order.map(function(iid){
     var g=by[iid];if(g.length<2)return '';
     var b0=g[0].oi&&g[0].oi.bundle;if(b0&&g.every(function(r){return r.oi&&r.oi.bundle===b0;}))return '';
     var oids=g.map(function(r){return r.o.id;});
     if(no.indexOf(_pdbSigOf(iid,oids))>=0)return '';
-    var it=g[0].it,hasB=g.some(function(r){return r.oi&&r.oi.bundle;});
+    var it=g[0].it,hasB=g.some(function(r){return r.oi&&r.oi.bundle;}),isOpen=!!(P&&P.iid===iid);
+    if(isOpen)pickHtml=_pdbPickHtml(it,g);
     var at=' data-iid="'+esc(iid)+'" data-oids="'+esc(oids.join(','))+'"';
     return '<span class="pdb-sg-chip"><b>'+esc(it.name||'')+'</b>'+(it.code?'<span class="n">'+esc(it.code)+'</span>':'')+'<span class="n">'+g.length+'건</span>'
-      +'<button type="button" class="go"'+at+' onclick="pdBundleMake(this)">'+(hasB?'묶음에 넣기':'묶기')+'</button>'
+      +'<button type="button" class="go'+(isOpen?' on':'')+'"'+at+' onclick="pdBundlePick(this)">'+(hasB?'묶음에 넣기':'묶기')+'</button>'
       +'<button type="button" class="x"'+at+' onclick="pdBundleNo(this)" title="이 제안 안 보기 (이 기기)">숨기기</button></span>';
   }).join('');
   if(!chips)return '';
-  return '<div class="pdb-sg"><div class="pdb-sg-t">같은 옷이 오더 여러 개로 나뉘어 있어요 — 같이 작업하면 묶어 두세요</div><div class="pdb-sg-list">'+chips+'</div></div>';
+  return '<div class="pdb-sg"><div class="pdb-sg-t">같은 옷이 오더 여러 개로 나뉘어 있어요 — 같이 작업하면 묶어 두세요</div><div class="pdb-sg-list">'+chips+'</div>'+pickHtml+'</div>';
+}
+/* 11-09b 고르는 칸 (시안 「같은 옷 묶기」 창): 사용자 「묶는거 선택해서 묶는거였는데 묶기 누르니까 다 묶여버렸어」
+   → 「묶기」는 고르는 칸만 열고, 체크한 오더(2개 이상)만 이름표를 붙인다. 미리 체크 없음.
+   고른 상태는 window._pdbPick (화면 상태, 자료 아님 — 다시 그려도 안 날아감). */
+function _pdbShipOf(r){var e=(r.sewSch&&(r.sewSch.shipExpectedDate||r.sewSch.shippingDate))||r.o.shippingDate||(typeof fcLastShipDate==='function'?fcLastShipDate(r.sewSch):'')||'';return _pdbShort(e);}
+function _pdbPickTxt(n,ships){
+  var u=[];(ships||[]).forEach(function(s){if(s&&u.indexOf(s)<0)u.push(s);});u.sort();
+  return {btn:n<2?'2개 이상 고르세요':(n+'건 묶기'),
+    note:u.length>1?('출고 예정일이 오더마다 달라요 ('+u.join(' · ')+'). 묶은 뒤 일정 칸에서 하나로 맞출 수 있어요. 따로 작업할 오더면 체크를 빼 두세요.'):''};
+}
+function _pdbPickHtml(it,g){
+  var P=window._pdbPick||{on:{}},iid=it.id,rs=_pdbSortRows(g),lab={},grp={};
+  rs.forEach(function(r){lab[r.o.id]=_pdbLabel(r.o,iid);});
+  rs.forEach(function(r){var b=r.oi&&r.oi.bundle;if(b)(grp[b]=grp[b]||[]).push(lab[r.o.id]);});
+  var n=0,ships=[];
+  var list=rs.map(function(r){
+    var oid=r.o.id,on=!!P.on[oid],b=r.oi&&r.oi.bundle,ship=_pdbShipOf(r),oc=r.orderColors||{};
+    if(on){n++;ships.push(ship);}
+    var cs=Object.keys(oc).filter(function(c){return +oc[c]>0;}).map(function(c){return esc(c||'-')+' '+oc[c];}).join(' · ');
+    return '<label class="pdb-cand'+(on?' on':'')+'"><input type="checkbox" data-oid="'+esc(oid)+'" data-ship="'+esc(ship)+'"'+(on?' checked':'')+' onchange="pdbPickTog(this)">'
+      +'<span class="ci"><b>'+esc(lab[oid])+' · '+esc(_pdbMD(r.o.createdAt)||'날짜 없음')+' 오더 · '+r.orderTotal+'장</b>'
+      +'<span>'+(cs?cs+' — ':'')+'출고 예정 '+esc(ship||'미정')+'</span>'
+      +(b?'<span class="in">이미 묶음 ('+esc(grp[b].join('·'))+')</span>':'')+'</span></label>';
+  }).join('');
+  var t=_pdbPickTxt(n,ships);
+  return '<div class="pdb-pick" data-iid="'+esc(iid)+'">'
+    +'<div class="pdb-pick-h"><div><b>같이 묶을 오더를 고르세요</b><span>'+esc(it.name||'')+(it.code?' · '+esc(it.code):'')+'</span></div><button type="button" class="x" onclick="pdbPickClose()" aria-label="닫기">×</button></div>'
+    +'<div class="pdb-pick-list">'+list+'</div>'
+    +'<div class="pdb-pick-note" id="pdb-pick-note">'+esc(t.note)+'</div>'
+    +'<div class="pdb-pick-s">같은 옷끼리만 묶여요. 오더·결제·명세서는 오더마다 그대로예요.'+(Object.keys(grp).length?' 이미 묶인 오더와 같이 고르면 그 묶음에 더해져요.':'')+'</div>'
+    +'<div class="pdb-pick-f"><button type="button" class="pd-btn" onclick="pdbPickClose()">취소</button><button type="button" class="pd-btn pdb-pick-ok" id="pdb-pick-ok" onclick="pdbPickOk()"'+(n<2?' disabled':'')+'>'+esc(t.btn)+'</button></div>'
+    +'</div>';
+}
+function pdBundlePick(btn){var iid=btn.dataset.iid;if(!iid)return;var P=window._pdbPick;window._pdbPick=(P&&P.iid===iid)?null:{iid:iid,on:{}};renderProdDash();}
+function pdbPickClose(){window._pdbPick=null;renderProdDash();}
+function _pdbPickChecked(){return [].slice.call(document.querySelectorAll('#dash-body .pdb-pick input[data-oid]')).filter(function(x){return x.checked;});}
+function pdbPickTog(el){
+  var P=window._pdbPick;if(!P)return;P.on[el.dataset.oid]=!!el.checked;
+  var lb=el.closest('.pdb-cand');if(lb)lb.classList.toggle('on',!!el.checked);
+  var ck=_pdbPickChecked(),t=_pdbPickTxt(ck.length,ck.map(function(x){return x.dataset.ship||'';}));
+  var b=document.getElementById('pdb-pick-ok');if(b){b.textContent=t.btn;b.disabled=ck.length<2;}
+  var nt=document.getElementById('pdb-pick-note');if(nt)nt.textContent=t.note;
+}
+function pdbPickOk(){
+  var P=window._pdbPick;if(!P)return;
+  var oids=_pdbPickChecked().map(function(x){return x.dataset.oid;}).filter(Boolean);
+  if(oids.length<2){showToast('같이 묶을 오더를 2개 이상 골라 주세요');return;}
+  _pdbMake(P.iid,oids);
 }
 function _pdbSetTag(oids,iid,val){
   oids.forEach(function(oid){var o=S.orders[oid];if(!o)return;(o.orderItems||[]).forEach(function(oi){if(oi&&oi.itemId===iid){if(val)oi.bundle=val;else delete oi.bundle;}});});
 }
 function _pdbMembersAll(iid,bid){return Object.keys(S.orders||{}).filter(function(k){return (((S.orders[k]||{}).orderItems)||[]).some(function(oi){return oi&&oi.itemId===iid&&oi.bundle===bid;});});}
-function pdBundleMake(btn){
-  var iid=btn.dataset.iid,oids=(btn.dataset.oids||'').split(',').filter(Boolean);if(!iid||oids.length<2)return;
-  var bid='';
-  oids.forEach(function(oid){var o=S.orders[oid];((o&&o.orderItems)||[]).forEach(function(oi){if(!bid&&oi&&oi.itemId===iid&&oi.bundle)bid=oi.bundle;});});
+function _pdbTagOf(oid,iid){var t='';(((S.orders[oid]||{}).orderItems)||[]).forEach(function(oi){if(!t&&oi&&oi.itemId===iid&&oi.bundle)t=oi.bundle;});return t;}
+function _pdbMake(iid,oids){
+  if(!iid||!oids||oids.length<2)return;
+  var olds=oids.map(function(oid){return _pdbTagOf(oid,iid);});
+  var bid='';olds.forEach(function(t){if(!bid&&t)bid=t;});
+  if(bid&&olds.every(function(t){return t===bid;})){window._pdbPick=null;renderProdDash();showToast('이미 같은 묶음이에요');return;}
+  var joined=!!bid;
   if(!bid)bid='bd'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  _pdbSetTag(oids,iid,bid);
-  window._pdOpenBid=bid;
+  _pdbSetTag(oids,iid,bid);   // 고른 오더만
+  olds.forEach(function(t){if(t&&t!==bid){var left=_pdbMembersAll(iid,t);if(left.length<2)_pdbSetTag(left,iid,'');}});
+  window._pdbPick=null;window._pdOpenBid=bid;
   saveData();renderProdDash();
-  if(typeof showToast==='function')showToast('묶었어요 — 오더는 그대로 두고 같이 보고 같이 적어요');
+  if(typeof showToast==='function')showToast((joined?('묶음에 넣었어요 — 이제 '+_pdbMembersAll(iid,bid).length+'건'):(oids.length+'건 묶었어요'))+' · 잘못 묶었으면 카드 위 「풀기」');
 }
 function pdBundleNo(btn){
   var iid=btn.dataset.iid,oids=(btn.dataset.oids||'').split(',').filter(Boolean);
@@ -27677,8 +27730,9 @@ function pdBundleOut(btn){
   saveData();renderProdDash();
   if(typeof showToast==='function')showToast('묶음에서 뺐어요');
 }
-function pdBundleUndo(btn){
+function pdBundleUndo(btn,ask){
   var iid=btn.dataset.iid,bid=btn.dataset.bundle;if(!iid||!bid)return;
+  if(ask&&!confirm('이 묶음을 풀까요?\n오더·수량·일정·결제는 그대로이고, 카드만 오더별로 따로 보여요.'))return;
   _pdbSetTag(_pdbMembersAll(iid,bid),iid,'');
   if(window._pdOpenBid===bid)window._pdOpenBid='';
   if(window._pdbQ&&window._pdbQ.bid===bid)window._pdbQ=null;
@@ -27929,7 +27983,7 @@ function renderProdBundle(u){
     +'</span></div>';
   return '<div class="pdc pdb'+(allDash?' shipped':'')+(open?' bopen':'')+'" data-bundle="'+esc(bid)+'" data-bid="'+esc(r0.brandId||'')+'">'
     +'<div class="pdc-head" onclick="pdBundleToggle(this)">'
-      +'<div class="pdc-h1"><span class="pdc-nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="pdc-code">'+esc(it.code)+'</span>':'')+'<span class="pdc-btag">묶음 '+rs.length+'</span>'+ddayHtml+'</div>'
+      +'<div class="pdc-h1"><span class="pdc-nm">'+esc(it.name||'')+'</span>'+(it.code?'<span class="pdc-code">'+esc(it.code)+'</span>':'')+'<span class="pdc-btag">묶음 '+rs.length+'</span><button type="button" class="pdb-hundo"'+at2+' onclick="event.stopPropagation();pdBundleUndo(this,1)" title="묶음 풀기 — 오더·수량·일정은 그대로">풀기</button>'+ddayHtml+'</div>'
       +'<div class="pdc-h2"><span class="pdc-brand">'+esc(brandNm||'-')+'</span><span class="pdc-stchip '+(late?'late':(allShip?'done':'now'))+'">'+esc(curStage)+'</span><span class="pdc-q">'+sumS+'/'+sumO+'</span><span class="pdc-bar"><i style="width:'+donePct+'%'+(late?';background:#e5484d':'')+'"></i></span><span class="pdc-ship">출고 '+esc(shipTxt)+'</span><span class="pdc-caret">›</span></div>'
     +'</div>'
     +'<div class="pdb-detail">'+colorHtml+sizeHtml+schSec+qtySec+memSec+foot2+'</div>'
