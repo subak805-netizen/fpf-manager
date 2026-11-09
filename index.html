@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261109b">
+<link rel="stylesheet" href="css/main.css?v=20261109c">
 <link rel="stylesheet" href="css/dosik2.css?v=20261023g">
 </head>
 <body>
@@ -5126,7 +5126,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-09b';
+var APP_BUILD=/*BUILD*/'2026-11-09c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -27096,6 +27096,17 @@ function renderProdDash(){
   const confirmCount=confirmRows.length;
   // 현재 보기 모드에 해당하는 행
   let viewRows=viewMode==='urgent'?urgentRows:(viewMode==='shipped'?shippedRows:(viewMode==='confirm'?confirmRows:activeRows));
+  /* 11-09c 출고완료 탭 = 달별로 보기 (사용자 「1달 단위로 볼수있게 나눠줘」). 기준 = 카드 오른쪽 「출고 MM.DD」 날짜와 같은 것
+     (출고예정 → 오더 출고일 → 마지막 출고 기록). 고른 달은 window 에만(저장 자료 없음). 달 버튼 숫자는 브랜드 필터 기준, 브랜드 탭 숫자는 고른 달 기준. */
+  let _shpMonths=[],_shpCnt={},_shpAll=0,_shpSel='';
+  if(viewMode==='shipped'){
+    const _fb0=window._pdBrandFilter||'';
+    viewRows.forEach(r=>{ r._mk=_pdShipMonthKey(r); if(_shpMonths.indexOf(r._mk)<0)_shpMonths.push(r._mk); if(_fb0&&r.brandId!==_fb0)return; _shpCnt[r._mk]=(_shpCnt[r._mk]||0)+1; _shpAll++; });
+    _shpMonths.sort((a,b)=>a==='none'?1:(b==='none'?-1:(a<b?1:(a>b?-1:0))));
+    _shpSel=window._pdShipMonth||'';
+    if(_shpSel!=='all'&&_shpMonths.indexOf(_shpSel)<0)_shpSel=_shpMonths.length?_shpMonths[0]:'all';
+    if(_shpSel!=='all')viewRows=viewRows.filter(r=>r._mk===_shpSel);
+  }
   // 브랜드 필터 (선택된 것만 표시)
   const fltBrand=window._pdBrandFilter||'';
   const allRows=viewRows.slice();  // 브랜드 탭 산정용 (현재 보기 기준)
@@ -27114,6 +27125,16 @@ function renderProdDash(){
   const _layout=window._pdLayout||'list';
   // 상단: 리스트/타임라인 밑줄 탭 + 긴급/출고완료 필터 칩(가끔 봄). 진행아이템·컨펌임박 통계박스는 제거.
   let html=`<div class="pd-vsw"><button class="${_layout==='list'?'on':''}" onclick="pdSetLayout('list')">리스트</button><button class="${_layout==='timeline'?'on':''}" onclick="pdSetLayout('timeline')">타임라인</button><span class="pd-sp"></span><button class="pd-sf${viewMode==='urgent'?' on':''}" onclick="pdSetView('${viewMode==='urgent'?'active':'urgent'}')">긴급 ${urgentCount}</button><button class="pd-sf${viewMode==='shipped'?' on':''}" onclick="pdSetView('${viewMode==='shipped'?'active':'shipped'}')">출고완료 ${shippedCount}</button></div>`;
+  if(viewMode==='shipped'){
+    let _ch='',_ly='';
+    _shpMonths.forEach(k=>{
+      if(k!=='none'){const y=k.slice(0,4);if(y!==_ly){_ch+='<span class="pd-shp-yr">'+esc(y)+'</span>';_ly=y;}}
+      _ch+='<button type="button" class="pd-shp-mo'+(_shpSel===k?' on':'')+'" data-mo="'+esc(k)+'" onclick="pdSetShipMonth(this.dataset.mo)">'+(k==='none'?'날짜 없음':((+k.slice(5,7))+'월'))+'<span class="c">'+(_shpCnt[k]||0)+'</span></button>';
+    });
+    _ch+='<button type="button" class="pd-shp-mo all'+(_shpSel==='all'?' on':'')+'" data-mo="all" onclick="pdSetShipMonth(this.dataset.mo)">전체<span class="c">'+_shpAll+'</span></button>';
+    html+='<div class="pd-shp"><div class="pd-shp-top"><button type="button" class="pd-shp-back" onclick="pdSetView(\'active\')">← 진행 중으로</button><span class="pd-shp-t">출고완료 '+shippedCount+'개 보는 중</span></div>'
+      +(_shpMonths.length?'<div class="pd-shp-mos" role="group" aria-label="달 고르기">'+_ch+'</div>':'')+'</div>';
+  }
   // 브랜드 필터 탭 (sticky)
   const brandList=Object.keys(allBrandsSet);
   if(brandList.length>1){
@@ -27146,14 +27167,14 @@ function renderProdDash(){
     html+=`<div class="pd-brand-group" data-bid="${esc(bid)}">
       <div class="pd-brand-hdr">
         <span class="pill" style="background:${brandColor}22;color:${brandColor}">${esc(brandNm)}</span>
-        <span class="count">진행 ${brandRows.length}개</span>
+        <span class="count">${viewMode==='shipped'?'출고완료':'진행'} ${brandRows.length}개</span>
         <button class="send-btn">${esc(brandNm)}에 일정 안내 →</button>
       </div>
       <div class="pdc-list">${_pdbUnits(brandRows).map(u=>u.r?renderProdDashRow(u.r):renderProdBundle(u)).join('')}</div>
     </div>`;
   }
   if(!filteredRows.length){
-    const emptyMsg=viewMode==='shipped'?'출고 완료된 아이템이 없어요':(viewMode==='urgent'?'긴급(D-3 이내) 아이템이 없어요':(viewMode==='confirm'?'컨펌 임박(D-3 이내) 원단이 없어요':'진행 중인 오더가 없어요'));
+    const emptyMsg=viewMode==='shipped'?((_shpSel&&_shpSel!=='all'&&shippedCount)?'이 달에 출고 완료된 아이템이 없어요':'출고 완료된 아이템이 없어요'):(viewMode==='urgent'?'긴급(D-3 이내) 아이템이 없어요':(viewMode==='confirm'?'컨펌 임박(D-3 이내) 원단이 없어요':'진행 중인 오더가 없어요'));
     html+='<div class="empty" style="padding:48px 20px;text-align:center;color:#9ca3af">'+esc(emptyMsg)+'</div>';
   }
   }
@@ -27161,6 +27182,7 @@ function renderProdDash(){
   el.innerHTML=html;
   window.scrollTo(0,_sy);
   if(window._pdbQ){try{_pdbQSums();}catch(e){}}
+  try{var _moOn=el.querySelector('.pd-shp-mo.on'),_moP=_moOn&&_moOn.parentNode;if(_moP){var _dl=_moOn.getBoundingClientRect().left-_moP.getBoundingClientRect().left,_dr=_moOn.getBoundingClientRect().right-_moP.getBoundingClientRect().right;if(_dl<0||_dr>0)_moP.scrollLeft+=(_dl<0?_dl:_dr)+(_dl<0?-24:24);}}catch(e){}   /* 11-09c 고른 달 버튼이 띠 밖이면 보이게 */
   // 마우스 가로 스크롤 활성화: 클릭 드래그 + 일반 휠→가로 변환
   pdAttachDragScroll();
   // iOS 스크롤 튕김 방지: innerHTML 교체 직후 .panel 스크롤 즉시(동기) 복원 (rAF만으론 깜빡임)
@@ -27171,6 +27193,13 @@ function pdSetView(mode){
   window._pdViewMode=(window._pdViewMode===mode)?'active':mode;
   renderProdDash();
 }
+/* 11-09c 출고완료 달 고르기 — 카드 「출고 MM.DD」와 같은 날짜로 'YYYY-MM' (없으면 'none') */
+function _pdShipMonthKey(r){
+  var e=(r.sewSch&&(r.sewSch.shipExpectedDate||r.sewSch.shippingDate))||r.o.shippingDate||(typeof fcLastShipDate==='function'?fcLastShipDate(r.sewSch):'')||'';
+  var v=e?String((typeof toISO==='function'?toISO(e):e)||''):'';
+  return /^\d{4}-\d{2}/.test(v)?v.slice(0,7):'none';
+}
+function pdSetShipMonth(k){window._pdShipMonth=k||'';renderProdDash();}
 // 진행 탭 레이아웃: 리스트 / 타임라인(간트)
 function pdSetLayout(m){window._pdLayout=m;renderProdDash();}
 function renderProdTimeline(rows){
