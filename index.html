@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="패션플로우">
 <meta name="theme-color" content="#3a352e">
 
-<link rel="stylesheet" href="css/main.css?v=20261112c">
+<link rel="stylesheet" href="css/main.css?v=20261112g">
 <link rel="stylesheet" href="css/dosik2.css?v=20261023g">
 </head>
 <body>
@@ -5134,7 +5134,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-12f';
+var APP_BUILD=/*BUILD*/'2026-11-12g';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -23810,6 +23810,109 @@ function togglePoMatInline(btn,oid,sn){var fold=btn.closest('.po2-matfold');if(!
 function togglePoLossInline(btn){var panel=btn.closest('.lp-panel');if(!panel)return;var bd=panel.querySelector('.lp-bd');if(!bd)return;var willOpen=bd.style.display==='none';bd.style.display=willOpen?'':'none';var car=btn.querySelector('.lp-car');if(car)car.textContent=willOpen?'▾':'▸';window._poLossOpen=willOpen;}
 function togglePoCheckInline(btn,oid,sn){var wrap=btn.closest('.po2-check');if(!wrap)return;var bd=wrap.querySelector('.po2-check-b');if(!bd)return;window._poCheckOpen=(window._poCheckOpen&&typeof window._poCheckOpen==='object')?window._poCheckOpen:{};var key=oid+'|'+sn;var willOpen=!((key in window._poCheckOpen)?!!window._poCheckOpen[key]:false);window._poCheckOpen[key]=willOpen; /* 2026-09-11j 기본 열림 */if(willOpen){var o=poResolveOrder(oid);try{bd.innerHTML=o?renderCheckTab(o,sn):'';}catch(e){bd.innerHTML='<div class="warn-box">오류: '+esc(e.message)+'</div>';}bd.style.display='';}else{bd.style.display='none';}var car=btn.querySelector('.po2-check-car');if(car)car.textContent=willOpen?'▾':'▸';}
 // 거래처 발주 카드 1개 — 첫 발주(S.orders)·추가발주(orderLike) 공용. o는 실주문 또는 추가발주용 orderLike
+/* ===== 11-12g 보내기 전 점검 + 보낸 글 버튼 (시안 https://claude.ai/artifact/1FMKSCGhzyAvbXHQuvQQM3 v2, 사용자 「시안대로 앱에 넣어줘」) =====
+   ① 안 보낸 카드: 본문 위 상자. 창은 안 띄움(사용자 「카드 안에 표시만 해도 돼」). 복사·카톡은 그대로 된다.
+      빠짐 = 아이템에 적은 자재 이름·비고·로고(체크 켠 것)·가공비 줄이 발주서 글에 없음(발주안함 줄 포함한 글로 봄)
+      확인 = 로고 글은 적었는데 체크가 꺼져 안 나감 / 적용 컬러 — 같은 용도(비면 부자재 종류) 자재가 그 오더 컬러에 «하나도» 없음
+             (흰 밴드=아이보리·검정 밴드=블랙처럼 나눠 쓴 건 안 뜸 — 예전 규칙은 37건 다 헛경고였다)
+      안내 = 발주안함 줄은 복사·카톡 글에서 빠짐
+   ② 보낸 카드: 본문 위 작은 「보낸 글 M/D」 버튼(11/1부터 저장된 sup.sentText). 누르면 그날 보낸 글 — 지금 글과 다른 줄은 노란색. 기본 화면은 지금 글 그대로. */
+function _poChkHas(txt,s){ s=String(s||'').trim(); if(!s)return true; if(txt.indexOf(s)>=0)return true; return txt.replace(/\s+/g,'').indexOf(s.replace(/\s+/g,''))>=0; }
+function _poChkBase(sn){ return String(sn||'').replace(/\s*\(추가발주\)\s*$/,'').split(' → ')[0].trim(); }
+function _poChkSlot(t,fab){ var p=String((t&&t.part)||'').trim(); return p?('p:'+p):('k:'+(fab?'fabric':((t&&t.orderType)||'count'))); }
+function _poChkSlotLbl(t,fab){ var p=String((t&&t.part)||'').trim(); if(p)return p; if(fab)return '원단'; return ({button:'단추',zipper:'지퍼',snap:'스냅',thread:'실'})[(t&&t.orderType)||'']||'부자재'; }
+function _poPreCheck(o,sn,txt,txtM){
+  var sup=o&&o.suppliers&&o.suppliers[sn]; if(!sup)return [];
+  var T=String(txtM||txt||'').replace(/\u0007/g,''), base=_poChkBase(sn), multi=((o.orderItems||[]).length>1);
+  var rows=[], seen={}; var add=function(r){ var k=r.k+'|'+r.t+'|'+r.d; if(seen[k])return; seen[k]=1; rows.push(r); };
+  var mats=(sup.materials||[]).filter(function(m){return m&&m.type!=='proc';});
+  var inm=function(m){ var it=m.itemId&&S.items[m.itemId]; return (multi&&it)?(it.name+' · '):''; };
+  mats.forEach(function(m){
+    var nm=String(m.name||'').trim(), lab=(m.orderType==='mainLabel'||m.orderType==='careLabel'||m.isFinishSet);
+    if(m.type==='trim'&&!lab){
+      if(nm&&!_poChkHas(T,nm))add({k:'miss',t:inm(m)+nm+' · 이름',d:'아이템에 있는 부자재인데 발주서 글에 이름이 없어요.',iid:m.itemId,tid:m.trimId});
+      if(String(m.memo||'').trim()&&!_poChkHas(T,m.memo))add({k:'miss',t:inm(m)+nm+' · 비고',d:'「'+String(m.memo).trim()+'」을 적었는데 발주서에 안 나가요.',iid:m.itemId,tid:m.trimId});
+      if(m.orderType==='button'&&m.hasButtonLogo&&String(m.buttonLogoText||'').trim()&&!_poChkHas(T,m.buttonLogoText))add({k:'miss',t:inm(m)+nm+' · 단추 로고',d:'「'+String(m.buttonLogoText).trim()+'」 로고가 발주서에 없어요.',iid:m.itemId,tid:m.trimId});
+      if(m.orderType==='snap'&&m.hasSnapLogo&&String(m.snapLogoText||'').trim()&&!_poChkHas(T,m.snapLogoText))add({k:'miss',t:inm(m)+nm+' · 스냅 로고',d:'「'+String(m.snapLogoText).trim()+'」 로고가 발주서에 없어요.',iid:m.itemId,tid:m.trimId});
+      if(m.orderType==='zipper'&&m.hasSliderLogo&&String(m.sliderLogoText||'').trim()&&!_poChkHas(T,m.sliderLogoText))add({k:'miss',t:inm(m)+nm+' · 지퍼 로고',d:'「'+String(m.sliderLogoText).trim()+'」 각인이 발주서에 없어요.',iid:m.itemId,tid:m.trimId});
+    }
+    if(m.type==='fabric'&&nm&&!_poChkHas(T,nm))add({k:'miss',t:inm(m)+nm+' · 원단 이름',d:'아이템에 있는 원단인데 발주서 글에 이름이 없어요.',iid:m.itemId});
+  });
+  /* 아이템 쪽에서 — 이 카드에 올라온 자재의 아이템만 */
+  var iids={}; mats.forEach(function(m){ if(m.itemId)iids[m.itemId]=1; });
+  Object.keys(iids).forEach(function(iid){
+    var it=S.items[iid]; if(!it)return; var pre=multi?(it.name+' · '):'';
+    var onCardT=function(t){ return mats.some(function(m){ return m.type==='trim'&&((m.trimId&&m.trimId===t.id)||(!m.trimId&&m.itemId===iid&&m.name===t.name&&(m.part||'')===(t.part||''))); }); };
+    var onCardF=function(f){ return mats.some(function(m){ return m.type==='fabric'&&m.itemId===iid&&((m.fabId&&m.fabId===f.id)||(!m.fabId&&m.name===f.name)); }); };
+    var trims=(it.trims||[]).filter(Boolean), fabs=(it.fabrics||[]).filter(Boolean);
+    trims.forEach(function(t){ if(!onCardT(t))return; var nm=t.name||'';
+      if(t.orderType==='button'&&String(t.buttonLogoText||'').trim()&&!t.hasButtonLogo)add({k:'warn',t:pre+nm+' · 단추 로고',d:'「'+String(t.buttonLogoText).trim()+'」을 적었는데 「로고 인쇄」가 꺼져 있어서 발주서에 안 나가요.',iid:iid,tid:t.id});
+      if(t.orderType==='snap'&&String(t.snapLogoText||'').trim()&&!t.hasSnapLogo)add({k:'warn',t:pre+nm+' · 스냅 로고',d:'「'+String(t.snapLogoText).trim()+'」을 적었는데 로고 체크가 꺼져 있어서 발주서에 안 나가요.',iid:iid,tid:t.id});
+      if(t.orderType==='zipper'&&String(t.sliderLogoText||'').trim()&&!t.hasSliderLogo)add({k:'warn',t:pre+nm+' · 지퍼 로고',d:'「'+String(t.sliderLogoText).trim()+'」을 적었는데 각인 체크가 꺼져 있어서 발주서에 안 나가요.',iid:iid,tid:t.id});
+    });
+    /* 가공비 줄 — 이 집이 맡은 것만(맡은 집이 다르면 그 집 카드로 감) */
+    (it.trimCosts||[]).forEach(function(tc){ if(!tc)return; var nm=String(tc.name||tc.procKind||'').trim(); if(!nm)return;
+      var src=null; if(tc.trimId){ src=trims.find(function(x){return x.id===tc.trimId;}); if(!src||!onCardT(src))return; } else if(tc.fabId){ src=fabs.find(function(x){return x.id===tc.fabId;}); if(!src||!onCardF(src))return; } else return;
+      var fac=String(tc.factory||'').trim(); if(fac&&fac!==base)return;
+      if(!_poChkHas(T,nm))add({k:'miss',t:pre+(src.name||'')+' · 가공',d:'「'+nm+'」 가공비 줄이 발주서에 없어요.',iid:iid,tid:tc.trimId||''});
+    });
+    /* 적용 컬러 — 같은 용도 자재가 그 컬러에 하나도 없을 때만 */
+    var act=[]; (o.orderItems||[]).forEach(function(oi){ if(!oi||oi.itemId!==iid)return; Object.keys(oi.qtyGrid||{}).forEach(function(c){ var q=0; var g=oi.qtyGrid[c]||{}; Object.keys(g).forEach(function(z){ q+=(+g[z]||0); }); if(q>0){ var ex=act.find(function(a){return a.c===c;}); if(ex)ex.q+=q; else act.push({c:c,q:q}); } }); });
+    if(!act.length)return;
+    var colOk=function(x,c){ var cl=x.colorLinks||[]; return !cl.length||cl.some(function(l){return l&&l.itemColor===c;}); };
+    var scan=function(list,fab,onCard){
+      list.forEach(function(t){
+        if(!onCard(t))return; if(!fab&&(t.isCommonUse||t.isFinishSet||t.orderType==='mainLabel'||t.orderType==='careLabel'))return;
+        var cl=t.colorLinks||[]; if(!cl.length)return;
+        var sl=_poChkSlot(t,fab), mates=list.filter(function(x){ return x&&_poChkSlot(x,fab)===sl&&(fab||!(x.isCommonUse||x.isFinishSet||x.orderType==='mainLabel'||x.orderType==='careLabel')); });
+        act.forEach(function(a){
+          if(mates.some(function(x){return colOk(x,a.c);}))return;
+          var lbl=_poChkSlotLbl(t,fab);
+          add({k:'warn',t:pre+a.c+' 옷에 「'+lbl+'」 자재가 없어요',d:'「'+lbl+'」 '+(fab?'원단':'부자재')+' 중 '+a.c+'에 체크된 게 하나도 없어서 '+a.c+' '+num(a.q)+'장 몫이 발주에서 빠져요. ('+(t.name||'')+' 적용 컬러: '+cl.map(function(l){return l&&l.itemColor;}).filter(Boolean).join('·')+')',iid:iid,tid:fab?'':t.id,tab:'apply',btn:'적용 컬러 고치기'});
+        });
+      });
+    };
+    scan(trims,false,onCardT); scan(fabs,true,onCardF);
+  });
+  var skipN=String(txtM||'').split('\n').filter(function(l){return l.charAt(0)==='\u0007';}).length;
+  if(skipN)rows.push({k:'info',t:'발주안함 '+skipN+'줄',d:'줄 그은 자재는 복사·카톡 글에서 빠져요.'});
+  return rows;
+}
+function _poChkHTML(o,sn,txt,txtM){
+  var rows=[]; try{ rows=_poPreCheck(o,sn,txt,txtM); }catch(e){ console.warn('[보내기 전 점검]',e); return ''; }
+  var main=rows.filter(function(r){return r.k!=='info';}), info=rows.filter(function(r){return r.k==='info';});
+  if(!main.length)return '<div class="po2-chk ok"><div class="po2-chk-h"><b>점검 통과</b><span class="po2-chk-sub">아이템에 적은 것이 다 들어갔고, 컬러마다 빠진 자재가 없어요'+(info.length?(' · '+esc(info.map(function(r){return r.t+' — '+r.d;}).join(' · '))):'')+'</span></div></div>';
+  var TAG={miss:'빠짐',warn:'확인',info:'안내'};
+  return '<div class="po2-chk warn"><div class="po2-chk-h"><b>보내기 전 확인 '+main.length+'건</b><span class="po2-chk-sub">아이템에 적은 이름·비고·로고·가공이 다 나가는지, 컬러마다 빠진 자재가 없는지 봤어요</span></div>'
+    +rows.map(function(r){ return '<div class="po2-chk-row"><span class="po2-chk-tag '+r.k+'">'+TAG[r.k]+'</span><div class="po2-chk-t"><b>'+esc(r.t)+'</b><span>'+esc(r.d)+'</span></div>'
+      +(r.iid?'<button type="button" class="po2-chk-go" onclick="poChkGo(\''+esc(r.iid)+'\',\''+esc(r.tid||'')+'\',\''+esc(r.tab||'')+'\')">'+esc(r.btn||'아이템에서 고치기')+'</button>':'')+'</div>'; }).join('')
+    +'</div>';
+}
+function poChkGo(iid,tid,tab){ try{ if(tid){ window._trimUI=window._trimUI||{}; window._trimUI[tid]={open:true,tab:tab||'basic'}; } }catch(e){} if(typeof ctxGo==='function')ctxGo('edit',iid); }
+/* 보낸 글 ↔ 지금 글 줄 비교 — 보낸 글에서 지금 글에 없는 줄 표시 + 다른 줄 수 */
+function _poLineDiff(a,b){
+  var n=a.length,m=b.length,keepA=new Array(n),keepB=new Array(m),i,j;
+  if(n*m>400000){ for(i=0;i<n;i++)keepA[i]=b.indexOf(a[i])>=0; for(j=0;j<m;j++)keepB[j]=a.indexOf(b[j])>=0; }
+  else{ var dp=[]; for(i=0;i<=n;i++)dp.push(new Uint16Array(m+1)); for(i=n-1;i>=0;i--)for(j=m-1;j>=0;j--)dp[i][j]=(a[i]===b[j])?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+    i=0;j=0; while(i<n&&j<m){ if(a[i]===b[j]){ keepA[i]=keepB[j]=true; i++; j++; } else if(dp[i+1][j]>=dp[i][j+1])i++; else j++; } }
+  var ca=0,cb=0; for(i=0;i<n;i++)if(!keepA[i]&&String(a[i]).trim())ca++; for(j=0;j<m;j++)if(!keepB[j]&&String(b[j]).trim())cb++;
+  return {keepA:keepA,n:Math.max(ca,cb)};
+}
+function _poStxHTML(o,sn,poText){
+  var sup=o&&o.suppliers&&o.suppliers[sn]; if(!sup||!sup.sentText)return '';
+  var st=sup.status; if(!(st==='sent'||st==='shipped'||st==='arrived'))return '';
+  var md=''; try{ var d=new Date(sup.sentTextAt); if(!isNaN(d))md=(d.getMonth()+1)+'/'+d.getDate(); }catch(e){}
+  var a=String(sup.sentText).split('\n'), df=_poLineDiff(a,String(poText||'').split('\n'));
+  var lines=a.map(function(l,i){ return '<span class="dl'+(df.keepA[i]?'':' chg')+'">'+esc(l)+'</span>'; }).join('');
+  var enc=encodeURIComponent(sn).replace(/'/g,'%27');
+  return '<div class="po2-stx-bar"><button type="button" class="po2-stx-btn" aria-expanded="false" onclick="poStxToggle(this)">보낸 글'+(md?(' '+md):'')+'</button>'+(df.n?'<span class="po2-stx-dif">지금 글과 '+df.n+'줄 달라요</span>':'')+'</div>'
+    +'<div class="po2-stx-pane" style="display:none"><div class="po2-stx-note">'+(md?esc(md)+'에 ':'')+esc(sn)+'에 보낸 그대로예요.'+(df.n?' 지금 글과 다른 줄은 노란색이에요.':' 지금 글과 같아요.')+'</div>'
+    +'<div class="mono po2-stx-diff">'+lines+'</div>'
+    +'<div class="po2-stx-f"><button type="button" class="po2-chk-go" onclick="poStxCopy(\''+esc(o.id)+'\',\''+enc+'\')">보낸 글 복사</button><button type="button" class="po2-chk-go" onclick="poStxToggle(this)">닫기</button></div></div>';
+}
+function poStxToggle(el){ var det=el&&el.closest&&el.closest('details'); if(!det)return; var pane=det.querySelector('.po2-stx-pane'), now=det.querySelector('.po2-now'), btn=det.querySelector('.po2-stx-btn'); if(!pane||!btn)return;
+  var open=pane.style.display==='none'; pane.style.display=open?'':'none'; if(now)now.style.display=open?'none':''; btn.setAttribute('aria-expanded',open?'true':'false'); btn.classList.toggle('on',open); }
+function poStxCopy(oid,snEnc){ try{ var o=poResolveOrder(oid), sn=decodeURIComponent(snEnc), s=o&&o.suppliers&&o.suppliers[sn]; if(!s||!s.sentText)return; navigator.clipboard.writeText(s.sentText).then(function(){showToast('보낸 글 복사 완료');}).catch(function(){alert('복사 실패');}); }catch(e){ alert(e.message); } }
 function poCardHTML(o,sn){
     const sup=o.suppliers[sn];if(!sup)return'';const sent=sup.status==='sent';const opts=sup.poOpts||{};const pb=S.priceBook[sn]||{};
     const fabs=sup.materials.filter(m=>m.type==='fabric');const trims=sup.materials.filter(m=>m.type==='trim');
@@ -24019,7 +24122,8 @@ function poCardHTML(o,sn){
     </div>
     <div class="sc-b">
       <div class="po2-main">${''/* 2026-09-11i 정돈안(사용자 승인): 왼쪽=발주서 본문만 / 오른쪽=거래처 확인 → 자재 → 발주 내용 선택(부자재 단위 포함). 출고처는 거래처 확인 안에서만 */}
-      <details class="po-body" ${_poDetGet('_poBodyOpen',o.id,sn,true)?'open':''} ontoggle="_poDetSet('_poBodyOpen','${o.id}','${sn}',this.open)"><summary>발주서 본문 <span class="hint">거래처에 보낼 내용</span></summary><div class="mono">${_poMarkedHTML(poTextM)}</div></details>
+      ${(function(){ var _st=sup.status; return (_st==='sent'||_st==='shipped'||_st==='arrived')?'':_poChkHTML(o,sn,poText,poTextM); })()}${''/* 11-12g 보내기 전 점검 (시안 1FMK… v2) */}
+      <details class="po-body" ${_poDetGet('_poBodyOpen',o.id,sn,true)?'open':''} ontoggle="_poDetSet('_poBodyOpen','${o.id}','${sn}',this.open)"><summary>발주서 본문 <span class="hint">거래처에 보낼 내용</span></summary>${_poStxHTML(o,sn,poText)}<div class="mono po2-now">${_poMarkedHTML(poTextM)}</div></details>
       </div><div class="po2-side">
       ${''/* 10-16a 「발주 내용 선택」을 맨 위로·처음엔 열림, 거래처 확인·자재는 처음엔 닫힘 (요청) */}
       <details class="po-details" ${_poDetGet('_poOptsOpen',o.id,sn,true)?'open':''} ontoggle="_poDetSet('_poOptsOpen','${o.id}','${sn}',this.open)">
