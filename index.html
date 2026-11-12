@@ -5134,7 +5134,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-12e';
+var APP_BUILD=/*BUILD*/'2026-11-12f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -8266,6 +8266,48 @@ function _pbBkSave(list){
   try{ idbBkSet('fpm_pbbk',list).catch(function(){ try{lsSet('fpm_pbbk',list);}catch(e){} }); }catch(e){ try{lsSet('fpm_pbbk',list);}catch(e2){} }
 }
 function _pbCount(pb){ var sup=Object.keys(pb||{}).length, mat=0; Object.keys(pb||{}).forEach(function(s){mat+=Object.keys((pb[s]||{}).materials||{}).length;}); return {sup:sup,mat:mat}; }
+/* ===== 11-12f 숨은 규격 지우기 (사용자 「숨은규격은 그냥 삭제해줘 · 시안대로 · 규격이 필요하면 내가 이름에 넣을게」) =====
+   숨은 규격 = 단가장 부자재 m.size(10-09b 에 칸은 화면에서 뺐는데 값이 남음) + 아이템 부자재 t.size → 발주서 머리에 붙어 「5075 폴리트윌 Y」 같은 글이 나갔다.
+   ⚠️ 값만 지우면 안 됨: 단가장 키(pbKey 이름\x1F색\x1F\x1F규격)에 규격이 든 줄은 아이템과 «정확한 키»로 이어져 있어서(단가 전파 propagatePriceToItems 등) 끊긴다.
+      → 키를 이름+색으로 다시 매김(옛 키 묘비·새 키 되살림, renamePBMaterial 과 같은 방식). 같은 이름·색 줄이 이미 있으면 그 줄로 합침(빈 칸만 채움).
+   컬러별 단가표(colorPrices 「이름|크기|발주명」)의 크기는 단추 크기(buttonSize)라 그대로 둔다. 발송한 발주서 자재 사본은 안 건드림(머리에 규격을 안 붙이게 바뀜). */
+function _pbSpecLeft(){ var pb=0,it=0;
+  Object.keys(S.priceBook||{}).forEach(function(s){ var mm=(S.priceBook[s]||{}).materials||{}; Object.keys(mm).forEach(function(k){ var m=mm[k]; if(!m||m.type==='fabric')return; if(String(m.size||'').trim()||k.indexOf('\u001F\u001F')>=0)pb++; }); });
+  Object.keys(S.items||{}).forEach(function(id){ ((S.items[id]||{}).trims||[]).forEach(function(t){ if(t&&String(t.size||'').trim())it++; }); });
+  return {pb:pb,it:it}; }
+function _pbSpecPurgeRun(){
+  var r={pb:0,merge:0,it:0};
+  Object.keys(S.priceBook||{}).forEach(function(s){
+    var mats=(S.priceBook[s]||{}).materials; if(!mats)return;
+    Object.keys(mats).forEach(function(k){
+      var m=mats[k]; if(!m||m.type==='fabric')return;
+      var inKey=k.indexOf('\u001F\u001F')>=0, hasSz=!!String(m.size||'').trim();
+      if(!inKey&&!hasSz)return;
+      var dec=pbDecodeKey(k), nm=m.name||dec[0], cl=(m.color!=null&&m.color!=='')?m.color:(dec[1]||'');
+      var nk=pbKey(nm,cl);
+      if(nk===k){ m.size=''; r.pb++; return; }
+      var keep=mats[nk];
+      if(keep){ Object.keys(m).forEach(function(f){ if(f==='size')return; var kv=keep[f]; var empty=(kv==null||kv===''||(Array.isArray(kv)&&!kv.length)); if(empty&&m[f]!=null&&m[f]!==''&&!(Array.isArray(m[f])&&!m[f].length))keep[f]=m[f]; }); keep.size=''; r.merge++; }
+      else mats[nk]=Object.assign({},m,{size:''});
+      delete mats[k];
+      try{ _tombArr('pbMat',s+'\u001f'+k); _untombArr('pbMat',s+'\u001f'+nk); }catch(e){}
+      r.pb++;
+    });
+  });
+  Object.keys(S.items||{}).forEach(function(id){ ((S.items[id]||{}).trims||[]).forEach(function(t){ if(t&&String(t.size||'').trim()){ t.size=''; r.it++; } }); });
+  try{ if(typeof formTrims!=='undefined'&&Array.isArray(formTrims))formTrims.forEach(function(t){ if(t&&t.size)t.size=''; }); }catch(e){}   /* 열린 아이템 창이 옛 값을 다시 저장하지 않게 */
+  return r;
+}
+async function pbSpecPurge(){
+  var c=_pbSpecLeft(); if(!c.pb&&!c.it){ if(typeof showToast==='function')showToast('숨은 규격이 없어요'); return; }
+  if(!confirm('숨은 규격을 지울까요?\n\n단가장 '+c.pb+'줄 · 아이템 부자재 '+c.it+'개\n발주서에도 더는 안 붙어요. 규격이 필요하면 이름에 적어 주세요.\n지우기 전에 단가장 백업을 남겨요.'))return;
+  try{ await pbBackupNow(true); }catch(e){}
+  var r=_pbSpecPurgeRun();
+  try{ lsSet('fpm_shared',{factories:S.factories,priceBook:S.priceBook}); }catch(e){}
+  saveData();
+  try{ renderBook(); }catch(e){}
+  if(typeof showToast==='function')showToast('숨은 규격 지움 — 단가장 '+r.pb+'줄(같은 줄 합침 '+r.merge+') · 아이템 부자재 '+r.it+'개',5000);
+}
 function pbBackupNow(silent){ var snap={ts:Date.now(), pb:JSON.parse(JSON.stringify(S.priceBook||{}))}; /* 스냅샷은 호출 즉시(합치기 전 상태 보존) — 저장만 비동기 */
   return pbBkEnsureLoaded().then(function(){ var list=_pbBkLoad().slice(); list.push(snap); while(list.length>15)list.shift(); _pbBkSave(list); if(!silent&&typeof showToast==='function')showToast('단가장 백업됨 ('+_pbCount(snap.pb).sup+'개 거래처)'); return list.length; }); }
 async function pbAutoBackup(){ await pbBkEnsureLoaded(); var list=_pbBkLoad(); var last=list[list.length-1]; var d=new Date(); var dayStart=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(last&&last.ts>=dayStart)return; if(!S.priceBook||!Object.keys(S.priceBook).length)return; pbBackupNow(true); }
@@ -9454,6 +9496,7 @@ function renderBook(){
         <button class="btn s" onclick="pbOpenBackups()" title="단가장만 따로 백업/되돌리기" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">백업/되돌리기</button>
         <button class="btn s" onclick="pbAutoDedup()" title="띄어쓰기·철자 변형까지 자동으로 묶어 그룹당 한 번에 합치기" style="background:#fffbeb;border-color:#fcd34d;color:#92400e">중복 자동정리</button>
         <button class="btn s" onclick="pbNormalizeBuildings()" title="A·에이·에이동 → A동 형식으로 한 번에 통일">건물명 통일</button>
+        ${(function(){ var c=_pbSpecLeft(); return (c.pb||c.it)?'<button class="btn s" onclick="pbSpecPurge()" title="예전 규격 칸에 남은 값을 단가장·아이템에서 지워요 (단가장 연결은 유지)" style="background:#fef2f2;border-color:#fca5a5;color:#991b1b">숨은 규격 지우기 '+(c.pb+c.it)+'</button>':''; })()}
         <button class="btn s" onclick="openPBImport()" style="background:#f0fdf4;border-color:#86efac;color:#15803d">단가표 사진 → 일괄 가져오기</button>
       </div>
       <div id="pb-dups"></div>
@@ -10427,7 +10470,7 @@ function renderPbTrimTable(lst,sups){
         /* 색상은 화면에서 뺀다(사용자 요청) — 자료(품목 키)는 그대로 둔다 */
         +'<td><input class="pbt-nm'+(isNew?' new':'')+'"'+(isNew?' data-newrow="1"':'')+' value="'+esc(nm)+'" onchange="renamePBMaterial(\''+es+'\',\''+ek+'\',this.value,\'name\')">'
           /* 10-09b 규격 칸 뺌(사용자: 기장은 이름에) — 적어둔 값은 안 지우고 회색으로만 */
-          +(String(m.size||'').trim()?('<span class="pbt-oldsp" title="예전에 적은 규격 (지우지 않음)">옛 규격 '+esc(String(m.size).trim())+'</span>'):'')+'</td>'
+          +'</td>'   /* 11-12f 「옛 규격」 회색 글자 뺌 — 규격은 이름에 */
         +_cm.calc
         +'<td class="n"><input class="pbt-num" type="number" min="0" value="'+(pack===''?'':pack)+'" placeholder="—" onchange="pbSetPack(\''+es+'\',\''+ek+'\',this.value)"><span class="pbt-suf">'+_pbPackSuf(m)+'</span></td>'
         +'<td class="n pbt-price">'+(hasSet
@@ -15494,7 +15537,7 @@ function trimCardNewGen(t,i,colorSec){
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>용도</label><input list="dl-trimpart" data-f="part" value="'+e(t.part||'')+'" placeholder="예: 몸판 / 허리"></div>'+unitCtl+'</div>'
     +'<div class="tcd-split"><div class="tcd-idc">'
     +'<div class="tcd-frow"><div class="tcd-fld tcd-grow"><label>부자재처</label><input list="dl-sup" data-f="supplier" value="'+e(t.supplier||'')+'" oninput="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div><div class="tcd-fld w-dong"><label>시장</label><input data-f="market" list="dl-mkt" value="'+e(t.market||'동대문시장')+'" placeholder="동대문시장"></div><div class="tcd-fld w-dong"><label>동</label><input data-f="building" list="dl-bldg" value="'+e(t.building||'')+'" placeholder="B동"></div><div class="tcd-fld w-dong"><label>층</label><input data-f="floor" list="dl-flr" value="'+e(t.floor||'')+'" placeholder="2F"></div><div class="tcd-fld w-room"><label>호수</label><input data-f="floorRoom" value="'+e(t.floorRoom||'')+'" placeholder="215호"></div></div>'
-    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>부자재명</label><input list="'+(isLoop?'dl-loop':'dl-tnm')+'" data-f="name" value="'+e(t.name||'')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'+sizeField+wgTrimFlds(t)+'<div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="흰색/검정" list="dl-clr"></div></div>'
+    +'<div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>부자재명</label><input list="'+(isLoop?'dl-loop':'dl-tnm')+'" data-f="name" value="'+e(t.name||'')+'" onfocus="updTnmDL(this)" onchange="autofillTrim(document.getElementById(\'tr-'+i+'\'))"></div>'+wgTrimFlds(t)+'<div class="tcd-fld w-cl"><label>색상</label><input data-f="color" value="'+e(t.color||'')+'" placeholder="흰색/검정" list="dl-clr"></div></div>'
     +'</div></div><div class="tcd-calcbar">'+calc+'</div>'
     +'</div>';
   h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+trimApplyPane(i,t,applyPane,isTh?'':mkTrimSizeSec(i,t,true))+'</div>';
@@ -20792,7 +20835,7 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
       };
       // 헤더 라인
       let hdr=g.name;
-      if(_poSpecOk(g.size,g.name))hdr+=` ${String(g.size).trim()}`;   /* 09-18d 이름에 이미 규격이 있으면 안 붙임 (8030 실크 심지 44" 44") · 11-02 단위만 남은 옛 규격(Y·mm)도 */
+      /* 11-12f 숨은 규격(단가장·아이템 size)은 발주서에 안 붙인다(사용자 「숨은규격은 그냥 삭제해줘 · 규격이 필요하면 내가 이름에 넣을게」) */   /* 09-18d 이름에 이미 규격이 있으면 안 붙임 (8030 실크 심지 44" 44") · 11-02 단위만 남은 옛 규격(Y·mm)도 */
       if(g.color)hdr+=` ${g.color}`;
       if(isRoll&&g.yardsPerRoll)hdr+=` (1${_ruLbl(g)} ${g.yardsPerRoll}${_ruU(g)})`;
       else if(isJeolOrder&&jeolYards)hdr+=` (1절 ${jeolYards}y)`;
@@ -20810,7 +20853,7 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
         _blkS(g.colors);   /* 11-01 공통 틀 (용도 줄) */
         // 헤더=이름·규격만 (색상·공통은 아래 색상 줄로 — "컬러는 무조건 한 줄 아래 + #")
         let _hdrS=g.name;
-        if(_poSpecOk(g.size,g.name))_hdrS+=` ${String(g.size).trim()}`;
+        /* 11-12f 숨은 규격 안 붙임 */
         if(isRoll&&g.yardsPerRoll)_hdrS+=` (1${_ruLbl(g)} ${g.yardsPerRoll}${_ruU(g)})`;
         else if(isJeolOrder&&jeolYards)_hdrS+=` (1절 ${jeolYards}y)`;
         else if(t.isButtonLoop&&+t.loopPerYard>0){const _lpu=t.packUnit||(t.calc&&t.calc.unit)||'봉';_hdrS+=` (1${_lpu} ${+t.loopPerYard}개)`;}
