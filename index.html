@@ -5126,7 +5126,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-10a';
+var APP_BUILD=/*BUILD*/'2026-11-12a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -13761,7 +13761,7 @@ function deriveItemBadge(it){
     if(num>1){r.phase='reorder';r.round=num-1;}
     else{r.phase='main';r.round=0;}
     // 자동 단계: 출고완료(대시보드 출고완료·출고수량) > 생산중(발주서 sent·재단 시작) > 발주준비
-    var anyShip=orders.some(function(oo){return Object.values(oo.factorySchedules||{}).some(function(f){return f&&(f.shipDoneDate||(f.shipments||[]).some(function(s){return s&&(+s.qty);}));});});
+    var anyShip=orders.some(function(oo){return Object.values(oo.factorySchedules||{}).some(function(f){return f&&(_fcDoneMark(f)||(f.shipments||[]).some(function(s){return s&&(+s.qty);}));});});
     var anyProd=orders.some(function(oo){return Object.values(oo.suppliers||{}).some(function(s){return s&&s.status==='sent';})||Object.values(oo.factorySchedules||{}).some(function(f){return f&&f.cuttingDate;});});
     r.stage=anyShip?'ship':(anyProd?'prod':'prep');
   }else{
@@ -21138,15 +21138,18 @@ function oProgress(o){const sups=Object.values(o.suppliers||{});const fcs=Object
   if(sups.some(s=>s.arrivalDate))return 40;
   if(sups.some(s=>s.status==='sent'))return 20;
   return 5;}
+/* 11-12a 「출고 끝」 체크를 끈 뒤 남은 날짜(shipDoneDate)는 출고로 안 봄 — 예전엔 끌 때 날짜가 안 지워져 그 오더가 「출고완료」로 숨었다
+   (신고: 리오더 스케줄표에서 버튼 봄버 10/23·절개플레어 10/28·10/30 이 사라짐, 11/9 묶음 카드에서 켰다 끈 기록). 옛 기록(shipDone 칸 없음)은 그대로 출고로 봄 */
+function _fcDoneMark(f){ return (f&&f.shipDoneDate&&f.shipDone!==false)?f.shipDoneDate:''; }
 function oLabel(o){const fcs=Object.values(o.factorySchedules||{});const sups=Object.values(o.suppliers||{});
   // 결제완료 = 결제 대상(출고/생산한) 공장이 "전부" 결제됐을 때만 (일부만 결제됐는데 완료로 숨겨지던 사각지대 버그 수정)
-  var payFcs=fcs.filter(f=>f.shippingQty>0||f.shipDoneDate||(f.shipments&&f.shipments.length)||f.cuttingDate||f.paymentSent);
+  var payFcs=fcs.filter(f=>f.shippingQty>0||_fcDoneMark(f)||(f.shipments&&f.shipments.length)||f.cuttingDate||f.paymentSent);
   if(payFcs.length>0&&payFcs.every(f=>f.paymentSent))return['결제완료','b3'];
-  if(fcs.some(f=>f.shippingQty>0||f.shipDoneDate||(f.shipments&&f.shipments.length)))return['출고완료','b3'];if(fcs.some(f=>f.cuttingDate))return['생산중','b2'];if(sups.some(s=>s.arrivalDate))return['입고중','b1'];if(sups.some(s=>s.status==='sent'))return['발주중','b1'];return['준비','b0'];}
+  if(fcs.some(f=>f.shippingQty>0||_fcDoneMark(f)||(f.shipments&&f.shipments.length)))return['출고완료','b3'];if(fcs.some(f=>f.cuttingDate))return['생산중','b2'];if(sups.some(s=>s.arrivalDate))return['입고중','b1'];if(sups.some(s=>s.status==='sent'))return['발주중','b1'];return['준비','b0'];}
 
 // 오더 정렬용: 출고예정 가까운 순(위), 출고완료/결제완료는 맨 아래
 function orderShipETA(o){
-  var dates=[];Object.values(o.factorySchedules||{}).forEach(function(f){if(f.shipExpectedDate)dates.push(f.shipExpectedDate);if(f.shipDoneDate)dates.push(f.shipDoneDate);(f.shipments||[]).forEach(function(s){if(s&&s.date)dates.push(s.date);});if(f.shippingDate)dates.push(f.shippingDate);});
+  var dates=[];Object.values(o.factorySchedules||{}).forEach(function(f){if(f.shipExpectedDate)dates.push(f.shipExpectedDate);if(_fcDoneMark(f))dates.push(f.shipDoneDate);(f.shipments||[]).forEach(function(s){if(s&&s.date)dates.push(s.date);});if(f.shippingDate)dates.push(f.shippingDate);});
   if(o.shippingDate)dates.push(o.shippingDate);
   dates=dates.filter(Boolean).sort();return dates[0]||'';
 }
@@ -21263,7 +21266,7 @@ function fcLastShipDate(sch){
   // 이유: 사용자가 회차기록한 실제 출고일이 가장 정확. shipDoneDate는 '완료' 버튼 누른 시점이라 다를 수 있음.
   var ds=(sch.shipments||[]).map(function(x){return x&&x.date;}).filter(Boolean).sort(_cmpDateFn);
   if(ds.length)return ds[ds.length-1];
-  if(sch.shipDoneDate)return sch.shipDoneDate;
+  if(_fcDoneMark(sch))return sch.shipDoneDate;
   return sch.shippingDate||'';
 }
 // 결제관리·거래명세서용: 실제 출고가 일어난 날짜만 (출고예정일은 제외)
@@ -21272,7 +21275,7 @@ function fcActualShipDate(sch){
   if(!sch)return '';
   var ds=(sch.shipments||[]).map(function(x){return x&&x.date;}).filter(Boolean).sort(_cmpDateFn);
   if(ds.length)return ds[ds.length-1];
-  if(sch.shipDoneDate)return sch.shipDoneDate;
+  if(_fcDoneMark(sch))return sch.shipDoneDate;
   return ''; // shippingDate(예정)은 제외 — 실제 출고된 것만 결제 대상
 }
 // 어떤 날짜 형식(ISO "2026-05-13" / 한글 "2026. 05. 24." 등)이든 정렬·비교용 YYYYMMDD로 변환
@@ -21403,7 +21406,7 @@ function renderOrderPane(){
     const shipInfo=(function(){
       var done=[],exp=[];
       Object.values(o.factorySchedules||{}).forEach(function(fs){
-        if(fs.shipDoneDate)done.push(fs.shipDoneDate);
+        if(_fcDoneMark(fs))done.push(fs.shipDoneDate);
         (fs.shipments||[]).forEach(function(sp){if(sp&&sp.date)done.push(sp.date);});
         if(fs.shippingDate)done.push(fs.shippingDate);
         if(fs.shipExpectedDate)exp.push(fs.shipExpectedDate);
@@ -28206,7 +28209,7 @@ function _pdSetFcDone(o,fcid,field,on){
   if(!o.factorySchedules)o.factorySchedules={};
   if(!o.factorySchedules[fcid])o.factorySchedules[fcid]=(typeof mkFcSch==='function'?mkFcSch(fcid):{});
   o.factorySchedules[fcid][field]=!!on;
-  if(on&&field==='shipDone')o.factorySchedules[fcid].shipDoneDate=todayISO();
+  if(field==='shipDone'){ if(on)o.factorySchedules[fcid].shipDoneDate=todayISO(); else if(o.factorySchedules[fcid].shipDoneDate)o.factorySchedules[fcid].shipDoneDate=''; }   /* 11-12a 끄면 날짜도 지움 */
 }
 // ===== 장수 입력 모달 =====
 window._pdQtyCtx=null;
