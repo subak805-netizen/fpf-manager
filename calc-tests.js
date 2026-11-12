@@ -307,7 +307,7 @@ TEST('문제 14. 바이어스 이관: 모스트 110y · 메이드 재단 10y 0�
   var sups3 = calcSups(o.orderItems);
   CHECK('담당=원단처: 재단 발주 안 만듦', !!sups3['메이드'], false);
   CHECK('담당=원단처: 원단 110y 그대로', (((sups3['모스트']||{}).materials)||[])[0].totalYards, 110);
-  CHECK('발주서 「가공:」 줄 (컬러별 정액·담당 원단처)', _poFabProcNotes({ colors:(sups3['모스트'].materials) }, '모스트'), ['가공: 원단A 바이어스 재단 30mm (20000원 · 컬러당)']);
+  CHECK('발주서 가공 줄 (컬러별 정액·담당 원단처) — 11-12e 「가공: 」 글자 뺌', _poFabProcNotes({ colors:(sups3['모스트'].materials) }, '모스트'), ['원단A 바이어스 재단 30mm (20000원 · 컬러당)']);
   CHECK('발주서 「가공:」 줄 (담당 남의 집이면 없음)', _poFabProcNotes({ colors:(sups3['모스트'].materials) }, '메이드'), []);
   it.trimCosts.push({ id:'tcD', fabId:'f1', name:'원단A', procKind:'염색', costType:'perPcs', costPerPcs:1500, qtyPerPiece:1.2, minQty:150, factory:'모스트' });
   var blk = _poProcBlocks({ colors:(sups3['모스트'].materials) }, '모스트');
