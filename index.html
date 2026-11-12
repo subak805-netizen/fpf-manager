@@ -5134,7 +5134,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-12g';
+var APP_BUILD=/*BUILD*/'2026-11-12h';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -19915,6 +19915,9 @@ function _poMatTrim(m,it){
   return c[0]||null;
 }
 // 발주서: 부자재 그룹에 연결된 가공·염색(trimCosts) 내용 이름 모으기 (바이어스처럼 부자재 줄 아래 표시용)
+/* 11-12h 발주서 가공 줄 이름 안의 「가공」 낱말 뺌 (사용자 「이름 안에 가공 빼줘」) — 저장된 이름(아이템 가공비 줄·단가장 틀)은 그대로, 발주서 글에서만.
+   따로 떨어진 「가공」만 뺀다(「워싱가공추가」처럼 붙은 글자는 그대로). 다 빼면 빈 이름이 되면 원래 이름. */
+function _poProcNm(s){ var o=String(s==null?'':s).trim(); var r=o.replace(/(^|\s)가공(?=\s|$)/g,'$1').replace(/\s{2,}/g,' ').trim(); return r||o; }
 function _poTrimProcNotes(g,sup,order){
   var out=[],seen={};
   ((g&&g.colors)||[]).forEach(function(t){
@@ -19930,7 +19933,7 @@ function _poTrimProcNotes(g,sup,order){
       var _modeN=tc.costType||'perPcs', _feeN=+(_modeN==='tier'?tc.tierOver:(_modeN==='perPcs'?tc.costPerPcs:tc.costPerLot))||0;
       if((_modeN==='perPcs'||_modeN==='tier')&&_feeN>0)return;   /* 개당·조건부 금액은 _poProcBlocks 가 컬러별 개수와 함께 찍는다 */
       var _feeTxtN=_feeN>0?(' ('+num(_feeN)+'원'+(_modeN==='perLot'?' · 컬러당':' · 한번에')+')'):'';
-      var nm=(tc.name||'').trim();
+      var nm=_poProcNm(tc.name);   /* 11-12h */
       if(tc.procKind){ // 「가공: 이름 종류 규격」 한 줄 — 청구방식과 무관(2026-07-28 사용자 확정)
         // 요척·수량 줄은 안 씀 — 그 자재(예: 186TC) 요척과 같고, 컬러·수량은 아래 줄에 이미 나옴
         var _kind=(tc.procKind||'바이어스 재단').trim();
@@ -19961,7 +19964,7 @@ function _poFabProcNotes(g,sup){
       if(_facN!==String(sup||'').replace(/\s*\(추가발주\)\s*$/,'').trim())return;   /* 10-30a 추가발주 카드도 */
       var mode=tc.costType||'perPcs';
       if((mode==='perPcs'||mode==='tier')&&(+(mode==='tier'?tc.tierOver:tc.costPerPcs)||0))return;
-      var _nm=(tc.name||'').trim(),_kd=(tc.procKind||'').trim();
+      var _nm=_poProcNm(tc.name),_kd=(tc.procKind||'').trim();   /* 11-12h */
       if(_kd&&_nm.replace(/\s+/g,'').indexOf(_kd.replace(/\s+/g,''))>=0)_kd='';
       var lbl=[_nm,_kd,(tc.biasSpec||'').trim()].filter(Boolean).join(' ')||'가공';
       var fee=(mode==='perLot'||mode==='once')?(+tc.costPerLot||0):0;
@@ -20028,7 +20031,7 @@ function _poProcBlocks(g,sup,order){
       var fee=+(mode==='tier'?tc.tierOver:tc.costPerPcs)||0;
       if(!fee)return;
       /* 이름과 종류가 사실상 같으면(「스트링 제작」/「스트링제작」) 한 번만 */
-      var _nm=(tc.name||'').trim(), _kd=(tc.procKind||'').trim();
+      var _nm=_poProcNm(tc.name), _kd=(tc.procKind||'').trim();   /* 11-12h */
       if(_kd&&_nm.replace(/\s+/g,'').indexOf(_kd.replace(/\s+/g,''))>=0)_kd='';
       var hdr=[_nm,_kd,(tc.biasSpec||'').trim()].filter(Boolean).join(' ');
       if(!hdr)hdr='가공';
@@ -20928,9 +20931,10 @@ rollUnit:t.rollUnit||'',unitPrice:t.unitPrice||0,memo:(t._slOf?(t.memo||''):unde
   /* 2026-09-15f 가공 담당 집 발주서 — 「가공: 이름 (금액)」 + 어디서 받은 자재 + 컬러 */
   if(_procs.length){
     _procs.forEach(function(pm){
-      var _kd=String(pm.procKind||'').trim(); if(_kd&&String(pm.name||'').replace(/\s+/g,'').indexOf(_kd.replace(/\s+/g,''))>=0)_kd='';   /* 이름에 종류가 이미 들어 있으면 한 번만(「28mm 바이어스 재단 바이어스 재단」) */
+      var _pmNm=_poProcNm(pm.name);   /* 11-12h */
+      var _kd=String(pm.procKind||'').trim(); if(_kd&&_pmNm.replace(/\s+/g,'').indexOf(_kd.replace(/\s+/g,''))>=0)_kd='';   /* 이름에 종류가 이미 들어 있으면 한 번만(「28mm 바이어스 재단 바이어스 재단」) */
       var _isY=(pm.procUnit==='y');   /* 09-21a 원단 가공 카드 = 야드 · 방식 상관없이 컬러별 야드를 적는다(받는 집이 몇 야드 오는지 알아야 함) */
-      var hdr=[pm.name,_kd,(_isY?(pm.procSpec||''):'')].filter(Boolean).join(' ');
+      var hdr=[_pmNm,_kd,(_isY?(pm.procSpec||''):'')].filter(Boolean).join(' ');
       var _ft=(showPrice&&+pm.procFee>0)?(' ('+num(+pm.procFee)+'원'+(pm.procMode==='perLot'?' · 컬러당':(pm.procMode==='once'?' · 한번에':(_isY?' · 야드당':' · 개당')))+')'):'';
       var _pTot=0; (pm.procColors||[]).forEach(function(c){ _pTot+=(+c.qty||0); }); _pTot=Math.round(_pTot*100)/100;
       var _pMin=(_isY&&+pm.procMin>0&&_pTot<+pm.procMin)?(' · 최소 '+(Math.round(+pm.procMin*100)/100)+'y (합계 '+_pTot+'y)'):'';
@@ -23851,7 +23855,7 @@ function _poPreCheck(o,sn,txt,txtM){
       if(t.orderType==='zipper'&&String(t.sliderLogoText||'').trim()&&!t.hasSliderLogo)add({k:'warn',t:pre+nm+' · 지퍼 로고',d:'「'+String(t.sliderLogoText).trim()+'」을 적었는데 각인 체크가 꺼져 있어서 발주서에 안 나가요.',iid:iid,tid:t.id});
     });
     /* 가공비 줄 — 이 집이 맡은 것만(맡은 집이 다르면 그 집 카드로 감) */
-    (it.trimCosts||[]).forEach(function(tc){ if(!tc)return; var nm=String(tc.name||tc.procKind||'').trim(); if(!nm)return;
+    (it.trimCosts||[]).forEach(function(tc){ if(!tc)return; var nm=_poProcNm(tc.name||tc.procKind||''); if(!nm)return;   /* 11-12h 발주서와 같은 이름 */
       var src=null; if(tc.trimId){ src=trims.find(function(x){return x.id===tc.trimId;}); if(!src||!onCardT(src))return; } else if(tc.fabId){ src=fabs.find(function(x){return x.id===tc.fabId;}); if(!src||!onCardF(src))return; } else return;
       var fac=String(tc.factory||'').trim(); if(fac&&fac!==base)return;
       if(!_poChkHas(T,nm))add({k:'miss',t:pre+(src.name||'')+' · 가공',d:'「'+nm+'」 가공비 줄이 발주서에 없어요.',iid:iid,tid:tc.trimId||''});
