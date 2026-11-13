@@ -5134,7 +5134,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-13a';
+var APP_BUILD=/*BUILD*/'2026-11-13b';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -7038,7 +7038,7 @@ function renderLinesheet(){
   var secSeasons=seasonSel?[seasonSel]:seasons.slice();
   var noSeason=list.some(function(it){return !it.season;});
   if(!seasonSel&&noSeason)secSeasons=secSeasons.concat(['(시즌 미지정)']);
-  var codeNum=function(it){var m=(it.code||'').match(/(\d+)/);return m?parseInt(m[1]):-1;};
+  var codeNum=function(it){return itemCodeSortNum(it.code);};   /* 11-13b 연도 품번(TF27-01)은 옛 품번 위 */
   secSeasons.forEach(function(ss){
     var inSeason=list.filter(function(it){return ss==='(시즌 미지정)'?!it.season:(it.season===ss);});
     if(!inSeason.length)return;
@@ -17875,7 +17875,7 @@ function renderCSSummary(){
     return true;
   });
   // 품번 숫자 기준 내림차순 정렬 (높은 숫자가 위로)
-  const codeNum=(it)=>{const m=(it.code||'').match(/(\d+)/);return m?parseInt(m[1]):-1;};
+  const codeNum=(it)=>itemCodeSortNum(it.code);   /* 11-13b 연도 품번(TF27-01)은 옛 품번 위 */
   filtered.sort((a,b)=>codeNum(b)-codeNum(a));
   if(!filtered.length){el.innerHTML='<div class="empty">조건에 맞는 아이템 없음</div>';return;}
   // 원가 계산 (양산 1장당 분산 — 롤·봉·미니멈을 수율로 나눠 현실적 단가)
@@ -37040,10 +37040,25 @@ function onConfirmPickupToggle(orderId,supplierName,checked){
 
 function getBrandAbbr(id){return(getBrands().find(x=>x.id===id)||{}).abbr||'';}
 function getBrandBizNum(id){return(getBrands().find(x=>x.id===id)||{}).bizNum||'';}
-function suggestItemCode(brandId){
+/* 11-13b 연도별 품번 (사용자 「27년도는 품번 1부터 다시」 → 모양 「TF27-01」 선택).
+   시즌 앞 두 자리가 CODE_YEAR_FROM(27) 이상이면 「약자+연도-번호」, 같은 브랜드·같은 해 품번 중 가장 큰 번호 + 1.
+   연도가 품번에 들어가서 해가 달라도 안 겹친다. 26년 이전(또는 시즌 없음)은 예전처럼 이어서 매김 — 연도 품번은 그 계산에서 뺀다.
+   ⚠️ 품번 숫자로 정렬하는 곳은 itemCodeSortNum 하나로 (첫 숫자만 읽으면 TF27-01 이 「27번」으로 섞임) */
+var CODE_YEAR_FROM=27;
+var _YR_CODE_RE=/^[A-Za-z]+(\d{2})-(\d+)$/;
+function _codeYearOf(season){ var m=String(season||'').trim().match(/^(\d{2})/); return m?+m[1]:null; }
+function itemCodeSortNum(code){ var s=String(code||'').trim(), m=s.match(_YR_CODE_RE); if(m)return 1000000+(+m[1])*1000+(+m[2]); m=s.match(/(\d+)/); return m?parseInt(m[1]):-1; }
+function suggestItemCode(brandId,season){
   const abbr=getBrandAbbr(brandId);if(!abbr)return '';
+  const items=Object.values(S.items||{}).filter(it=>it.brandId===brandId&&it.code);
+  const yr=_codeYearOf(season);
+  if(yr!=null&&yr>=CODE_YEAR_FROM){
+    const pre=(abbr+yr+'-').toUpperCase();
+    const ns=items.map(it=>{const c=String(it.code).trim().toUpperCase();if(c.indexOf(pre)!==0)return 0;const m=c.slice(pre.length).match(/^(\d+)$/);return m?parseInt(m[1]):0;}).filter(n=>n>0);
+    return abbr+yr+'-'+String((ns.length?Math.max(...ns):0)+1).padStart(2,'0');
+  }
   const re=/(\d+)$/;
-  const nums=Object.values(S.items||{}).filter(it=>it.brandId===brandId&&it.code)
+  const nums=items.filter(it=>!_YR_CODE_RE.test(String(it.code).trim()))
     .map(it=>{const m=it.code.match(re);return m?parseInt(m[1]):0;}).filter(n=>n>0);
   return abbr+String((nums.length?Math.max(...nums):0)+1).padStart(2,'0');
 }
@@ -37055,7 +37070,7 @@ function autoFillCode(currentId){
   const brandId=document.getElementById('f-brand')?.value;
   if(!brandId){showToast('브랜드를 먼저 선택하세요');return;}
   const el=document.getElementById('f-cd');
-  if(el){el.value=suggestItemCode(brandId);checkCodeDupUI(currentId);scheduleDraft();}
+  if(el){el.value=suggestItemCode(brandId,(document.getElementById('f-ss')||{}).value||'');checkCodeDupUI(currentId);scheduleDraft();}
 }
 function checkCodeDupUI(currentId){
   const el=document.getElementById('f-cd');const dup=document.getElementById('f-cd-dup');
