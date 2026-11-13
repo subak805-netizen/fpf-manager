@@ -5135,7 +5135,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-13d';
+var APP_BUILD=/*BUILD*/'2026-11-13e';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -9917,6 +9917,9 @@ function _pbCalcApply(o,key,unit){
   else if(key==='lace'){o.orderType='roll';o.isLace=true;}
   else if(key==='loop'){o.orderType='yard';o.isButtonLoop=true;o.plainYard=false;}   /* 09-17k: 전용 칸 종류(지퍼·단추·…)도 고를 수 있게 — 사용자 「다 풀어줘」 */
   else if(_PB_CALC_FIXED[key]){o.orderType=key;o.isButtonLoop=false;}
+  /* 11-13e 단추↔스냅 바꿀 때 로고도 옮김 — 로고 칸이 달라서(hasButtonLogo/hasSnapLogo) 그냥 두면 발주서에서 로고가 조용히 빠진다. 적어 둔 쪽은 안 덮음 */
+  if(key==='snap'&&!String(o.snapLogoText||'').trim()&&String(o.buttonLogoText||'').trim()){ o.snapLogoText=o.buttonLogoText; o.hasSnapLogo=!!o.hasButtonLogo; }
+  if(key==='button'&&!String(o.buttonLogoText||'').trim()&&String(o.snapLogoText||'').trim()){ o.buttonLogoText=o.snapLogoText; o.hasButtonLogo=!!o.hasSnapLogo; }
 }
 function _pbCalcUnit(key,cur){ if(key==='jeol')return '절'; if(key==='bundle')return '묶음'; if(key==='thread')return '콘'; if(key==='roll'||key==='lace')return 'R'; if(key==='bias'||key==='loop')return 'Y'; if(_PB_CALC_FIXED[key])return (cur==='Y'||cur==='절'||cur==='R'||cur==='콘')?'ea':(cur||'ea'); if(cur==='절'||cur==='R')return 'Y'; if(cur==='콘')return 'ea'; return cur||'ea'; }
 /* 이 품목을 쓰는 아이템 줄 목록 (거래처+이름) — 표 그릴 때 한 번만 훑어 캐시 */
@@ -15551,19 +15554,38 @@ function trimCardNewGen(t,i,colorSec){
   h+='</div></div>';
   return h;
 }
+/* ===== 11-13e 스냅 면 = 단가장 「세트」 (사용자 「스냅 세트를 체크 안하면 A면,B면 나뉘는거 안돼게」) =====
+   단가장 그 줄에 세트 구성(＋ 세트 → setItems)이 있으면 그 글자(A·B·C…)만 면으로 나눈다. 세트가 없으면 면 없이 한 덩어리, 수량 단위 「개」.
+   단가장에 없는 스냅은 면 처리를 이미 적어 둔 것만 예전처럼 A~D (TF11 「썬그립 스냅」 A 로고·B 염색… — 숨기면 발주서에서 조용히 빠짐).
+   ⚠️ 면 자료(snapFaces)는 지우지 않고 숨기기만 — 나중에 세트를 넣으면 다시 보인다. 돈 계산(개수×단가)은 그대로, 단위 글자만 바뀐다.
+   발주 자재(o.suppliers[].materials)엔 supplier 가 없어서 itemId·trimId 로 아이템 줄의 거래처를 찾는다. */
+function _snapSup(t){ if(!t)return ''; if(t.supplier)return t.supplier; try{ var it=t.itemId&&S.items[t.itemId]; var tr=it&&(it.trims||[]).find(function(x){return x&&x.id===t.trimId;}); return (tr&&tr.supplier)||''; }catch(e){ return ''; } }
+function _snapSetLetters(t){
+  var sup=_snapSup(t), m=null;
+  try{ m=sup?_pbFindTrimMat(sup,t):null; }catch(e){}
+  if(m&&_pbSet(m).length)return _pbSet(m).map(function(x,k){ var n=String((x&&x.n)||'').trim(); return n||String.fromCharCode(65+k); });
+  var sf=Array.isArray(t&&t.snapFaces)?t.snapFaces:[];
+  var filled=sf.some(function(f){ return f&&f.enabled!==false&&(String(f.process||'').trim()||String(f.color||'').trim()||(f.qty!=null&&f.qty!==''&&+f.qty>0)||f.hasDye); });
+  return filled?['A','B','C','D']:[];
+}
+/* 11-13e 수량 단위 — 세트 구성 있으면 「세트」. 없으면 단가장 단위를 따름(개발스냅 15mm 단위 「세트」 → 그대로 · 썬그립 9mm A 「ea」 → 「개」).
+   단가장에 없는 옛 스냅은 예전처럼 「세트」 (보낸 발주서 글이 바뀌지 않게) */
+function _snapUnit(t){ if(_snapSetLetters(t).length)return '세트'; var sup=_snapSup(t),m=null; try{ m=sup?_pbFindTrimMat(sup,t):null; }catch(e){} if(!m)return '세트'; var u=String(m.unit||'').trim().toLowerCase(); return (u==='세트'||u==='set')?'세트':'개'; }
+function _snapFacesOn(t){ var sf=Array.isArray(t&&t.snapFaces)?t.snapFaces:[]; return _snapSetLetters(t).map(function(l){ return sf.filter(function(f){return f&&f.face===l;})[0]||{face:l,enabled:true,process:'',color:'',qty:null,hasDye:false}; }); }
 // 스냅 새 카드 (기본/디테일=면별·로고/적용/옵션)
 function snapCardNew(t,i,colorSec){
   var e=esc,st=trimUIState(t),tab=st.tab,T=function(n){return tab===n?' on':'';};
   var priceWarn=!trimHasPrice(t);
-  var spec='세트 · '+(priceWarn?'<span class="warn">단가 없음</span>':('단가 '+num(trimDispPrice(t))+'원'))+(function(){ var w=_trimWithProcPerPcs(t); return w?' · 가공 포함 장당 '+num(w.total)+'원':''; })();
-  var sf=Array.isArray(t.snapFaces)&&t.snapFaces.length===4?t.snapFaces:[{face:'A',enabled:true},{face:'B',enabled:true},{face:'C',enabled:true},{face:'D',enabled:true}];
+  var _sL=_snapSetLetters(t), sf=_snapFacesOn(t);   /* 11-13e 세트 있을 때만 면 */
+  var snapDef=(typeof brandSnapLogo==='function')?brandSnapLogo():'';
+  var spec=(_sL.length?'세트 · ':('벌당 '+(t.qtyPerPiece||1)+' · '))+(priceWarn?'<span class="warn">단가 없음</span>':('단가 '+num(trimDispPrice(t))+'원'))+(function(){ var w=_trimWithProcPerPcs(t); return w?' · 가공 포함 장당 '+num(w.total)+'원':''; })();
   var dq=t.qtyPerPiece||1;
   var sfRows=sf.map(function(f,fi){var d=f.enabled?'':' disabled';
-    return '<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px"><label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:12px;font-weight:700;color:#0e7490;min-width:30px;flex-shrink:0"><input type="checkbox" data-snap-face-enabled="'+fi+'" '+(f.enabled?'checked':'')+' onchange="onSnapFaceChange('+i+','+fi+')" style="width:15px;height:15px">'+e(f.face)+'면</label>'
-      +'<input data-snap-face-process="'+fi+'" value="'+e(f.process||'')+'" placeholder="예: 니켈도금" style="flex:1;font-size:11px;padding:4px 5px;min-width:0"'+d+'>'
-      +'<input data-snap-face-color="'+fi+'" value="'+e(f.color||'')+'" placeholder="색상" style="width:56px;font-size:11px;padding:4px 5px;flex-shrink:0"'+d+'>'
-      +'<input data-snap-face-qty="'+fi+'" type="number" value="'+(f.qty!=null&&f.qty!==''?f.qty:'')+'" placeholder="'+dq+'" min="0" step="0.5" style="width:46px;font-size:11px;padding:4px 4px;text-align:center;flex-shrink:0"'+d+'>'
-      +'<label style="display:flex;align-items:center;gap:2px;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0"'+d+'><input type="checkbox" data-snap-face-dye="'+fi+'" '+(f.hasDye?'checked':'')+d+' style="width:14px;height:14px"></label></div>';
+    return '<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px"><label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:12px;font-weight:700;color:#0e7490;min-width:30px;flex-shrink:0"><input type="checkbox" data-snap-face-enabled="'+e(f.face)+'" '+(f.enabled?'checked':'')+' onchange="onSnapFaceChange('+i+',\''+e(f.face)+'\')" style="width:15px;height:15px">'+e(f.face)+'면</label>'
+      +'<input data-snap-face-process="'+e(f.face)+'" value="'+e(f.process||'')+'" placeholder="예: 니켈도금" style="flex:1;font-size:11px;padding:4px 5px;min-width:0"'+d+'>'
+      +'<input data-snap-face-color="'+e(f.face)+'" value="'+e(f.color||'')+'" placeholder="색상" style="width:56px;font-size:11px;padding:4px 5px;flex-shrink:0"'+d+'>'
+      +'<input data-snap-face-qty="'+e(f.face)+'" type="number" value="'+(f.qty!=null&&f.qty!==''?f.qty:'')+'" placeholder="'+dq+'" min="0" step="0.5" style="width:46px;font-size:11px;padding:4px 4px;text-align:center;flex-shrink:0"'+d+'>'
+      +'<label style="display:flex;align-items:center;gap:2px;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0"'+d+'><input type="checkbox" data-snap-face-dye="'+e(f.face)+'" '+(f.hasDye?'checked':'')+d+' style="width:14px;height:14px"></label></div>';
   }).join('');
   var prev=sf.filter(function(f){return f.enabled&&f.process;}).map(function(f){return f.face+'면 — '+e(f.process)+(f.color?' ('+e(f.color)+')':'')+(f.hasDye?'':'');}).join(' · ');
   var h='<div class="fab-row tcd'+(st.open?' tcd-open':'')+'" id="tr-'+i+'" style="border-left:3px solid #0891b2">';
@@ -15579,12 +15601,13 @@ function snapCardNew(t,i,colorSec){
     +'<div class="tcd-calcbar"><span class="ch">계산</span>'
     +'<div class="cf"><label>기본 벌당<span class="tcd-flow"><span class="fl-po">발</span></span></label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece>0?t.qtyPerPiece:'')+'" step="0.01" placeholder="0"></div>'
     +'<div class="cf"><label>단가<span class="tcd-flow"><span class="fl-cost">원</span></span></label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
-    +'<div class="conv">max(면별 요척) × 장수 <span style="opacity:.7">(로스는 발주서)</span></div></div>'
+    +'<div class="conv">'+(_sL.length?'max(면별 요척) × 장수':'벌당 × 장수')+' <span style="opacity:.7">(로스는 발주서)</span></div></div>'
     +'</div>';
   h+='<div class="tcd-pane'+T('detail')+'" data-pane="detail">'
-    +'<div style="font-size:10.5px;font-weight:700;color:#0369a1;margin-bottom:5px">면별 처리 <span style="font-weight:400;color:#0369a1">가공·색상·요척(비우면 기본)·염색</span></div>'+sfRows
-    +'<div class="tcd-dbox'+(t.hasSnapLogo?'':' tcd-logooff')+'" data-logobox style="background:#cffafe;margin-top:6px"><div class="dh" style="color:#0369a1"><label style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:10.5px;color:#0369a1;font-weight:700"><input type="checkbox" data-f="hasSnapLogo" '+(t.hasSnapLogo?'checked':'')+' onchange="_logoSync(this)" style="width:15px;height:15px"> 로고</label>'+_logoStHTML(!!t.hasSnapLogo)+'</div><div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>로고 내용</label><input data-f="snapLogoText" data-logotxt oninput="_logoTxtIn(this)" value="'+e(t.snapLogoText||'')+'" placeholder="예: 12시 THE"></div></div><div class="tcd-logohint">'+e(_logoHintTxt(!!t.hasSnapLogo,t.snapLogoText||''))+'</div></div>'
-    +'<div class="tcd-prev"><b>'+e(t.snapSize||'?')+' '+e(t.name||'스냅')+'</b> · '+(prev||'면별 처리 입력')+'</div></div>';
+    +(_sL.length?('<div style="font-size:10.5px;font-weight:700;color:#0369a1;margin-bottom:5px">면별 처리 <span style="font-weight:400;color:#0369a1">가공·색상·요척(비우면 기본)·염색</span></div>'+sfRows)
+      :'<div style="font-size:11px;color:var(--t2);margin-bottom:6px;line-height:1.45">세트가 아니라 면(A·B·C·D)을 나누지 않아요. 나누려면 단가장 이 줄에 「＋ 세트」를 넣으세요.</div>')
+    +'<div class="tcd-dbox'+(t.hasSnapLogo?'':' tcd-logooff')+'" data-logobox style="background:#cffafe;margin-top:6px"><div class="dh" style="color:#0369a1"><label style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:10.5px;color:#0369a1;font-weight:700"><input type="checkbox" data-f="hasSnapLogo" '+(t.hasSnapLogo?'checked':'')+' onchange="_logoSync(this)" style="width:15px;height:15px"> 로고</label>'+_logoStHTML(!!t.hasSnapLogo)+'</div><div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>로고 내용</label><input data-f="snapLogoText" data-logotxt data-logodef="'+e(snapDef)+'" oninput="_logoTxtIn(this)" value="'+e(t.snapLogoText||(t.hasSnapLogo?snapDef:''))+'" placeholder="예: 12시 THE"></div></div><div class="tcd-logohint">'+e(_logoHintTxt(!!t.hasSnapLogo,t.snapLogoText||(t.hasSnapLogo?snapDef:'')))+'</div></div>'
+    +'<div class="tcd-prev"><b>'+e(t.snapSize||'?')+' '+e(t.name||'스냅')+'</b> · '+(prev||(_sL.length?'면별 처리 입력':'면 안 나눔'))+'</div></div>';
   h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+trimApplyPane(i,t,colorSec,mkTrimSizeSec(i,t))+'</div>';
   h+=trimCostTabPane(i,t,T);
   h+='<div class="tcd-pane'+T('opts')+'" data-pane="opts">'+mkTrimExtrasSec(i,t)+'</div>';
@@ -15928,6 +15951,9 @@ function _logoHintTxt(on,txt){ return on?(String(txt||'').trim()?'':'로고 내�
 function _logoSync(el){
   var bx=el&&el.closest&&el.closest('[data-logobox]'); if(!bx)return;
   var cb=bx.querySelector('input[type=checkbox]'), tx=bx.querySelector('[data-logotxt]'), on=!!(cb&&cb.checked);
+  /* 11-13e 체크를 켰는데 내용이 비면 브랜드 기본값(더프루토: 단추 「12시 THE / 6시 FRUTO.」·스냅 「THEFRUTO 기본하단로고」).
+     꺼진 채로는 안 채움 — 채워 두면 저장돼서 「적었는데 체크 꺼짐」 경고가 뜬다. 적어 둔 글은 안 바꿈. */
+  if(on&&tx&&!String(tx.value||'').trim()&&tx.getAttribute('data-logodef'))tx.value=tx.getAttribute('data-logodef');
   bx.classList.toggle('tcd-logooff',!on);
   var st=bx.querySelector('.tcd-logost'); if(st){ st.classList.toggle('on',on); st.textContent=on?'발주서에 나가요':'발주서에 안 나가요'; }
   var hn=bx.querySelector('.tcd-logohint'); if(hn)hn.textContent=_logoHintTxt(on,tx&&tx.value);
@@ -15960,7 +15986,7 @@ function buttonCardNew(t,i,colorSec){
     +'<div class="cf"><label>벌당개수<span class="tcd-flow"><span class="fl-po">발</span><span class="fl-cost">원</span></span></label><input data-f="qtyPerPiece" type="number" value="'+(t.qtyPerPiece>0?t.qtyPerPiece:'')+'" step="0.01" placeholder="0"></div>'
     +'<div class="cf"><label>단가<span class="tcd-flow"><span class="fl-cost">원</span><span class="fl-pb">장</span></span></label><input data-f="unitPrice" type="number" value="'+(t.unitPrice||0)+'"></div>'
     +'<div class="conv">벌당 × 장수 <span style="opacity:.7">(로스는 발주서)</span></div></div>'
-    +'<div class="tcd-dbox'+(t.hasButtonLogo?'':' tcd-logooff')+'" data-logobox style="background:#f3e8ff;margin-top:8px"><div class="dh" style="color:#6d28d9"><label style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:10.5px;color:#6d28d9;font-weight:700"><input type="checkbox" data-f="hasButtonLogo" '+(t.hasButtonLogo?'checked':'')+' onchange="_logoSync(this)" style="width:15px;height:15px"> 로고 인쇄</label>'+_logoStHTML(!!t.hasButtonLogo)+'</div><div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>로고 내용 (브랜드별 저장)</label><input data-f="buttonLogoText" data-logotxt oninput="_logoTxtIn(this)" value="'+e(t.buttonLogoText||logoDef)+'" placeholder="예: 12시 THE / 6시 FRUTO"></div></div><div class="tcd-logohint">'+e(_logoHintTxt(!!t.hasButtonLogo,t.buttonLogoText||logoDef))+'</div></div></div>';
+    +'<div class="tcd-dbox'+(t.hasButtonLogo?'':' tcd-logooff')+'" data-logobox style="background:#f3e8ff;margin-top:8px"><div class="dh" style="color:#6d28d9"><label style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:10.5px;color:#6d28d9;font-weight:700"><input type="checkbox" data-f="hasButtonLogo" '+(t.hasButtonLogo?'checked':'')+' onchange="_logoSync(this)" style="width:15px;height:15px"> 로고 인쇄</label>'+_logoStHTML(!!t.hasButtonLogo)+'</div><div class="tcd-frow" style="margin-bottom:0"><div class="tcd-fld tcd-grow"><label>로고 내용 (브랜드별 저장)</label><input data-f="buttonLogoText" data-logotxt data-logodef="'+e(logoDef)+'" oninput="_logoTxtIn(this)" value="'+e(t.buttonLogoText||(t.hasButtonLogo?logoDef:''))+'" placeholder="예: 12시 THE / 6시 FRUTO"></div></div><div class="tcd-logohint">'+e(_logoHintTxt(!!t.hasButtonLogo,t.buttonLogoText||(t.hasButtonLogo?logoDef:'')))+'</div></div></div>';
   h+='<div class="tcd-pane'+T('apply')+'" data-pane="apply">'+trimApplyPane(i,t,colorSec,mkTrimSizeSec(i,t)+mkSizeRatesSec(i,t,'예: 15mm','11mm:50, 15mm:80, 20mm:120'))+'</div>';
   h+='<div class="tcd-pane'+T('cost')+'" data-pane="cost">'+inlineTrimCostsHTML(t)+'<div style="margin-top:'+(_gcN?'6px':'2px')+'"><button type="button" class="btn s" onclick="addTrimCostFor('+i+')" style="background:#fef9c3;border-color:#fde68a;color:#854f0b;font-size:11.5px;font-weight:700;padding:7px 12px">＋ 가공비 추가 (로고·염색 등)</button></div>'+(!_gcN?'<div style="font-size:10.5px;color:var(--t2);margin-top:7px">염색비·로고비 등 이 단추에 붙는 가공비를 여기서 추가하세요.</div>':'')+'</div>';
   h+='<div class="tcd-pane'+T('opts')+'" data-pane="opts">'+mkTrimExtrasSec(i,t)+'</div>';
@@ -17307,21 +17333,20 @@ function colTR(){document.querySelectorAll('[id^=tr-]').forEach((r)=>{const i=+r
     formTrims[i].qtyPerPiece=+g('qtyPerPiece')||0;/*빈칸이면 1 넣던 것 제거*/
     formTrims[i].unitPrice=+g('unitPrice')||0;
     if(g('buffer')!=null)formTrims[i].buffer=+(g('buffer'))||0; // 로스칸 제거됨
-    formTrims[i].unit='세트';
     var _slCb=r.querySelector('[data-f=hasSnapLogo]');
     formTrims[i].hasSnapLogo=!!(_slCb&&_slCb.checked);
     formTrims[i].snapLogoText=g('snapLogoText')||'';
-    var _sfaces=[];var _sfnms=['A','B','C','D'];
-    for(var _sfi=0;_sfi<4;_sfi++){
-      var _sfCb=r.querySelector('[data-snap-face-enabled="'+_sfi+'"]');
-      var _sfPr=r.querySelector('[data-snap-face-process="'+_sfi+'"]');
-      var _sfCl=r.querySelector('[data-snap-face-color="'+_sfi+'"]');
-      var _sfQt=r.querySelector('[data-snap-face-qty="'+_sfi+'"]');
-      var _sfDy=r.querySelector('[data-snap-face-dye="'+_sfi+'"]');
-      var _sfQval=_sfQt&&_sfQt.value!==''?+_sfQt.value:null;
-      _sfaces.push({face:_sfnms[_sfi],enabled:_sfCb?_sfCb.checked:true,process:_sfPr?_sfPr.value:'',color:_sfCl?_sfCl.value:'',qty:_sfQval,hasDye:!!(_sfDy&&_sfDy.checked)});
-    }
+    /* 11-13e 면 칸은 세트 글자만 그려짐 → 그려진 줄만 그 글자 자리에 갱신, 안 그려진 면 자료는 그대로 둠(세트 넣으면 다시 보임) */
+    var _sfaces=(Array.isArray(formTrims[i].snapFaces)?formTrims[i].snapFaces:[]).filter(Boolean).map(function(f){return Object.assign({},f);});
+    Array.prototype.forEach.call(r.querySelectorAll('[data-snap-face-enabled]'),function(_sfCb){
+      var L=_sfCb.getAttribute('data-snap-face-enabled'); var q=function(a){ return r.querySelector('[data-snap-face-'+a+'="'+L+'"]'); };
+      var _sfPr=q('process'),_sfCl=q('color'),_sfQt=q('qty'),_sfDy=q('dye');
+      var o={face:L,enabled:!!_sfCb.checked,process:_sfPr?_sfPr.value:'',color:_sfCl?_sfCl.value:'',qty:(_sfQt&&_sfQt.value!=='')?+_sfQt.value:null,hasDye:!!(_sfDy&&_sfDy.checked)};
+      var k=-1; _sfaces.forEach(function(f,j){ if(f.face===L)k=j; }); if(k>=0)_sfaces[k]=o; else _sfaces.push(o);
+    });
+    _sfaces.sort(function(a,b){ return String(a.face).localeCompare(String(b.face)); });
     formTrims[i].snapFaces=_sfaces;
+    formTrims[i].unit=(_snapUnit(formTrims[i])==='세트')?'세트':'ea';   /* 11-13e 세트 아니면 단가장 단위 */
   }else if(tp==='bias'){
     formTrims[i].name='바이어스재단';
     formTrims[i].biasSpec=g('biasSpec')||'';
@@ -18310,7 +18335,8 @@ if(_cd){var _dup=Object.values(S.items).find(x=>x.id!==id&&(x.code||'').trim().t
   // 브랜드 저장
   item.brandId=document.getElementById('f-brand')?.value||'';
   // 단추 로고 내용·스타일을 브랜드별로 저장 (다음에 같은 브랜드 단추 로고 자동 불러옴)
-  if(item.brandId){var _btnLogo=(item.trims||[]).find(function(t){return t.orderType==='button'&&t.hasButtonLogo&&(t.buttonLogoText||'').trim();});if(_btnLogo){if(!S.brandConfig)S.brandConfig={};if(!S.brandConfig[item.brandId])S.brandConfig[item.brandId]={};if((_btnLogo.buttonLogoText||'').trim())S.brandConfig[item.brandId].buttonLogo=_btnLogo.buttonLogoText.trim();}}
+  /* 11-13e 아이템 저장 때 단추 로고 글을 브랜드 기본값으로 「배우던」 것 끔 — 스냅을 단추 종류로 둔 줄(썬그립 AB 9mm 「THEFRUTO 기본하단로고」)을
+     배워서 더프루토 단추 기본값이 바뀌어 있었다. 기본값은 brandButtonLogo/brandSnapLogo (더프루토 고정). */
   // === 새 아이템 등록 시 샘플 자동 생성은 제거됨 (사용자가 필요할 때 샘플 탭에서 추가) ===
   var isNewItem=!editItemId;
   try{var _uw=pbCheckUnits(item);if(_uw.length&&!_silent)showToast('단위 확인 — '+_uw.join(' / ')+' (다른 단위로 저장돼요)',7000);}catch(e){}
@@ -19087,7 +19113,8 @@ function _calcTrimNeedRaw(t,qty){var extras=trimExtrasCost(t,qty);
   if(t.orderType==='snap'){
     const defaultQpp=t.qtyPerPiece||1;
     const buf=((t.buffer??TRIM_LOSS_PCT)/100);
-    const faces=Array.isArray(t.snapFaces)?t.snapFaces.filter(function(f){return f.enabled;}):[];
+    const _sL=_snapSetLetters(t);   /* 11-13e 세트 글자만 면 — 세트 아니면 면 없음(벌당×장수), 단위 개 */
+    const faces=_snapFacesOn(t).filter(function(f){return f.enabled;});
     // 면별 요척이 있으면 각 면의 발주수량 계산
     const faceQtys={};
     faces.forEach(function(f){
@@ -19097,7 +19124,7 @@ function _calcTrimNeedRaw(t,qty){var extras=trimExtrasCost(t,qty);
     // 전체 세트 수 = 최대 면 요척 기준 (세트로 묶이므로)
     const allSame=faces.every(function(f){return !f.qty||+f.qty===defaultQpp;});
     const n=allSame?Math.ceil(defaultQpp*qty*(1+buf)):Math.max.apply(null,Object.values(faceQtys).concat([0]));
-    return{qty:n,unit:'세트',cost:n*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isSnap:true,faceQtys,allSameFaceQty:allSame};
+    return{qty:n,unit:_snapUnit(t),cost:n*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isSnap:true,snapSet:_sL.length>0,faceQtys,allSameFaceQty:allSame};
   }
   if(t.orderType==='roll'){const ty=t.consumptionPerPiece*qty*_pcsPG(t)*(1+((t.buffer??TRIM_LOSS_PCT)/100));const rolls=Math.ceil(ty/(t.yardsPerRoll||1));return{rolls,ty:parseFloat(ty.toFixed(2)),ay:rolls*(t.yardsPerRoll||1),cost:rolls*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:true};}if(t.orderType==='yard'){const ty=(t.consumptionPerPiece||0.5)*qty*_pcsPG(t)*(1+((t.buffer??TRIM_LOSS_PCT)/100));if(t.yardsPerJeol>0){const jeol=Math.ceil(ty/t.yardsPerJeol);const finalY=jeol*t.yardsPerJeol;return{qty:finalY,jeol:jeol,unit:(t.packUnit||'yard'),cost:finalY*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isJeol:true,originalNeed:parseFloat(ty.toFixed(2)),yardsPerJeol:t.yardsPerJeol};}const ay=Math.ceil(ty);return{qty:ay,unit:(t.packUnit||'yard'),cost:ay*(t.unitPrice||0)+extras,extrasCost:extras,isYard:true,isRoll:false,originalNeed:parseFloat(ty.toFixed(2))};}if(t.orderType==='thread'){const minQ=t.threadMin||30;const perColor=t.threadQty||10;return{qty:perColor,unit:'개',cost:perColor*(t.unitPrice||0)+extras,extrasCost:extras,isRoll:false,isThread:true,minQ:minQ,perColor:perColor};}
   // 케어라벨: 의뢰수량 그대로 + 사이즈별 buffer (사이즈별 분배는 발주서에서)
@@ -20756,7 +20783,7 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
       const sGrp={};const sGrpOrder=[];
       for(const sn2 of snaps){
         /* 11-01 머리에 찍히는 용도·면 처리·로고·면별 수량 모양도 기준에 (예전엔 이름+호수만 → 로고 있는 스냅과 없는 스냅이 섞이면 첫 번째 것만) */
-        const _sfSig=(Array.isArray(sn2.snapFaces)?sn2.snapFaces:[]).filter(function(f){return f&&f.enabled&&f.process;}).map(function(f){return [f.face,f.process,f.color||'',f.hasDye?1:0].join(':');}).join(',');
+        const _sfSig=_snapFacesOn(sn2).filter(function(f){return f&&f.enabled&&f.process;}).map(function(f){return [f.face,f.process,f.color||'',f.hasDye?1:0].join(':');}).join(',');
         const sk=(sn2.name||'')+'|'+(sn2.snapSize||'')+'|'+String(sn2.part||'').trim()+'|'+_sfSig+'|'+(sn2.hasSnapLogo&&sn2.snapLogoText?sn2.snapLogoText:'')+'|'+((sn2.calc&&sn2.calc.allSameFaceQty===false)?'d':'s');
         if(!sGrp[sk]){sGrp[sk]={...sn2,items:[]};sGrpOrder.push(sk);}
         sGrp[sk].items.push(sn2);
@@ -20771,7 +20798,8 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
         L.push(shdr);
         var _snAt=showPrice?_poAtGroup(sg.colors||[sg]):''; if(_snAt)L.push(_snAt);
         // 면별 처리방법 — 면별 수량 + 염색 표시
-        const sfData=Array.isArray(sg.snapFaces)&&sg.snapFaces.length?sg.snapFaces:[];
+        const sfData=_snapFacesOn(sg);   /* 11-13e 세트 글자만 */
+        const _sU=_snapUnit(sg);   /* 11-13e 세트 아니면 단가장 단위(세트/개) */
         const sfEnabled=sfData.filter(function(f){return f.enabled&&f.process;});
         /* 11-01 면별 수량은 묶인 컬러 전부 합 (예전엔 첫 컬러 것만) */
         const faceQtysCalc={}; sg.items.forEach(function(x){ var fq=(x&&x.calc&&x.calc.faceQtys)||{}; Object.keys(fq).forEach(function(k){ faceQtysCalc[k]=(faceQtysCalc[k]||0)+(+fq[k]||0); }); });
@@ -20799,8 +20827,8 @@ function genPoText(order,sn,_gpo){   /* opts.marked=true 면 「발주안함」 
           sfEnabled.forEach(function(f){
             L.push(f.face+'면 — '+f.process+(f.color?' ('+f.color+')':'')+(f.hasDye?' 염색':''));
           });
-          if(!_sbHasC)L.push('수량 '+sTotQty+'세트');
-          else{ _sbO.forEach(function(k){ var e=_sbC[k]; L.push(_sbLbl(k)+' - '+e.q+'세트'+(e.ovr?' ※실제(원래'+e.orig+')':'')); }); if(_sbO.length>1)L.push('합계 '+sTotQty+'세트'); }
+          if(!_sbHasC)L.push('수량 '+sTotQty+_sU);
+          else{ _sbO.forEach(function(k){ var e=_sbC[k]; L.push(_sbLbl(k)+' - '+e.q+_sU+(e.ovr?' ※실제(원래'+e.orig+')':'')); }); if(_sbO.length>1)L.push('합계 '+sTotQty+_sU); }
         }else{
           // 면별 요척 다름 → 면마다 수량 표시 (컬러는 이름만 — 개수를 또 적으면 두 번 시키는 것처럼 보임)
           if(_sbHasC)_sbO.forEach(function(k){ L.push(_sbLbl(k)); });
@@ -35999,7 +36027,12 @@ function getBrandConfig(){
   return S.brandConfig;
 }
 // 현재 폼 브랜드에 저장된 단추 로고 내용 (브랜드별 자동 불러오기용)
-function brandButtonLogo(){var bid=(document.getElementById('f-brand')||{}).value||'';return ((getBrandConfig()[bid]||{}).buttonLogo)||'';}
+/* 11-13e 로고 기본값 — 더프루토만 고정 (사용자 「스냅은 THEFRUTO 기본하단로고 · 단추는 12시 THE / 6시 FRUTO.」「기본값은 더프루토에만」).
+   다른 브랜드는 예전에 저장돼 있던 값(brandConfig.buttonLogo — 이제 새로 배우지 않음)만. */
+var BRAND_LOGO_FIX={'더프루토':{button:'12시 THE / 6시 FRUTO.',snap:'THEFRUTO 기본하단로고'}};
+function _brandLogoFix(){ var bid=(document.getElementById('f-brand')||{}).value||''; var b=(S.brands||[]).find(function(x){return x&&x.id===bid;}); return (b&&BRAND_LOGO_FIX[String(b.name||'').replace(/\s+/g,'')])||null; }
+function brandButtonLogo(){var _fx=_brandLogoFix(); if(_fx)return _fx.button; var bid=(document.getElementById('f-brand')||{}).value||'';return ((getBrandConfig()[bid]||{}).buttonLogo)||'';}
+function brandSnapLogo(){var _fx=_brandLogoFix(); return _fx?_fx.snap:'';}
 function brandButtonLogoStyle(){var bid=(document.getElementById('f-brand')||{}).value||'';return ((getBrandConfig()[bid]||{}).buttonLogoStyle)||'';}
 function setBrandConfig(brandId,field,val){
   if(!S.brandConfig)S.brandConfig={};
@@ -46309,7 +46342,7 @@ function tpLogoDyeStr(t){
   // 염색: 컬러링크 dyeNote / 스냅 면별 염색
   var dyes=[];
   (t.colorLinks||[]).forEach(function(l){if(l&&l.dye){dyes.push((l.itemColor||'')+(l.dyeNote?'('+l.dyeNote+')':''));}});
-  if(Array.isArray(t.snapFaces))t.snapFaces.forEach(function(f){if(f&&f.hasDye)dyes.push(f.face+'면');});
+  _snapFacesOn(t).forEach(function(f){if(f&&f.enabled!==false&&f.hasDye)dyes.push(f.face+'면');});   /* 11-13e 세트 글자만 */
   if(dyes.length)parts.push('염색: '+dyes.join(', '));
   return parts.join(' · ');
 }
