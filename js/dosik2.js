@@ -154,17 +154,22 @@ function cloudPush(r,_try){
   });
   chain=chain.then(function(){ if(r.base.url||!r.base.data)return; return upload(pre+'_base.png',dataToBlob(r.base.data)).then(function(u){ r.base.url=u; }); });
   chain=chain.then(function(){ if(r.png&&!r._pngUp)return upload(pre+'.png',dataToBlob(r.png)).then(function(u){ r.pngUrl=u; r._pngUp=true; }); });
-  r._pushing=chain.then(function(){ return upload(pre+'.json',new Blob([JSON.stringify(clean(r))],{type:'application/json'})); })
+  /* 11-16d 글 파일은 저장마다 새 이름(jsonPath) — 같은 이름에 두 기기가 번갈아 덮어써서, 합치려고 받은 남의 파일이 이미 내 옛 내용이던 것 */
+  var jp='', prevPath='';
+  r._pushing=chain.then(function(){ jp=pre+'.'+Number(r.updated||Date.now()).toString(36)+'.json'; return upload(jp,new Blob([JSON.stringify(clean(r))],{type:'application/json'})); })
     .then(function(jsonUrl){
-      var rec={id:r.id,name:r.name||'',code:r.code||'',itemId:r.itemId||'',updated:r.updated,del:r.del||0,jsonUrl:jsonUrl,pngUrl:r.pngUrl||'',baseUrl:r.base.url||''}, ref=cloudDoc();
+      var rec={id:r.id,name:r.name||'',code:r.code||'',itemId:r.itemId||'',updated:r.updated,del:r.del||0,jsonUrl:jsonUrl,jsonPath:jp,pngUrl:r.pngUrl||'',baseUrl:r.base.url||''}, ref=cloudDoc();
       /* 11-16b2 기록하는 순간 다시 확인(트랜잭션) — 올리는 몇 초 사이 다른 기기가 먼저 썼으면 쓰지 않고 받아 합친 뒤 다시 */
       return window.fbDB.runTransaction(function(tx){ return tx.get(ref).then(function(s){
         var now=((s.exists&&s.data()&&s.data().items)||{})[r.id];
         if(r.syncU&&now&&(now.updated||0)!==base0&&now.updated!==r.updated)throw new Error('DK2_STALE');
+        prevPath=(now&&now.jsonPath)||'';
         var o={items:{}}; o.items[r.id]=rec; tx.set(ref,o,{merge:true}); }); }); })
-    .then(function(){ r.syncU=r.updated; r.snap=snapOf(r); return saveLocal(r); })
+    .then(function(){ if(prevPath&&prevPath!==jp&&prevPath.indexOf('dosik2/'+uid+'/')===0)window.fbStorage.ref().child(prevPath).delete().catch(function(){});   /* 바뀐 옛 글 파일 정리 */
+      r.syncU=r.updated; r.snap=snapOf(r); return saveLocal(r); })
     .then(function(){ if(merged){ if(r.id===st.cur)toast('다른 곳에서 바뀐 것과 합쳐서 저장했어요'); rerender(); } return true; })
-    .catch(function(e){ if(e&&e.message==='DK2_STALE'&&_try<4){ console.info('[도식화] 올리는 사이 다른 곳이 먼저 저장 — 합쳐서 다시',r.id); return 'retry'; }
+    .catch(function(e){ if(e&&e.message==='DK2_STALE'&&jp)window.fbStorage.ref().child(jp).delete().catch(function(){});   /* 못 쓴 내 글 파일 지움 */
+      if(e&&e.message==='DK2_STALE'&&_try<4){ console.info('[도식화] 올리는 사이 다른 곳이 먼저 저장 — 합쳐서 다시',r.id); return 'retry'; }
       console.warn('[도식화] 클라우드 올리기 실패 — Storage 규칙(dosik2/ 경로) 확인',e); return false; })
     .then(function(ok){ r._pushing=null;
       if(ok==='retry')return cloudPush(r,_try+1);
