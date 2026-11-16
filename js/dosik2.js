@@ -135,13 +135,15 @@ var _ptrDown=false;
 function rerender(){ var root=$('dosik2-root'); if(!root)return; var ae=document.activeElement;
   if(_ptrDown||(ae&&root.contains(ae)&&/^(TEXTAREA|INPUT|SELECT)$/.test(ae.tagName))){ clearTimeout(st._rrT); st._rrT=setTimeout(rerender,1200); return; }
   renderAll(); }
-function cloudPush(r){
+function cloudPush(r,_try){
   if(!cloudOk()||!r||r.kind==='old')return Promise.resolve(false);
   var live=st.recs.find(function(x){return x.id===r.id;}); if(live)r=live;
   if(r._pushing){ r._pushAgain=true; return r._pushing; }
-  var uid=window.fbUser.uid, pre='dosik2/'+uid+'/'+r.id, merged=false;
+  _try=_try||0;
+  var uid=window.fbUser.uid, pre='dosik2/'+uid+'/'+r.id, merged=false, base0=0;
   var chain=cloudDoc().get().then(function(snap){
     var rem=((snap.exists&&snap.data()&&snap.data().items)||{})[r.id];
+    base0=rem?(rem.updated||0):0;
     if(!rem||!rem.jsonUrl||!r.syncU||(rem.updated||0)<=r.syncU||rem.updated===r.updated)return;   /* 기준(syncU) 없는 판 = 예전처럼 그대로 올림 */
     /* 클라우드에 이 기기가 모르는 새 판이 있음 → 받아서 합친 뒤 올림 */
     return fetch(rem.jsonUrl,{cache:'no-store'}).then(function(x){return x.json();}).then(function(j){
@@ -153,12 +155,20 @@ function cloudPush(r){
   chain=chain.then(function(){ if(r.base.url||!r.base.data)return; return upload(pre+'_base.png',dataToBlob(r.base.data)).then(function(u){ r.base.url=u; }); });
   chain=chain.then(function(){ if(r.png&&!r._pngUp)return upload(pre+'.png',dataToBlob(r.png)).then(function(u){ r.pngUrl=u; r._pngUp=true; }); });
   r._pushing=chain.then(function(){ return upload(pre+'.json',new Blob([JSON.stringify(clean(r))],{type:'application/json'})); })
-    .then(function(jsonUrl){ var o={items:{}}; o.items[r.id]={id:r.id,name:r.name||'',code:r.code||'',itemId:r.itemId||'',updated:r.updated,del:r.del||0,jsonUrl:jsonUrl,pngUrl:r.pngUrl||'',baseUrl:r.base.url||''};
-      return cloudDoc().set(o,{merge:true}); })
+    .then(function(jsonUrl){
+      var rec={id:r.id,name:r.name||'',code:r.code||'',itemId:r.itemId||'',updated:r.updated,del:r.del||0,jsonUrl:jsonUrl,pngUrl:r.pngUrl||'',baseUrl:r.base.url||''}, ref=cloudDoc();
+      /* 11-16b2 기록하는 순간 다시 확인(트랜잭션) — 올리는 몇 초 사이 다른 기기가 먼저 썼으면 쓰지 않고 받아 합친 뒤 다시 */
+      return window.fbDB.runTransaction(function(tx){ return tx.get(ref).then(function(s){
+        var now=((s.exists&&s.data()&&s.data().items)||{})[r.id];
+        if(r.syncU&&now&&(now.updated||0)!==base0&&now.updated!==r.updated)throw new Error('DK2_STALE');
+        var o={items:{}}; o.items[r.id]=rec; tx.set(ref,o,{merge:true}); }); }); })
     .then(function(){ r.syncU=r.updated; r.snap=snapOf(r); return saveLocal(r); })
     .then(function(){ if(merged){ if(r.id===st.cur)toast('다른 곳에서 바뀐 것과 합쳐서 저장했어요'); rerender(); } return true; })
-    .catch(function(e){ console.warn('[도식화] 클라우드 올리기 실패 — Storage 규칙(dosik2/ 경로) 확인',e); return false; })
-    .then(function(ok){ r._pushing=null; if(r._pushAgain){ r._pushAgain=false; cloudPush(r); } return ok; });
+    .catch(function(e){ if(e&&e.message==='DK2_STALE'&&_try<4){ console.info('[도식화] 올리는 사이 다른 곳이 먼저 저장 — 합쳐서 다시',r.id); return 'retry'; }
+      console.warn('[도식화] 클라우드 올리기 실패 — Storage 규칙(dosik2/ 경로) 확인',e); return false; })
+    .then(function(ok){ r._pushing=null;
+      if(ok==='retry')return cloudPush(r,_try+1);
+      if(r._pushAgain){ r._pushAgain=false; cloudPush(r); } return ok; });
   return r._pushing;
 }
 function pullFrom(items){
