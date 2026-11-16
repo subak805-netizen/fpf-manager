@@ -85,6 +85,11 @@ function touch(r){ r=r||cur(); if(!r||r.kind==='old')return; r.ver=(r.ver||0)+1;
    올리기 직전 클라우드가 syncU 보다 새것이면 → 받아서 합침(고르라는 창 없음, 사용자 09-04):
      이 기기에서 snap 이후 바꾼 것(글 상자 하나하나·밑그림·종이 설정·부품…)만 이 기기 것, 나머지는 클라우드 것.
    그리고 열린 동안에도 클라우드 바뀜을 실시간으로 받음(onSnapshot) + 탭 다시 볼 때 받음. */
+/* ---------- 클라우드(로그인돼 있을 때만) ---------- */
+function cloudOk(){ return !!(window.fbDB&&window.fbUser&&window.fbStorage); }
+function cloudDoc(){ return window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc('fpm_dosik2'); }
+function upload(path,blob){ var ref=window.fbStorage.ref().child(path); return ref.put(blob).then(function(){return ref.getDownloadURL();}); }
+function dataToBlob(u){ var i=u.indexOf(','),head=u.slice(0,i),b=atob(u.slice(i+1)),a=new Uint8Array(b.length); for(var k=0;k<b.length;k++)a[k]=b.charCodeAt(k); return new Blob([a],{type:(head.match(/data:([^;]+)/)||[])[1]||'application/octet-stream'}); }
 function jeq(a,b){ return JSON.stringify(a===undefined?null:a)===JSON.stringify(b===undefined?null:b); }
 function snapOf(r){ var c=clean(r); return JSON.stringify({name:c.name,itemId:c.itemId,code:c.code,del:c.del,orient:c.orient,base:{url:c.base.url,w:c.base.w,h:c.base.h},doc:c.doc,parts:c.parts}); }
 function isDirty(r){ return !!r.syncU&&(r.updated||0)>r.syncU; }
