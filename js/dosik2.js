@@ -68,48 +68,135 @@ function clean(r){
     tp:{log:(r.tp&&r.tp.log)||[]},pngUrl:r.pngUrl||''};
 }
 var _saveT={};
+/* 기기 저장 한 줄 = 클라우드 모양 + 밑그림 그림(data) + 미리보기 + 동기화 기준(syncU·snap — 클라우드로는 안 보냄) */
+function rowOf(r){ var o=clean(r); o.base.data=(r.base&&r.base.data)||''; o.png=r.png||''; o.syncU=r.syncU||0; if(r.snap)o.snap=r.snap; return o; }
+function saveLocal(r){ return idbPut(rowOf(r)).catch(function(e){ console.warn('[도식화] 기기 저장 실패',e); }); }
 function persist(r,immediateCloud){
   r.updated=Date.now();
-  var o=clean(r); o.base.data=(r.base&&r.base.data)||''; o.png=r.png||'';
-  return idbPut(o).catch(function(e){ console.warn('[도식화] 기기 저장 실패',e); toast('기기에 저장하지 못했어요 — 저장 공간을 확인해 주세요'); })
+  return idbPut(rowOf(r)).catch(function(e){ console.warn('[도식화] 기기 저장 실패',e); toast('기기에 저장하지 못했어요 — 저장 공간을 확인해 주세요'); })
     .then(function(){ clearTimeout(_saveT[r.id]); _saveT[r.id]=setTimeout(function(){ cloudPush(r); },immediateCloud?0:2500); });
 }
 function touch(r){ r=r||cur(); if(!r||r.kind==='old')return; r.ver=(r.ver||0)+1; persist(r); renderSent(); }
 
-/* ---------- 클라우드(로그인돼 있을 때만) ---------- */
-function cloudOk(){ return !!(window.fbDB&&window.fbUser&&window.fbStorage); }
-function cloudDoc(){ return window.fbDB.collection('users').doc(window.fbUser.uid).collection('data').doc('fpm_dosik2'); }
-function upload(path,blob){ var ref=window.fbStorage.ref().child(path); return ref.put(blob).then(function(){return ref.getDownloadURL();}); }
-function dataToBlob(u){ var i=u.indexOf(','),head=u.slice(0,i),b=atob(u.slice(i+1)),a=new Uint8Array(b.length); for(var k=0;k<b.length;k++)a[k]=b.charCodeAt(k); return new Blob([a],{type:(head.match(/data:([^;]+)/)||[])[1]||'application/octet-stream'}); }
+/* ---------- 덮어쓰기 막기 (2026-11-16) ----------
+   사고: 열어 둔 화면(옛 판)이 고칠 때마다 통째로 올려서, 다른 기기·클로드가 올린 새 판(새 밑그림·새 글)을 세 번 덮어씀.
+   원인: ① 받기는 탭 처음 열 때 한 번뿐 ② 올리기 전에 클라우드가 더 새것인지 안 봄.
+   고침: syncU = 이 기기 판이 바탕으로 삼은 클라우드 판(updated), snap = 그때 모양.
+   올리기 직전 클라우드가 syncU 보다 새것이면 → 받아서 합침(고르라는 창 없음, 사용자 09-04):
+     이 기기에서 snap 이후 바꾼 것(글 상자 하나하나·밑그림·종이 설정·부품…)만 이 기기 것, 나머지는 클라우드 것.
+   그리고 열린 동안에도 클라우드 바뀜을 실시간으로 받음(onSnapshot) + 탭 다시 볼 때 받음. */
+function jeq(a,b){ return JSON.stringify(a===undefined?null:a)===JSON.stringify(b===undefined?null:b); }
+function snapOf(r){ var c=clean(r); return JSON.stringify({name:c.name,itemId:c.itemId,code:c.code,del:c.del,orient:c.orient,base:{url:c.base.url,w:c.base.w,h:c.base.h},doc:c.doc,parts:c.parts}); }
+function isDirty(r){ return !!r.syncU&&(r.updated||0)>r.syncU; }
+function mergeRemote(loc,rem){
+  var S=null; try{ S=loc.snap?JSON.parse(loc.snap):null; }catch(e){ S=null; }
+  var L=JSON.parse(snapOf(loc)), R=JSON.parse(snapOf(rem));
+  /* 이 기기에서 바꿨으면(snap 과 다름) 이 기기 것, 아니면 클라우드 것. snap 이 없으면(옛 기록) 클라우드 것 */
+  var mine=function(a,b){ return !!S&&!jeq(a,b); };
+  ['name','itemId','code','del','orient'].forEach(function(k){ if(!mine(L[k],S&&S[k]))loc[k]=R[k]; });
+  if(!mine(L.base,S&&S.base)){ var same=(loc.base&&loc.base.url)===rem.base.url; loc.base={url:rem.base.url||'',w:rem.base.w,h:rem.base.h,data:same?((loc.base&&loc.base.data)||''):((rem.base&&rem.base.data)||'')}; }
+  var Ld=L.doc||{}, Rd=R.doc||{}, Sd=(S&&S.doc)||{};
+  if(loc.doc&&rem.doc){
+    ['asp','fs','orient','ar','marks','notes'].forEach(function(k){ if(!mine(Ld[k],Sd[k]))loc.doc[k]=JSON.parse(JSON.stringify(rem.doc[k]===undefined?null:rem.doc[k]))||(k==='marks'||k==='notes'?[]:undefined); });
+    if(loc.doc.ar===undefined||loc.doc.ar===null)delete loc.doc.ar;
+    var Sc={},Lc={},Rc={},live={};
+    (Sd.callouts||[]).forEach(function(c){Sc[c.id]=c;}); (Ld.callouts||[]).forEach(function(c){Lc[c.id]=c;}); (Rd.callouts||[]).forEach(function(c){Rc[c.id]=c;});
+    loc.doc.callouts.forEach(function(c){ live[c.id]=c; });
+    var take=function(rc){ var o=live[rc.id]; if(!o)return JSON.parse(JSON.stringify(rc));   /* 끌고 있던 상자 참조가 안 끊기게 같은 물건에 덮어씀 */
+      ['kind','text','value','an'].forEach(function(k){ o[k]=JSON.parse(JSON.stringify(rc[k]===undefined?null:rc[k])); });
+      if(rc.moved){ o.moved=true; o.x=rc.x; o.y=rc.y; } else { delete o.moved; }
+      if(rc.free)o.free=true; else delete o.free; return o; };
+    var out=[];
+    (Rd.callouts||[]).forEach(function(rc){ var lc=Lc[rc.id], sc=Sc[rc.id];
+      if(S&&lc&&sc&&!jeq(lc,sc))out.push(live[rc.id]);      /* 이 기기에서 고친 글 상자 */
+      else if(S&&!lc&&sc){}                                  /* 이 기기에서 지운 글 상자 */
+      else out.push(take(rc)); });                           /* 그 밖 = 클라우드 것 */
+    (Ld.callouts||[]).forEach(function(lc){ if(Rc[lc.id])return;
+      if(!Sc[lc.id])out.push(live[lc.id]);                   /* 이 기기에서 새로 단 글 상자 */
+      else if(!jeq(lc,Sc[lc.id]))out.push(live[lc.id]); });  /* 클라우드에선 지웠지만 이 기기에서 고친 것 → 살림 */
+    loc.doc.callouts=out;
+  } else if(rem.doc&&!loc.doc){ loc.doc=JSON.parse(JSON.stringify(rem.doc)); }
+  if(!mine(L.parts,S&&S.parts))loc.parts=JSON.parse(JSON.stringify(rem.parts||[]));
+  var lg=((loc.tp&&loc.tp.log)||[]).slice(), key=function(x){return [x.to,x.lbl,x.at,x.ver].join('|');}, seen={};
+  lg.forEach(function(x){seen[key(x)]=1;}); ((rem.tp&&rem.tp.log)||[]).forEach(function(x){ if(!seen[key(x)]){ lg.push(x); seen[key(x)]=1; } });
+  loc.tp={log:lg};
+  loc.ver=Math.max(loc.ver||0,rem.ver||0)+1;
+  loc.pngUrl=rem.pngUrl||loc.pngUrl;
+  return loc;
+}
+window._dk2MergeRemote=mergeRemote; window._dk2SnapOf=snapOf;   /* 시험용 */
+/* 화면 다시 그리기 — 글 쓰는 중·끄는 중이면 끝난 뒤에 */
+var _ptrDown=false;
+function rerender(){ var root=$('dosik2-root'); if(!root)return; var ae=document.activeElement;
+  if(_ptrDown||(ae&&root.contains(ae)&&/^(TEXTAREA|INPUT|SELECT)$/.test(ae.tagName))){ clearTimeout(st._rrT); st._rrT=setTimeout(rerender,1200); return; }
+  renderAll(); }
 function cloudPush(r){
   if(!cloudOk()||!r||r.kind==='old')return Promise.resolve(false);
-  var uid=window.fbUser.uid, pre='dosik2/'+uid+'/'+r.id;
-  var chain=Promise.resolve();
-  if(!r.base.url&&r.base.data) chain=chain.then(function(){ return upload(pre+'_base.png',dataToBlob(r.base.data)).then(function(u){ r.base.url=u; }); });
-  if(r.png&&!r._pngUp) chain=chain.then(function(){ return upload(pre+'.png',dataToBlob(r.png)).then(function(u){ r.pngUrl=u; r._pngUp=true; }); });
-  return chain.then(function(){ return upload(pre+'.json',new Blob([JSON.stringify(clean(r))],{type:'application/json'})); })
+  var live=st.recs.find(function(x){return x.id===r.id;}); if(live)r=live;
+  if(r._pushing){ r._pushAgain=true; return r._pushing; }
+  var uid=window.fbUser.uid, pre='dosik2/'+uid+'/'+r.id, merged=false;
+  var chain=cloudDoc().get().then(function(snap){
+    var rem=((snap.exists&&snap.data()&&snap.data().items)||{})[r.id];
+    if(!rem||!rem.jsonUrl||!r.syncU||(rem.updated||0)<=r.syncU||rem.updated===r.updated)return;   /* 기준(syncU) 없는 판 = 예전처럼 그대로 올림 */
+    /* 클라우드에 이 기기가 모르는 새 판이 있음 → 받아서 합친 뒤 올림 */
+    return fetch(rem.jsonUrl,{cache:'no-store'}).then(function(x){return x.json();}).then(function(j){
+      mergeRemote(r,normalizeRec(j)); r.syncU=rem.updated; r.updated=Math.max(Date.now(),(rem.updated||0)+1); merged=true;
+      console.info('[도식화] 다른 곳에서 바뀐 판을 받아 합쳤어요',r.id);
+      return renderPNG(r).then(function(b){ return blobToData(b); }).then(function(u){ r.png=u; r._pngUp=false; }).catch(function(e){ console.warn('[도식화] 합친 뒤 미리보기 실패',e); });
+    });
+  });
+  chain=chain.then(function(){ if(r.base.url||!r.base.data)return; return upload(pre+'_base.png',dataToBlob(r.base.data)).then(function(u){ r.base.url=u; }); });
+  chain=chain.then(function(){ if(r.png&&!r._pngUp)return upload(pre+'.png',dataToBlob(r.png)).then(function(u){ r.pngUrl=u; r._pngUp=true; }); });
+  r._pushing=chain.then(function(){ return upload(pre+'.json',new Blob([JSON.stringify(clean(r))],{type:'application/json'})); })
     .then(function(jsonUrl){ var o={items:{}}; o.items[r.id]={id:r.id,name:r.name||'',code:r.code||'',itemId:r.itemId||'',updated:r.updated,del:r.del||0,jsonUrl:jsonUrl,pngUrl:r.pngUrl||'',baseUrl:r.base.url||''};
       return cloudDoc().set(o,{merge:true}); })
-    .then(function(){ var o=clean(r); o.base.data=r.base.data||''; o.png=r.png||''; return idbPut(o); })
-    .then(function(){ return true; })
-    .catch(function(e){ console.warn('[도식화] 클라우드 올리기 실패 — Storage 규칙(dosik2/ 경로) 확인',e); return false; });
+    .then(function(){ r.syncU=r.updated; r.snap=snapOf(r); return saveLocal(r); })
+    .then(function(){ if(merged){ if(r.id===st.cur)toast('다른 곳에서 바뀐 것과 합쳐서 저장했어요'); rerender(); } return true; })
+    .catch(function(e){ console.warn('[도식화] 클라우드 올리기 실패 — Storage 규칙(dosik2/ 경로) 확인',e); return false; })
+    .then(function(ok){ r._pushing=null; if(r._pushAgain){ r._pushAgain=false; cloudPush(r); } return ok; });
+  return r._pushing;
+}
+function pullFrom(items){
+  var chain=Promise.resolve(), changed=false;
+  Object.keys(items).forEach(function(id){
+    var rem=items[id], loc=st.recs.find(function(x){return x.id===id;});
+    if(loc&&loc._pushing)return;                               /* 올리는 중 → 올리기가 합침 */
+    if(loc&&(loc.updated||0)>=(rem.updated||0)){
+      if(loc.updated===rem.updated&&(loc.syncU!==rem.updated||!loc.snap)){ loc.syncU=rem.updated; loc.snap=snapOf(loc); saveLocal(loc); }   /* 같은 판 = 기준 잡기 */
+      return; }
+    if(loc&&loc.syncU===rem.updated)return;
+    chain=chain.then(function(){ return fetch(rem.jsonUrl,{cache:'no-store'}).then(function(x){return x.json();}).then(function(j){
+      var r=normalizeRec(j), cur2=st.recs.find(function(x){return x.id===id;});
+      if(cur2&&cur2._pushing)return;
+      if(cur2&&isDirty(cur2)){                                 /* 이 기기에도 아직 안 올린 고친 것 → 합쳐서 다시 올림 */
+        mergeRemote(cur2,r); cur2.syncU=rem.updated; cur2.updated=Math.max(Date.now(),(rem.updated||0)+1);
+        changed=true; return saveLocal(cur2).then(function(){ refreshPreview(cur2); }); }
+      if(cur2&&cur2.base&&cur2.base.data&&cur2.base.url===r.base.url)r.base.data=cur2.base.data;
+      r.syncU=rem.updated; r.snap=snapOf(r);
+      return idbPut(rowOf(r)).then(function(){ var i=st.recs.findIndex(function(x){return x.id===id;}); if(i>=0)st.recs[i]=r; else st.recs.push(r); changed=true; });
+    }).catch(function(e){ console.warn('[도식화] 받기 실패',id,e); }); });
+  });
+  st.recs.forEach(function(r){ var rem=items[r.id]; if(!rem||(r.updated||0)>(rem.updated||0)) cloudPush(r); });
+  return chain.then(function(){ return changed; });
 }
 function cloudPull(){
   if(!cloudOk())return Promise.resolve(false);
-  return cloudDoc().get().then(function(snap){
-    var items=(snap.exists&&snap.data()&&snap.data().items)||{}, chain=Promise.resolve(), changed=false;
-    Object.keys(items).forEach(function(id){
-      var rem=items[id], loc=st.recs.find(function(x){return x.id===id;});
-      if(loc&&(loc.updated||0)>=(rem.updated||0))return;
-      chain=chain.then(function(){ return fetch(rem.jsonUrl).then(function(x){return x.json();}).then(function(j){
-        var r=normalizeRec(j); if(loc&&loc.base&&loc.base.data&&loc.base.url===r.base.url)r.base.data=loc.base.data;
-        var o=clean(r); o.base.data=r.base.data||''; return idbPut(o).then(function(){ var i=st.recs.findIndex(function(x){return x.id===id;}); if(i>=0)st.recs[i]=r; else st.recs.push(r); changed=true; });
-      }).catch(function(e){ console.warn('[도식화] 받기 실패',id,e); }); });
-    });
-    st.recs.forEach(function(r){ var rem=items[r.id]; if(!rem||(r.updated||0)>(rem.updated||0)) cloudPush(r); });
-    return chain.then(function(){ return changed; });
-  }).catch(function(e){ console.warn('[도식화] 클라우드 받기 실패',e); return false; });
+  return cloudDoc().get().then(function(snap){ return pullFrom((snap.exists&&snap.data()&&snap.data().items)||{}); })
+    .catch(function(e){ console.warn('[도식화] 클라우드 받기 실패',e); return false; });
 }
+var _watchUid=null, _unwatch=null;
+function watchCloud(){   /* 열려 있는 동안 다른 기기 저장을 바로 받음 */
+  if(!cloudOk()||!st.loaded)return; if(_unwatch&&_watchUid===window.fbUser.uid)return;
+  try{ if(_unwatch)_unwatch(); }catch(e){}
+  _watchUid=window.fbUser.uid;
+  try{ _unwatch=cloudDoc().onSnapshot(function(snap){ if(snap.metadata&&snap.metadata.hasPendingWrites)return;
+      pullFrom((snap.exists&&snap.data()&&snap.data().items)||{}).then(function(ch){ if(ch)rerender(); }); },
+    function(e){ console.warn('[도식화] 실시간 받기 끊김',e); _unwatch=null; }); }catch(e){ _unwatch=null; }
+}
+window.addEventListener('pointerdown',function(){ _ptrDown=true; },true);
+window.addEventListener('pointerup',function(){ _ptrDown=false; },true);
+window.addEventListener('pointercancel',function(){ _ptrDown=false; },true);
+document.addEventListener('visibilitychange',function(){ if(document.visibilityState!=='visible'||!st.loaded)return; watchCloud(); cloudPull().then(function(ch){ if(ch)rerender(); }); });
 
 /* ---------- 불러온 파일 → 옷 그림 기준 좌표(0~1) ---------- */
 function normalizeRec(r){
@@ -768,7 +855,7 @@ function loadAll(){
     st.loaded=true;
     if(!st.cur||!cur()){ var first=allRecs()[0]; st.cur=first?first.id:null; }
     renderAll();
-    return cloudPull().then(function(ch){ if(ch)renderAll(); });
+    return cloudPull().then(function(ch){ if(ch)renderAll(); watchCloud(); });
   });
 }
 window.renderDosikPane=function(opts){
@@ -777,7 +864,7 @@ window.renderDosikPane=function(opts){
   applyView(); fitHeight();
   if(opts&&opts.itemId){ st.q=''; var r=st.recs.find(function(x){return x.itemId===opts.itemId&&!x.del;}); if(r){ st.cur=r.id; st.view='detail'; } }
   if(!st.loaded)loadAll().then(function(){ if(opts&&opts.itemId){ var r=st.recs.find(function(x){return x.itemId===opts.itemId&&!x.del;}); if(r){ st.cur=r.id; st.view='detail'; applyView(); renderAll(); } } });
-  else renderAll();
+  else { renderAll(); watchCloud(); cloudPull().then(function(ch){ if(ch)rerender(); }); }   /* 11-16 탭 다시 열 때도 클라우드 새 판 받기 */
   setTimeout(fitHeight,60);
 };
 /* 작지 「도식화」 버튼(dosikPick)이 새 도식화도 고를 수 있게 — 저장 때 만든 그림을 씀 */
