@@ -5135,7 +5135,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-17b';
+var APP_BUILD=/*BUILD*/'2026-11-17c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -48077,13 +48077,18 @@ function dosikChoose(slot,id){
   var p=(window._dosikPickLib||[]).find(function(x){return x.id===id;});
   var x=document.getElementById('dosik-pick'); if(x)x.remove();
   if(!p||!p.png){ if(typeof showToast==='function')showToast('그림이 없는 도식화예요'); return; }
-  function local(){ tpSet('images.'+slot,p.png); tpRender(); if(typeof showToast==='function')showToast('도식화 불러옴 ✓'); }
-  if(!/^data:/.test(p.png)){ local(); return; }   // 이미 URL(클라우드 저장본) → 그대로 사용
-  try{
-    if(window.fbStorage&&window.fbUser&&_tpItemId){
-      tpUpload(_dataUrlToBlob(p.png),_tpItemId,slot,true).then(function(url){ tpSet('images.'+slot,url); tpRender(); if(typeof showToast==='function')showToast('도식화 불러옴 ✓'); }).catch(local);
-    } else local();
-  }catch(e){ local(); }
+  /* 11-17 도식화 원본 주소(URL)도 작지 칸엔 **복사본**으로 — 예전엔 주소를 그대로 넣어서, 그 도식화를 다시 저장하면 주소가 바뀌어 작지 그림이 깨졌음(403, TF55·TF57·AR67·데님자켓).
+     받아오기 실패면 깨진 주소를 넣지 않고 알림. 로그인 안 됐으면 기기 안 그림(data)으로. */
+  var itemId=_tpItemId;
+  function put(u){ if(_tpItemId!==itemId)return; tpSet('images.'+slot,u); tpRender(); if(typeof showToast==='function')showToast('도식화 불러옴 ✓'); }
+  function fail(e){ console.warn('[도식화 불러오기] 그림 받기 실패',e); if(typeof showToast==='function')showToast('도식화 그림을 못 받았어요 — 도식화 탭에서 한 번 저장한 뒤 다시 불러와 주세요',4500); }
+  var canUp=!!(window.fbStorage&&window.fbUser&&itemId&&typeof tpUpload==='function');
+  var toData=function(b){ return new Promise(function(res,rej){ var fr=new FileReader(); fr.onload=function(){res(fr.result);}; fr.onerror=function(){rej(fr.error);}; fr.readAsDataURL(b); }); };
+  var blobP=/^data:/.test(p.png)?Promise.resolve(_dataUrlToBlob(p.png)):fetch(p.png).then(function(r){ if(!r.ok)throw new Error('HTTP '+r.status); return r.blob(); });
+  blobP.then(function(b){
+    if(canUp) return tpUpload(b,itemId,slot,true).then(put).catch(function(e){ return (/^data:/.test(p.png)?Promise.resolve(p.png):toData(b)).then(put); });
+    return (/^data:/.test(p.png)?Promise.resolve(p.png):toData(b)).then(put);
+  }).catch(fail);
 }
 function tpOpen(id){ var it=S.items&&S.items[id]; if(!it){ if(typeof showToast==='function')showToast('아이템을 찾을 수 없어요'); return; } _tpItemId=id; _tpTab='sew'; window._tpSmpRk=null; window._tpQcRk=null;
   try{ var _nmE=document.getElementById('tp-ctrl-nm'); if(_nmE)_nmE.textContent=(it.name||'')+(it.code?(' · '+it.code):''); tpMoreClose(); }catch(eN){}   /* 10-13e */
