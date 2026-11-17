@@ -4006,7 +4006,7 @@ async function _openRecoveryToolInner(){
       html+='<button onclick="fpfCleanupBackups()" style="background:#0ea5e9;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">지금 오래된 백업 정리 (최근 '+FPF_BK_KEEP+'개만 남김)</button> ';
       html+='<button onclick="fpfPickSaveDir()" style="background:#fff;color:#075985;border:1px solid #7dd3fc;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px">폴더 바꾸기</button> ';
       html+='<button onclick="fpfClearSaveDir()" style="background:#fff;color:#64748b;border:1px solid #cbd5e1;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px">해제</button>';
-      html+='<div style="font-size:11px;color:#0369a1;margin-top:7px;line-height:1.6">정리 대상은 <b>패션생산관리_자동백업_*.json</b> 뿐이에요. 직접 받으신 백업과 다른 파일은 안 건드립니다.</div>';
+      html+='<div style="font-size:11px;color:#0369a1;margin-top:7px;line-height:1.6">정리 대상은 <b>패션생산관리_자동백업_*.json</b> 뿐이에요(「자동백업」 폴더 + 바깥). 직접 받으신 백업과 다른 파일은 안 건드립니다.<br>파일은 종류별 폴더(작업지시서·결제서·명세서·원가계산서·자동백업 등)에 나눠 저장돼요.</div>';
     }
     html+='</div>';
   }catch(e){ console.warn('[recovery] saveDir',e); }
@@ -5135,7 +5135,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-17e';
+var APP_BUILD=/*BUILD*/'2026-11-17f';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5516,20 +5516,45 @@ async function _fpfUniqueName(dir,filename){
   }
   return base+'_'+Date.now()+ext;
 }
+/* 11-17f 저장 폴더 안 종류별 하위 폴더 (사용자 「백업폴더 안에 폴더 나눠서 정리」).
+   파일 이름 앞부분으로 고른다. 없는 폴더는 처음 저장할 때 만든다. 안 맞는 이름은 예전처럼 바깥(저장 폴더 바로 안).
+   opts.folder 로 직접 정할 수 있다('' = 바깥). 자동백업 폴더 이름(FPF_SUB_AUTO)은 정리 함수도 같이 쓴다. */
+var FPF_SUB_AUTO='자동백업';
+var FPF_SUBDIRS=[
+  [/^패션생산관리_자동백업_/,FPF_SUB_AUTO],
+  [/^(패션생산관리_백업_|fpm백업-|fpm복구본-)|넣기전_.*\.json$/,'백업·복구본'],
+  [/^작업지시서_/,'작업지시서'],
+  [/^(결제서|거래명세서|청구서|부자재명세서|1회비)_|_명세서\.png$/,'결제서·명세서'],
+  [/^원가계산서_/,'원가계산서'],
+  [/^검사신청서/,'검사신청서'],
+  [/^수납확인서_/,'수납확인서'],
+  [/_택배시재\.png$/,'택배시재'],
+  [/^(오더수량|재단수량)_/,'오더·재단수량'],
+  [/스케줄표_/,'스케줄표'],
+  [/^(샘플확인서|샘플코멘트)_/,'샘플']
+];
+function _fpfSubFolder(filename,opts){
+  if(opts&&typeof opts.folder==='string')return opts.folder;
+  var n=String(filename||''); try{ n=n.normalize('NFC'); }catch(e){}
+  for(var i=0;i<FPF_SUBDIRS.length;i++){ if(FPF_SUBDIRS[i][0].test(n))return FPF_SUBDIRS[i][1]; }
+  return '';
+}
 /* ★파일 저장 단일 통로. Blob·dataURL·문자열 다 받는다.
-   폴더가 준비돼 있으면 그 폴더에, 아니면 예전처럼 다운로드 폴더로. */
+   폴더가 준비돼 있으면 그 폴더(안 종류별 하위 폴더)에, 아니면 예전처럼 다운로드 폴더로. */
 async function fpfSaveFile(data,filename,opts){
   opts=opts||{};
   var blob=_fpfToBlob(data,opts.mime);
   try{
     var dir=await fpfDirReady();
     if(dir){
-      var name=await _fpfUniqueName(dir,filename);
-      var fh=await dir.getFileHandle(name,{create:true});
+      var tgt=dir, sub=_fpfSubFolder(filename,opts);
+      if(sub){ try{ tgt=await dir.getDirectoryHandle(sub,{create:true}); }catch(e){ console.warn('[fpfSaveFile] 하위 폴더 못 엶 → 바깥에',sub,e); tgt=dir; sub=''; } }
+      var name=await _fpfUniqueName(tgt,filename);
+      var fh=await tgt.getFileHandle(name,{create:true});
       var w=await fh.createWritable();
       await w.write(blob); await w.close();
-      if(!opts.silent&&typeof showToast==='function')showToast((opts.label||'저장됨')+' — '+dir.name+' 폴더',3500);
-      return {where:'dir',name:name,dir:dir.name};
+      if(!opts.silent&&typeof showToast==='function')showToast((opts.label||'저장됨')+' — '+dir.name+(sub?' › '+sub:'')+' 폴더',3500);
+      return {where:'dir',name:name,dir:dir.name,sub:sub};
     }
   }catch(e){ console.warn('[fpfSaveFile] 폴더 저장 실패 → 다운로드로',e); }
   _fpfDownload(blob,filename);
@@ -5539,23 +5564,30 @@ async function fpfSaveFile(data,filename,opts){
 /* 오래된 자동백업 정리 — 「패션생산관리_자동백업_*.json」만 대상.
    수동으로 받은 백업(패션생산관리_백업_*)과 다른 파일은 절대 안 건드린다.
    파일명이 날짜_시각이라 이름순 = 시간순. */
-function _fpfIsAutoBk(nm){ return /^패션생산관리_자동백업_.*\.json$/.test(nm); }
-async function fpfListAutoBackups(){
+function _fpfIsAutoBk(nm){ var n=String(nm||''); try{ n=n.normalize('NFC'); }catch(e){} return /^패션생산관리_자동백업_.*\.json$/.test(n); }
+/* 11-17f 자동백업은 「자동백업」 폴더에 저장 → 목록은 그 폴더 + 바깥(옛 파일·옛 판 앱이 쓴 것) 둘 다 본다. */
+async function _fpfAutoBkEntries(){
   var dir=await fpfDirReady(); if(!dir)return null;
-  var names=[];
-  try{ for await (var ent of dir.values()){ if(ent.kind==='file'&&_fpfIsAutoBk(ent.name))names.push(ent.name); } }
-  catch(e){ console.warn('[백업목록]',e); return null; }
-  names.sort();
-  return names;
+  var out=[];
+  var scan=async function(d){ for await (var ent of d.values()){ if(ent.kind==='file'&&_fpfIsAutoBk(ent.name))out.push({name:ent.name,dir:d}); } };
+  try{ await scan(dir); }catch(e){ console.warn('[백업목록]',e); return null; }
+  var sub=null; try{ sub=await dir.getDirectoryHandle(FPF_SUB_AUTO); }catch(e){ sub=null; }   /* 폴더 없음 = 아직 자동백업 안 함 */
+  if(sub){ try{ await scan(sub); }catch(e){ console.warn('[백업목록] 자동백업 폴더',e); return null; } }
+  out.sort(function(a,b){ return a.name<b.name?-1:(a.name>b.name?1:0); });
+  return out;
+}
+async function fpfListAutoBackups(){
+  var ents=await _fpfAutoBkEntries();
+  return ents?ents.map(function(x){ return x.name; }):null;
 }
 async function fpfCleanupBackups(keep,silent){
   keep=(keep==null?FPF_BK_KEEP:keep);
   var dir=await fpfDirReady();
   if(!dir){ if(!silent&&typeof showToast==='function')showToast('저장 폴더가 연결돼 있지 않아요',3500); return {ok:false}; }
-  var names=await fpfListAutoBackups();
+  var names=await _fpfAutoBkEntries();
   if(!names){ return {ok:false}; }
   var del=names.slice(0,Math.max(0,names.length-keep)), n=0;
-  for(var i=0;i<del.length;i++){ try{ await dir.removeEntry(del[i]); n++; }catch(e){ console.warn('[백업정리] 삭제 실패',del[i],e); } }
+  for(var i=0;i<del.length;i++){ try{ await del[i].dir.removeEntry(del[i].name); n++; }catch(e){ console.warn('[백업정리] 삭제 실패',del[i].name,e); } }
   if(!silent&&typeof showToast==='function')showToast(n?('오래된 자동백업 '+n+'개 정리 — 최근 '+keep+'개 남김'):('정리할 게 없어요 (자동백업 '+names.length+'개)'),4000);
   try{ if(document.getElementById('recovery-overlay'))openRecoveryTool(); }catch(e){}
   return {ok:true,total:names.length,deleted:n,kept:Math.min(names.length,keep)};
@@ -12221,8 +12253,8 @@ function refDownloadImage(id,side){
   if(!url){ showToast('사진이 없어요'); return; }
   var nm=_refFileName(c,side==='front'?'앞':'뒤');
   var save=function(href,revoke){
-    if(revoke){ fetch(href).then(function(r){return r.blob();}).then(function(b){ return fpfSaveFile(b,nm,{label:'사진 저장됨 — 클로드에 첨부해서 보내세요'}); }).catch(function(){ _fpfDownload(new Blob(),nm); }).then(function(){ try{URL.revokeObjectURL(href);}catch(e){} });
-    } else { fpfSaveFile(href,nm,{label:'사진 저장됨 — 클로드에 첨부해서 보내세요'}); }
+    if(revoke){ fetch(href).then(function(r){return r.blob();}).then(function(b){ return fpfSaveFile(b,nm,{label:'사진 저장됨 — 클로드에 첨부해서 보내세요',folder:'레퍼런스'}); }).catch(function(){ _fpfDownload(new Blob(),nm); }).then(function(){ try{URL.revokeObjectURL(href);}catch(e){} });
+    } else { fpfSaveFile(href,nm,{label:'사진 저장됨 — 클로드에 첨부해서 보내세요',folder:'레퍼런스'}); }
   };
   if(/^data:/.test(url)){ save(url); return; }
   // 다른 서버 사진은 download 속성이 무시되므로 blob으로 받아서 저장
@@ -12677,7 +12709,7 @@ function refSaveImg(id){
       var lines=_refWrapLines(x,c.desc,W-2*PAD), yy=photoBottom+124, lh=60, lim=H-64;
       for(var i=0;i<lines.length;i++){ if(yy>lim){ x.fillText('…',PAD,yy); break; } x.fillText(lines[i],PAD,yy); yy+=lh; } }
     var url; try{ url=cv.toDataURL('image/png'); }catch(e){ if(typeof showToast==='function')showToast('이미지 저장 실패(사진 보안설정) — 사진 다시 올려보세요'); console.error('ref save taint',e); return; }
-    fpfSaveFile(url,nm+'.png',{label:'이미지 저장됨'});
+    fpfSaveFile(url,nm+'.png',{label:'이미지 저장됨',folder:'레퍼런스'});
   };
   var drawCover=function(img,dx,dy,dw,dh){ var ir=img.width/img.height, br=dw/dh, w2,h2;   // contain: 전체가 다 보이게(안 잘림), 남는 여백은 흰색
     if(ir>br){ w2=dw; h2=dw/ir; } else { h2=dh; w2=dh*ir; }
