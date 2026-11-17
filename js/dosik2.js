@@ -483,12 +483,12 @@ function shell(){
    +  '<div class="dk2-stage-bar"><button class="dk2-btn sm dk2-back" id="dk2-back" type="button">목록</button>'
    +   '<div class="dk2-ttl"><b id="dk2-ttl"></b><span id="dk2-sub"></span></div><div class="dk2-grow"></div>'
    +   '<button class="dk2-btn sm" id="dk2-info" type="button">정보</button><button class="dk2-btn" id="dk2-export" type="button">내보내기</button>'
-   +   '<button class="dk2-btn" id="dk2-send" type="button">작지로 보내기</button><button class="dk2-btn save" id="dk2-save" type="button">저장</button></div>'
+   +   '<button class="dk2-btn save" id="dk2-save" type="button">저장</button></div>'
    +  '<div class="dk2-tool" role="toolbar" aria-label="편집 도구">'
    +   '<button class="dk2-btn sm" id="dk2-add" type="button" aria-pressed="false">＋ 화살표</button><button class="dk2-btn sm" id="dk2-addtext" type="button" aria-pressed="false">＋ 글</button><button class="dk2-btn sm" id="dk2-move" type="button" aria-pressed="false">상자 옮기기</button>'
    +   '<button class="dk2-btn sm dk2-phone" id="dk2-parts" type="button">부품</button><span class="dk2-sep" aria-hidden="true"></span>'
    +   '<span class="dk2-fs" role="group" aria-label="글씨 크기"><button class="dk2-btn sm" id="dk2-fs-down" type="button">글씨 −</button><b id="dk2-fs-val">20pt</b><button class="dk2-btn sm" id="dk2-fs-up" type="button">글씨 +</button></span>'
-   +   '<div class="dk2-grow"></div><span class="dk2-sent" id="dk2-sent"></span><button class="dk2-btn sm" id="dk2-zoom" type="button" aria-pressed="false">크게 보기</button></div>'
+   +   '<div class="dk2-grow"></div><button class="dk2-btn sm" id="dk2-zoom" type="button" aria-pressed="false">크게 보기</button></div>'
    +  '<div class="dk2-paper" id="dk2-paper"><div class="dk2-pdock"><div class="dk2-pbar" id="dk2-pbar" role="group" aria-label="고른 부품" hidden><b id="dk2-pname"></b><button class="dk2-btn sm" data-pbar="-" type="button">작게</button><button class="dk2-btn sm" data-pbar="+" type="button">크게</button><button class="dk2-btn sm" data-pbar="del" type="button">빼기</button></div></div><svg id="dk2-sheet" viewBox="0 0 '+PAGE_W+' '+PAGE_H+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="도식화 종이"></svg><div class="dk2-empty" id="dk2-empty" hidden></div></div>'
    +  '<div class="dk2-hint" id="dk2-hint"></div></main>'
    + '<aside class="dk2-col dk2-side" id="dk2-side" aria-label="글쓰기와 부품"><div class="dk2-scroll" id="dk2-side-in"></div></aside>'
@@ -563,7 +563,7 @@ function renderSide(){
           +'<button type="button" class="dk2-btn sm ghost" data-del="'+c.id+'">'+(c.free?'글 지우기':'화살표 빼기')+'</button></div></div>'; }).join('')
       +'<div class="dk2-note">줄을 바꾸면 도식화에서도 줄이 바뀌어요. 「부위) 내용」 형식으로 써 주세요. 안 쓴 회색 예시 글은 작지·내보내기에 안 나가요.</div></div>';
   } else if(r.kind==='old'){
-    h+='<div class="dk2-sec"><h3>옛 도식화</h3><div class="dk2-note">예전 도식화 편집기로 그린 <b>그림만</b> 있어요. 이 그림 그대로 <b>작지로 보내기</b>는 돼요. 설명 상자를 붙이려면 클로드에게 「이 도식화에 설명 붙여줘」라고 해 주세요.</div></div>';
+    h+='<div class="dk2-sec"><h3>옛 도식화</h3><div class="dk2-note">예전 도식화 편집기로 그린 <b>그림만</b> 있어요. 작지에는 작지 칸의 <b>불러오기</b>로 이 그림을 넣을 수 있어요. 설명 상자를 붙이려면 클로드에게 「이 도식화에 설명 붙여줘」라고 해 주세요.</div></div>';
   } else {
     h+='<div class="dk2-sec"><h3>설명 상자 전</h3><div class="dk2-note">밑그림만 있어요. 클로드가 라벨 상자·화살표·설명 상자를 붙인 도식화 파일을 다시 불러오면 글을 쓸 수 있어요. 그 전에도 <b>＋ 화살표</b>로 직접 더할 수 있어요.</div></div>';
   }
@@ -589,7 +589,7 @@ function renderTitle(){
   $('dk2-sub').textContent=r?(((it&&it.code)||r.code||'품번 없음')+' · '+recBrand(r)+' · '+stat(r).t):'';
   var editable=!!(r&&r.kind!=='old');
   ['dk2-add','dk2-addtext','dk2-move','dk2-parts','dk2-fs-down','dk2-fs-up','dk2-info'].forEach(function(id){ $(id).disabled=!editable&&id!=='dk2-info'; });
-  $('dk2-info').disabled=!r; $('dk2-send').disabled=!r; $('dk2-export').disabled=!r; $('dk2-save').disabled=!editable;
+  $('dk2-info').disabled=!r; $('dk2-export').disabled=!r; $('dk2-save').disabled=!editable;
   $('dk2-fs-down').disabled=$('dk2-fs-up').disabled=!(r&&r.doc);
   [['dk2-move',st.moving],['dk2-add',st.adding],['dk2-addtext',!!st.addingText],['dk2-zoom',st.zoom]].forEach(function(p){ $(p[0]).classList.toggle('on',p[1]); $(p[0]).setAttribute('aria-pressed',p[1]); });
   $('dk2-zoom').textContent=st.zoom?'한눈에 보기':'크게 보기';
@@ -664,7 +664,7 @@ function onImportFiles(e){
 /* ---------- 정보(이름·아이템 연결·지우기) ---------- */
 function openInfo(){
   var r=cur(); if(!r)return;
-  if(r.kind==='old'){ modal(mhead('옛 도식화')+'<div class="dk2-mb"><div class="dk2-note">예전 도식화 편집기로 그린 그림이에요. 이름·지우기는 예전 화면에서 해 주세요(새 탭에서는 그림 보기·작지로 보내기·내보내기만 돼요).</div></div><div class="dk2-ma"><button type="button" class="dk2-btn" data-x>닫기</button></div>'); return; }
+  if(r.kind==='old'){ modal(mhead('옛 도식화')+'<div class="dk2-mb"><div class="dk2-note">예전 도식화 편집기로 그린 그림이에요. 이름·지우기는 예전 화면에서 해 주세요(새 탭에서는 그림 보기·내보내기만 돼요. 작지에는 작지 칸의 「불러오기」로 넣어요).</div></div><div class="dk2-ma"><button type="button" class="dk2-btn" data-x>닫기</button></div>'); return; }
   var it=itemOf(r);
   modal(mhead('도식화 정보')+'<div class="dk2-mb"><label class="dk2-lbl">이름</label><input id="dk2-inf-name" class="dk2-search wide" value="'+esc(r.name||'')+'">'
     +'<label class="dk2-lbl">연결된 아이템 <span class="dk2-n">(작지로 보내려면 꼭 필요)</span></label><input id="dk2-inf-item" class="dk2-search wide" list="dk2-items2" value="'+esc(itemLabel(it))+'" placeholder="품번 · 이름 검색" autocomplete="off"><datalist id="dk2-items2">'+itemOptions()+'</datalist>'
@@ -682,7 +682,7 @@ function openInfo(){
 function renderUndo(){ var b=$('dk2-undo'); if(st._undoDel){ if(!b){ b=document.createElement('button'); b.id='dk2-undo'; b.className='dk2-btn sm'; b.type='button'; b.textContent='되살리기'; $('dk2-info').after(b);
     b.addEventListener('click',function(){ var r=st._undoDel; if(!r)return; r.del=0; persist(r,true); st.cur=r.id; st._undoDel=null; b.remove(); renderAll(); toast('되살렸어요'); }); } } else if(b) b.remove(); }
 
-/* ---------- 작지로 보내기 ---------- */
+/* ---------- 작지로 보내기 — 11-17 버튼 뺌(사용자 「작지에서 불러오기만 해도 돼」, 불러오기가 복사본을 넣게 고친 뒤 11-17c). 아래 함수는 안 불림 ---------- */
 function spatRounds(it){ var d=it&&it.techpack; return (d&&Array.isArray(d.spatRounds))?d.spatRounds.slice():[]; }
 function spatKeyOf(n){ return (typeof tpSpatKeyOf==='function')?tpSpatKeyOf(n):(n===1?'spat':'spat'+n); }
 function ensureRound(it,n){
@@ -788,7 +788,7 @@ function wire(){
   $('dk2-zoom').addEventListener('click',function(){ st.zoom=!st.zoom; renderTitle(); renderSheet(); });
   var setFs=function(dl){ var r=cur(); if(!r||!r.doc)return; r.doc.fs=Math.max(32,Math.min(104,r.doc.fs+dl)); touch(r); renderTitle(); renderSheet(); };
   $('dk2-fs-down').addEventListener('click',function(){ setFs(-4); }); $('dk2-fs-up').addEventListener('click',function(){ setFs(4); });
-  $('dk2-info').addEventListener('click',openInfo); $('dk2-send').addEventListener('click',openSend); $('dk2-export').addEventListener('click',openExport);
+  $('dk2-info').addEventListener('click',openInfo); $('dk2-export').addEventListener('click',openExport);
   $('dk2-save').addEventListener('click',function(){ var r=cur(); if(!r||r.kind==='old')return; refreshPreview(r).then(function(){ renderList(); toast(cloudOk()?'저장했어요':'이 기기에 저장했어요 — 로그인하면 다른 기기와 맞춰져요'); }); });
   $('dk2-parts').addEventListener('click',function(){
     $('dk2-float').innerHTML='<div class="dk2-floatbox" role="dialog" aria-label="부품 서랍"><div class="dk2-mh"><span>부품 서랍</span><span class="dk2-grow"></span><button type="button" class="dk2-x" id="dk2-float-x" aria-label="닫기">×</button></div><div class="dk2-scroll" style="padding:12px" id="dk2-float-in">'+partsHTML(true)+'</div></div>';
