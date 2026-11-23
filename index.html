@@ -5148,7 +5148,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-23b';
+var APP_BUILD=/*BUILD*/'2026-11-23c';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -37017,14 +37017,17 @@ function updCareLabelDL(el){
    이름이 달라서 매번 둘 다 골라야 했다 → 한 번 고르면 **단가장 항목에 짝을 기억**하고
    다음부터 단가장 라벨만 고르면 브랜드 라벨이 자동으로 붙는다.
    저장 자리: 단가장 항목의 brandLabels = { 브랜드id: [브랜드라벨이름…] } — 브랜드마다 다를 수 있다. */
+/* 11-23c 케어라벨 줄엔 brandId 가 없다 → 아이템 브랜드(f-brand). 예전엔 이 때문에 케어라벨 짝이 한 번도 저장·적용되지 않았다 */
+function _pbLabelBid(t){ var b=String((t&&t.brandId)||''); if(!b&&t&&t.orderType==='careLabel'){ try{ b=_careBrandId(); }catch(e){} } return b; }
 function _pbLabelPairSet(t){
   try{
     var sup=String((t&&t.supplier)||'').trim(); if(!sup)return false;
     if(!(typeof _pbLabelName==='function'?_pbLabelName(t):(t&&t.labelName)))return false;
     var m=(typeof _pbFindTrimMat==='function')?_pbFindTrimMat(sup,t):null; if(!m)return false;
-    var bid=String((t&&t.brandId)||''); if(!bid)return false;
+    var bid=_pbLabelBid(t); if(!bid)return false;
     var names=Array.isArray(t.labelNames)?t.labelNames.filter(Boolean):[];
     if(!m.brandLabels||typeof m.brandLabels!=='object')m.brandLabels={};
+    if(JSON.stringify(m.brandLabels[bid]||[])===JSON.stringify(names))return true;   /* 같으면 저장 안 함 */
     if(names.length)m.brandLabels[bid]=names.slice(); else delete m.brandLabels[bid];
     try{savePB();}catch(e){}
     return true;
@@ -37035,7 +37038,7 @@ function _pbLabelPairGet(t){
     var sup=String((t&&t.supplier)||'').trim(); if(!sup)return null;
     var m=(typeof _pbFindTrimMat==='function')?_pbFindTrimMat(sup,t):null;
     if(!m||!m.brandLabels)return null;
-    var v=m.brandLabels[String((t&&t.brandId)||'')];
+    var v=m.brandLabels[_pbLabelBid(t)];
     return (Array.isArray(v)&&v.length)?v.slice():null;
   }catch(e){ return null; }
 }
@@ -37113,7 +37116,10 @@ function addCareLabelEntry(i,sel){
     }
   }
   formTrims[i].labelNames=arr;
-  formTrims[i].labelName=arr[0]||'';        /* 대표 라벨명 — 메인라벨과 같은 규칙(작지·발주서가 이걸 본다) */
+  /* 11-23c 예전엔 labelName(=하나라벨 부자재 규격 「가로30 무광양면공단」)을 브랜드 라벨명으로 덮었다
+        → 발주서 규격이 「무광양면 가로30」으로 나가고 단가장에서 못 찾았다. 이제 안 덮고, 짝만 기억한다.
+        작지 사진은 tpSelectedLabelImg 가 labelNames 를 먼저 본다. */
+  try{ _pbLabelPairSet(formTrims[i]); }catch(e){}
   if(sel)sel.value='';
   /* ⚠️ 예전엔 renderTrims() 를 불렀는데 **그런 함수가 없다** → 고르는 순간 오류가 나서
         칩이 안 생기고 「선택이 안 된다」로 보였다(신고 2026-08-25). 메인라벨과 같은 함수로 맞춘다. */
@@ -37124,7 +37130,6 @@ function removeCareLabelEntry(i,idx){
   colTR(); if(!formTrims[i])return;
   var arr=Array.isArray(formTrims[i].labelNames)?formTrims[i].labelNames.slice():[];
   arr.splice(idx,1); formTrims[i].labelNames=arr;
-  formTrims[i].labelName=arr[0]||'';
   renderTrimRows();
   persistTrimEdit(i);
 }
@@ -46583,7 +46588,9 @@ function tpSelectedLabelImg(it,kind){
   var ot=kind==='main'?'mainLabel':'careLabel';
   var t=(it.trims||[]).find(function(x){return x.orderType===ot;});
   var nm=t?(kind==='main'?(t.labelName||t.midSize||''):(t.labelName||t.name||'')):'';
-  var img=nm?tpBrandLabelImgByName(it,nm):'';
+  var img='';
+  if(t&&kind==='care'&&Array.isArray(t.labelNames)){ for(var _k=0;_k<t.labelNames.length&&!img;_k++)img=tpBrandLabelImgByName(it,t.labelNames[_k]); }   /* 11-23c */
+  if(!img&&nm)img=tpBrandLabelImgByName(it,nm);
   // 케어라벨은 보통 브랜드당 1개 → 이름이 안 맞아도(또는 케어라벨 부자재가 없어도) 브랜드 케어라벨 사진을 불러옴
   if(!img&&kind==='care'){ var b=tpBrandObj(it); if(b&&Array.isArray(b.careLabels)){ for(var i=0;i<b.careLabels.length;i++){ if(b.careLabels[i]&&b.careLabels[i].img){ img=b.careLabels[i].img; break; } } } }
   return img;
