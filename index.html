@@ -845,6 +845,13 @@ tryInitFirebase();
    버튼은 높이 32px·모서리 4px·테두리 1.5px로 통일, 컬러=내보내기 연파랑·저장 초록·닫기 회색.
    .tp-brk(flex-basis:100%)가 줄바꿈을 만들고, 폰에선 .tp-outs가 order:9로 맨 아래 줄로 내려감.
    아이폰 노치·상태바(safe area)에 가리지 않게 위 여백 확보 — viewport-fit=cover라 필요. 데스크탑은 env()=0이라 변화 없음 (2026-07-15) */
+/* 11-19 폰 화면 밀림 — ⚠️ 화면 틀(html·body 높이·position)은 건드리지 말 것.
+   11-19a(html 100%·body 100dvh)·11-19b(body position:fixed 위아래 0)는 아이폰 홈화면 앱에서 맨 위는 고쳤지만
+   하단 탭바가 상태바 높이만큼(약 60pt) 떠오르고 그 밑이 빈 칸이 됨(사용자 12:18 사진 「하단이 이상하게 넓어졌어」).
+   → 11-19d 틀은 예전(main.css body 100vh) 그대로 되돌리고, 밀림은 _fpfNoDocScroll(JS)이 입력 중 아닐 때 제자리로만. */
+@media screen and (max-width:760px){
+  .panel{overscroll-behavior-y:contain}
+}
 /* 10-13e 버튼 정리 — 한 모양(흰 바탕·검정 테두리 2px·검정 글씨·각짐) · 고른 것만 검정 · 저장만 민트 · 파랑 없음.
    ⚠️ 버튼 글씨색을 꼭 정한다 — 안 정하면 아이폰 사파리가 버튼 글씨를 파랗게 칠한다(예전 폰 파란 글씨 원인).
    줄(.tp-row)은 종이(.tp-doc) 폭에 맞춰 가운데 — 넓은 모니터에서도 저장이 종이 오른쪽 위에 온다. */
@@ -5138,7 +5145,7 @@ window._abkCache=window._abkCache||[]; window._hbkCache=window._hbkCache||[]; wi
    ⚠️ 배포할 때마다 APP_BUILD를 올릴 것. 안 올리면 '최신 아님' 알림이 안 뜬다.
    ⚠️ 서버 버전은 APP_BUILD 앞의 BUILD 주석표시로 찾는다 — 그 표시를 지우지 말 것.
       (주석 안에 그 표시를 그대로 쓰면 주석이 거기서 닫혀 문법이 깨진다 — 실제로 한 번 겪음) */
-var APP_BUILD=/*BUILD*/'2026-11-19e';
+var APP_BUILD=/*BUILD*/'2026-11-23a';
 function _verFmt(ts){
   if(!ts)return '기록 없음';
   var d=new Date(ts); if(isNaN(d))return String(ts);
@@ -5413,6 +5420,22 @@ function _fpfToBlob(d,mime){
   return new Blob([s],{type:mime||'text/plain'});
 }
 function _fpfIsIOS(){ try{ var ua=navigator.userAgent||''; return /iPhone|iPad|iPod/.test(ua)||(navigator.platform==='MacIntel'&&(navigator.maxTouchPoints||0)>1); }catch(e){ return false; } }
+/* 11-19a 폰·아이패드: 앱 화면은 창이 굴러가면 안 된다(.panel 만 굴러감). 아이폰은 키보드 닫힌 뒤 창을 밀린 채로 둬서
+   위 머리·아이템 「저장」 줄이 상태바 밑으로 가고 아래 탭바 위에 빈 칸이 생겼다 → 입력 중이 아닐 때 창이 밀려 있으면 0 으로 되돌린다.
+   ⚠️ 칸에 글 쓰는 중(키보드 열림)엔 안 건드림 — 아이폰이 칸을 보여 주려고 미는 건 필요하다. */
+(function _fpfNoDocScroll(){
+  try{ if(!(_fpfIsIOS()||(window.matchMedia&&window.matchMedia('(max-width:760px)').matches)))return; }catch(e){ return; }
+  var t=null;
+  function typing(){ var a=document.activeElement; if(!a)return false; var tg=a.tagName; return tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT'||!!a.isContentEditable; }
+  function fix(){ clearTimeout(t); t=setTimeout(function(){ try{ if(typing())return; var y=window.scrollY||window.pageYOffset||0, x=window.scrollX||window.pageXOffset||0; if(y||x)window.scrollTo(0,0);
+    /* 11-19b 창 말고 몸통·틀이 밀린 경우도 (overflow hidden 이어도 scrollIntoView 는 민다) */
+    [document.documentElement,document.body,document.querySelector('.shell')].forEach(function(el){ if(el&&(el.scrollTop||el.scrollLeft)){ el.scrollTop=0; el.scrollLeft=0; } }); }catch(e){} },150); }
+  window.addEventListener('scroll',fix,{passive:true});
+  /* 11-19c 몸통·틀이 밀릴 땐 창 scroll 이 안 뜸(요소 scroll 은 창까지 안 올라감) → 잡아서 그 셋만 */
+  document.addEventListener('scroll',function(e){ var g=e.target; if(g===document||g===document.documentElement||g===document.body||(g&&g.classList&&g.classList.contains('shell')))fix(); },{capture:true,passive:true});
+  document.addEventListener('focusout',function(){ setTimeout(fix,250); },true);
+  try{ if(window.visualViewport)window.visualViewport.addEventListener('resize',fix); }catch(e){}
+})();
 /* ===== 아이폰·아이패드: 기본 추천 목록(datalist) 대신 앱이 그린 목록 (2026-11-06) =====
    신고: 아이패드에서 원단처 등에 「ㅂ」 한 글자 치면 오류 안내가 뜨고 입력이 안 됨.
    아이패드 사파리는 datalist 목록을 띄우면서 한글 조합 중인 글자를 끊고 change 를 보내
